@@ -733,6 +733,19 @@ Wallet is not shown in the MVP main menu.
 
 Paid flows appear contextually when the user attempts a paid action.
 
+### Paid action funding
+
+Paid actions can be funded in either of these ways:
+
+* Spending existing internal credits
+* Direct Telegram Stars payment
+
+Both funding paths must result in the same final domain action.
+
+Direct Telegram Stars payment must not create different product behavior from credit-based payment.
+
+Payment callbacks must be idempotent and must not double-process credits, unlocks, Nakh delivery, or notifications.
+
 ### Pending payment
 
 A PendingPayment is created when a paid action cannot be completed immediately.
