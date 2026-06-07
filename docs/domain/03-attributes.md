@@ -985,6 +985,9 @@ Rules:
 
 * `provider_payment_id` must be unique when present.
 * Duplicate provider callbacks must not double-process a payment.
+* Paid actions can be funded by existing internal credits or by direct Telegram Stars payment.
+* Both funding paths must result in the same final domain action.
+* Direct Telegram Stars payment must not create different product behavior from credit-based payment.
 
 ### TelegramStarsPayment
 
