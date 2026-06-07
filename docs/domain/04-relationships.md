@@ -121,16 +121,17 @@ Important distinction:
 
 Optional details can be empty.
 
-### User/Profile and Interest
+### Profile and Interest
 
-* User/Profile has many Interests through UserInterest.
-* Interest belongs to many users/profiles through UserInterest.
-* UserInterest connects user_id and interest_id.
+* Profile has many Interests through ProfileInterest.
+* Interest belongs to many Profiles through ProfileInterest.
+* ProfileInterest connects profile_id and interest_id.
 
 Rules:
 
-* Minimum selected interests during signup: 5
-* Maximum selected interests: 20
+* A complete profile must have at least 5 interests.
+* A profile can have at most 20 interests.
+* Interests belong to the dating profile, not directly to the user.
 
 ### Profile and ProfileChangeRequest
 
