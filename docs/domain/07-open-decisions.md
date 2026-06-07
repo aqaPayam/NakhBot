@@ -180,7 +180,7 @@ Current direction:
 
 ### Gender compatibility logic
 
-Status: Open
+Status: Closed
 
 Question:
 
@@ -193,6 +193,13 @@ Current direction:
 * `everyone` can show all active visible genders.
 
 Needs final confirmation before implementation.
+
+Decision:
+
+* `men` shows profiles with gender `man`.
+* `women` shows profiles with gender `woman`.
+* `everyone` can show all active visible genders, including `other` and `prefer_not_to_say`.
+* Gender handling must remain extensible because additional gender options may be added later.
 
 ### Explore randomization strategy
 
