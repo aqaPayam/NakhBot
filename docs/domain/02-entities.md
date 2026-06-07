@@ -96,9 +96,11 @@ Includes optional data such as height, job title, education, smoking preference,
 
 Selectable interest item.
 
-#### UserInterest
+#### ProfileInterest
 
-Connection between a user and selected interests.
+Connection between a profile and selected interests.
+
+Interests belong to the dating profile, not directly to the user.
 
 #### ProfileChangeRequest
 
