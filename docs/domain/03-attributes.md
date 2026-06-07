@@ -546,6 +546,13 @@ Allowed statuses:
 * expired
 * revoked
 
+Rules:
+
+* `liked_by_profile_unlock` expires according to configured unlock duration.
+* `chat_unlock` is scoped to one Match and remains active until the Match closes, the unlock is revoked, or a configured expiry is reached.
+* Feature unlock expiry behavior must be driven by config, not hardcoded in handlers.
+* FeatureUnlock is not used for sent Nakh. Nakh is a paid action, not persistent feature access.
+
 ## 6. Nakh Attributes
 
 ### PendingNakh
