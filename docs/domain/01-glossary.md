@@ -133,11 +133,13 @@ A profile can become `invalid` after it was previously complete, for example if 
 
 ### Birth Year
 
-The year entered by the user during signup.
+The Gregorian year entered by the user during signup.
 
 Exact birth date is not collected.
 
-Age is derived from birth year.
+Age is derived from Gregorian birth year.
+
+Displayed age is approximate because exact birth date is not collected.
 
 ### Gender
 
