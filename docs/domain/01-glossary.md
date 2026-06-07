@@ -1,14 +1,16 @@
-# Glossary
+# Domain Glossary
 
 This file defines the core product terms used in the Telegram Dating Bot MVP.
 
-## Identity and Account
+The goal is to keep product language consistent before database design and coding.
+
+## 1. Identity and Account Terms
 
 ### User
 
 A person known to the system through Telegram.
 
-The system uses an internal user ID as the primary identifier.
+The system uses an internal user ID as the main identifier.
 
 ### Telegram Identity
 
@@ -19,42 +21,42 @@ Includes:
 * Telegram user ID
 * Telegram username
 
-Telegram username is optional and can change.
+Telegram user ID is stable. Telegram username is optional and mutable.
 
 ### Account
 
 The access and lifecycle layer of a user.
 
-Controls whether the user can use the app normally, partially, or not at all.
+Controls whether the user can use the product normally, partially, or not at all.
 
 ### Guest
 
 A Telegram user who has not completed signup.
 
-A guest can only preview limited profiles.
+Guest users can only preview limited profiles.
 
 ### Incomplete User
 
 A user who started signup but has not completed all required profile fields.
 
-Incomplete users follow guest browsing limits.
+Incomplete users follow the same preview limit as guests.
 
 ### Active User
 
-A fully signed-up user who can use normal product features.
+A user with a completed profile and normal product access.
 
 ### Restricted User
 
 A user limited by moderation.
 
-Can:
+Restricted users can:
 
-* Open app
+* Open the app
 * Edit profile
 * Read existing chats
 * Contact support
 
-Cannot:
+Restricted users cannot:
 
 * Explore
 * Like
@@ -65,15 +67,23 @@ Cannot:
 
 A user blocked from using the app.
 
-Can only send one limited appeal/support message.
+A banned user can only send one limited appeal/support message.
 
 ### Deleted User
 
-A user who deleted their account.
+A user who deleted the account.
 
-The profile is hidden and chats are closed, but minimal audit, report, payment, and safety records remain.
+The profile becomes hidden, chats close, and minimal audit, payment, report, and safety records remain.
 
-## Profile
+### Visibility
+
+A user-controlled setting.
+
+If visibility is off, the user cannot appear in Explore and cannot Explore, Like, or send Nakh.
+
+Existing matches, chats, and pending Nakh payments continue.
+
+## 2. Profile Terms
 
 ### Profile
 
@@ -87,22 +97,23 @@ Includes:
 * Interested gender
 * Interests
 * Location
+* Relationship goal
 * Photos
 * Highlight
 * Bio
-* Optional fields
+* Optional details
 
 ### Profile Completion
 
-Whether all required profile fields are valid.
+Whether the user has completed all required profile fields.
 
-Required profile fields include:
+Required profile data includes:
 
 * Name
 * Birth year
 * Gender
 * Interested gender
-* Interests
+* At least 5 interests
 * Country
 * Province
 * City
@@ -111,33 +122,501 @@ Required profile fields include:
 * One primary photo
 * Highlight
 
-### Visibility
+### Birth Year
 
-A user-controlled setting.
+The year entered by the user during signup.
 
-If visibility is off:
+Exact birth date is not collected.
 
-* User does not appear in Explore
-* User cannot Explore
-* User cannot Like
-* User cannot send Nakh
-* Existing matches and chats continue
+Age is derived from birth year.
 
-Visibility off is not the same as restriction.
+### Gender
 
-### Signup Progress
+The user’s own gender.
 
-The current step of a user during registration.
+MVP options:
 
-This is workflow state, not final profile data.
+* Man
+* Woman
+* Other
+* Prefer not to say
 
-## Media and Location
+### Interested Gender
+
+The gender preference used for matching and Explore.
+
+MVP options:
+
+* Men
+* Women
+* Everyone
+
+This is one profile-level field. Changing it from Explore filters or Edit Profile updates the same value.
+
+### Interest
+
+A selectable profile tag chosen by the user.
+
+Users must select at least 5 interests during signup and can have up to 20 total interests.
+
+### Relationship Goal
+
+The user’s dating goal.
+
+MVP options:
+
+* Serious relationship
+* Casual dating
+* Friendship
+* Marriage
+* Not sure yet
+
+### Highlight
+
+Required short profile text.
+
+Maximum length: 80 characters.
+
+### Bio
+
+Optional longer profile text.
+
+Maximum length: 500 characters.
+
+### Optional Profile Details
+
+Extra profile data that can be skipped.
+
+Includes:
+
+* Height
+* Job title
+* Education
+* Smoking preference
+* Pets
+* Languages
+* Exercise/gym
+* Religion importance
+* Children preference
+* Personality tags
+
+### Locked Profile Fields
+
+Profile fields that cannot be changed directly after signup.
+
+Locked fields:
+
+* Birth year
+* Gender
+
+Users can submit an admin-reviewed change request for these fields.
+
+## 3. Location Terms
+
+### Location
+
+Structured user location.
+
+The hierarchy is:
+
+* Country
+* Province
+* City
+
+### Country
+
+Top-level location.
+
+MVP supports Iran only.
+
+### Province
+
+Fixed selectable subdivision under country.
+
+### City
+
+Fixed selectable city under province.
+
+There is no free-text city and no “Other” city option in MVP.
+
+## 4. Discovery and Interaction Terms
+
+### Explore
+
+The discovery flow where a user sees one eligible profile at a time.
+
+### Explore Filter
+
+User-selected criteria for Explore.
+
+Includes:
+
+* Age range
+* Country
+* Province
+* City
+* Relationship goal
+
+Interested gender is stored on the profile, not as a separate temporary filter.
+
+### Eligible Profile
+
+A profile that can appear in Explore.
+
+A profile is eligible only if it is:
+
+* Complete
+* Visible
+* Active
+* Non-restricted
+* Non-banned
+* Compatible with filters
+* Not previously consumed by the viewer
+
+### Profile Preview
+
+The short profile card shown in Guest mode or Explore.
+
+Includes:
+
+* Primary photo
+* Name
+* Age
+* City
+* Highlight
+
+### Full Profile
+
+The expanded profile view shown after “Show More” or after paid/unlocked access.
+
+### Profile Consumption
+
+A permanent record that a viewer has seen or acted on a target profile.
+
+Consumed profiles are not shown again.
+
+Consumption can happen through:
+
+* Preview
+* Like
+* Not Interested
+* Pending Nakh
+* Sent Nakh
+* Match
+
+### Like
+
+A free weak signal from one user to another.
+
+A normal Like appears in the receiver’s Liked By section.
+
+### Liked By
+
+The section showing users who sent normal Likes to the current user.
+
+Nakh senders do not appear in Liked By.
+
+### Liked By Unlock
+
+A paid unlock that lets the receiver view one specific liked-by profile fully.
+
+Unlocking one liked-by profile does not unlock other liked-by profiles.
+
+### Not Interested
+
+A permanent negative action from one user toward another.
+
+The target should not appear again.
+
+## 5. Nakh, Match, and Chat Terms
+
+### Nakh
+
+A paid stronger signal sent from Explore with an opening text.
+
+A sent Nakh appears in the receiver’s Nakhes section, not in Liked By.
+
+### Pending Nakh
+
+An unpaid Nakh attempt.
+
+Pending Nakh is visible only to the sender.
+
+Pending Nakh does not:
+
+* Notify the receiver
+* Create a normal Like
+* Appear in Liked By
+* Create a Match
+
+If cancelled before payment, the sender must choose whether to convert it to a normal Like or mark the target as Not Interested.
+
+### Sent Nakh
+
+A Nakh that has been paid for and delivered to the receiver.
+
+The receiver sees it in Nakhes.
+
+### Nakhes
+
+The section where users see Nakh-related records.
+
+Includes:
+
+* Sent Nakhes
+* Received Nakhes
+* Pending payment Nakhes
+* Expired Nakhes
+* Closed Nakhes
+
+### Nakh Receiver Action
+
+The action taken by the receiver of a sent Nakh.
+
+Possible actions:
+
+* View profile
+* Accept / Like Back
+* Reject
+* Report
+
+### Match
+
+A relationship state between two users.
+
+A Match can be created by:
+
+* Mutual normal Like
+* Accepted Nakh
+* Like Back on a Nakh
+
+### Unmatch
+
+An action that closes the match and chat.
+
+After unmatch:
+
+* The chat closes visually
+* The users should not match again
+* Either user can report the other for 24 hours
+
+### Chat
+
+Internal bot relay chat created after a Match.
+
+It is not native Telegram direct messaging.
+
+### Predefined Chat
+
+The free chat mode.
+
+Users can only choose predefined questions and predefined answers.
+
+### Chat Unlock
+
+A paid per-match unlock.
+
+If one side unlocks chat, both sides can send free text in that match.
+
+Only text messages are allowed.
+
+### Chat Safety Warning
+
+A one-time warning shown when chat unlocks.
+
+After unlock, users may share phone numbers, Telegram IDs, or other contact information.
+
+## 6. Payment Terms
+
+### Credit
+
+Internal unit used to pay for paid features.
+
+Paid features include:
+
+* Send Nakh
+* Unlock one match chat
+* Unlock one liked-by profile
+
+### Telegram Stars
+
+The payment provider used in MVP.
+
+### Credit Balance
+
+The user’s current available credits.
+
+### Credit Transaction
+
+A record of every credit change.
+
+Examples:
+
+* Purchase
+* Spend on Nakh
+* Spend on chat unlock
+* Spend on liked-by unlock
+* Refund
+* Admin adjustment
+
+### Credit Package
+
+A purchasable bundle of credits.
+
+Exact package sizes and discount rules are not finalized yet.
+
+### Pending Payment
+
+An unpaid payment required to complete an action.
+
+Examples:
+
+* Pending Nakh payment
+* Pending chat unlock
+* Pending liked-by unlock
+* Credit package purchase
+
+### Feature Unlock
+
+A paid access record for one scoped feature.
+
+Examples:
+
+* One liked-by profile unlock
+* One match chat unlock
+
+### Payment Record
+
+Internal record of a payment attempt and result.
+
+### Payment Provider Event
+
+Raw Telegram Stars payment callback/event.
+
+Used for audit and idempotency.
+
+### Idempotency
+
+The rule that the same payment callback must not be processed twice.
+
+Duplicate payment callbacks must not create duplicate credits, duplicate unlocks, or duplicate notifications.
+
+## 7. Moderation, Admin, and Support Terms
+
+### Report
+
+A complaint submitted by a user.
+
+A report may target:
+
+* Profile
+* Photo
+* Chat/message context
+* Recently unmatched user
+
+### Report Reason
+
+The selected reason for a report.
+
+Default reasons:
+
+* Fake profile
+* Harassment
+* Inappropriate photo
+* Spam or scam
+* Under 18
+* Offensive behavior
+* Other
+
+### Report Evidence
+
+Context attached to a report.
+
+Examples:
+
+* Profile
+* Photo
+* Chat
+* Message
+* Unmatched user
+
+### Report Snapshot
+
+Frozen copy of reported context at report time.
+
+Used so evidence is not lost after edits or chat cleanup.
+
+### Moderation Review
+
+Admin review process for reports or safety cases.
+
+### Moderation Action
+
+Action taken by admin or moderation logic.
+
+Examples:
+
+* Restrict user
+* Unrestrict user
+* Ban user
+* Unban user
+* Hide photo
+* Restore photo
+* Dismiss report
+
+### Admin User
+
+A Telegram user allowed to use admin commands.
+
+### Admin Role
+
+A role assigned to an admin user.
+
+Examples:
+
+* Super admin
+* Moderator
+* Support
+
+### Admin Permission
+
+A specific permission granted through an admin role.
+
+Examples:
+
+* View reports
+* Restrict user
+* Ban user
+* Hide photo
+* Review support
+
+### Admin Action Log
+
+Trace of admin actions.
+
+Every admin action must be logged.
+
+### Support Thread
+
+A support conversation between a user and support/admin.
+
+### Support Message
+
+An individual message inside a support thread.
+
+Support messages must be rate-limited.
+
+### Appeal
+
+A limited message/action available to banned users.
+
+## 8. Media, Localization, Jobs, and Audit Terms
 
 ### Media Asset
 
-Stored metadata for an uploaded file.
+Stored uploaded file metadata.
 
-Usually a user photo.
+Usually represents a user photo stored in object storage.
 
 ### Profile Photo
 
@@ -164,384 +643,29 @@ Examples:
 
 ### Blurred Preview
 
-A blurred photo used in locked Liked By cards.
+Blurred image shown in locked Liked By cards.
 
 ### Object Storage
 
 External storage for uploaded photos.
 
-The app server must not be the permanent image store.
+The app server should not be the permanent image store.
 
 ### CDN URL
 
-Public delivery URL used to show photos efficiently.
+Public delivery URL used to serve media efficiently.
 
-### Location
+### Hidden Photo
 
-Structured profile location.
+A photo hidden by moderation/admin.
 
-Includes:
-
-* Country
-* Province
-* City
-
-### Country
-
-Top-level location.
-
-MVP supports Iran only.
-
-### Province
-
-Fixed selectable subdivision under country.
-
-### City
-
-Fixed selectable city under province.
-
-There is no free-text “Other” city in MVP.
-
-## Explore and Interactions
-
-### Explore
-
-The discovery flow where an active visible user sees one eligible profile at a time.
-
-### Explore Filter
-
-Criteria used to limit Explore results.
-
-Includes:
-
-* Age range
-* Country
-* Province
-* City
-* Relationship goal
-
-Interested gender is stored on the profile, not only inside Explore filters.
-
-### Eligible Profile
-
-A profile that can appear in Explore.
-
-Must be:
-
-* Complete
-* Visible
-* Active
-* Non-restricted
-* Non-banned
-* Compatible with filters
-* Not previously consumed by the viewer
-
-### Profile Preview
-
-The short profile card shown in Guest mode or Explore.
-
-Includes:
-
-* Primary photo
-* Name
-* Age
-* City
-* Highlight
-
-### Full Profile
-
-The expanded profile view shown after Show More or paid/unlocked access.
-
-### Profile Consumption
-
-A permanent record that a viewer has already seen or acted on a target profile.
-
-Consumed profiles are not shown again.
-
-### Like
-
-A free weak signal from one user to another.
-
-The receiver sees the sender in Liked By.
-
-### Liked By
-
-The section showing users who sent normal Likes to the current user.
-
-Liked By does not include Nakh senders.
-
-### Liked By Unlock
-
-A paid unlock that lets the receiver view one specific liked-by profile fully.
-
-### Not Interested
-
-A permanent negative action from one user toward another.
-
-The target should not appear again.
-
-## Nakh
-
-### Nakh
-
-A paid stronger signal sent from Explore with an opening text.
-
-Nakh appears in the receiver’s Nakhes, not in Liked By.
-
-### Pending Nakh
-
-An unpaid Nakh attempt.
-
-Pending Nakh is visible only to the sender.
-
-It does not:
-
-* Notify the receiver
-* Create a Like
-* Appear in Liked By
-* Create a Match
-
-### Sent Nakh
-
-A paid Nakh delivered to the receiver.
-
-### Nakhes
-
-The section where users see Nakh-related items.
-
-Includes:
-
-* Sent Nakhes
-* Received Nakhes
-* Pending payment Nakhes
-* Expired Nakhes
-* Closed Nakhes
-
-### Nakh Receiver Action
-
-The receiver’s action on a received Nakh.
-
-Possible actions:
-
-* View profile
-* Accept / Like back
-* Reject
-* Report
-
-## Match and Chat
-
-### Match
-
-A relationship state between two users.
-
-Created by:
-
-* Mutual Like
-* Accepted Nakh
-* Nakh Like Back
-
-### Unmatch
-
-A user action that closes the match and chat.
-
-Unmatch prevents future matching between the same pair.
-
-### Chat
-
-Internal bot relay chat created after a match.
-
-It is not Telegram direct messaging.
-
-### Predefined Chat
-
-Free chat mode where users can only select predefined questions and answers.
-
-### Chat Unlock
-
-Paid per-match unlock.
-
-If one side unlocks chat, both sides can send text messages in that match.
-
-### Chat Safety Warning
-
-A one-time warning shown when chat is unlocked.
-
-After chat unlock, users may share contact information at their own risk.
-
-## Payments and Credits
-
-### Credit
-
-Internal unit used to pay for paid actions.
-
-Paid actions:
-
-* Send Nakh
-* Unlock one match chat
-* Unlock one liked-by profile
-
-### Telegram Stars
-
-Telegram’s payment provider used for MVP payments.
-
-### Credit Balance
-
-The user’s current available credits.
-
-### Credit Transaction
-
-A record of every credit change.
-
-Examples:
-
-* Purchase
-* Spend
-* Refund
-* Admin adjustment
-
-### Credit Package
-
-A purchasable bundle of credits.
-
-Exact package sizes are not finalized yet.
-
-### Pending Payment
-
-A payment required to complete an unpaid action.
-
-### Feature Unlock
-
-A paid access record for one scoped feature.
-
-Examples:
-
-* One liked-by profile unlock
-* One match chat unlock
-
-### Payment Record
-
-Internal record of a payment attempt and result.
-
-### Payment Provider Event
-
-Raw payment callback/event received from Telegram Stars.
-
-Used for audit and idempotency.
-
-### Idempotency
-
-Rule that the same payment callback must not be processed twice.
-
-## Notifications
-
-### Notification
-
-A stored message/event shown in notification history.
-
-### Notification Delivery
-
-The act of sending an important notification through Telegram.
-
-### Read/Unread State
-
-Whether the user has opened or acknowledged a notification.
-
-### Mute Setting
-
-User preference to mute normal notifications.
-
-Cannot mute:
-
-* Safety notices
-* Payment notices
-* Admin notices
-* Ban notices
-* Restriction notices
-
-## Reporting and Moderation
-
-### Report
-
-A user-submitted complaint against another user, profile, photo, chat, message, or recently unmatched user.
-
-### Report Reason
-
-The selected reason for a report.
-
-Examples:
-
-* Fake profile
-* Harassment
-* Inappropriate photo
-* Spam or scam
-* Under 18
-* Offensive behavior
-* Other
-
-### Report Evidence
-
-Attached context for a report.
-
-Examples:
-
-* Profile
-* Photo
-* Chat
-* Message
-* Unmatched user
-
-### Report Snapshot
-
-Frozen copy of relevant data at report time.
-
-Used to preserve evidence even if live data changes later.
-
-### Moderation Review
-
-Admin review process for reports or safety issues.
-
-### Moderation Action
-
-Admin/safety action.
-
-Examples:
-
-* Restrict user
-* Ban user
-* Unban user
-* Hide photo
-* Restore photo
-* Dismiss report
-
-### Restricted Pending Review
-
-Temporary restricted state caused by report threshold before final admin decision.
-
-### Admin User
-
-Telegram user allowed to use admin commands.
-
-### Admin Action Log
-
-Record of admin actions for traceability.
-
-### Support Message
-
-Message sent by a user to admin/support.
-
-### Appeal
-
-Limited support message available to banned users.
-
-## Localization, Jobs, and Audit
+Hidden photos should not appear to users.
 
 ### Localization
 
 System for configurable UI text.
 
-MVP uses English.
-
-Persian and other languages may be added later.
+MVP uses English, but future Persian and other languages should be supported.
 
 ### UI Text Key
 
@@ -564,20 +688,14 @@ Examples:
 * Expire Nakh
 * Expire pending payment
 * Send pending payment reminder
-* Clean old chat messages
+* Cleanup chat messages
 * Retry notification delivery
 
 ### Audit Log
 
-Permanent trace of important system actions.
+Permanent trace of important actions.
 
-Used for:
-
-* Account changes
-* Payment events
-* Moderation actions
-* Safety events
-* Admin actions
+Used for account, profile, payment, moderation, safety, and admin events.
 
 ### Data Retention Record
 
