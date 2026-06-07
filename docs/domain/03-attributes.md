@@ -216,17 +216,18 @@ Notes:
 * created_at
 * updated_at
 
-### UserInterest
+### ProfileInterest
 
 * id
-* user_id
+* profile_id
 * interest_id
 * created_at
 
 Rules:
 
-* Minimum selected interests during signup: 5
-* Maximum selected interests: 20
+* Interests belong to the dating profile, not directly to the user.
+* A complete profile must have at least 5 interests.
+* A profile can have at most 20 interests.
 
 ### ProfileChangeRequest
 
