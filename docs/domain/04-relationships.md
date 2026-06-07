@@ -736,10 +736,13 @@ Rule:
 
 * FeatureUnlock can unlock one Match chat.
 * ChatUnlock belongs to one FeatureUnlock.
+* ChatUnlock belongs to one Match.
 
-Rule:
+Rules:
 
+* Chat unlock is scoped to one Match.
 * If one user unlocks chat, both users can send text in that Match.
+* Chat unlock remains active until the Match closes, the unlock is revoked, or a configured expiry is reached.
 
 ### FeatureUnlock and Nakh
 
