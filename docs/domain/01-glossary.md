@@ -166,9 +166,13 @@ This is one profile-level field. Changing it from Explore filters or Edit Profil
 
 ### Interest
 
-A selectable profile tag chosen by the user.
+A selectable dating profile tag.
 
-Users must select at least 5 interests during signup and can have up to 20 total interests.
+Interests belong to the dating profile, not directly to the user.
+
+A complete profile must have at least 5 interests.
+
+A profile can have at most 20 interests.
 
 ### Relationship Goal
 
