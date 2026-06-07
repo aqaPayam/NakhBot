@@ -34,10 +34,18 @@ These values should not be random strings scattered across the codebase.
 
 ### Gender
 
+MVP values:
+
 * man
 * woman
 * other
 * prefer_not_to_say
+
+Notes:
+
+* These are the MVP-supported gender values.
+* Gender handling must remain extensible because additional gender options may be added later.
+* Implementation should not assume that gender will always be limited to only these four values.
 
 ### InterestedGender
 
