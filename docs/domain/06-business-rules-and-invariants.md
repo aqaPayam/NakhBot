@@ -111,7 +111,7 @@ A deleted user may later start a reactivation/signup flow using the same Telegra
 
 Minimum allowed age is 18.
 
-Users enter birth year only.
+Users enter Gregorian birth year only.
 
 Exact birth date is not collected.
 
@@ -119,7 +119,9 @@ Age verification is not included in MVP.
 
 ### Age calculation
 
-Age is derived from birth year.
+Age is derived from Gregorian birth year.
+
+Displayed age is approximate because exact birth date is not collected.
 
 Age should not be stored as a separate source-of-truth field.
 
