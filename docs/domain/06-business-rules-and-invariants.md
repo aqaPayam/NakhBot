@@ -148,16 +148,17 @@ Signup follows this order:
 A profile cannot become complete unless it has:
 
 * Name
-* Birth year
+* Gregorian birth year
 * Gender
 * Interested gender
-* At least 5 interests
+* At least 5 profile interests
 * Country
 * Province
 * City
 * Relationship goal
-* 2–6 photos
-* One primary photo
+* At least 2 visible photos
+* At most 6 uploaded profile photos
+* One visible primary photo
 * Highlight
 
 ### Interest rules
