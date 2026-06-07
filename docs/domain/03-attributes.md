@@ -589,9 +589,12 @@ Rules:
 * Pending Nakh does not notify the receiver.
 * Pending Nakh does not create a normal Like.
 * Pending Nakh does not appear in Liked By.
+* Pending Nakh does not appear in the receiver’s Nakhes.
 * Pending Nakh does not create a Match.
 * Pending Nakh consumes the target profile.
 * Pending Nakh text can be edited before payment.
+* Pending Nakh expires if it is not paid within the configured expiry duration.
+* Exact Pending Nakh expiry duration is configurable and must not be hardcoded in handlers.
 * If cancelled before payment, the sender must choose whether to convert it to a normal Like or mark the target as Not Interested.
 
 ### Nakh
