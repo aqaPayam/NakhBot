@@ -387,6 +387,14 @@ After unlock, the user can:
 * Like Back
 * Mark Not Interested
 
+### Liked By unlock expiry
+
+Liked By profile unlock expires according to configured unlock duration.
+
+The expiry duration must be configurable and must not be hardcoded in handlers.
+
+After expiry, the user should no longer have full unlocked access to that liked-by profile unless a valid active unlock still exists.
+
 ### Like Back from Liked By
 
 If user Likes Back from Liked By, a Match is created.
