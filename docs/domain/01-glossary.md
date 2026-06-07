@@ -278,15 +278,14 @@ Interested gender is stored on the profile, not as a separate temporary filter.
 
 A profile that can appear in Explore.
 
-A profile is eligible only if it is:
+A profile is eligible only if:
 
-* Complete
-* Visible
-* Active
-* Non-restricted
-* Non-banned
-* Compatible with filters
-* Not previously consumed by the viewer
+* Profile completion status is `complete`
+* User visibility is enabled
+* Account state is `active`
+* User is not restricted, banned, or deleted
+* Profile is compatible with the viewer’s filters
+* Target has not previously been consumed by the viewer
 
 ### Profile Preview
 
