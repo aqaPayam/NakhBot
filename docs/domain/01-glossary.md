@@ -336,6 +336,8 @@ A paid unlock that lets the receiver view one specific liked-by profile fully.
 
 Unlocking one liked-by profile does not unlock other liked-by profiles.
 
+Liked By unlock expires according to configured unlock duration.
+
 ### Not Interested
 
 A permanent negative action from one user toward another.
