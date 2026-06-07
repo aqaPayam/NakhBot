@@ -50,9 +50,9 @@ Incomplete users share the same permanent preview counter as guests.
 
 Active users can use normal product features if:
 
-* Profile is complete
-* Account is active
-* Visibility is enabled where required
+* Account state is `active`
+* Profile completion status is `complete`
+* User visibility is enabled where required
 
 ### Visibility off
 
