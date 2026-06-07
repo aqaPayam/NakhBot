@@ -90,6 +90,10 @@ Age is derived from Gregorian birth year and is not stored as a separate source-
 
 Profile completion status can be incomplete, complete, or invalid.
 
+Gender values are controlled for MVP but must remain extensible because additional gender options may be added later.
+
+Gender should not be treated as a permanently fixed database enum during implementation.
+
 #### ProfileOptionalDetails
 
 Optional profile information.
