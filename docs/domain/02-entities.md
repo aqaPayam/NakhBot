@@ -84,7 +84,11 @@ Stores temporary signup answers before final profile completion.
 
 Dating-visible user information.
 
-Owns profile data such as name, birth year, gender, interested gender, relationship goal, location, highlight, bio, and completion state.
+Owns profile data such as name, Gregorian birth year, gender, interested gender, relationship goal, location, highlight, bio, and completion status.
+
+Age is derived from Gregorian birth year and is not stored as a separate source-of-truth field.
+
+Profile completion status can be incomplete, complete, or invalid.
 
 #### ProfileOptionalDetails
 
