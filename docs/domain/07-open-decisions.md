@@ -4,6 +4,18 @@ This file tracks product and technical decisions that are not finalized yet.
 
 It also records important decisions that have already been locked during domain modeling.
 
+## 0. Source of Truth Decisions
+
+### MVP PDF vs Git domain docs
+
+Status: Closed
+
+Decision:
+
+* The original MVP PDF is treated as historical product input.
+* The Git domain documentation is the source of truth for database design and implementation.
+* If the MVP PDF conflicts with the Git domain docs, follow the Git domain docs.
+
 ## 1. Product Flow Decisions
 
 ### Deleted account reactivation flow
@@ -40,6 +52,28 @@ Decision:
 * Paid flows appear contextually when the user attempts a paid action.
 
 ## 2. Signup and Profile Decisions
+
+### Birth year calendar and age calculation
+
+Status: Closed
+
+Decision:
+
+* Users enter Gregorian birth year only.
+* Exact birth date is not collected.
+* Displayed age is approximate.
+* Age is derived from Gregorian birth year and must not be stored as a separate source-of-truth field.
+
+### Interest ownership
+
+Status: Closed
+
+Decision:
+
+* Interests belong to the dating profile, not directly to the user.
+* Profile interests are modeled through `ProfileInterest`.
+* A complete profile must have at least 5 interests.
+* A profile can have at most 20 interests.
 
 ### Name max length
 
@@ -176,6 +210,18 @@ Current direction:
 * Auto-select another visible photo if available.
 * If fewer than 2 visible photos remain, mark profile invalid/incomplete or hidden until fixed.
 
+### Visible photo count for profile completion
+
+Status: Closed
+
+Decision:
+
+* A user can upload at most 6 profile photos.
+* Extra uploaded photos are rejected.
+* Only visible photos count toward profile completion.
+* Hidden or deleted photos do not count toward profile completion.
+* A complete profile must have at least 2 visible photos.
+
 ## 4. Explore and Matching Decisions
 
 ### Gender compatibility logic
@@ -289,6 +335,17 @@ Decision:
 * Sent Nakh appears in Nakhes.
 * Sent Nakh does not appear in Liked By.
 
+### Nakh after normal Like
+
+Status: Closed
+
+Decision:
+
+* Sending Nakh to a profile that was already normally liked is not supported in MVP.
+* Normal Like consumes the target profile.
+* Nakh is sent from Explore before the target is consumed by another final discovery action.
+* The old MVP PDF rule that allowed sending Nakh to someone already liked is removed.
+
 ### Nakh after Match
 
 Status: Closed
@@ -361,6 +418,29 @@ Decision:
 * Send Nakh: 2 credits
 * Unlock one match chat: 4 credits
 * Unlock one Liked By profile: 4 credits
+
+### Paid action costs
+
+Status: Closed
+
+Decision:
+
+* Send Nakh: 2 credits
+* Unlock one match chat: 4 credits
+* Unlock one Liked By profile: 4 credits
+
+### Feature unlock expiry model
+
+Status: Closed
+
+Decision:
+
+* FeatureUnlock supports expiry through `expires_at`.
+* FeatureUnlock can expire or be revoked depending on feature type and configuration.
+* Liked By profile unlock expires according to configured unlock duration.
+* Chat unlock is scoped to one Match and remains active until the Match closes, the unlock is revoked, or a configured expiry is reached.
+* Exact expiry durations remain configurable and should not be hardcoded in handlers.
+* Nakh is not modeled as a FeatureUnlock. Nakh is a paid action, not persistent feature access.
 
 ### Payment idempotency
 
