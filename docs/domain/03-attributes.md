@@ -171,7 +171,7 @@ Purpose:
 * city_id
 * highlight
 * bio
-* is_completed
+* completion_status
 * completed_at
 * created_at
 * updated_at
@@ -181,6 +181,10 @@ Notes:
 * Telegram identity does not belong to `Profile`.
 * Account state does not belong to `Profile`.
 * Age is derived from `birth_year`, not stored directly.
+* `birth_year` uses the Gregorian calendar.
+* `completion_status` is the profile completion source of truth.
+* Allowed completion statuses are `incomplete`, `complete`, and `invalid`.
+* `is_completed` should be treated as a derived application-level value, not stored as the source of truth.
 * `interested_gender` is one profile-level field. Updating it from Explore filters or Edit Profile changes the same value.
 
 ### ProfileOptionalDetails
