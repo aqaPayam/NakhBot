@@ -363,8 +363,10 @@ Allowed statuses:
 
 Rules:
 
-* Minimum profile photos: 2
-* Maximum profile photos: 6
+* Minimum visible profile photos for completion: 2
+* Maximum profile photos accepted from the user: 6
+* Extra uploaded photos are rejected.
+* Hidden or deleted photos do not count toward profile completion.
 * One photo must always be primary.
 * User cannot delete the primary photo before choosing another primary photo.
 * If admin hides the primary photo, profile validity must be rechecked.
