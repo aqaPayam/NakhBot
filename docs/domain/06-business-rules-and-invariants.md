@@ -284,15 +284,14 @@ Explore preview includes:
 
 ### Eligible profile rules
 
-A profile can appear in Explore only if it is:
+A profile can appear in Explore only if:
 
-* Complete
-* Visible
-* Active
-* Non-restricted
-* Non-banned
-* Compatible with the viewer’s filters
-* Not previously consumed by the viewer
+* Profile completion status is `complete`
+* User visibility is enabled
+* Account state is `active`
+* User is not restricted, banned, or deleted
+* Profile is compatible with the viewer’s filters
+* Target has not previously been consumed by the viewer
 
 ### Explore filters
 
