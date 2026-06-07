@@ -234,6 +234,10 @@ Used for:
 * Liked By profile unlock
 * Chat unlock
 
+Feature unlocks can expire or be revoked depending on feature type and configuration.
+
+Nakh is not modeled as a FeatureUnlock. Nakh is a paid action, not persistent feature access.
+
 ### 2.8 Nakh
 
 #### PendingNakh
