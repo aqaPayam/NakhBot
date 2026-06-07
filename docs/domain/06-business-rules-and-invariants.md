@@ -223,11 +223,13 @@ Photos should be served through CDN URLs.
 
 ### Photo count
 
-A complete profile must have at least 2 photos.
+A complete profile must have at least 2 visible photos.
 
-A complete profile can have at most 6 photos.
+A user can upload at most 6 profile photos.
 
-Extra photos must be rejected.
+Extra uploaded photos must be rejected.
+
+Hidden or deleted photos do not count toward profile completion.
 
 ### Primary photo
 
