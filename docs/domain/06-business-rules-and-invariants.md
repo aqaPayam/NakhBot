@@ -163,9 +163,11 @@ A profile cannot become complete unless it has:
 
 ### Interest rules
 
-A user must select at least 5 interests during signup.
+A profile must have at least 5 interests to become complete.
 
-A user can have at most 20 interests.
+A profile can have at most 20 interests.
+
+Interests belong to the dating profile, not directly to the user.
 
 ### Highlight rules
 
