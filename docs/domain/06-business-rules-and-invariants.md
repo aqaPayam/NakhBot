@@ -650,6 +650,10 @@ Chat unlock is paid per Match.
 
 If either side unlocks chat, both users can send text in that Match.
 
+Chat unlock remains active until the Match closes, the unlock is revoked, or a configured expiry is reached.
+
+Chat unlock expiry behavior must be configurable and must not be hardcoded in handlers.
+
 ### Unlocked chat limits
 
 After chat unlock:
