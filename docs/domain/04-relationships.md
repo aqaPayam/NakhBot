@@ -232,10 +232,14 @@ Important distinction:
 
 Rules:
 
-* A complete profile must have 2–6 photos.
-* One photo must be primary.
-* The primary photo cannot be deleted before another primary photo is selected.
+* A complete profile must have at least 2 visible photos.
+* A user can upload at most 6 profile photos.
+* Extra uploaded photos are rejected.
+* Hidden or deleted photos do not count toward profile completion.
+* One visible photo must be primary.
+* The primary photo cannot be deleted before another visible primary photo is selected.
 * If the primary photo is hidden by admin, profile validity must be rechecked.
+
 
 ### MediaAsset and PhotoVariant
 
