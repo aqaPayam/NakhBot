@@ -72,6 +72,13 @@ Note:
 * complete
 * invalid
 
+Notes:
+
+* `incomplete` means the profile has not completed all required signup/profile fields.
+* `complete` means the profile currently satisfies all required profile completion rules.
+* `invalid` means the profile was previously complete but no longer satisfies validity rules, for example because moderation hid photos and fewer than 2 visible photos remain.
+* Profile completion status is the source of truth for profile validity. A boolean `is_completed` should only be derived from this status if needed.
+
 ### VisibilityStatus
 
 * visible
