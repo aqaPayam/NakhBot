@@ -367,12 +367,15 @@ Important:
 
 ### Like and FeatureUnlock
 
-* Like can be unlocked through one FeatureUnlock.
-* FeatureUnlock can unlock one liked-by profile.
+* A received normal Like can be unlocked through one FeatureUnlock.
+* FeatureUnlock can unlock one specific liked-by profile.
 
-Rule:
+Rules:
 
 * Unlocking one liked-by profile does not unlock other liked-by profiles.
+* Liked By unlock is scoped to one liker/receiver pair.
+* Liked By unlock expires according to configured unlock duration.
+* Nakh senders do not appear in Liked By and are not unlocked through this relationship.
 
 ### User and FeatureUnlock
 
