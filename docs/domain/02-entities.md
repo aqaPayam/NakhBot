@@ -118,7 +118,9 @@ Selectable spoken language option for profile details.
 
 #### ProfileLanguage
 
-Connection between a profile/user and spoken languages.
+Connection between a profile and spoken languages.
+
+Spoken languages belong to the dating profile, not directly to the user.
 
 #### PersonalityTag
 
@@ -126,7 +128,9 @@ Selectable personality tag.
 
 #### ProfilePersonalityTag
 
-Connection between a profile/user and selected personality tags.
+Connection between a profile and selected personality tags.
+
+Personality tags belong to the dating profile, not directly to the user.
 
 ### 2.4 Location
 
