@@ -105,22 +105,31 @@ Includes:
 
 ### Profile Completion
 
-Whether the user has completed all required profile fields.
+The current validity/completion state of a dating profile.
 
-Required profile data includes:
+Profile completion status can be:
+
+* `incomplete`
+* `complete`
+* `invalid`
+
+Required profile data for a complete profile includes:
 
 * Name
-* Birth year
+* Gregorian birth year
 * Gender
 * Interested gender
-* At least 5 interests
+* At least 5 profile interests
 * Country
 * Province
 * City
 * Relationship goal
-* 2–6 photos
-* One primary photo
+* At least 2 visible photos
+* At most 6 uploaded profile photos
+* One visible primary photo
 * Highlight
+
+A profile can become `invalid` after it was previously complete, for example if moderation hides photos and fewer than 2 visible photos remain.
 
 ### Birth Year
 
