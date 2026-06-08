@@ -528,9 +528,15 @@ Free matched users:
 
 ### Chat Unlock
 
-Chat unlock is paid per match.
+Chat unlock is paid per Match.
 
-If either side unlocks chat, both sides can type freely in that match.
+One successful chat unlock payment unlocks free-text chat for both users in that specific Match.
+
+If either matched user unlocks chat, both users can type freely in that Match.
+
+The other matched user does not need to pay again for the same Match.
+
+Chat unlock does not expire in MVP.
 
 Chat unlock rules:
 
@@ -539,6 +545,7 @@ Chat unlock rules:
 - Only the last 50 visible messages per chat remain available in normal chat view. Reported messages must be snapshotted before cleanup when needed for moderation.
 - After unlock, users can share phone number, Telegram ID, or other contact info.
 - Show one safety warning when chat unlocks.
+- Chat unlock remains active until the Match is unmatched, closed by admin/moderation, or closed because of account deletion or ban.
 
 Chat unlock cost:
 
