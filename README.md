@@ -438,7 +438,7 @@ Unpaid Pending Nakh should expire. Exact expiry duration and reminder schedule a
 Nakh receiver actions:
 
 - View Profile
-- Like Back
+- Accept Nakh
 - Reject
 - Report
 
@@ -487,7 +487,7 @@ Pending Nakh payments are visible only to the sender and are not shown in the re
 A match is created when:
 
 - Both users like each other.
-- A paid Sent Nakh can create a Match only if the receiver accepts or Likes Back.
+- A paid Sent Nakh can create a Match only if the receiver accepts the Nakh.
 
 When a match happens:
 
