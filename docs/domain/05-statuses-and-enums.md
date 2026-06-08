@@ -43,9 +43,9 @@ MVP values:
 
 Notes:
 
-* These are the MVP-supported gender values.
-* Gender handling must remain extensible because additional gender options may be added later.
-* Implementation should not assume that gender will always be limited to only these four values.
+* These are MVP values only.
+* Gender handling must remain extensible.
+* Future gender values must be addable without rewriting Explore logic.
 
 ### InterestedGender
 
@@ -53,10 +53,17 @@ Notes:
 * women
 * everyone
 
-Note:
+Notes:
 
-* Interested gender is stored as one profile-level field.
-* Changing it from Explore or Edit Profile updates the same value.
+* These are MVP values only.
+* InterestedGender values must map to one or more Gender values.
+* MVP mapping:
+  * men -> man
+  * women -> woman
+  * everyone -> all active visible gender values
+* Explore must use reciprocal gender compatibility.
+* Future interested-gender values must be addable without rewriting Explore logic.
+
 
 ### RelationshipGoal
 
