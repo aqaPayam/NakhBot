@@ -744,8 +744,11 @@ Rule:
 Rules:
 
 * Chat unlock is scoped to one Match.
+* One successful chat unlock payment unlocks free-text chat for both users in that Match.
 * If one user unlocks chat, both users can send text in that Match.
-* Chat unlock remains active until the Match closes, the unlock is revoked, or a configured expiry is reached.
+* The other matched user does not need to pay again for the same Match.
+* Chat unlock does not expire in MVP.
+* Chat unlock remains active until the Match is unmatched, closed by admin/moderation, or closed because of account deletion or ban.
 
 ### FeatureUnlock and Nakh
 
