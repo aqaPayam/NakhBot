@@ -93,6 +93,12 @@ If visibility is off, the user cannot appear in Explore and cannot Explore, Like
 
 Existing matches, chats, and pending Nakh payments continue.
 
+Visibility off blocks creation of new Pending Nakh or Sent Nakh.
+
+Visibility off does not block completion of Pending Nakh payments that were created before visibility was turned off.
+
+This exception does not apply to restricted, banned, or deleted accounts.
+
 Visibility off is not the same as restricted, banned, deleted, or photo hidden.
 
 ## 2. Profile Terms
