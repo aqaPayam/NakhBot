@@ -437,10 +437,10 @@ Unpaid Pending Nakh should expire. Exact expiry duration and reminder schedule a
 
 Nakh receiver actions:
 
-- View Profile
-- Accept Nakh
-- Reject
-- Report
+* View profile
+* Accept Nakh
+* Reject
+* Report
 
 ### Nakh Statuses
 
