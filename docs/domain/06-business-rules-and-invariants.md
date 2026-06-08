@@ -298,6 +298,7 @@ A profile can appear in Explore only if:
 * Account state is `active`
 * User is not restricted, banned, or deleted
 * Profile is compatible with the viewer’s filters
+* Profile is reciprocally gender-compatible with the viewer
 * Target has not previously been consumed by the viewer
 
 ### Explore filters
@@ -314,6 +315,27 @@ MVP Explore filters include:
 Interested gender is stored on Profile.
 
 Age range, location, and relationship goal are stored in ExploreFilter.
+
+### Explore gender compatibility
+
+Explore gender compatibility is reciprocal.
+
+A target profile can appear to a viewer only if both conditions are true:
+
+* The viewer’s interested gender includes the target’s gender.
+* The target’s interested gender includes the viewer’s gender.
+
+For MVP:
+
+* Men includes Man.
+* Women includes Woman.
+* Everyone includes all active visible gender options, including Man, Woman, Other, and Prefer not to say.
+
+Gender compatibility must be data-driven.
+
+Future gender options must be addable through configuration or mapping data.
+
+The implementation must not hardcode Explore matching only around Man/Woman.
 
 ### Default filters
 
