@@ -324,6 +324,7 @@ Explore only shows profiles where:
 - Account state is active
 - User is not restricted, banned, or deleted
 - Profile matches viewer filters
+- Profile is gender-compatible with the viewer
 - Target has not already been consumed by the viewer
 
 Profile selection rules:
@@ -331,6 +332,27 @@ Profile selection rules:
 - A profile is consumed and not shown again after preview, Like, Not Interested, Pending Nakh, Sent Nakh, or Match.
 - Randomization is applied inside the eligible profile pool.
 - If no profile matches, show “Nobody found.”
+
+### Explore Gender Compatibility
+
+Explore gender compatibility is reciprocal.
+
+A target profile is gender-compatible only if both conditions are true:
+
+- The viewer’s interested gender includes the target’s gender.
+- The target’s interested gender includes the viewer’s gender.
+
+Gender compatibility must be data-driven and extensible.
+
+The implementation must not hardcode gender matching only for Man/Woman.
+
+For MVP:
+
+- Men includes Man.
+- Women includes Woman.
+- Everyone includes all active visible gender options, including Man, Woman, Other, and Prefer not to say.
+
+Future gender options must be addable by updating configuration or mapping data, not by rewriting Explore logic.
 
 ### Not Interested
 
