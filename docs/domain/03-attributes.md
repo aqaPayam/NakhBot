@@ -552,8 +552,12 @@ Allowed statuses:
 Rules:
 
 * `liked_by_profile_unlock` expires according to configured unlock duration.
-* `chat_unlock` is scoped to one Match and remains active until the Match closes, the unlock is revoked, or a configured expiry is reached.
-* Feature unlock expiry behavior must be driven by config, not hardcoded in handlers.
+* `chat_unlock` is scoped to one Match.
+* One successful `chat_unlock` unlocks free-text chat for both users in that Match.
+* The other matched user does not need to pay again for the same Match.
+* `chat_unlock` does not expire in MVP.
+* `chat_unlock` remains active until the Match is unmatched, closed by admin/moderation, or closed because of account deletion or ban.
+* Expiry configuration applies to `liked_by_profile_unlock`, not to `chat_unlock` in MVP.
 * FeatureUnlock is not used for sent Nakh. Nakh is a paid action, not persistent feature access.
 
 ## 6. Nakh Attributes
@@ -879,7 +883,10 @@ Note:
 
 Rule:
 
+* One ChatUnlock is scoped to one Match.
 * If one side unlocks chat, both users can send text in that Match.
+* The other matched user does not need to pay again for the same Match.
+* Chat unlock does not expire in MVP.
 
 ### ChatSafetyWarning
 
