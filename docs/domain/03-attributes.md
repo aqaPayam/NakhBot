@@ -613,6 +613,10 @@ Rules:
 * Pending Nakh expires if it is not paid within the configured expiry duration.
 * Exact Pending Nakh expiry duration is configurable and must not be hardcoded in handlers.
 * If cancelled before payment, the sender must choose whether to convert it to a normal Like or mark the target as Not Interested.
+* A visibility-off sender cannot create a new Pending Nakh.
+* A visibility-off sender may complete payment for a Pending Nakh created before visibility was turned off.
+* If the sender becomes restricted, banned, or deleted before payment succeeds, the Pending Nakh cannot be delivered.
+* If the receiver becomes restricted, banned, deleted, or profile-invalid before payment succeeds, the Pending Nakh cannot be delivered.
 
 ### Nakh
 
