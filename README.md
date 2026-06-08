@@ -24,6 +24,20 @@ User account states are:
 
 A new person can open the bot and either browse as a Guest or sign up as a User.
 
+On first `/start`, the system creates a persistent guest-level user record.
+
+For a new Telegram user, the system creates:
+
+- User
+- TelegramIdentity
+- Account with state `guest`
+- UserSettings with default values
+- GuestPreviewCounter with `preview_count = 0` and `limit_count = 10`
+
+Guest mode is not an anonymous temporary session.
+
+Guest preview limits are tied to the Telegram identity/user and are permanent.
+
 Guest rules:
 
 - Guest can only see profile previews.
@@ -37,6 +51,14 @@ Guest rules:
 - Guest cannot use paid features.
 - After 10 previews, the bot shows a signup message.
 - If a user has an incomplete profile, they are treated like Guest until signup is completed.
+
+When a guest starts signup, `Account.state` becomes `incomplete`.
+
+The GuestPreviewCounter does not reset when the user moves from Guest to Incomplete.
+
+When signup is completed, `Account.state` becomes `active`.
+
+After activation, the GuestPreviewCounter is kept for audit/history but no longer controls normal Explore.
 
 Guest profile preview includes:
 
