@@ -77,11 +77,13 @@ The profile becomes hidden, chats close, and minimal audit, payment, report, and
 
 ### Visibility
 
-A user-controlled setting.
+A user-controlled setting stored as `UserSettings.visibility_enabled`.
 
 If visibility is off, the user cannot appear in Explore and cannot Explore, Like, or send Nakh.
 
 Existing matches, chats, and pending Nakh payments continue.
+
+Visibility off is not the same as restricted, banned, deleted, or photo hidden.
 
 ## 2. Profile Terms
 
