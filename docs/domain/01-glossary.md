@@ -392,7 +392,7 @@ The action taken by the receiver of a sent Nakh.
 Possible actions:
 
 * View profile
-* Accept / Like Back
+* Accept Nakh
 * Reject
 * Report
 
