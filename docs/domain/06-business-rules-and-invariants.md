@@ -38,7 +38,23 @@ Guest users cannot:
 
 Guest users can see only 10 profile previews permanently.
 
-The preview counter is tied to the user/Telegram identity.
+On first `/start`, a new Telegram user gets:
+
+* User
+* TelegramIdentity
+* Account with state `guest`
+* UserSettings with default values
+* GuestPreviewCounter with `preview_count = 0` and `limit_count = 10`
+
+Guest mode is persistent and tied to Telegram identity/user.
+
+Guest mode is not an anonymous temporary session.
+
+The preview counter is shared by guest and incomplete users.
+
+Starting signup does not reset the preview counter.
+
+After signup completion, the account becomes `active` and the preview counter no longer controls normal Explore access.
 
 ### Incomplete user access
 
