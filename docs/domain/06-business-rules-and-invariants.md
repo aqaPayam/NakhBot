@@ -90,6 +90,19 @@ Visibility is controlled only by `UserSettings.visibility_enabled`.
 
 The MVP does not use a separate `VisibilityStatus` enum.
 
+Visibility off blocks creation of new Pending Nakh and new Sent Nakh.
+
+Visibility off does not block payment completion for Pending Nakh records created before visibility was turned off.
+
+This is the only exception.
+
+If the sender becomes restricted, banned, or deleted before payment succeeds, the Pending Nakh cannot be paid or delivered.
+
+If the receiver becomes restricted, banned, deleted, or profile-invalid before payment succeeds, the Pending Nakh cannot be delivered.
+
+Blocked Pending Nakh records should be cancelled, expired, or refunded depending on payment state.
+
+
 ### Restricted user access
 
 Restricted users can:
@@ -499,6 +512,14 @@ If the sender does not have enough credits:
 * Create PendingPayment
 * Allow editing Nakh text before payment
 * Do not notify receiver
+
+Before completing Pending Nakh payment, the system must recheck sender and receiver eligibility.
+
+Sender eligibility fails if sender account is restricted, banned, or deleted.
+
+Receiver eligibility fails if receiver account is restricted, banned, deleted, or receiver profile is invalid.
+
+Sender visibility off does not fail eligibility if the Pending Nakh was created before visibility was turned off.
 
 ### Pending Nakh cancellation
 
