@@ -431,9 +431,17 @@ Users can only choose predefined questions and predefined answers.
 
 ### Chat Unlock
 
-A paid per-match unlock.
+A paid per-Match unlock.
 
-If one side unlocks chat, both sides can send free text in that match.
+One successful chat unlock payment unlocks free-text chat for both users in that specific Match.
+
+If one side unlocks chat, both users can send free text in that Match.
+
+The other matched user does not need to pay again for the same Match.
+
+Chat unlock does not expire in MVP.
+
+Chat unlock remains active until the Match is unmatched, closed by admin/moderation, or closed because of account deletion or ban.
 
 Only text messages are allowed.
 
