@@ -335,7 +335,13 @@ Data-driven answer option for a predefined question.
 
 Chat-specific unlock state for a Match.
 
-If one side unlocks chat, both users can send text in that match.
+One ChatUnlock belongs to one Match.
+
+If one side unlocks chat, both users can send text in that Match.
+
+The other matched user does not need to pay again for the same Match.
+
+Chat unlock does not expire in MVP.
 
 #### ChatSafetyWarning
 
