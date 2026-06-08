@@ -54,6 +54,14 @@ Permanent preview counter for guest and incomplete users.
 
 The counter is shared by Telegram identity/user and does not reset during incomplete signup.
 
+GuestPreviewCounter is created on first `/start` for a new Telegram user.
+
+It is tied to the persistent User/TelegramIdentity, not to a temporary session.
+
+It does not reset when the account moves from `guest` to `incomplete`.
+
+After account activation, the counter remains for audit/history but no longer controls normal Explore access.
+
 #### UserSettings
 
 General user settings.
