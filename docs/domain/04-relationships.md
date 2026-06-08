@@ -283,6 +283,28 @@ Notes:
 * Interested gender belongs to Profile.
 * Changing interested gender from Explore or Edit Profile updates the same profile field.
 
+ExploreFilter does not own gender compatibility.
+
+Gender compatibility is calculated from each profile’s `gender` and `interested_gender`.
+
+The calculation must be reciprocal and data-driven.
+
+
+### Profile and Gender Compatibility
+
+Explore gender compatibility is evaluated between two Profiles.
+
+A viewer Profile and target Profile are gender-compatible only if:
+
+* The target Profile’s gender is included in the viewer Profile’s interested-gender mapping.
+* The viewer Profile’s gender is included in the target Profile’s interested-gender mapping.
+
+Gender compatibility must use configurable mappings.
+
+The implementation must not hardcode compatibility only for Man/Woman.
+
+
+
 ### User and ExploreConsumption
 
 * User has many ExploreConsumptions as viewer.
