@@ -662,7 +662,7 @@ Allowed action types:
 Rules:
 
 * Viewing the profile can mark the Nakh as seen.
-* Accepting or liking back can create a Match.
+* Accepting a sent Nakh can create a Match.
 * Rejecting closes the Nakh.
 * Reporting starts the report flow.
 
@@ -683,7 +683,6 @@ Allowed sources:
 
 * mutual_like
 * nakh_accept
-* nakh_like_back
 
 Allowed statuses:
 
