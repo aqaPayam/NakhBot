@@ -398,15 +398,23 @@ Nakh rules:
 
 ### Nakh Payment Flow
 
-When user sends Nakh from Explore:
+When a user chooses to send Nakh from Explore:
 
-- If the user has enough credits, Nakh is sent immediately.
-- If the user does not have enough credits, Nakh is added to pending payment.
-- A Nakh can be paid using existing credits or direct Telegram Stars payment. Both paths must result in the same final Sent Nakh behavior.
-- Pending Nakh can be paid later.
-- The Nakh text can be edited before payment.
-- The target profile is consumed when Nakh is selected.
-- The target profile is not shown again, even if payment is completed later.
+* If the user has enough credits, the system spends credits and creates a paid Sent Nakh immediately.
+* If the user does not have enough credits, the system creates a Pending Nakh and a related Pending Payment.
+* Pending Nakh is an unpaid Nakh attempt, not a delivered Nakh.
+* Pending Nakh is visible only to the sender.
+* Pending Nakh does not notify the receiver.
+* Pending Nakh does not appear in the receiver’s Nakhes.
+* Pending Nakh does not appear in Liked By.
+* Pending Nakh does not create a Match.
+* Pending Nakh can be paid later.
+* Pending Nakh text can be edited before payment.
+* Existing credits and direct Telegram Stars payment must both result in the same final Sent Nakh behavior.
+* When payment succeeds, the Pending Nakh becomes paid and the system creates the delivered Sent Nakh.
+* The target profile is consumed when Pending Nakh is created or Sent Nakh is sent.
+* The target profile is not shown again, even if payment is completed later.
+
 
 Nakh cost:
 
@@ -436,14 +444,26 @@ Nakh receiver actions:
 
 ### Nakh Statuses
 
-Nakh statuses:
+Pending Nakh and Sent Nakh use separate status groups because they have different product meanings.
+
+Pending Nakh statuses:
+
+- Pending Payment
+- Paid and Sent
+- Cancelled
+- Expired
+- Abandoned
+
+Sent Nakh statuses:
 
 - Sent
 - Seen
 - Accepted
+- Rejected
 - Closed
 - Expired
-- Pending Payment
+
+Pending Payment is not a Sent Nakh status.
 
 Internally, rejected can be stored as rejected.
 
@@ -453,11 +473,14 @@ UI should show rejected Nakh as “Closed.”
 
 Nakhes menu shows:
 
-- Nakhes the user has sent
-- Current Nakh status
-- Pending payment Nakhes
+- Sent Nakhes
+- Received Nakhes
+- Current Sent Nakh status
+- Sender-side Pending Nakh payments
 - Expired Nakhes
 - Closed Nakhes
+
+Pending Nakh payments are visible only to the sender and are not shown in the receiver’s Nakhes.
 
 ## 9. Matches
 
