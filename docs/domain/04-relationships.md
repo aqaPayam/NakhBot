@@ -468,7 +468,7 @@ Receiver actions:
 
 ### Nakh and Match
 
-* Nakh can create one Match if the receiver accepts or likes back.
+* Nakh can create one Match if the receiver accepts the Nakh.
 * Match may be created from one Nakh.
 
 Rules:
