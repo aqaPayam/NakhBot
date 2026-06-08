@@ -442,6 +442,12 @@ Used when:
 * Sender does not have enough credits.
 * Payment is required before delivery.
 
+Payment completion is allowed while sender visibility is off only if the PendingNakh was created before visibility was turned off.
+
+Payment completion is blocked if the sender is restricted, banned, or deleted.
+
+Payment completion is blocked if the receiver is restricted, banned, deleted, or profile-invalid.
+
 ### PendingNakh to Like or NotInterested
 
 * PendingNakh can resolve into one Like.
