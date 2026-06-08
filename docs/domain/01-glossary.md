@@ -33,13 +33,23 @@ Controls whether the user can use the product normally, partially, or not at all
 
 A Telegram user who has not completed signup.
 
+A Guest is persistent, not anonymous.
+
+On first `/start`, the system creates a User, TelegramIdentity, Account, UserSettings, and GuestPreviewCounter.
+
 Guest users can only preview limited profiles.
+
+The guest preview limit is permanent and tied to the Telegram identity/user.
 
 ### Incomplete User
 
 A user who started signup but has not completed all required profile fields.
 
 Incomplete users follow the same preview limit as guests.
+
+Incomplete users share the same GuestPreviewCounter created during Guest mode.
+
+Starting signup does not reset the preview counter.
 
 ### Active User
 
