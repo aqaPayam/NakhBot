@@ -143,9 +143,15 @@ Required profile data for a complete profile includes:
 * City
 * Relationship goal
 * At least 2 visible photos
-* At most 6 uploaded profile photos
+* At most 6 active profile photos
 * One visible primary photo
 * Highlight
+
+Active profile photos means visible + hidden photos.
+
+Deleted photos do not count toward the 6-photo active profile photo limit.
+
+Hidden photos count toward the active photo limit, but do not count toward profile completion.
 
 A profile can become `invalid` after it was previously complete, for example if moderation hides photos and fewer than 2 visible photos remain.
 
