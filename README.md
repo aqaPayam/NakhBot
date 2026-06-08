@@ -150,14 +150,17 @@ Optional fields:
 
 Photo rules:
 
-- Minimum 2 photos.
-- Maximum 6 photos.
-- Only visible photos count toward the 2–6 photo requirement. Hidden or deleted photos do not count toward profile completion.
+- Minimum 2 visible photos are required for profile completion.
+- Maximum 6 active profile photos are allowed.
+- Active profile photos means visible + hidden photos.
+- Deleted photos do not count toward the 6-photo active limit.
+- Hidden photos count toward the 6-photo active limit, but do not count toward profile completion.
+- Only visible photos count toward the 2-photo completion requirement.
 - User uploads the primary photo first.
 - User can upload additional photos after the primary photo.
-- Extra photos are rejected.
-- One photo must always be primary.
-- User cannot delete the primary photo before choosing another primary photo.
+- Extra active photos are rejected.
+- One visible photo must always be primary.
+- User cannot delete the primary photo before choosing another visible primary photo.
 - If photo moderation or deletion causes a profile to fail the visible photo requirement:
 
 - A never-completed profile remains Incomplete.
