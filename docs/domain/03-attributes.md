@@ -82,6 +82,11 @@ Allowed states:
 Rule:
 
 * Guest and incomplete users share the same permanent preview counter.
+* GuestPreviewCounter is created on first `/start` for every new Telegram identity.
+* `preview_count` starts at 0.
+* `limit_count` is 10 for MVP.
+* The counter is not reset when the user starts signup.
+* The counter stops controlling Explore access after the account becomes `active`.
 
 ### UserSettings
 
