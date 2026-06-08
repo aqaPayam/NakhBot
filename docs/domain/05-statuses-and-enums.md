@@ -180,7 +180,6 @@ Note:
 
 * mutual_like
 * nakh_accept
-* nakh_like_back
 
 ### MatchStatus
 
