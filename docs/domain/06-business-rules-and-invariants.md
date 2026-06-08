@@ -505,7 +505,7 @@ Nakh expires after 14 days.
 Receiver can:
 
 * View profile
-* Accept / Like Back
+* Accept Nakh
 * Reject
 * Report
 
@@ -523,7 +523,7 @@ If receiver rejects Nakh:
 
 ### Nakh acceptance
 
-If receiver accepts or likes back a sent Nakh:
+If receiver accepts a sent Nakh:
 
 * Create Match
 * Notify both users
@@ -538,7 +538,6 @@ A Match can be created by:
 
 * Mutual normal Like
 * Accepted Nakh
-* Like Back on a Nakh
 
 ### Match uniqueness
 
