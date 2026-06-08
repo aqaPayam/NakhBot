@@ -94,6 +94,12 @@ Gender values are controlled for MVP but must remain extensible because addition
 
 Gender should not be treated as a permanently fixed database enum during implementation.
 
+Interested gender should also remain extensible.
+
+Implementation should treat interested gender as a configurable preference option that maps to one or more gender options.
+
+Explore gender compatibility must not be hardcoded only around Man/Woman.
+
 #### ProfileOptionalDetails
 
 Optional profile information.
@@ -677,6 +683,10 @@ MVP values:
 * Other
 * Prefer not to say
 
+Gender options must remain extensible.
+
+Future gender options should be addable through configuration or lookup data.
+
 ### InterestedGender
 
 MVP values:
@@ -684,6 +694,16 @@ MVP values:
 * Men
 * Women
 * Everyone
+
+InterestedGender values must map to one or more Gender values.
+
+MVP mapping:
+
+* Men -> Man
+* Women -> Woman
+* Everyone -> all active visible Gender values
+
+Future interested-gender options should be addable through configuration or lookup data.
 
 ### RelationshipGoal
 
