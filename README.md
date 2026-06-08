@@ -136,6 +136,11 @@ Photo rules:
 - Extra photos are rejected.
 - One photo must always be primary.
 - User cannot delete the primary photo before choosing another primary photo.
+- If photo moderation or deletion causes a profile to fail the visible photo requirement:
+
+- A never-completed profile remains Incomplete.
+- A previously completed profile becomes Invalid.
+- Hidden is not a profile completion status.
 
 ### Restricted Profile Fields
 
