@@ -60,9 +60,14 @@ Used when:
 * User has one GuestPreviewCounter.
 * GuestPreviewCounter belongs to one User.
 
+GuestPreviewCounter is created on first `/start` for a new Telegram user.
+
 Rule:
 
 * Guest and incomplete users share the same permanent preview counter.
+* Starting signup does not reset the counter.
+* Completing signup does not delete the counter.
+* After account activation, the counter remains for audit/history but no longer controls normal Explore.
 
 ### User and UserSettings
 
