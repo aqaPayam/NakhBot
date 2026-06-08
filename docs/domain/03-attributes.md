@@ -189,6 +189,11 @@ Notes:
 * Allowed completion statuses are `incomplete`, `complete`, and `invalid`.
 * `is_completed` should be treated as a derived application-level value, not stored as the source of truth.
 * `interested_gender` is one profile-level field. Updating it from Explore filters or Edit Profile changes the same value.
+* `gender` and `interested_gender` must support extensible compatibility logic.
+* `interested_gender` should be interpreted through a configurable mapping to allowed gender options.
+* Explore eligibility must check reciprocal gender compatibility:
+  * target gender is included in viewer interested-gender mapping
+  * viewer gender is included in target interested-gender mapping
 * `completion_status = invalid` is used when a previously complete profile becomes invalid, for example because moderation hides photos and the profile no longer has enough visible photos.
 
 ### ProfileOptionalDetails
