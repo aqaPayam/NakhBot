@@ -254,7 +254,10 @@ Admin can hide or restore photos.
 If admin hides a primary photo:
 
 * Another visible photo should become primary if available.
-* If fewer than 2 visible photos remain, the profile should become invalid/incomplete or hidden until fixed.
+* If no visible primary photo can be assigned, profile validity must be rechecked.
+* If the profile was never completed and required photo rules are not satisfied, keep `Profile.completion_status = incomplete`.
+* If the profile was previously complete and required photo rules are no longer satisfied, set `Profile.completion_status = invalid`.
+* Do not use hidden as a profile completion status.
 
 ### Blurred previews
 
@@ -978,7 +981,12 @@ Photos become visible immediately after upload.
 
 Admin can hide or restore photos.
 
-If hidden photo is primary, profile validity must be rechecked.
+If a hidden photo is primary, another visible photo should become primary if available.
+
+If required photo rules are no longer satisfied after photo moderation:
+
+* A never-completed profile stays `incomplete`.
+* A previously complete profile becomes `invalid`.
 
 ### Admin interface
 
