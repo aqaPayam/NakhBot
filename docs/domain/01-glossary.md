@@ -404,7 +404,6 @@ A Match can be created by:
 
 * Mutual normal Like
 * Accepted Nakh
-* Like Back on a Nakh
 
 ### Unmatch
 
