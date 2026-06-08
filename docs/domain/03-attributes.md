@@ -92,10 +92,13 @@ Rule:
 * created_at
 * updated_at
 
+
 Notes:
 
+* Visibility is stored only as `visibility_enabled`.
+* There is no separate `VisibilityStatus` enum in MVP.
+* Visibility off is not the same as restricted, banned, deleted, or photo hidden.
 * Notification settings are stored in `NotificationPreference`, not here.
-* Visibility off is not the same as restricted, banned, or deleted.
 
 ### UserBlock
 
