@@ -70,6 +70,10 @@ Visibility off does not stop:
 * Existing sent Nakh flows
 * Existing pending Nakh payments
 
+Visibility is controlled only by `UserSettings.visibility_enabled`.
+
+The MVP does not use a separate `VisibilityStatus` enum.
+
 ### Restricted user access
 
 Restricted users can:
