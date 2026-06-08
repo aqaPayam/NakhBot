@@ -464,10 +464,23 @@ When a user chooses to send Nakh from Explore:
 * The target profile is consumed when Pending Nakh is created or Sent Nakh is sent.
 * The target profile is not shown again, even if payment is completed later.
 
+Visibility-off users cannot create a new Pending Nakh or new Sent Nakh.
+
+A visibility-off user may complete payment for a Pending Nakh that was created before visibility was turned off.
+
+Completing an existing Pending Nakh payment while visibility is off is allowed because the Nakh attempt was initiated before visibility was turned off.
+
+This exception applies only to visibility off.
 
 Nakh cost:
 
 - Send Nakh: 2 credits
+
+Pending Nakh payment cannot be completed or delivered if the sender becomes restricted, banned, or deleted before payment succeeds.
+
+Pending Nakh payment also cannot be delivered if the receiver becomes restricted, banned, deleted, or profile-invalid before payment succeeds.
+
+In those cases, the Pending Nakh should be blocked, cancelled, expired, or refunded depending on payment state.
 
 ### Pending Nakh Cancellation
 
