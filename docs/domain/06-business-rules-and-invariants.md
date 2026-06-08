@@ -654,11 +654,20 @@ Default predefined topics:
 
 Chat unlock is paid per Match.
 
-If either side unlocks chat, both users can send text in that Match.
+One successful chat unlock payment unlocks free-text chat for both users in that specific Match.
 
-Chat unlock remains active until the Match closes, the unlock is revoked, or a configured expiry is reached.
+If either matched user unlocks chat, both users can send text in that Match.
 
-Chat unlock expiry behavior must be configurable and must not be hardcoded in handlers.
+The other matched user does not need to pay again for the same Match.
+
+Chat unlock does not expire in MVP.
+
+Chat unlock remains active until:
+
+* The Match is unmatched
+* The Match is closed by admin/moderation
+* The chat is closed because of account deletion or ban
+* The unlock is revoked by admin/moderation
 
 ### Unlocked chat limits
 
@@ -800,6 +809,8 @@ FeatureUnlock is not needed for sent Nakh.
 
 Nakh is a paid action, not persistent access.
 
+For MVP, `liked_by_profile_unlock` can expire, but `chat_unlock` does not expire.
+
 ### Liked By unlock
 
 Unlocking one Liked By profile unlocks only that specific profile.
@@ -808,9 +819,15 @@ It does not unlock other Liked By profiles.
 
 ### Chat unlock
 
-Unlocking one match chat unlocks that specific match chat.
+Unlocking one match chat unlocks that specific match chat for both matched users.
 
-If one side unlocks chat, both sides can send text in that match.
+Only one successful chat unlock payment is needed per Match.
+
+The other matched user does not need to pay again.
+
+If one side unlocks chat, both sides can send text in that Match.
+
+Chat unlock does not expire in MVP.
 
 ### Payment audit
 
