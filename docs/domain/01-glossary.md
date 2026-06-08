@@ -166,6 +166,27 @@ MVP options:
 
 This is one profile-level field. Changing it from Explore filters or Edit Profile updates the same value.
 
+### Gender Compatibility
+
+Gender compatibility is used by Explore and matching-related discovery flows.
+
+Gender compatibility is reciprocal.
+
+A target profile is gender-compatible with a viewer only if:
+
+* The viewer’s interested gender includes the target’s gender.
+* The target’s interested gender includes the viewer’s gender.
+
+Interested gender should be treated as a configurable preference mapping to one or more gender options.
+
+For MVP:
+
+* Men includes Man.
+* Women includes Woman.
+* Everyone includes all active visible gender options, including Man, Woman, Other, and Prefer not to say.
+
+Future gender options must be addable without rewriting Explore logic.
+
 ### Interest
 
 A selectable dating profile tag.
@@ -287,6 +308,7 @@ A profile is eligible only if:
 * Account state is `active`
 * User is not restricted, banned, or deleted
 * Profile is compatible with the viewer’s filters
+* Profile is reciprocally gender-compatible with the viewer
 * Target has not previously been consumed by the viewer
 
 ### Profile Preview
