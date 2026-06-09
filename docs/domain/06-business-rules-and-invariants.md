@@ -253,16 +253,21 @@ Photos must be stored in object storage.
 The app server must not be the permanent image store.
 
 Photos should be served through CDN URLs.
-
 ### Photo count
 
 A complete profile must have at least 2 visible photos.
 
-A user can upload at most 6 profile photos.
+A user can have at most 6 active profile photos.
 
-Extra uploaded photos must be rejected.
+Active profile photos means visible + hidden photos.
 
-Hidden or deleted photos do not count toward profile completion.
+Deleted photos do not count toward the 6-photo active limit.
+
+Hidden photos count toward the 6-photo active limit, but do not count toward profile completion.
+
+Extra active uploaded photos must be rejected.
+
+Deleted photos may be retained for audit, moderation, safety, or history, but they are not active profile photos.
 
 ### Primary photo
 
