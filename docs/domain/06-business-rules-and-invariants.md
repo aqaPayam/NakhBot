@@ -168,6 +168,10 @@ Displayed age is approximate because exact birth date is not collected.
 
 Age should not be stored as a separate source-of-truth field.
 
+Approximate displayed age is calculated as:
+
+`current_gregorian_year - birth_year`
+
 ### Signup order
 
 Signup follows this order:
