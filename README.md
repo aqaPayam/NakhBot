@@ -40,8 +40,15 @@ Guest preview limits are tied to the Telegram identity/user and are permanent.
 
 Guest rules:
 
-- Guest can only see profile previews.
+Guest rules:
+
+- Guest can only see limited teaser profile previews.
 - Guest can see only 10 profile previews permanently.
+- Guest preview is not normal Explore.
+- Guest preview does not use Explore filters.
+- Guest preview does not use reciprocal gender compatibility.
+- Guest preview does not use the viewer’s age, city, interested gender, or relationship goal.
+- Guest preview uses the Guest Preview Pool defined below.
 - Guest cannot use filters.
 - Guest cannot like profiles.
 - Guest cannot send Nakh.
@@ -67,6 +74,36 @@ Guest profile preview includes:
 - Age
 - City
 - Highlight
+
+### Guest Preview Pool
+
+Guest and Incomplete users see teaser previews from a simple MVP preview pool.
+
+A profile can appear in Guest Preview only if:
+
+- Profile completion status is complete.
+- Target user visibility is enabled.
+- Target account state is active.
+- Target user is not restricted, banned, or deleted.
+- Target profile belongs to the MVP-supported country, Iran.
+- Target has a visible primary photo.
+- Target has not already been consumed by the viewer.
+
+Guest Preview ignores:
+
+- Viewer age
+- Viewer city
+- Viewer interested gender
+- Viewer relationship goal
+- Explore filters
+- Reciprocal gender compatibility
+
+Guest Preview is randomized inside the eligible teaser pool.
+
+Guest and Incomplete preview consumption is permanent and counts against the same GuestPreviewCounter.
+
+If no Guest Preview profile is available, the bot should show the normal empty preview state and encourage signup.
+
 
 ## 3. User Signup
 
@@ -296,7 +333,7 @@ Paid flows appear contextually when the user attempts a paid action.
 
 ## 6. Explore
 
-Explore shows one profile at a time.
+For active complete users, Explore only shows profiles where:
 
 Explore preview shows:
 
@@ -375,6 +412,8 @@ Profile selection rules:
 - A profile is consumed and not shown again after preview, Like, Not Interested, Pending Nakh, Sent Nakh, or Match.
 - Randomization is applied inside the eligible profile pool.
 - If no profile matches, show “Nobody found.”
+- These Explore Selection Rules apply to normal Explore for active complete users.
+- Guest and Incomplete users do not use normal Explore. They use the Guest Preview Pool defined in Guest Mode.
 
 ### Explore Gender Compatibility
 
