@@ -382,21 +382,41 @@ Rule:
 
 ### User Pair and UserPairState
 
-* Two users have one UserPairState.
-* UserPairState belongs to exactly one normalized user pair.
+Two users can have one UserPairState.
+
+UserPairState belongs to exactly one normalized user pair.
 
 Rule:
 
-* Use normalized pair ordering: user_a_id < user_b_id.
+* Use normalized pair ordering: `user_a_id < user_b_id`.
+
+Allowed pair-level states:
+
+* none
+* matched
+* unmatched
+* blocked
 
 Purpose:
 
-* Stores the current summarized state between two users.
-* Prevents invalid actions.
+* Stores symmetric pair-level state.
+* Helps prevent invalid pair-level actions after match, unmatch, or block.
 
-Example:
+UserPairState must not store directional actions.
+
+Directional actions must be read from source records:
+
+* ExploreConsumption
+* Like
+* NotInterested
+* PendingNakh
+* Nakh
+
+Examples:
 
 * If pair is matched, block Like, Nakh, Not Interested, and Explore repeat.
+* If pair is unmatched, prevent future Match between the same users.
+* If pair is blocked, prevent future interaction.
 
 Important:
 
