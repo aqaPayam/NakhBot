@@ -239,9 +239,13 @@ Used when a user rejects a profile from Explore, Liked By, cancelled Pending Nak
 
 #### UserPairState
 
-Current summarized state between two users.
+Current symmetric summary state between two users.
 
-Used to prevent invalid actions such as sending Nakh after Match.
+Used to prevent invalid pair-level actions after match, unmatch, or block.
+
+UserPairState must not store directional actions such as Like, Not Interested, Pending Nakh, or Sent Nakh.
+
+Directional actions are stored in their own source entities.
 
 #### FeatureUnlock
 
