@@ -355,10 +355,20 @@ MVP Explore filters include:
 
 * Interested gender
 * Age range
-* Country
-* Province
 * City
 * Relationship goal
+
+Default location is the user’s own city.
+
+For MVP, Country is fixed to Iran and is not shown as an Explore filter.
+
+Province is used only to group/select cities.
+
+Explore location filtering is city-level.
+
+Province-wide browsing is not included in MVP.
+
+There is no whole-country filter in MVP.
 
 Interested gender is stored on Profile.
 
