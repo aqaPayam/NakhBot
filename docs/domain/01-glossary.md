@@ -320,10 +320,16 @@ User-selected criteria for Explore.
 Includes:
 
 * Age range
-* Country
-* Province
 * City
 * Relationship goal
+
+For MVP, Country is fixed to Iran and is not shown as an Explore filter.
+
+Province is used only to group/select cities.
+
+Explore location filtering is city-level.
+
+Province-wide browsing and whole-country browsing are not included in MVP.
 
 Interested gender is stored on the profile, not as a separate temporary filter.
 
