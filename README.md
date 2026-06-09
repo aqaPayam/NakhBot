@@ -322,8 +322,6 @@ MVP Explore controls:
 
 - Interested gender preference, stored on the profile
 - Age range
-- Country
-- Province
 - City
 - Relationship goal
 
@@ -337,6 +335,14 @@ Default age range:
 Default location:
 
 - User’s own city
+
+For MVP, Country is fixed to Iran and is not shown as an Explore filter.
+
+Province is used only to group/select cities.
+
+Explore location filtering is city-level.
+
+Province-wide browsing is not included in MVP.
 
 No whole-country filter is included in MVP.
 
