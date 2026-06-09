@@ -190,6 +190,10 @@ Notes:
 * Account state does not belong to `Profile`.
 * Age is derived from `birth_year`, not stored directly.
 * `birth_year` uses the Gregorian calendar.
+* MVP age eligibility is approximate because exact birth date is not collected.
+* Eligibility rule: `birth_year <= current_gregorian_year - 18`.
+* The system cannot verify whether the user has already had their 18th birthday in the current year.
+* Age verification is not included in MVP.
 * `completion_status` is the profile completion source of truth.
 * Allowed completion statuses are `incomplete`, `complete`, and `invalid`.
 * `is_completed` should be treated as a derived application-level value, not stored as the source of truth.
