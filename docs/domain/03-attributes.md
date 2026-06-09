@@ -440,6 +440,12 @@ Notes:
 * `interested_gender` is not stored here.
 * `interested_gender` belongs to `Profile`.
 * Changing interested gender from Explore or Edit Profile updates the same profile-level value.
+* For MVP, Country is fixed to Iran and is not shown as a user-facing Explore filter.
+* Province is used only to group/select cities.
+* MVP Explore location filtering is city-level.
+* Province-wide browsing is not included in MVP.
+* Whole-country browsing is not included in MVP.
+* `country_id` and `province_id` are kept for structure and future extensibility.
 
 ### ExploreConsumption
 
