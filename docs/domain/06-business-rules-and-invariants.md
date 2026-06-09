@@ -650,6 +650,29 @@ After Match:
 * Users cannot appear to each other in Explore
 * ChatSession is created
 
+### UserPairState usage
+
+UserPairState is a symmetric pair-level summary only.
+
+Allowed UserPairState values for MVP:
+
+* none
+* matched
+* unmatched
+* blocked
+
+UserPairState must not store directional actions.
+
+The following directional actions must be read from their source records:
+
+* Profile viewed or consumed: ExploreConsumption
+* Like: Like
+* Not Interested: NotInterested
+* Pending Nakh: PendingNakh
+* Sent Nakh: Nakh
+
+A normalized pair state can be used to block invalid future actions after Match, Unmatch, or Block.
+
 ### Match notification
 
 When a Match is created:
