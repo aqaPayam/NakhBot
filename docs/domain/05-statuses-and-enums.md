@@ -133,14 +133,16 @@ Notes:
 ### UserPairState
 
 * none
-* viewed
-* liked
-* not_interested
-* pending_nakh
-* nakh_sent
 * matched
 * unmatched
 * blocked
+
+Notes:
+
+* UserPairState is a symmetric pair-level summary.
+* It must not store directional actions.
+* Directional actions must be read from their source records.
+
 
 ## 2. Nakh, Match, Chat, Payment, and Feature Unlock Enums
 
