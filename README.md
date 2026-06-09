@@ -72,9 +72,21 @@ Guest profile preview includes:
 
 Minimum age is 18.
 
-Users enter birth year only, not exact birth date. There is no age verification in MVP.
+MVP age eligibility is approximate because exact birth date is not collected.
 
-Birth year uses the Gregorian calendar. Since exact birth date is not collected, displayed age is approximate and calculated from the current Gregorian year.
+Users must first confirm that they are 18+.
+
+Users then enter Gregorian birth year only.
+
+A user is eligible if:
+
+`birth_year <= current_gregorian_year - 18`
+
+The system does not collect exact birth date, so it cannot verify whether the user has already had their 18th birthday in the current year.
+
+There is no age verification in MVP.
+
+Displayed age is approximate and calculated from the current Gregorian year.
 
 Signup order:
 
