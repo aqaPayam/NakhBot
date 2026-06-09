@@ -284,6 +284,15 @@ ExploreFilter owns:
 * City
 * Relationship goal
 
+MVP behavior:
+
+* Country is fixed to Iran and is not shown as a user-facing Explore filter.
+* Province is used only to group/select cities.
+* Explore location filtering is city-level.
+* Province-wide browsing is not included in MVP.
+* Whole-country browsing is not included in MVP.
+
+
 Notes:
 
 * Interested gender is not stored in ExploreFilter.
