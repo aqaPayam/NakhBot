@@ -165,6 +165,14 @@ Age is derived from Gregorian birth year.
 
 Displayed age is approximate because exact birth date is not collected.
 
+MVP age eligibility is approximate.
+
+A user is eligible if:
+
+`birth_year <= current_gregorian_year - 18`
+
+The system cannot verify exact 18+ status because exact birth date is not collected.
+
 ### Gender
 
 The user’s own gender.
