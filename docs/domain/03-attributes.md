@@ -377,12 +377,14 @@ Allowed statuses:
 
 Rules:
 
-* Minimum visible profile photos for completion: 2
-* Maximum profile photos accepted from the user: 6
-* Extra uploaded photos are rejected.
-* Hidden or deleted photos do not count toward profile completion.
-* One photo must always be primary.
-* User cannot delete the primary photo before choosing another primary photo.
+* Minimum visible profile photos for completion: 2.
+* Maximum active profile photos: 6.
+* Active profile photos means visible + hidden photos.
+* Deleted photos do not count toward the 6-photo active limit.
+* Hidden photos count toward the 6-photo active limit, but do not count toward profile completion.
+* Extra active uploaded photos are rejected.
+* One visible photo must always be primary.
+* User cannot delete the primary photo before choosing another visible primary photo.
 * If admin hides the primary photo, profile validity must be rechecked.
 
 ### PhotoVariant
