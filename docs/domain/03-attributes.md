@@ -528,23 +528,28 @@ Allowed sources:
 Allowed states:
 
 * none
-* viewed
-* liked
-* not_interested
-* pending_nakh
-* nakh_sent
 * matched
 * unmatched
 * blocked
 
-Rule:
+Rules:
 
 * Use normalized pair ordering: `user_a_id < user_b_id`.
+* UserPairState is a symmetric pair-level summary only.
+* UserPairState must not store directional states.
+
+Directional actions must be read from source records:
+
+* ExploreConsumption
+* Like
+* NotInterested
+* PendingNakh
+* Nakh
 
 Notes:
 
-* `UserPairState` is a summary entity.
-* It does not replace `Like`, `NotInterested`, `PendingNakh`, `Nakh`, `Match`, or `UnmatchRecord`.
+* `UserPairState` does not replace `Like`, `NotInterested`, `PendingNakh`, `Nakh`, `Match`, or `UnmatchRecord`.
+* `UserPairState` should only be used to quickly block pair-level actions after match, unmatch, or block.
 
 ### FeatureUnlock
 
