@@ -238,9 +238,11 @@ Important distinction:
 Rules:
 
 * A complete profile must have at least 2 visible photos.
-* A user can upload at most 6 profile photos.
-* Extra uploaded photos are rejected.
-* Hidden or deleted photos do not count toward profile completion.
+* A user can have at most 6 active profile photos.
+* Active profile photos means visible + hidden photos.
+* Deleted photos do not count toward the 6-photo active limit.
+* Hidden photos count toward the 6-photo active limit, but do not count toward profile completion.
+* Extra active uploaded photos are rejected.
 * One visible photo must be primary.
 * The primary photo cannot be deleted before another visible primary photo is selected.
 * If the primary photo is hidden by admin, profile validity must be rechecked.
