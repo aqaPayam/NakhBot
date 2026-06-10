@@ -40,8 +40,6 @@ Guest preview limits are tied to the Telegram identity/user and are permanent.
 
 Guest rules:
 
-Guest rules:
-
 - Guest can only see limited teaser profile previews.
 - Guest can see only 10 profile previews permanently.
 - Guest preview is not normal Explore.
