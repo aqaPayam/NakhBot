@@ -235,6 +235,10 @@ Purpose:
 
 * Tracks uploaded files owned by a user.
 
+Rules:
+
+* User-deleted profile-photo media assets must be permanently deleted from object storage/CDN unless retention is required for moderation, safety, legal, audit, or report evidence.
+
 ### MediaAsset and ProfilePhoto
 
 * MediaAsset can be used as one ProfilePhoto.
@@ -253,14 +257,17 @@ Important distinction:
 Rules:
 
 * A complete profile must have at least 2 visible photos.
-* A user can have at most 6 active profile photos.
-* Active profile photos means visible + hidden photos.
-* Deleted photos do not count toward the 6-photo active limit.
-* Hidden photos count toward the 6-photo active limit, but do not count toward profile completion.
-* Extra active uploaded photos are rejected.
+* A profile can have at most 6 saved profile photos.
+* Saved profile photos means visible + hidden profile photos currently stored for that profile.
+* Hidden photos count toward the 6-photo saved-photo limit, but do not count toward profile completion.
+* Only visible photos count toward the 2-photo completion requirement.
+* Deleted photos are removed from the profile and their stored media objects must be permanently deleted from object storage/CDN.
+* A deleted photo no longer counts as a saved profile photo after its stored media object is deleted.
+* Extra saved profile photos are rejected.
 * One visible photo must be primary.
 * The primary photo cannot be deleted before another visible primary photo is selected.
 * If the primary photo is hidden by admin, profile validity must be rechecked.
+* If a deleted photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
 
 
 ### MediaAsset and PhotoVariant
