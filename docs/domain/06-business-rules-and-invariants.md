@@ -118,6 +118,42 @@ Active users can use normal product features if:
 * Profile completion status is `complete`
 * User visibility is enabled where required
 
+### Invalid active profile access
+
+A user can have:
+
+* `Account.state = active`
+* `Profile.completion_status = invalid`
+
+This means the user completed signup before, but the profile later stopped satisfying required profile validity rules.
+
+Invalid profile status must not change `Account.state` back to `incomplete`.
+
+Invalid active profile users can:
+
+* Open the app
+* Edit profile
+* Fix missing or invalid profile requirements
+* Upload or replace required photos
+* Access settings
+* Contact support/admin
+* Read existing matches and chats, unless another account or moderation rule blocks them
+
+Invalid active profile users cannot:
+
+* Appear in Explore
+* Explore others
+* Like
+* Send Nakh
+* Use Liked By discovery actions
+* Create new discovery interactions
+
+The bot must route invalid active profile users to Fix Profile until `Profile.completion_status` becomes `complete` again.
+
+When all profile completion rules are satisfied again, set `Profile.completion_status = complete`.
+
+The account remains `active` throughout this flow.
+
 ### Visibility off
 
 If visibility is off:
@@ -377,9 +413,15 @@ Blurred previews should be generated as photo variants.
 
 ### Explore access
 
-Only active users with complete profiles and visibility enabled can use normal Explore.
+Only users with all of the following can Explore:
 
-Restricted, banned, deleted, incomplete, and visibility-off users cannot use normal Explore.
+* `Account.state = active`
+* `Profile.completion_status = complete`
+* `UserSettings.visibility_enabled = true`
+
+Restricted, banned, deleted, incomplete, visibility-off, and invalid-profile users cannot Explore.
+
+Users with invalid profiles also cannot appear in Explore.
 
 Guest Preview is not normal Explore and is governed by the Guest Preview Pool rules.
 
