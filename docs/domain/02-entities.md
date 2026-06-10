@@ -487,6 +487,7 @@ Examples:
 * Unban user
 * Hide photo
 * Restore photo
+* Delete photo
 * Dismiss report
 
 ### 2.14 Admin
@@ -515,6 +516,8 @@ Examples:
 * Restrict user
 * Ban user
 * Hide photo
+* Restore photo
+* Delete photo
 * Review support
 
 #### AdminUserRole
