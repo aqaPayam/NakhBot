@@ -214,6 +214,12 @@ Notes:
   * target gender is included in viewer interested-gender mapping
   * viewer gender is included in target interested-gender mapping
 * `completion_status = invalid` is used when a previously complete profile becomes invalid, for example because moderation hides photos and the profile no longer has enough visible photos.
+* `completion_status = invalid` does not change `Account.state` back to `incomplete`.
+* A user can have `Account.state = active` and `Profile.completion_status = invalid`.
+* This combination routes the user to Fix Profile.
+* Invalid active profile users cannot Explore, appear in Explore, Like, send Nakh, or create new discovery interactions.
+* When required profile completion rules are satisfied again, `completion_status` should be set back to `complete`.
+
 
 ### ProfileOptionalDetails
 
