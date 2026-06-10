@@ -17,6 +17,12 @@ Notes:
 * Telegram user ID is the external platform identifier.
 * Telegram username is optional and mutable.
 
+Deletion does not break this relationship.
+
+If a deleted user later reactivates, the same TelegramIdentity remains attached to the same User.
+
+The same Telegram identity must not be used to create a clean new User for the purpose of bypassing retained reports, restrictions, bans, moderation history, payment history, safety history, or audit history.
+
 ### User and Account
 
 * User has one Account.
@@ -116,6 +122,12 @@ Purpose:
 
 * User has one Profile.
 * Profile belongs to one User.
+
+Deletion does not create a second active Profile for the same User.
+
+If reactivation is allowed, the user rebuilds the existing Profile record through the signup/profile-completion flow.
+
+Historical report snapshots, audit records, moderation records, and deletion records remain separate from the rebuilt dating-visible profile data.
 
 Important distinction:
 
