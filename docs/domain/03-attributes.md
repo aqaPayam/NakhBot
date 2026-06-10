@@ -410,7 +410,8 @@ Rules:
 * Extra saved profile photos are rejected.
 * One visible photo must always be primary.
 * User cannot delete the primary photo before choosing another visible primary photo.
-* If admin hides the primary photo, profile validity must be rechecked.
+* If admin hides or deletes the primary photo, another visible photo should become primary if available.
+* If no visible primary photo can be assigned, profile validity must be rechecked.
 * If a deleted photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
 
 ### PhotoVariant
@@ -442,6 +443,14 @@ Action types:
 * hidden
 * restored
 * deleted
+
+Rules:
+
+* `hidden` means the photo was removed from user-visible profile surfaces but remains restorable.
+* `restored` means a hidden photo was made visible again.
+* `deleted` means the photo was soft-deleted from the dating profile.
+* Admin photo deletion must not immediately hard-delete the underlying media asset.
+* Deleted photo records and media metadata may be retained for audit, moderation, reports, appeals, abuse prevention, and safety history.
 
 ## 5. Explore and Interaction Attributes
 
@@ -1346,6 +1355,7 @@ Allowed action types:
 * unban_user
 * hide_photo
 * restore_photo
+* delete_photo
 * dismiss_report
 * approve_change_request
 * reject_change_request
@@ -1388,6 +1398,7 @@ Example permissions:
 * unban_user
 * hide_photo
 * restore_photo
+* delete_photo
 * dismiss_report
 * review_change_requests
 * review_support
