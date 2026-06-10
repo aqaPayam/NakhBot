@@ -21,7 +21,7 @@ A user account must be in one of these states:
 
 Guest users can:
 
-* View limited profile previews
+* View limited teaser profile previews
 * Start signup
 
 Guest users cannot:
@@ -33,6 +33,10 @@ Guest users cannot:
 * Match
 * Chat
 * Use paid features
+
+Guest preview is not normal Explore.
+
+Guest preview does not use Explore filters, reciprocal gender compatibility, viewer age, viewer city, viewer interested gender, or viewer relationship goal.
 
 ### Guest preview limit
 
@@ -61,6 +65,50 @@ After signup completion, the account becomes `active` and the preview counter no
 Incomplete users are treated like guests until signup is completed.
 
 Incomplete users share the same permanent preview counter as guests.
+
+Incomplete users use the same Guest Preview Pool as guests.
+
+Partial signup draft data must not be used to filter Guest Preview.
+
+This means that even if an incomplete user has already entered gender, interested gender, age, city, or relationship goal, those partial values do not affect Guest Preview.
+
+### Guest Preview Pool
+
+Guest Preview is a teaser browsing mode for users whose account state is `guest` or `incomplete`.
+
+Guest Preview is separate from normal Explore.
+
+A target profile can appear in Guest Preview only if:
+
+* Profile completion status is `complete`
+* Target user visibility is enabled
+* Target account state is `active`
+* Target user is not restricted, banned, or deleted
+* Target profile belongs to the MVP-supported country, Iran
+* Target has a visible primary photo
+* Target has not already been consumed by the viewer
+
+Guest Preview does not require:
+
+* Viewer profile completion
+* Viewer ExploreFilter
+* Viewer age
+* Viewer city
+* Viewer interested gender
+* Viewer relationship goal
+* Reciprocal gender compatibility
+
+Guest Preview must not use SignupDraft values as filters.
+
+Guest Preview is randomized inside the eligible teaser pool.
+
+Each shown Guest Preview creates an `ExploreConsumption` record with reason `preview`.
+
+Guest and incomplete users share the same permanent `GuestPreviewCounter`.
+
+After the counter reaches the MVP limit, the bot shows a signup message instead of more previews.
+
+If no eligible Guest Preview target exists before the limit is reached, the bot shows an empty preview state and encourages signup.
 
 ### Active user access
 
@@ -321,9 +369,11 @@ Blurred previews should be generated as photo variants.
 
 ### Explore access
 
-Only active users with complete profiles and visibility enabled can Explore.
+Only active users with complete profiles and visibility enabled can use normal Explore.
 
-Restricted, banned, deleted, incomplete, and visibility-off users cannot Explore.
+Restricted, banned, deleted, incomplete, and visibility-off users cannot use normal Explore.
+
+Guest Preview is not normal Explore and is governed by the Guest Preview Pool rules.
 
 ### Explore display
 
@@ -339,7 +389,7 @@ Explore preview includes:
 
 ### Eligible profile rules
 
-A profile can appear in Explore only if:
+A profile can appear in normal Explore only if:
 
 * Profile completion status is `complete`
 * User visibility is enabled
@@ -425,9 +475,15 @@ Consumed profiles must not be shown again to the same viewer.
 
 ### Guest and incomplete consumption
 
-Guest and incomplete users also consume profile previews.
+Guest and incomplete users consume profile previews from the Guest Preview Pool.
 
-Their permanent preview counter is shared by Telegram identity/user.
+Each shown Guest Preview creates permanent consumption with reason `preview`.
+
+Consumed Guest Preview targets must not be shown again to the same viewer.
+
+Guest and incomplete users share the same permanent preview counter tied to Telegram identity/user.
+
+Guest and incomplete preview consumption does not require normal Explore filters or reciprocal gender compatibility.
 
 ### No results
 
