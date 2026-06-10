@@ -811,8 +811,12 @@ After account deletion:
 
 - Profile becomes hidden.
 - Chats close.
-- User may later create a new profile with the same Telegram account.
-- Minimal audit, report, payment, and safety records are retained.
+- Account enters `deleted` state.
+- Minimal audit, report, payment, moderation, and safety records are retained.
+- The same Telegram account remains attached to the same internal User.
+- Deletion does not clear reports, restrictions, bans, payment history, safety history, or audit history.
+- A deleted user may later reactivate the same account if reactivation is allowed.
+- Reactivation rebuilds the existing dating profile under the same User; it does not create a clean new User or erase retained history.
 
 ## 15. Admin Moderation
 
@@ -918,7 +922,10 @@ If banned:
 
 If deleted:
 
-- Show reactivation/signup flow based on retained audit rules
+- If `AccountDeletionRecord.reactivation_allowed = true`, show account reactivation flow.
+- If reactivation is not allowed, show deleted-account support/appeal message.
+- Reactivation uses the same internal User, same TelegramIdentity, same Account, and existing Profile record.
+- Retained report, moderation, payment, safety, and audit history must still apply after reactivation.
 
 ## 19. Product Tone
 
