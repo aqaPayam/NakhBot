@@ -296,7 +296,7 @@ A profile cannot become complete unless it has:
 * City
 * Relationship goal
 * At least 2 visible photos
-* At most 6 uploaded profile photos
+* At most 6 saved profile photos
 * One visible primary photo
 * Highlight
 
@@ -359,21 +359,45 @@ Photos must be stored in object storage.
 The app server must not be the permanent image store.
 
 Photos should be served through CDN URLs.
+
 ### Photo count
 
 A complete profile must have at least 2 visible photos.
 
-A user can have at most 6 active profile photos.
+A profile can have at most 6 saved profile photos.
 
-Active profile photos means visible + hidden photos.
+Saved profile photos means visible + hidden profile photos currently stored for that profile.
 
-Deleted photos do not count toward the 6-photo active limit.
+Hidden photos count toward the 6-photo saved-photo limit, but do not count toward profile completion.
 
-Hidden photos count toward the 6-photo active limit, but do not count toward profile completion.
+Only visible photos count toward the 2-photo completion requirement.
 
-Extra active uploaded photos must be rejected.
+Extra saved profile photos must be rejected.
 
-Deleted photos may be retained for audit, moderation, safety, or history, but they are not active profile photos.
+The system must not allow users to create unlimited stored images by repeatedly uploading and deleting photos.
+
+### Photo deletion and retention
+
+When a user deletes a profile photo:
+
+* The photo is removed from the profile immediately.
+* The stored media object must be permanently deleted from object storage/CDN.
+* The deleted photo no longer counts as a saved profile photo after its stored media object is deleted.
+* The user may upload a replacement photo if the profile has fewer than 6 saved profile photos.
+
+Exception:
+
+If the photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot:
+
+* The user-facing photo is removed immediately.
+* The normal profile media object should not remain publicly accessible.
+* A restricted evidence copy may be retained in moderation/audit storage.
+* The evidence copy must be deleted when retention rules allow deletion.
+
+Deleted photo records should be used only for cleanup tracking, retention tracking, moderation/audit references, or historical traceability.
+
+Deleted photos must not become a loophole for unlimited media storage.
+
 
 ### Primary photo
 
@@ -1351,7 +1375,7 @@ Configurable constants include:
 * Guest preview limit
 * Minimum signup age
 * Minimum profile photos
-* Maximum profile photos
+* Maximum saved profile photos
 * Minimum interests
 * Maximum interests
 * Highlight max length
