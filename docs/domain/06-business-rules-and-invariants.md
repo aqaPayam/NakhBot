@@ -184,7 +184,15 @@ After deletion:
 * Chats close
 * Minimal audit, report, payment, and safety records remain
 
-A deleted user may later start a reactivation/signup flow using the same Telegram account.
+A deleted user may later start a reactivation flow using the same Telegram account only if reactivation is allowed.
+
+Reactivation must reuse the same internal User, TelegramIdentity, Account, and existing Profile record.
+
+Deletion does not clear reports, restrictions, bans, payment history, safety history, moderation history, or audit history.
+
+A reactivated user rebuilds the existing dating profile through the signup/profile-completion flow.
+
+Reactivation must not create a clean new User and must not bypass retained safety or moderation history.
 
 ## 2. Signup and Profile Rules
 
@@ -1226,9 +1234,17 @@ After deletion:
 
 ### Reactivation
 
-A deleted user may later create a new profile with the same Telegram account.
+A deleted user may later reactivate the same account with the same Telegram account only if `AccountDeletionRecord.reactivation_allowed = true`.
 
-Exact reactivation flow is not finalized yet.
+Reactivation uses the same internal User, same TelegramIdentity, same Account, and same Profile record.
+
+Reactivation changes `Account.state` from `deleted` to `incomplete` until the rebuilt profile satisfies all required completion rules.
+
+During reactivation, dating-visible profile fields may be cleared, overwritten, or re-entered through the signup/profile-completion flow.
+
+Retained reports, restrictions, bans, payment records, safety records, moderation records, audit logs, and deletion records remain attached to the same User.
+
+Reactivation must not create a clean new User, must not create a second active Profile for the same User, and must not erase retained safety or moderation history.
 
 ### Data retention
 
