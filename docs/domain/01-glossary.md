@@ -717,6 +717,7 @@ Examples:
 * Unban user
 * Hide photo
 * Restore photo
+* Delete photo
 * Dismiss report
 
 ### Admin User
@@ -743,6 +744,8 @@ Examples:
 * Restrict user
 * Ban user
 * Hide photo
+* Restore photo
+* Delete photo
 * Review support
 
 ### Admin Action Log
@@ -817,6 +820,18 @@ Public delivery URL used to serve media efficiently.
 A photo hidden by moderation/admin.
 
 Hidden photos should not appear to users.
+
+### Deleted Profile Photo
+
+A profile photo removed from the user-visible dating profile.
+
+Deleted profile photos do not count toward profile completion.
+
+Deleted profile photos do not count toward the active profile photo limit.
+
+Admin deletion of a profile photo is soft deletion from the dating profile, not immediate physical deletion of the underlying media asset.
+
+Deleted photo records and media metadata may be retained for audit, moderation, reports, appeals, abuse prevention, and safety history.
 
 ### Localization
 
