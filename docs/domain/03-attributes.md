@@ -87,6 +87,9 @@ Rule:
 * `limit_count` is 10 for MVP.
 * The counter is not reset when the user starts signup.
 * The counter stops controlling Explore access after the account becomes `active`.
+* The counter applies to Guest Preview, not normal Explore.
+* Guest Preview is available only while the account state is `guest` or `incomplete`.
+* Guest Preview uses the Guest Preview Pool and does not use normal Explore filters.
 
 ### UserSettings
 
@@ -467,6 +470,12 @@ Allowed reasons:
 Rule:
 
 * Once consumed, the target profile is not shown again to the same viewer.
+
+Guest Preview rule:
+
+* Guest and incomplete profile previews also create `ExploreConsumption` with reason `preview`.
+* Guest Preview consumption is permanent.
+* Guest Preview consumption does not require normal Explore filters or reciprocal gender compatibility.
 
 ### ExploreSession
 
