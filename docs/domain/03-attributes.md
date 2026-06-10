@@ -376,6 +376,9 @@ Notes:
 * Photos are stored in object storage.
 * The app server is not the permanent image store.
 * CDN URL is used for media delivery.
+* * User-deleted profile-photo media objects must be permanently deleted from object storage/CDN.
+* Deleted media may be retained only when required for an active report, moderation case, safety case, legal/audit case, or immutable report snapshot.
+* Retained evidence media must not remain available through normal user-facing profile URLs.
 
 ### ProfilePhoto
 
@@ -398,14 +401,17 @@ Allowed statuses:
 Rules:
 
 * Minimum visible profile photos for completion: 2.
-* Maximum active profile photos: 6.
-* Active profile photos means visible + hidden photos.
-* Deleted photos do not count toward the 6-photo active limit.
-* Hidden photos count toward the 6-photo active limit, but do not count toward profile completion.
-* Extra active uploaded photos are rejected.
+* Maximum saved profile photos per profile: 6.
+* Saved profile photos means profile photos currently stored as visible or hidden.
+* Hidden photos count toward the 6-photo saved-photo limit, but do not count toward profile completion.
+* Only visible photos count toward the 2-photo completion requirement.
+* Deleted photos are removed from the profile and their stored media objects must be permanently deleted from object storage/CDN.
+* A deleted photo no longer counts as a saved profile photo after its stored media object is deleted.
+* Extra saved profile photos are rejected.
 * One visible photo must always be primary.
 * User cannot delete the primary photo before choosing another visible primary photo.
 * If admin hides the primary photo, profile validity must be rechecked.
+* If a deleted photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
 
 ### PhotoVariant
 
