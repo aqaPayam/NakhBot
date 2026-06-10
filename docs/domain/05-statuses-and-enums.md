@@ -92,6 +92,13 @@ Notes:
 * hidden
 * deleted
 
+Notes:
+
+* `visible` photos are shown on the profile and count toward profile completion.
+* `hidden` photos are not shown on the profile, do not count toward profile completion, but still count toward the 6-photo saved-photo limit.
+* `deleted` means the photo has been removed from the user-facing profile and its stored media object should be permanently deleted from object storage/CDN unless retention is required for moderation, safety, legal, audit, or report evidence.
+* `deleted` must not be used as a normal forever-retained user photo state.
+
 ### PhotoVariantType
 
 * thumbnail
