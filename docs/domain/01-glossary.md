@@ -37,9 +37,13 @@ A Guest is persistent, not anonymous.
 
 On first `/start`, the system creates a User, TelegramIdentity, Account, UserSettings, and GuestPreviewCounter.
 
-Guest users can only preview limited profiles.
+Guest users can only preview limited teaser profiles from the Guest Preview Pool.
 
 The guest preview limit is permanent and tied to the Telegram identity/user.
+
+Guest Preview is not normal Explore.
+
+Guest Preview does not use Explore filters, reciprocal gender compatibility, viewer age, viewer city, viewer interested gender, or viewer relationship goal.
 
 ### Incomplete User
 
@@ -50,6 +54,10 @@ Incomplete users follow the same preview limit as guests.
 Incomplete users share the same GuestPreviewCounter created during Guest mode.
 
 Starting signup does not reset the preview counter.
+
+Incomplete users use the same Guest Preview Pool as guests.
+
+Partial SignupDraft values are not used to filter Guest Preview.
 
 ### Active User
 
@@ -311,7 +319,9 @@ There is no free-text city and no “Other” city option in MVP.
 
 ### Explore
 
-The discovery flow where a user sees one eligible profile at a time.
+The normal discovery flow where an active complete user sees one eligible profile at a time.
+
+Guest Preview is separate from normal Explore.
 
 ### Explore Filter
 
@@ -333,9 +343,29 @@ Province-wide browsing and whole-country browsing are not included in MVP.
 
 Interested gender is stored on the profile, not as a separate temporary filter.
 
+### Guest Preview
+
+The limited teaser preview mode for Guest and Incomplete users.
+
+Guest Preview shows real complete active visible profiles, but it does not use normal Explore filters or reciprocal gender compatibility.
+
+Guest Preview uses a simple eligible teaser pool.
+
+A profile can appear in Guest Preview only if:
+
+* Profile completion status is `complete`
+* Target user visibility is enabled
+* Target account state is `active`
+* Target user is not restricted, banned, or deleted
+* Target profile belongs to Iran for MVP
+* Target has a visible primary photo
+* Target has not already been consumed by the viewer
+
+Each shown Guest Preview counts against the permanent GuestPreviewCounter.
+
 ### Eligible Profile
 
-A profile that can appear in Explore.
+A profile that can appear in normal Explore for an active complete user.
 
 A profile is eligible only if:
 
