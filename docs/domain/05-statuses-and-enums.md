@@ -370,6 +370,7 @@ Non-mutable notification categories:
 * unban_user
 * hide_photo
 * restore_photo
+* delete_photo
 * dismiss_report
 * approve_change_request
 * reject_change_request
@@ -390,6 +391,7 @@ Non-mutable notification categories:
 * unban_user
 * hide_photo
 * restore_photo
+* delete_photo
 * dismiss_report
 * review_change_requests
 * review_support
@@ -475,6 +477,8 @@ Future locale:
 * user_restricted
 * user_banned
 * photo_hidden
+* photo_restored
+* photo_deleted
 * chat_closed
 * admin_action
 
