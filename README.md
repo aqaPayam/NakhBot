@@ -209,10 +209,15 @@ Photo rules:
 - One visible photo must always be primary.
 - User cannot delete the primary photo before choosing another visible primary photo.
 - If photo moderation or deletion causes a profile to fail the visible photo requirement:
+  - A never-completed profile remains Incomplete.
+  - A previously completed profile becomes Invalid.
+  - Hidden is not a profile completion status.
 
-- A never-completed profile remains Incomplete.
-- A previously completed profile becomes Invalid.
-- Hidden is not a profile completion status.
+If a previously completed profile becomes Invalid, the user keeps `Account.state = active`.
+
+Invalid profile status does not change the account back to Incomplete.
+
+An active user with an Invalid profile must be routed to Fix Profile until the profile becomes Complete again.
 
 ### Restricted Profile Fields
 
@@ -266,6 +271,47 @@ Profile completion status values:
 - Invalid
 
 A profile can become invalid after completion, for example if moderation hides photos and the visible photo requirement is no longer satisfied.
+
+### Invalid Active Profile
+
+An Invalid profile means the user previously completed signup but the profile later stopped satisfying completion rules.
+
+This can happen, for example, if photo moderation hides or deletes photos and the profile no longer has at least 2 visible photos.
+
+Invalid profile status does not change `Account.state`.
+
+A user with:
+
+- `Account.state = active`
+- `Profile.completion_status = invalid`
+
+is still an active account user, but cannot use normal discovery features until the profile is fixed.
+
+The user must be routed to Fix Profile.
+
+Invalid active profile users can:
+
+- Open the app
+- Edit Profile
+- Upload, replace, or restore required profile data
+- Access Settings
+- Access Support
+- View existing matches and chats, unless another moderation/account rule blocks them
+
+Invalid active profile users cannot:
+
+- Appear in Explore
+- Explore others
+- Like profiles
+- Send Nakh
+- Use Liked By discovery actions
+- Create new discovery interactions
+
+Once the profile satisfies all completion rules again, set:
+
+`Profile.completion_status = complete`
+
+Normal active-user access then resumes.
 
 ### Gender Options for MVP
 
@@ -328,6 +374,20 @@ For complete active users, main menu includes:
 There is no visible Wallet in MVP.
 
 Paid flows appear contextually when the user attempts a paid action.
+
+For active users with Invalid profiles, the normal main menu is replaced by a Fix Profile route.
+
+Invalid profile menu includes:
+
+- Fix Profile
+- Edit Profile
+- Matches
+- Nakhes
+- Settings
+- Support
+
+Explore and Liked By are hidden or blocked until the profile becomes Complete again.
+
 
 ## 6. Explore
 
