@@ -156,7 +156,7 @@ Required fields:
 - Province
 - City
 - Relationship goal
-- 2–6 photos
+- 2–6 saved profile photos, with at least 2 visible photos
 - One primary photo
 - Highlight
 
@@ -198,20 +198,24 @@ Optional fields:
 Photo rules:
 
 - Minimum 2 visible photos are required for profile completion.
-- Maximum 6 active profile photos are allowed.
-- Active profile photos means visible + hidden photos.
-- Deleted photos do not count toward the 6-photo active limit.
-- Hidden photos count toward the 6-photo active limit, but do not count toward profile completion.
+- Maximum 6 saved profile photos are allowed per profile.
+- Saved profile photos means photos currently stored for that profile as visible or hidden profile photos.
+- Hidden photos count toward the 6-photo saved-photo limit, but do not count toward profile completion.
 - Only visible photos count toward the 2-photo completion requirement.
+- Deleted photos are removed from the profile and their stored media objects must be permanently deleted from object storage/CDN.
+- A deleted photo no longer counts as a saved profile photo after its stored media object is deleted.
+- The user may upload a replacement photo after deleting an existing photo, as long as the profile has no more than 6 saved profile photos.
+- The system must not allow users to create unlimited stored images by repeatedly uploading and deleting photos.
+- If a deleted photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
 - User uploads the primary photo first.
 - User can upload additional photos after the primary photo.
-- Extra active photos are rejected.
+- Extra saved photos are rejected.
 - One visible photo must always be primary.
 - User cannot delete the primary photo before choosing another visible primary photo.
 - If photo moderation or deletion causes a profile to fail the visible photo requirement:
   - A never-completed profile remains Incomplete.
   - A previously completed profile becomes Invalid.
-  - Hidden is not a profile completion status.
+- Hidden is not a profile completion status.
 
 If a previously completed profile becomes Invalid, the user keeps `Account.state = active`.
 
