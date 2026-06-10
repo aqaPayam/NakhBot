@@ -419,17 +419,27 @@ Uploaded photos become visible immediately.
 
 Users can report photos.
 
-Admin can hide or restore photos.
+Admin can hide, restore, or delete profile photos.
 
-### Hidden primary photo
+Admin photo actions mean:
 
-If admin hides a primary photo:
+* Hide photo: set the photo status to `hidden`; the photo is removed from user-visible profile surfaces but remains restorable.
+* Restore photo: set a hidden photo back to `visible`, if it is allowed by moderation rules.
+* Delete photo: set the photo status to `deleted`; the photo is removed from the dating profile and no longer counts as an active profile photo.
+
+Admin photo deletion is soft deletion from the profile. It must not immediately hard-delete the underlying media asset.
+
+Deleted photo records and media metadata may be retained for audit, moderation, reports, appeals, abuse prevention, and safety history.
+
+### Moderated primary photo
+
+If admin hides or deletes a primary photo:
 
 * Another visible photo should become primary if available.
 * If no visible primary photo can be assigned, profile validity must be rechecked.
 * If the profile was never completed and required photo rules are not satisfied, keep `Profile.completion_status = incomplete`.
 * If the profile was previously complete and required photo rules are no longer satisfied, set `Profile.completion_status = invalid`.
-* Do not use hidden as a profile completion status.
+* Do not use hidden or deleted as profile completion statuses.
 
 ### Blurred previews
 
@@ -1245,11 +1255,11 @@ Photos are not pre-approved.
 
 Photos become visible immediately after upload.
 
-Admin can hide or restore photos.
+Admin can hide, restore, or delete profile photos.
 
-If a hidden photo is primary, another visible photo should become primary if available.
+If a hidden or deleted photo is primary, another visible photo should become primary if available.
 
-If required photo rules are no longer satisfied after photo moderation:
+If required photo rules are no longer satisfied after photo moderation or admin photo deletion:
 
 * A never-completed profile stays `incomplete`.
 * A previously complete profile becomes `invalid`.
@@ -1272,6 +1282,7 @@ Admin can:
 * Unban user
 * Hide photo
 * Restore photo
+* Delete photo
 * Dismiss report
 * Review birth year change requests
 * Review gender change requests
@@ -1341,6 +1352,8 @@ Audit should cover:
 * Restriction
 * Ban
 * Photo hiding
+* Photo restoration
+* Photo deletion
 * Chat closure
 * Admin actions
 
