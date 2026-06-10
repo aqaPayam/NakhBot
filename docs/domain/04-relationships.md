@@ -1005,6 +1005,7 @@ Examples:
 * Ban user
 * Hide photo
 * Restore photo
+* Delete photo
 
 ### AdminUser and ModerationReview
 
@@ -1044,12 +1045,14 @@ Rule:
 
 ### ProfilePhoto and ModerationAction
 
-* ProfilePhoto can be hidden or restored by ModerationAction.
+* ProfilePhoto can be hidden, restored, or deleted by ModerationAction.
 * ModerationAction may target one ProfilePhoto.
 
-Rule:
+Rules:
 
-* If the hidden photo is primary, profile validity must be rechecked.
+* If the hidden or deleted photo is primary, another visible photo should become primary if available.
+* If no visible primary photo can be assigned, profile validity must be rechecked.
+* Admin photo deletion is soft deletion from the dating profile and does not immediately hard-delete the underlying MediaAsset.
 
 ### ChatSession / ChatMessage and Report
 
