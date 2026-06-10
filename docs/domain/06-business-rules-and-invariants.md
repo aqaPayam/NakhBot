@@ -401,11 +401,15 @@ Deleted photos must not become a loophole for unlimited media storage.
 
 ### Primary photo
 
-One photo must always be primary.
+One visible photo must always be primary.
 
 The first uploaded photo becomes the primary photo.
 
-The user cannot delete the primary photo before choosing another primary photo.
+The user cannot delete the primary photo before choosing another visible primary photo.
+
+A hidden photo cannot be selected as primary by the user.
+
+A hidden photo can become primary only after it is restored to visible status through the allowed moderation/admin restore flow.
 
 ### Photo visibility
 
