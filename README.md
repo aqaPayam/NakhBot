@@ -895,6 +895,8 @@ Admin can:
 - Restrict user
 - Unrestrict user
 - Hide photo
+- Restore photo
+- Delete photo
 - Dismiss report
 - Review birth year change requests
 - Review gender change requests
@@ -906,7 +908,13 @@ Photos become visible immediately after upload.
 
 Users can report photos.
 
-Admin can hide photos or restrict/ban the user.
+Admin can hide, restore, or delete profile photos.
+
+Admin photo deletion is soft deletion from the dating profile. It sets the profile photo status to `deleted`, removes the photo from user-visible profile surfaces, and excludes it from active photo limits and profile completion.
+
+Admin photo deletion must not immediately hard-delete the underlying media asset. The media/audit record may be retained for moderation, reports, appeals, abuse prevention, and safety history.
+
+For severe violations, admin can also restrict or ban the user separately from the photo action.
 
 Admins should see chat messages only if:
 
