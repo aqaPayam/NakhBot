@@ -48,6 +48,12 @@ Separate record for account deletion.
 
 Tracks deletion time, profile hiding, chat closure, and reactivation eligibility.
 
+Reactivation eligibility controls whether the same internal User may reactivate after deletion.
+
+AccountDeletionRecord must not be used to allow a clean new User for the same Telegram identity.
+
+Reports, restrictions, bans, payment history, safety history, moderation history, and audit history remain attached to the same User after deletion and after any later reactivation.
+
 #### GuestPreviewCounter
 
 Permanent preview counter for guest and incomplete users.
