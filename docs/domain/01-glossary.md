@@ -61,7 +61,16 @@ Partial SignupDraft values are not used to filter Guest Preview.
 
 ### Active User
 
-A user with a completed profile and normal product access.
+A user whose account state is `active`.
+
+Normal product access requires both:
+
+* `Account.state = active`
+* `Profile.completion_status = complete`
+
+An active user may temporarily lose normal discovery access if their profile becomes `invalid`.
+
+In that case, the account remains active, but the user is routed to Fix Profile until profile completion status becomes `complete` again.
 
 ### Restricted User
 
@@ -168,6 +177,27 @@ Deleted photos do not count toward the 6-photo active profile photo limit.
 Hidden photos count toward the active photo limit, but do not count toward profile completion.
 
 A profile can become `invalid` after it was previously complete, for example if moderation hides photos and fewer than 2 visible photos remain.
+
+
+### Invalid Active Profile
+
+An invalid active profile is a profile that was previously complete but later stopped satisfying required profile rules.
+
+The account remains active.
+
+This state is represented as:
+
+* `Account.state = active`
+* `Profile.completion_status = invalid`
+
+The user is not treated as Guest or Incomplete.
+
+The user must fix the profile before using discovery features again.
+
+Invalid active profile users cannot Explore, appear in Explore, Like, send Nakh, or create new discovery interactions.
+
+They can still edit/fix the profile and access existing matches or chats unless another account or moderation rule blocks them.
+
 
 ### Birth Year
 
