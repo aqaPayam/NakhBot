@@ -69,6 +69,13 @@ Allowed states:
 * chats_closed_at
 * reactivation_allowed
 
+Rules:
+
+* `reactivation_allowed` controls whether the deleted account may be reactivated.
+* Reactivation reuses the same `user_id`.
+* Reactivation must not create a clean new User for the same Telegram identity.
+* Retained report, moderation, payment, safety, and audit records remain attached to the same `user_id`.
+
 ### GuestPreviewCounter
 
 * id
