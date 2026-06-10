@@ -68,6 +68,9 @@ Rule:
 * Starting signup does not reset the counter.
 * Completing signup does not delete the counter.
 * After account activation, the counter remains for audit/history but no longer controls normal Explore.
+* The counter controls Guest Preview only.
+* Guest Preview is separate from normal Explore.
+* Guest Preview does not use ExploreFilter or Profile gender compatibility.
 
 ### User and UserSettings
 
@@ -331,6 +334,14 @@ Rules:
 
 * Once consumed, the target profile is not shown again.
 * Consumption is permanent.
+
+Guest Preview relationship rule:
+
+* Guest and incomplete users create `ExploreConsumption` records when teaser previews are shown.
+* These records use reason `preview`.
+* The target must come from the Guest Preview Pool.
+* Guest Preview consumption does not require a complete viewer Profile.
+* Guest Preview consumption does not require ExploreFilter.
 
 Consumption reasons:
 
