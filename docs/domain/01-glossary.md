@@ -93,6 +93,12 @@ A user who deleted the account.
 
 The profile becomes hidden, chats close, and minimal audit, payment, report, and safety records remain.
 
+A deleted user is still the same internal User.
+
+The same Telegram account must not create a clean new User to bypass previous reports, restrictions, bans, payments, safety records, moderation records, or audit history.
+
+If reactivation is allowed, the user reactivates the same account and rebuilds the existing dating profile under the same User.
+
 ### Visibility
 
 A user-controlled setting stored as `UserSettings.visibility_enabled`.
