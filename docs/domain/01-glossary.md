@@ -166,15 +166,21 @@ Required profile data for a complete profile includes:
 * City
 * Relationship goal
 * At least 2 visible photos
-* At most 6 active profile photos
+* At most 6 saved profile photos
 * One visible primary photo
 * Highlight
 
-Active profile photos means visible + hidden photos.
+Saved profile photos are photos currently stored for the profile as visible or hidden profile photos.
 
-Deleted photos do not count toward the 6-photo active profile photo limit.
+Hidden photos count toward the 6-photo saved-photo limit, but do not count toward profile completion.
 
-Hidden photos count toward the active photo limit, but do not count toward profile completion.
+Only visible photos count toward the 2-photo completion requirement.
+
+When a user deletes a profile photo, the photo is removed from the profile and the stored media object must be permanently deleted from object storage/CDN.
+
+A deleted photo no longer counts as a saved profile photo after its stored media object is deleted.
+
+If the photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
 
 A profile can become `invalid` after it was previously complete, for example if moderation hides photos and fewer than 2 visible photos remain.
 
@@ -766,6 +772,8 @@ A limited message/action available to banned users.
 Stored uploaded file metadata.
 
 Usually represents a user photo stored in object storage.
+
+User-deleted media assets must be permanently deleted from object storage/CDN unless they must be retained as restricted moderation, safety, legal, audit, or report evidence.
 
 ### Profile Photo
 
