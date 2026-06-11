@@ -672,7 +672,9 @@ Rules:
 * Exact Pending Nakh expiry duration is configurable and must not be hardcoded in handlers.
 * If cancelled before payment, the sender must choose whether to convert it to a normal Like or mark the target as Not Interested.
 * A visibility-off sender cannot create a new Pending Nakh.
-* A visibility-off sender may complete payment for a Pending Nakh created before visibility was turned off.
+* A visibility-off sender may complete payment for a Pending Nakh created before sender visibility was turned off.
+* A visibility-off receiver may still receive a Sent Nakh if the Pending Nakh was created before receiver visibility was turned off.
+* Receiver visibility off blocks new discovery only. It does not block delivery of an already-created Pending Nakh after payment succeeds.
 * If the sender becomes restricted, banned, or deleted before payment succeeds, the Pending Nakh cannot be delivered.
 * If the receiver becomes restricted, banned, deleted, or profile-invalid before payment succeeds, the Pending Nakh cannot be delivered.
 
