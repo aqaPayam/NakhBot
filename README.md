@@ -6,6 +6,26 @@ This product is a Telegram-based dating bot.
 
 The first implementation is fully English. Persian and other languages may be added later, so UI text must be configurable and must not be hardcoded inside bot logic.
 
+### UI Language and Profile Language
+
+UI language and profile spoken languages are separate concepts.
+
+UI language controls bot text such as buttons, messages, errors, payment text, notifications, safety text, and admin text.
+
+For MVP, the only supported UI language is English.
+
+Persian and other UI languages may be added later through localization records.
+
+User-facing text must be loaded through localization keys and must not be hardcoded inside bot handlers.
+
+Profile spoken languages are dating profile fields.
+
+A profile spoken language means a language the user can speak, such as English, Persian, Turkish, Arabic, or another supported language.
+
+Profile spoken languages are selected from the `Language` option list and connected to profiles through `ProfileLanguage`.
+
+Profile spoken languages are not the same as `UserSettings.language_code`.
+
 The app has two main access modes:
 
 - Guest
@@ -187,7 +207,7 @@ Optional fields:
 - Education
 - Smoking preference
 - Pets
-- Languages
+- Spoken languages
 - Exercise/gym
 - Religion importance
 - Children preference
