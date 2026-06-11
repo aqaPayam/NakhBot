@@ -491,6 +491,9 @@ Rules:
 * PendingNakh does not create a Match.
 * PendingNakh does not appear in Liked By.
 * PendingNakh consumes the target profile.
+* PendingNakh starts the sender’s single allowed Nakh flow for that receiver.
+* A sender/receiver pair can have only one Nakh flow ever across PendingNakh and Nakh.
+* Terminal PendingNakh statuses do not allow a new Nakh flow for the same sender/receiver pair.
 
 ### PendingNakh and PendingPayment
 
@@ -531,7 +534,9 @@ Rules:
 
 * Paid Nakh appears in receiver’s Nakhes.
 * Paid Nakh does not appear in receiver’s Liked By.
-* Only one Nakh can be sent per sender/receiver pair.
+* Only one Nakh flow is allowed per sender/receiver pair across both PendingNakh and Nakh.
+* A Sent Nakh can be created directly from credits or from an existing PendingNakh after successful payment.
+* A sender cannot create another PendingNakh or Nakh for the same receiver after any Nakh flow already exists.
 * Receiver rejection sets `Nakh.status = rejected`.
 * Rejected Nakh is shown in UI as Closed.
 * `Nakh.status = closed` is reserved for generic non-rejection closure cases.
