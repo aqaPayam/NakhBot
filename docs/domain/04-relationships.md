@@ -1015,8 +1015,17 @@ Rule:
 
 Rules:
 
-* Five unique reporters restrict the target until admin review.
+* Report connects one reporter user to one target user.
+* Report threshold counting is based on unique `reporter_user_id` values for the same `target_user_id`.
+* Multiple reports from the same reporter against the same target user count as 1 reporter for automatic restriction.
+* The automatic restriction threshold is evaluated at target-user level.
+* ReportEvidence does not create separate threshold buckets.
+* Profile, photo, chat/message, and unmatched-user evidence types all count toward the same target-user report threshold.
+* For MVP, 5 or more unique reporters within a rolling 30-day window triggers automatic restriction if the reports are unresolved.
+* Only reports with status `submitted` or `pending_review` count toward automatic restriction.
+* Reports with status `dismissed`, `closed`, or `actioned` do not count toward triggering a new automatic restriction.
 * Reports do not automatically ban users.
+* Ban requires admin decision.
 
 ### Report and ReportReason
 
