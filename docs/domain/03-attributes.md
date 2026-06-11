@@ -663,6 +663,10 @@ Rules:
 * Pending Nakh does not appear in the receiver’s Nakhes.
 * Pending Nakh does not create a Match.
 * Pending Nakh consumes the target profile.
+* Creating a Pending Nakh consumes the sender’s single allowed Nakh flow for that receiver.
+* A sender/receiver pair can have only one Nakh flow ever.
+* A Nakh flow may be represented first by PendingNakh and then by Nakh after successful payment.
+* If PendingNakh becomes expired, abandoned, cancelled, or payment failed/cancelled, the sender still cannot create another PendingNakh or Nakh for the same receiver.
 * Pending Nakh text can be edited before payment.
 * Pending Nakh expires if it is not paid within the configured expiry duration.
 * Exact Pending Nakh expiry duration is configurable and must not be hardcoded in handlers.
@@ -701,7 +705,9 @@ Rules:
 * Nakh is created only after payment succeeds or credits are successfully spent.
 * Sent Nakh appears in receiver’s Nakhes.
 * Sent Nakh does not appear in receiver’s Liked By.
-* Only one Nakh can be sent per sender/receiver pair.
+* Only one Nakh flow is allowed per sender/receiver pair.
+* A Nakh record must not be created if the same sender/receiver pair already has any PendingNakh or Nakh flow.
+* A Nakh record may be created from an existing PendingNakh only when payment succeeds or credits are successfully spent.
 * Nakh text maximum length: 240 characters.
 * Nakh expires after 14 days.
 * Receiver rejection must set `status = rejected`.
