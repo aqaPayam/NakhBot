@@ -704,7 +704,11 @@ Rules:
 * Only one Nakh can be sent per sender/receiver pair.
 * Nakh text maximum length: 240 characters.
 * Nakh expires after 14 days.
+* Receiver rejection must set `status = rejected`.
 * Rejected Nakh is shown in UI as Closed.
+* `status = closed` is reserved for generic non-rejection closure cases, such as admin/moderation/system closure.
+* `rejected_at` is used only when the receiver rejects the Nakh.
+* `closed_at` is used only when the Nakh enters `status = closed`.
 
 ### NakhStatusHistory
 
@@ -738,7 +742,8 @@ Rules:
 
 * Viewing the profile can mark the Nakh as seen.
 * Accepting a sent Nakh can create a Match.
-* Rejecting closes the Nakh.
+* Rejecting sets `Nakh.status = rejected` and `Nakh.rejected_at`.
+* Rejecting does not set `Nakh.status = closed`.
 * Reporting starts the report flow.
 
 ## 7. Match and Chat Attributes
