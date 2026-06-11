@@ -1022,8 +1022,13 @@ Restricted user cannot:
 
 Banned user:
 
-- Cannot use app.
-- Can send one limited appeal/support message.
+- Cannot use the app normally.
+- Cannot open normal Support.
+- Can submit one limited ban appeal per ban event.
+- The ban appeal is stored as `UserAppeal`, not as `SupportThread` or `SupportMessage`.
+- If an appeal for the current ban event already exists, the user can only see the appeal status.
+- If the appeal is accepted, admin may unban the user.
+- If the appeal is rejected, the user remains banned and cannot submit another appeal for the same ban event.
 
 ### Account Deletion
 
@@ -1058,7 +1063,8 @@ Admin can:
 - Dismiss report
 - Review birth year change requests
 - Review gender change requests
-- Review appeals/support messages
+- Review support threads
+- Review ban appeals
 
 Photos are not pre-approved.
 
@@ -1123,8 +1129,10 @@ Settings includes:
 
 Support:
 
-- User can send message to admin/support.
+- Non-banned users can send messages to admin/support through `SupportThread`.
 - Support should be rate-limited.
+- Banned users cannot use normal Support.
+- Banned users can only submit a ban appeal through `UserAppeal`.
 
 ## 18. Start Behavior
 
@@ -1148,7 +1156,10 @@ If restricted:
 
 If banned:
 
-- Show ban/appeal message
+- Show ban appeal screen.
+- If no `UserAppeal` exists for the current ban event, allow one appeal submission.
+- If a `UserAppeal` already exists for the current ban event, show appeal status only.
+- Do not show normal Support.
 
 If deleted:
 
