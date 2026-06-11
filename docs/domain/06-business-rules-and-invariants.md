@@ -1058,11 +1058,46 @@ Paid actions can be funded in either of these ways:
 * Spending existing internal credits
 * Direct Telegram Stars payment
 
+Paid actions are:
+
+* Send Nakh
+* Unlock one match chat
+* Unlock one Liked By profile
+
 Both funding paths must result in the same final domain action.
 
 Direct Telegram Stars payment must not create different product behavior from credit-based payment.
 
 Payment callbacks must be idempotent and must not double-process credits, unlocks, Nakh delivery, or notifications.
+
+Payment type and paid action reason must stay separate:
+
+* `payment_type` describes the payment path.
+* `paid_action_reason` describes the paid action being completed.
+
+Payment types:
+
+* `buy_credit_package`
+* `direct_paid_action`
+* `pay_pending_action`
+
+Paid action reasons:
+
+* `send_nakh`
+* `unlock_chat`
+* `unlock_liked_by_profile`
+
+Credit package purchases are not paid actions.
+
+Credit package purchases use `payment_type = buy_credit_package`.
+
+Direct Telegram Stars payment for Send Nakh uses `payment_type = direct_paid_action` and `paid_action_reason = send_nakh`.
+
+Direct Telegram Stars payment for chat unlock uses `payment_type = direct_paid_action` and `paid_action_reason = unlock_chat`.
+
+Direct Telegram Stars payment for Liked By unlock uses `payment_type = direct_paid_action` and `paid_action_reason = unlock_liked_by_profile`.
+
+A payment for an existing PendingPayment uses `payment_type = pay_pending_action`; the action is resolved from the PendingPayment reason.
 
 ### Pending payment
 
@@ -1113,6 +1148,10 @@ FeatureUnlock is not needed for sent Nakh.
 Nakh is a paid action, not persistent access.
 
 For MVP, `liked_by_profile_unlock` can expire, but `chat_unlock` does not expire.
+
+Direct Telegram Stars payment for Nakh must not create a FeatureUnlock.
+
+Only chat unlock and Liked By profile unlock create FeatureUnlock records.
 
 ### Liked By unlock
 
