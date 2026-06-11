@@ -172,14 +172,16 @@ Review is created when admin approves or rejects the request.
 
 ### Profile and Language
 
-* Profile can have many Languages through ProfileLanguage.
+* Profile can have many spoken Languages through ProfileLanguage.
 * Language can belong to many Profiles through ProfileLanguage.
 * ProfileLanguage connects profile_id and language_id.
 
 Rules:
 
-* Spoken languages belong to the dating profile, not directly to the user.
+* Spoken languages belong to the dating profile, not directly to the user account.
 * Spoken languages must not be stored as free text.
+* Spoken languages are not the same as UI language.
+* UI language is stored separately in `UserSettings.language_code`.
 
 ### Profile and PersonalityTag
 
@@ -189,8 +191,9 @@ Rules:
 
 Rules:
 
-* Personality tags belong to the dating profile, not directly to the user.
-
+* Personality tags belong to the dating profile, not directly to the user account.
+* Personality tags should be selected from supported PersonalityTag records.
+* Personality tags should not be stored as free text.
 
 ### Country and Province
 
