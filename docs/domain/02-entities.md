@@ -142,23 +142,35 @@ Admin review result for a profile change request.
 
 #### Language
 
-Selectable spoken language option for profile details.
+Selectable spoken language option for dating profiles.
+
+This represents languages a user can speak, not the bot UI language.
+
+MVP should include English as an available spoken-language option.
+
+Additional spoken languages can be added later by adding new Language records.
+
+Profile spoken languages must not be hardcoded as free text.
 
 #### ProfileLanguage
 
-Connection between a profile and spoken languages.
+Connection between a profile and selected spoken languages.
 
-Spoken languages belong to the dating profile, not directly to the user.
+Spoken languages belong to the dating profile, not directly to the user account.
 
 #### PersonalityTag
 
-Selectable personality tag.
+Selectable personality tag for dating profiles.
+
+Personality tags are profile option records, not hardcoded strings inside bot logic.
+
+Additional personality tags can be added later by adding new PersonalityTag records.
 
 #### ProfilePersonalityTag
 
 Connection between a profile and selected personality tags.
 
-Personality tags belong to the dating profile, not directly to the user.
+Personality tags belong to the dating profile, not directly to the user account.
 
 ### 2.4 Location
 
@@ -670,30 +682,29 @@ Supporting entities include:
 * RateLimitRecord
 * UserBlock
 
-
 ## 4. Profile Option Entities
 
-Some profile options can be modeled as enums/config values first.
+Profile option entities are selectable profile values that should be data-driven.
 
-If admin-editable options are needed later, they can be converted into lookup tables.
+For MVP, the following profile option entities are included in the domain model:
 
-### Language
+* Interest
+* Language
+* PersonalityTag
 
-Selectable spoken language option.
+Their profile connections are:
 
-Used by profile language selection.
+* ProfileInterest
+* ProfileLanguage
+* ProfilePersonalityTag
 
-### ProfileLanguage
+These should not be modeled as random free-text fields.
 
-Connection between a profile/user and a spoken language.
+These should not be confused with UI localization.
 
-### PersonalityTag
+UI localization is handled by `Locale`, `UIText`, and `UserSettings.language_code`.
 
-Selectable personality tag.
-
-### ProfilePersonalityTag
-
-Connection between a profile/user and a selected personality tag.
+Other optional profile values such as smoking preference, pets, exercise/gym, religion importance, children preference, and education level may remain enum/config values until the product requires admin-editable lookup records.
 
 ## 5. Enum / Config Values
 
