@@ -591,7 +591,7 @@ Notes:
 ### FeatureUnlock
 
 * id
-* user_id
+* payer_user_id
 * feature_type
 * target_user_id
 * match_id
@@ -629,6 +629,16 @@ Rules:
 * `payment_id` stores the direct Telegram Stars payment when the unlock was funded directly.
 * `credit_transaction_id` stores the credit spend transaction when the unlock was funded with existing credits.
 * ChatUnlock must not duplicate `payment_id`, `credit_transaction_id`, `status`, `expires_at`, or `revoked_at`.
+
+Ownership rules:
+
+* `payer_user_id` is always the user who paid for the unlock.
+* `payer_user_id` does not define who receives access.
+* Access scope is defined by `feature_type` plus the scoped target fields.
+* For `liked_by_profile_unlock`, access is scoped to one liked-by profile/pair through `target_user_id`.
+* For `chat_unlock`, access is scoped to one Match through `match_id`.
+* For `chat_unlock`, both users in the Match receive unlocked text-chat access, even though only one user paid.
+* Chat access checks must use `match_id` / ChatUnlock state, not `payer_user_id`.
 
 ## 6. Nakh Attributes
 
@@ -964,6 +974,7 @@ Note:
 * match_id
 * feature_unlock_id
 * unlocked_at
+* unlocked_by_user_id
 
 Rule:
 
@@ -976,6 +987,7 @@ Rule:
 * If one side unlocks chat, both users can send text in that Match.
 * The other matched user does not need to pay again for the same Match.
 * Chat unlock does not expire in MVP.
+* `unlocked_by_user_id` must be the same user as `FeatureUnlock.payer_user_id`.
 
 ### ChatSafetyWarning
 
