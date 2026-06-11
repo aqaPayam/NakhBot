@@ -663,6 +663,18 @@ Ownership rules:
 * For `chat_unlock`, both users in the Match receive unlocked text-chat access, even though only one user paid.
 * Chat access checks must use `match_id` / ChatUnlock state, not `payer_user_id`.
 
+Liked By unlock rules:
+
+* A `liked_by_profile_unlock` is scoped to one receiver/liker pair.
+* `user_id` is the user who paid for or owns the unlock.
+* `target_user_id` is the liked-by profile user being unlocked.
+* `match_id` must be empty for `liked_by_profile_unlock`.
+* `expires_at` is required for `liked_by_profile_unlock`.
+* When the unlock expires, full profile access is removed.
+* If the original Like is still actionable, the Liked By card returns to locked state.
+* Expired Liked By unlocks remain as payment/audit history.
+* Liked By unlocks do not create Like, Match, or NotInterested records by themselves.
+
 ## 6. Nakh Attributes
 
 ### PendingNakh
