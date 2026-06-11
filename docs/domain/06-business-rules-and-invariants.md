@@ -597,9 +597,17 @@ If no eligible profile exists, show the Nobody Found state.
 
 A normal Like is free.
 
+A normal Like is permanent in MVP.
+
+Users cannot undo, cancel, or withdraw a normal Like.
+
 A normal Like appears in the receiver’s Liked By section.
 
 A normal Like can create a Match if the receiver has already liked the sender.
+
+A liked profile remains consumed and must not appear again to the same sender.
+
+If a user regrets a Like after a Match is created, the correct action is Unmatch, not Like cancellation.
 
 ### Liked By
 
