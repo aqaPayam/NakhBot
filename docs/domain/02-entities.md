@@ -266,6 +266,14 @@ Feature unlocks can expire or be revoked depending on feature type and configura
 
 Nakh is not modeled as a FeatureUnlock. Nakh is a paid action, not persistent feature access.
 
+FeatureUnlock ownership:
+
+* FeatureUnlock records the payer of a paid unlock.
+* The payer is not always the only user who receives access.
+* For Liked By unlock, access is user-scoped.
+* For Chat unlock, access is Match-scoped.
+* If one matched user unlocks chat, both users in that Match can send text.
+
 ### 2.8 Nakh
 
 #### PendingNakh
@@ -373,6 +381,9 @@ The other matched user does not need to pay again for the same Match.
 
 Chat unlock does not expire in MVP.
 
+ChatUnlock is the chat-specific state showing that one Match has unlocked text chat.
+
+The user who paid is stored as the unlock payer/unlocker, but the unlocked access applies to both users in the Match.
 
 ### 2.11 Payment
 
