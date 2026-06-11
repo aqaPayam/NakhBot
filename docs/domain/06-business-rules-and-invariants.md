@@ -661,6 +661,36 @@ Nakh is a paid stronger signal.
 
 Nakh is separate from normal Like.
 
+### Nakh flow uniqueness
+
+Only one Nakh flow is allowed per sender/receiver pair.
+
+A Nakh flow starts when:
+
+* PendingNakh is created
+* Sent Nakh is created directly using existing credits
+
+After a Nakh flow exists, the sender cannot create another PendingNakh or Sent Nakh for the same receiver.
+
+This rule still applies if the PendingNakh later becomes:
+
+* expired
+* abandoned
+* cancelled
+* blocked
+* payment failed
+* payment cancelled
+
+This rule also applies if the Sent Nakh later becomes:
+
+* seen
+* accepted
+* rejected
+* closed
+* expired
+
+PendingNakh and Nakh must be checked together when enforcing this rule.
+
 ### Pending Nakh
 
 Pending Nakh is an unpaid Nakh attempt.
@@ -676,6 +706,8 @@ Pending Nakh does not:
 * Create Match
 
 Pending Nakh does consume the target profile.
+
+Pending Nakh also consumes the sender’s one allowed Nakh flow for that receiver.
 
 ### Pending Nakh payment
 
@@ -733,7 +765,7 @@ When Nakh is successfully sent:
 
 ### Nakh limits
 
-Only one Nakh can be sent per sender/receiver pair.
+Only one Nakh flow is allowed per sender/receiver pair across both PendingNakh and Nakh.
 
 Nakh text maximum length is 240 characters.
 
