@@ -505,19 +505,6 @@ Guest Preview rule:
 * Guest Preview consumption is permanent.
 * Guest Preview consumption does not require normal Explore filters or reciprocal gender compatibility.
 
-### ExploreSession
-
-* id
-* user_id
-* started_at
-* ended_at
-* shown_count
-
-Notes:
-
-* Optional for first implementation.
-* Useful for analytics, debugging, and abuse detection.
-
 ### Like
 
 * id
