@@ -1358,8 +1358,21 @@ Allowed statuses:
 
 Rules:
 
-* Five unique reporters restrict the target until admin review.
-* Reports do not automatically ban users.
+* Reports are reviewed by admin/moderation.
+* One report alone does not automatically restrict or ban a user.
+* Automatic restriction is triggered when a target user receives reports from 5 or more unique reporters within the rolling report threshold window.
+* The MVP report threshold window is 30 days.
+* The threshold counts unique reporters, not total reports.
+* Multiple reports from the same reporter against the same target user count as 1 reporter.
+* Threshold counting is target-user-level, not evidence-type-level.
+* Profile, photo, chat/message, and unmatched-user reports all count toward the same target-user threshold.
+* Only unresolved reports count toward the automatic restriction threshold.
+* Unresolved report statuses are `submitted` and `pending_review`.
+* Reports with status `dismissed`, `closed`, or `actioned` do not count toward triggering a new automatic restriction.
+* If reports are dismissed by admin, they stop counting toward the automatic restriction threshold.
+* If reports are actioned by admin, they stop counting toward a new automatic restriction.
+* Automatic restriction does not automatically ban users.
+* Ban requires admin decision.
 
 ### ReportReason
 
@@ -1796,6 +1809,11 @@ Media:
 Admin bootstrap:
 
 * bootstrap_admin_telegram_ids
+
+
+
+* report_threshold_unique_reporter_count
+* report_threshold_window_days
 
 Rules:
 
