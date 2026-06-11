@@ -1706,24 +1706,79 @@ Rate-limited actions:
 * id
 * config_key
 * config_value
+* value_type
+* description
+* is_active
 * updated_at
 * updated_by_admin_id
 
-Config examples:
+Purpose:
+
+* Stores tunable MVP product constants.
+* Prevents product values from being hardcoded inside handlers, payment code, background jobs, or feature services.
+* Does not replace enums.
+* Does not store user-facing text. User-facing text belongs to UIText.
+* Does not store seed data lists such as interests, provinces, cities, predefined questions, or predefined answers.
+
+Required MVP config keys:
+
+Access and signup:
 
 * guest_preview_limit
 * min_signup_age
+* name_max_length
+* change_request_reason_max_length
+
+Profile completion:
+
 * min_profile_photos
 * max_profile_photos
 * min_interests
 * max_interests
 * highlight_max_length
 * bio_max_length
+
+Nakh:
+
 * nakh_text_max_length
-* nakh_expiry_days
-* liked_by_unlock_cost
-* chat_unlock_cost
 * nakh_cost
+* nakh_expiry_days
+* pending_nakh_expiry_minutes
+* pending_nakh_reminder_schedule
+
+Liked By:
+
+* liked_by_unlock_cost
+* liked_by_unlock_expiry_hours
+
+Chat:
+
+* chat_unlock_cost
+
+Payments and credits:
+
+* credit_package_options
+* telegram_stars_pricing
+* refund_policy
+
+Media:
+
+* media_storage_provider
+* media_cdn_provider
+* max_photo_file_size_mb
+* allowed_photo_mime_types
+
+Admin bootstrap:
+
+* bootstrap_admin_telegram_ids
+
+Rules:
+
+* Paid-action costs must be read from SystemConfig or code-level configuration.
+* Expiry durations must be read from SystemConfig or code-level configuration.
+* Background job schedules that are product-tunable must be read from SystemConfig or code-level configuration.
+* Payment/refund policy values must be read from SystemConfig or code-level configuration.
+* Handler code must not contain hardcoded product constants except for safe technical defaults.
 
 ## 12. Notes
 
