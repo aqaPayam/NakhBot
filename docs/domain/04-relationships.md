@@ -385,6 +385,9 @@ Rules:
 * Normal Like appears in receiver’s Liked By.
 * Nakh does not create a normal Like.
 * A mutual Like can create a Match.
+* Normal Likes are permanent in MVP.
+* Users cannot undo, cancel, or withdraw a normal Like.
+* A liked target remains consumed and must not be shown again to the same sender.
 
 ### User and NotInterested
 
