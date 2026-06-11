@@ -558,7 +558,9 @@ Every admin action must be logged.
 
 #### SupportThread
 
-Support conversation between a user and support/admin.
+Support conversation between a non-banned user and support/admin.
+
+Banned users cannot create SupportThread records.
 
 #### SupportMessage
 
@@ -568,7 +570,13 @@ Support messages must be rate-limited.
 
 #### UserAppeal
 
-Limited appeal/support action available to banned users.
+Limited ban appeal available to banned users.
+
+UserAppeal is the canonical MVP mechanism for banned-user appeal.
+
+Banned users do not create `SupportThread` or `SupportMessage`.
+
+One UserAppeal is allowed per ban event.
 
 ### 2.16 Config, Localization, Jobs, and Audit
 
