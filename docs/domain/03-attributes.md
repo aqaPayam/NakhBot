@@ -1569,11 +1569,13 @@ Rule:
 
 * id
 * user_id
+* ban_state_history_id
 * message_text
 * status
 * created_at
 * reviewed_at
 * reviewed_by_admin_id
+* admin_note
 
 Allowed statuses:
 
@@ -1582,9 +1584,15 @@ Allowed statuses:
 * accepted
 * rejected
 
-Rule:
+Rules:
 
-* Banned users can send one limited appeal/support message.
+* UserAppeal is used only for banned-user ban appeals.
+* Banned users cannot create SupportThread or SupportMessage records.
+* One UserAppeal is allowed per ban event.
+* `ban_state_history_id` references the AccountStateHistory record that changed the user into `banned`.
+* A user cannot create a second UserAppeal for the same `ban_state_history_id`.
+* If the appeal is accepted, admin may unban the user.
+* If the appeal is rejected, the user remains banned and cannot submit another appeal for the same ban event.
 
 ## 11. Localization, Jobs, Audit, and Config Attributes
 
