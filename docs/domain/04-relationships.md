@@ -443,6 +443,7 @@ Examples:
 * If pair is matched, block Like, Nakh, Not Interested, and Explore repeat.
 * If pair is unmatched, prevent future Match between the same users.
 * If pair is blocked, prevent future interaction.
+* If pair is matched, unmatched, or blocked, do not show either user in the other user’s Liked By view.
 
 Important:
 
@@ -451,15 +452,50 @@ Important:
 
 ### Like and FeatureUnlock
 
-* A received normal Like can be unlocked through one FeatureUnlock.
-* FeatureUnlock can unlock one specific liked-by profile.
+A received normal Like can be unlocked through one or more FeatureUnlock records over time.
+
+FeatureUnlock can unlock one specific liked-by profile for the receiver.
 
 Rules:
 
-* Unlocking one liked-by profile does not unlock other liked-by profiles.
+* Unlocking one Liked By profile does not unlock other Likes.
 * Liked By unlock is scoped to one liker/receiver pair.
 * Liked By unlock expires according to configured unlock duration.
+* If a Liked By unlock expires and the Like is still actionable, the card returns to locked state and may be unlocked again.
+* Expired FeatureUnlock records remain as payment/audit history.
 * Nakh senders do not appear in Liked By and are not unlocked through this relationship.
+
+### Liked By derived view
+
+Liked By is a derived inbox view, not a stored relationship.
+
+Liked By is derived from:
+
+* Like
+* FeatureUnlock
+* Match
+* UserPairState
+* NotInterested
+* Liker Account
+* Liker Profile
+
+A Like appears in Liked By only while it is actionable.
+
+A received Like is actionable only if:
+
+* The Like status is `active`.
+* No Match exists for the pair.
+* UserPairState is not `matched`, `unmatched`, or `blocked`.
+* The receiver has not marked the liker as Not Interested.
+* The liker account state is `active`.
+* The liker profile completion status is `complete`.
+* The liker is not restricted, banned, or deleted.
+
+Visibility off by the liker does not remove an already-sent Like from Liked By.
+
+If a pair matches, unmatches, becomes blocked, or the receiver marks the liker as Not Interested, the Like no longer appears in Liked By.
+
+If the liker becomes restricted, banned, deleted, or profile-invalid, the Like no longer appears as an actionable Liked By card.
 
 ### User and FeatureUnlock
 
