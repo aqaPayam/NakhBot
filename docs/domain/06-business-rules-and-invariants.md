@@ -1512,23 +1512,68 @@ Changing profile spoken languages must not change UI language.
 
 ### Product constants
 
-Product constants should not be scattered through handlers.
+Product constants must not be scattered through handlers, payment code, background jobs, or feature services.
+
+SystemConfig or code-level configuration must be the source of truth for tunable MVP constants.
 
 Configurable constants include:
 
+Access and signup:
+
 * Guest preview limit
 * Minimum signup age
+* Name max length
+* Change request reason max length
+
+Profile completion:
+
 * Minimum profile photos
-* Maximum saved profile photos
+* Maximum profile photos
 * Minimum interests
 * Maximum interests
 * Highlight max length
 * Bio max length
+
+Nakh:
+
 * Nakh text max length
-* Nakh expiry days
 * Nakh cost
-* Chat unlock cost
+* Sent Nakh expiry duration
+* Pending Nakh expiry duration
+* Pending Nakh reminder schedule
+
+Liked By:
+
 * Liked By unlock cost
+* Liked By unlock expiry duration
+
+Chat:
+
+* Chat unlock cost
+
+Payments and credits:
+
+* Credit package options
+* Telegram Stars pricing
+* Refund policy
+
+Media:
+
+* Media storage provider
+* Media CDN provider
+* Maximum photo file size
+* Allowed photo MIME types
+
+Admin bootstrap:
+
+* Bootstrap admin Telegram IDs
+
+Rules:
+
+* Handlers must read product constants from SystemConfig or code-level configuration.
+* Background jobs must read tunable schedules and expiry durations from SystemConfig or code-level configuration.
+* Payment and credit services must read costs, package options, Stars pricing, and refund policy from SystemConfig or code-level configuration.
+* README may describe product behavior, but it must not be treated as the config-key registry.
 
 ## 14. Notes
 
