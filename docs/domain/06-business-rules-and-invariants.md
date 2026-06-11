@@ -1165,6 +1165,18 @@ Unlocking one match chat unlocks that specific match chat for both matched users
 
 Only one successful chat unlock payment is needed per Match.
 
+The paying user is the chat unlock payer.
+
+The payer does not become the only beneficiary.
+
+Chat unlock is Match-scoped:
+
+* Store who paid.
+* Store which Match was unlocked.
+* Allow both Match participants to send free-text messages after unlock.
+* Do not charge the second participant for the same Match.
+* Do not check chat text permission by payer user ID alone.
+
 The other matched user does not need to pay again.
 
 If one side unlocks chat, both sides can send text in that Match.
