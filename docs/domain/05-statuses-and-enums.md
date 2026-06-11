@@ -467,16 +467,21 @@ Non-mutable notification categories:
 
 ### LocaleCode
 
-* en
-* fa
-
-MVP locale:
+Initial supported value:
 
 * en
 
-Future locale:
+Planned future value:
 
 * fa
+
+Notes:
+
+* MVP UI locale is `en`.
+* Persian UI support may be added later as `fa`.
+* Other UI locales may be added later if product requirements require them.
+* LocaleCode controls UI localization, not profile spoken languages.
+* Profile spoken languages are handled by `Language` and `ProfileLanguage`.
 
 ### UITextCategory
 
