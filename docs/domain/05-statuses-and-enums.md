@@ -126,9 +126,16 @@ Notes:
 ### LikeStatus
 
 * active
-* cancelled
 * closed_by_match
 * closed_by_unmatch
+
+Notes:
+
+* Normal Likes are permanent in MVP.
+* Users cannot undo, cancel, or withdraw a normal Like.
+* `closed_by_match` is used when the Like is consumed by a Match.
+* `closed_by_unmatch` is used when an existing Match is later unmatched.
+* MVP does not include an Unlike flow.
 
 ### NotInterestedSource
 
