@@ -733,6 +733,12 @@ If either matched user unlocks chat, both users can type freely in that Match.
 
 The other matched user does not need to pay again for the same Match.
 
+The user who pays is recorded as the unlock payer.
+
+Chat unlock access is granted to the Match, not only to the payer.
+
+After unlock, both matched users can send free-text messages in that Match.
+
 Chat unlock does not expire in MVP.
 
 Chat unlock rules:
@@ -798,6 +804,10 @@ Paid actions:
 Paid actions can be completed either by spending existing internal credits or through direct Telegram Stars payment. Both payment paths must be idempotent and must not create duplicate credits, unlocks, Nakh delivery, or notifications.
 
 FeatureUnlock is used for Liked By unlock and Chat unlock. Nakh is a paid action, not a persistent feature unlock.
+
+For Chat unlock, FeatureUnlock records the payer and the unlocked Match.
+
+The payer is not the only beneficiary. Both users in the Match receive unlocked chat access.
 
 MVP credit costs:
 
