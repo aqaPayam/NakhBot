@@ -212,9 +212,33 @@ Restricted users cannot:
 
 ### Banned user access
 
-Banned users cannot use the app.
+Banned users cannot use the app normally.
 
-A banned user can send one limited appeal/support message.
+Banned users cannot:
+
+* Explore
+* Edit profile
+* Like
+* Send Nakh
+* Match
+* Chat
+* Use paid features
+* Open normal Support
+* Create SupportThread
+* Create SupportMessage
+
+A banned user can submit one limited ban appeal per ban event.
+
+Ban appeal rules:
+
+* The appeal is stored as `UserAppeal`.
+* UserAppeal is the canonical MVP mechanism for banned-user appeal.
+* Banned users do not create SupportThread or SupportMessage records.
+* One UserAppeal is allowed per ban event.
+* The appeal must reference the AccountStateHistory record that changed the account state to `banned`.
+* If an appeal already exists for the current ban event, the user can only view the appeal status.
+* If the appeal is accepted, admin may unban the user.
+* If the appeal is rejected, the user remains banned and cannot submit another appeal for the same ban event.
 
 ### Deleted user access
 
