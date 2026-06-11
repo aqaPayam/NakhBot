@@ -223,12 +223,6 @@ Permanent record that a viewer has already seen or acted on a target profile.
 
 Consumed profiles must not be shown again.
 
-#### ExploreSession
-
-Optional browsing session record.
-
-Useful for analytics, debugging, and abuse detection. Not required for the first implementation.
-
 ### 2.7 Interaction
 
 #### Like
