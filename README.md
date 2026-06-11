@@ -565,7 +565,9 @@ Nakh rules:
 - Nakh text max length is 240 characters.
 - Sent Nakh expires after 14 days.
 - If rejected, sender cannot send another Nakh to the same target.
+- If rejected, internal Nakh status is `rejected`.
 - UI should show rejected Nakh as Closed.
+- Internal `closed` status is reserved for generic non-rejection closure cases.
 
 ### Nakh Payment Flow
 
@@ -649,9 +651,11 @@ Sent Nakh statuses:
 
 Pending Payment is not a Sent Nakh status.
 
-Internally, rejected can be stored as rejected.
+Receiver rejection must be stored internally as `rejected`.
 
 UI should show rejected Nakh as “Closed.”
+
+The internal `closed` status is reserved for generic non-rejection closure cases, such as admin/moderation/system closure.
 
 ### Nakhes Menu
 
