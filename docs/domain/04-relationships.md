@@ -700,7 +700,10 @@ Rule:
 ### ChatUnlock and FeatureUnlock
 
 * ChatUnlock belongs to one FeatureUnlock.
-* FeatureUnlock records the paid unlock.
+* FeatureUnlock may have one ChatUnlock when `feature_type = chat_unlock`.
+* FeatureUnlock records the paid unlock, payment funding, unlock status, expiry, and revocation.
+* ChatUnlock only marks that the matched chat has been unlocked.
+* ChatUnlock must not duplicate payment or status state from FeatureUnlock.
 
 ### Match/User and ChatSafetyWarning
 
@@ -860,6 +863,9 @@ Rules:
 * The other matched user does not need to pay again for the same Match.
 * Chat unlock does not expire in MVP.
 * Chat unlock remains active until the Match is unmatched, closed by admin/moderation, or closed because of account deletion or ban.
+* For chat unlock, FeatureUnlock is the access/payment source of truth.
+* ChatUnlock is only the Match-level chat marker connected to that FeatureUnlock.
+* Chat access should be allowed only when the related FeatureUnlock is active and the Match/ChatSession is still active.
 
 ### FeatureUnlock and Nakh
 
