@@ -74,12 +74,6 @@ General user settings.
 
 Owns visibility and language preference.
 
-#### UserBlock
-
-Internal safety record used to prevent future interaction between users when needed.
-
-Can support moderation, rejection, or safety flows.
-
 ### 2.2 Signup
 
 #### SignupProgress
@@ -692,7 +686,6 @@ Supporting entities include:
 * Locale
 * UIText
 * RateLimitRecord
-* UserBlock
 
 ## 4. Profile Option Entities
 
@@ -850,6 +843,22 @@ Rejected because ReportSnapshot and ChatMessageSnapshot cover moderation evidenc
 ### PendingAction
 
 Rejected because PendingPayment and PendingNakh cover the required pending flows.
+
+### UserBlock
+
+Rejected for MVP.
+
+Users cannot block other users in MVP.
+
+Admins also do not have a pair-level block action in MVP.
+
+If a user has a safety issue, the user should submit a Report.
+
+Admin review can result in existing moderation actions such as restricting the user, banning the user, hiding/restoring a photo, or dismissing the report.
+
+Pair-level rediscovery prevention is handled by existing source records such as NotInterested, Match, UnmatchRecord, and UserPairState where applicable.
+
+A user-facing block feature may be added later if product requirements change
 
 ## 8. Notes
 
