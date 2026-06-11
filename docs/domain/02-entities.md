@@ -243,6 +243,8 @@ Free weak signal from one user to another.
 
 A normal Like appears in the receiver’s Liked By section.
 
+A normal Like is permanent in MVP and cannot be undone, cancelled, or withdrawn by the sender.
+
 #### NotInterested
 
 Permanent negative action from one user toward another.
