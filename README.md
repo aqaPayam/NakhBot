@@ -835,6 +835,11 @@ MVP credit costs:
 - Unlock one match chat: 4 credits
 - Unlock one liked-by profile: 4 credits
 
+These MVP costs are product defaults.
+
+Implementation must load paid-action costs from SystemConfig or code-level configuration, not hardcode them inside bot handlers, payment handlers, or feature services.
+
+
 Direct Telegram Stars prices:
 
 - Direct Stars price for Send Nakh is configurable.
@@ -1067,11 +1072,11 @@ UI text must be configurable for future localization.
 
 ## 20. Open Decisions
 
-Open decisions before implementation:
+The following decisions must be finalized before implementation or before production launch, depending on scope:
 
 - Interest seed list
 - Iran province/city seed list
-- Optional profile field enum values
+- Optional profile field enum/config values
 - Name max length
 - Change request reason max length
 - Pending Nakh expiry duration
@@ -1082,3 +1087,9 @@ Open decisions before implementation:
 - Refund policy
 - Storage/CDN provider
 - Admin Telegram IDs
+
+After these decisions are finalized, tunable product values must be stored in SystemConfig or code-level configuration.
+
+README is not the source of truth for config keys.
+
+SystemConfig is the source of truth for MVP product constants that may change after launch.
