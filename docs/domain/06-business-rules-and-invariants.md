@@ -750,13 +750,19 @@ Receiver can:
 
 ### Nakh rejection
 
-Rejected Nakh is internally stored as rejected or closed.
+Receiver rejection must be stored internally as `Nakh.status = rejected`.
 
-UI should show rejected Nakh as Closed.
+The UI must display rejected Nakh as Closed.
+
+`Nakh.status = closed` must not be used for receiver rejection.
+
+`Nakh.status = closed` is reserved for generic non-rejection closure cases, such as admin/moderation/system closure, where the Nakh is terminated without being accepted, rejected, or expired.
 
 If receiver rejects Nakh:
 
-* Nakh closes
+* Set `Nakh.status = rejected`
+* Set `Nakh.rejected_at`
+* Do not set `Nakh.closed_at`
 * Sender cannot send another Nakh to the same target
 * Receiver should stop seeing sender in this flow
 
