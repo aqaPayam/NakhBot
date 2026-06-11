@@ -532,7 +532,9 @@ Rules:
 * Paid Nakh appears in receiver’s Nakhes.
 * Paid Nakh does not appear in receiver’s Liked By.
 * Only one Nakh can be sent per sender/receiver pair.
+* Receiver rejection sets `Nakh.status = rejected`.
 * Rejected Nakh is shown in UI as Closed.
+* `Nakh.status = closed` is reserved for generic non-rejection closure cases.
 
 ### Nakh and NakhStatusHistory
 
@@ -547,6 +549,12 @@ Used for tracking status changes:
 * Rejected
 * Closed
 * Expired
+
+Rules:
+
+* Rejected means the receiver explicitly rejected the Nakh.
+* Closed means the Nakh was terminated by a generic non-rejection closure case, such as admin/moderation/system closure.
+* Rejected Nakh may be displayed to users as Closed, but the internal status remains `rejected`.
 
 ### Nakh and NakhReceiverAction
 
