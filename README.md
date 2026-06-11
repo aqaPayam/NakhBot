@@ -984,9 +984,19 @@ Users can report:
 
 Report handling:
 
-- One report goes to admin review.
-- Five unique reporters restrict the target until admin review. This does not automatically ban the user. Ban requires admin decision.
-- Admin decides final action.
+- Every report goes to admin review.
+- One report alone does not automatically restrict or ban a user.
+- If a target user receives reports from 5 or more unique reporters within a rolling 30-day window, and those reports are still unresolved, the target user is automatically restricted until admin review.
+- Report threshold counting is user-level, not evidence-level.
+- Profile reports, photo reports, chat/message reports, and unmatched-user reports all count toward the same target-user threshold.
+- Multiple reports from the same reporter against the same target user count as 1 reporter for threshold purposes.
+- Only unresolved reports count toward the automatic restriction threshold.
+- Unresolved report statuses are `submitted` and `pending_review`.
+- Reports with status `dismissed`, `closed`, or `actioned` do not count toward triggering a new automatic restriction.
+- If admin dismisses reports, those reports stop counting toward the automatic restriction threshold.
+- If admin action is taken, the handled reports stop counting toward a new automatic restriction.
+- Automatic restriction does not automatically ban the user. Ban requires admin decision.
+- Admin decides the final action: dismiss and unrestrict, keep restricted, ban, or take another moderation action.
 - Reports involving chat/message evidence should create snapshots so evidence is not lost after edits or message cleanup.
 
 ## 14. Restricted, Banned, Deleted
