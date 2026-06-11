@@ -506,7 +506,11 @@ Used when:
 * Sender does not have enough credits.
 * Payment is required before delivery.
 
-Payment completion is allowed while sender visibility is off only if the PendingNakh was created before visibility was turned off.
+Payment completion is allowed while sender visibility is off only if the PendingNakh was created before sender visibility was turned off.
+
+Payment completion is allowed while receiver visibility is off only if the PendingNakh was created before receiver visibility was turned off.
+
+Receiver visibility off blocks new discovery but does not block delivery of an already-created PendingNakh after payment succeeds.
 
 Payment completion is blocked if the sender is restricted, banned, or deleted.
 
