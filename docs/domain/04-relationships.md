@@ -49,6 +49,15 @@ Used for:
 * Reactivation history
 * Admin-driven state changes
 
+### AccountStateHistory and UserAppeal
+
+* A ban AccountStateHistory record can have one UserAppeal.
+* UserAppeal belongs to the AccountStateHistory record that changed the account state to `banned`.
+
+Rule:
+
+* `UserAppeal.ban_state_history_id` must reference an AccountStateHistory record where `new_state = banned`.
+
 ### User and AccountDeletionRecord
 
 * User can have AccountDeletionRecords.
@@ -1145,8 +1154,13 @@ When chat is reported:
 
 ### User and SupportThread
 
-* User has many SupportThreads.
+* Non-banned User has many SupportThreads.
 * SupportThread belongs to one User.
+
+Rule:
+
+* Banned users cannot create SupportThread records.
+* Banned users must use UserAppeal for ban appeals.
 
 ### SupportThread and SupportMessage
 
@@ -1159,12 +1173,16 @@ Rule:
 
 ### User and UserAppeal
 
-* User can have limited UserAppeals.
+* Banned User can have UserAppeals.
 * UserAppeal belongs to one User.
+* UserAppeal belongs to one ban AccountStateHistory record through `ban_state_history_id`.
 
-Rule:
+Rules:
 
-* Banned user can send one limited appeal/support message.
+* UserAppeal is the canonical banned-user appeal mechanism.
+* Banned users cannot create SupportThread or SupportMessage records.
+* One UserAppeal is allowed per ban event.
+* A user cannot create more than one UserAppeal for the same `ban_state_history_id`.
 
 ### AdminUser and UserAppeal
 
