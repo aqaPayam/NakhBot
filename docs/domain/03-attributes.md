@@ -540,7 +540,6 @@ Guest Preview rule:
 Allowed statuses:
 
 * active
-* cancelled
 * closed_by_match
 * closed_by_unmatch
 
@@ -548,6 +547,11 @@ Rules:
 
 * Normal Like appears in receiver’s Liked By.
 * Nakh does not create a normal Like automatically.
+* Normal Likes are permanent in MVP.
+* Users cannot undo, cancel, or withdraw a normal Like.
+* A liked profile remains consumed and must not be shown again to the same sender.
+* If a mutual Like creates a Match, the relevant Like records should be closed as `closed_by_match`.
+* If the Match is later unmatched, Like records related to that Match should be closed as `closed_by_unmatch`.
 
 ### NotInterested
 
