@@ -371,16 +371,6 @@ Consumption reasons:
 * Sent Nakh
 * Match
 
-### User and ExploreSession
-
-* User has many ExploreSessions.
-* ExploreSession belongs to one User.
-
-Notes:
-
-* ExploreSession is optional for the first implementation.
-* It can be used later for analytics, debugging, and abuse detection.
-
 ### User and Like
 
 * User has many sent Likes.
