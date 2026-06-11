@@ -136,6 +136,13 @@ Notes:
 * `closed_by_match` is used when the Like is consumed by a Match.
 * `closed_by_unmatch` is used when an existing Match is later unmatched.
 * MVP does not include an Unlike flow.
+* `active` means the Like is still valid and may appear in Liked By if all Liked By eligibility rules pass.
+* `cancelled` is not user-facing in MVP.
+* Normal users cannot cancel or unlike in MVP.
+* `cancelled` is reserved only for admin/system correction if kept.
+* `closed_by_match` means the Like was closed because a Match was created.
+* `closed_by_unmatch` means the Like was closed because the pair unmatched.
+* Closed Likes do not appear in Liked By.
 
 ### NotInterestedSource
 
