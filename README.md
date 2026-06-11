@@ -596,9 +596,13 @@ When a user chooses to send Nakh from Explore:
 
 Visibility-off users cannot create a new Pending Nakh or new Sent Nakh.
 
-A visibility-off user may complete payment for a Pending Nakh that was created before visibility was turned off.
+A sender whose visibility is off may complete payment for a Pending Nakh that was created before the sender turned visibility off.
 
-Completing an existing Pending Nakh payment while visibility is off is allowed because the Nakh attempt was initiated before visibility was turned off.
+A receiver whose visibility is off may still receive a Sent Nakh if the Pending Nakh was created before the receiver turned visibility off.
+
+Completing an existing Pending Nakh payment while either side has visibility off is allowed because the Nakh attempt was initiated while the receiver was visible in Explore.
+
+Visibility off blocks new discovery and new Nakh creation only. It does not block already-created Pending Nakh payment completion.
 
 This exception applies only to visibility off.
 
