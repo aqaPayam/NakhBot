@@ -585,6 +585,8 @@ Examples:
 * Text length limits
 * Paid feature costs
 * Nakh expiry duration
+* Report threshold unique reporter count
+* Report threshold window days
 
 #### Locale
 
