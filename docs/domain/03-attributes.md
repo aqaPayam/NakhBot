@@ -302,12 +302,25 @@ Decisions:
 * is_active
 * display_order
 
+Rules:
+
+* Represents a spoken language selectable on a dating profile.
+* Does not represent bot UI language.
+* MVP should include English as an available spoken language.
+* Additional spoken languages can be added later by adding Language records.
+* Spoken languages must not be stored as free text.
+
 ### ProfileLanguage
 
 * id
 * profile_id
 * language_id
 * created_at
+
+Rules:
+
+* Connects a profile to a spoken language.
+* Spoken languages belong to the dating profile, not directly to the user account.
 
 ### PersonalityTag
 
@@ -316,12 +329,22 @@ Decisions:
 * is_active
 * display_order
 
+Rules:
+
+* Represents a selectable personality tag shown on dating profiles.
+* Personality tags should be data-driven and should not be hardcoded inside bot handlers.
+
 ### ProfilePersonalityTag
 
 * id
 * profile_id
 * personality_tag_id
 * created_at
+
+Rules:
+
+* Connects a profile to a selected personality tag.
+* Personality tags belong to the dating profile, not directly to the user account.
 
 ### Country
 
