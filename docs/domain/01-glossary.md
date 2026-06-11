@@ -487,6 +487,7 @@ A sent Nakh appears in the receiver’s Nakhes section, not in Liked By.
 ### Pending Nakh
 
 An unpaid Nakh attempt.
+A Pending Nakh is the start of the sender’s single allowed Nakh flow for that receiver.
 
 Pending Nakh is visible only to the sender.
 
@@ -498,10 +499,12 @@ Pending Nakh does not:
 * Create a Match
 
 If cancelled before payment, the sender must choose whether to convert it to a normal Like or mark the target as Not Interested.
+Cancelled, expired, abandoned, failed-payment, or cancelled-payment Pending Nakh records still consume the sender’s one allowed Nakh flow for that receiver.
 
 ### Sent Nakh
 
 A Nakh that has been paid for and delivered to the receiver.
+A Sent Nakh may be created directly from credits or by converting an existing Pending Nakh after payment succeeds.
 
 The receiver sees it in Nakhes.
 
