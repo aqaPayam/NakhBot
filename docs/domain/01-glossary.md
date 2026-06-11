@@ -114,13 +114,17 @@ A user-controlled setting stored as `UserSettings.visibility_enabled`.
 
 If visibility is off, the user cannot appear in Explore and cannot Explore, Like, or send Nakh.
 
-Existing matches, chats, and pending Nakh payments continue.
+Existing matches, chats, sent Nakh flows, and pending Nakh payments continue.
 
 Visibility off blocks creation of new Pending Nakh or Sent Nakh.
 
 Visibility off does not block completion of Pending Nakh payments that were created before visibility was turned off.
 
-This exception does not apply to restricted, banned, or deleted accounts.
+If a receiver turns visibility off after a Pending Nakh was created, the receiver can still receive and view the delivered Sent Nakh after payment succeeds.
+
+Visibility off only blocks new discovery and new Nakh creation.
+
+This exception does not apply to restricted, banned, deleted, or profile-invalid accounts.
 
 Visibility off is not the same as restricted, banned, deleted, or photo hidden.
 
