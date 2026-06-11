@@ -128,6 +128,28 @@ This exception does not apply to restricted, banned, deleted, or profile-invalid
 
 Visibility off is not the same as restricted, banned, deleted, or photo hidden.
 
+### UI Language
+
+The language used for bot interface text.
+
+UI language controls:
+
+* Button labels
+* Bot messages
+* Error texts
+* Admin texts
+* Payment texts
+* Notification texts
+* Safety texts
+
+MVP UI language is English.
+
+Persian and other UI languages may be added later through localization records.
+
+UI language is stored as `UserSettings.language_code`.
+
+UI language is not the same as profile spoken languages.
+
 ## 2. Profile Terms
 
 ### Profile
@@ -321,6 +343,20 @@ Includes:
 * Religion importance
 * Children preference
 * Personality tags
+
+### Profile Spoken Language
+
+A language the user can speak and display on their dating profile.
+
+Profile spoken languages are selectable profile options.
+
+They belong to the dating profile, not directly to the user account.
+
+Profile spoken languages must be selected from supported `Language` records.
+
+Profile spoken languages must not be stored as free text.
+
+Profile spoken languages are not the same as UI language.
 
 ### Locked Profile Fields
 
@@ -859,7 +895,11 @@ Deleted photo records and media metadata may be retained for audit, moderation, 
 
 System for configurable UI text.
 
-MVP uses English, but future Persian and other languages should be supported.
+MVP uses English UI text.
+
+Persian and other UI languages should be supported later by adding localization records.
+
+Localization is used for user-facing bot text, not for profile spoken-language selection.
 
 ### UI Text Key
 
