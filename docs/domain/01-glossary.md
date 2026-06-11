@@ -94,7 +94,11 @@ Restricted users cannot:
 
 A user blocked from using the app.
 
-A banned user can only send one limited appeal/support message.
+A banned user cannot use normal product features and cannot open normal Support.
+
+A banned user can submit one limited ban appeal per ban event.
+
+The appeal is stored as `UserAppeal`, not as `SupportThread` or `SupportMessage`.
 
 ### Deleted User
 
@@ -828,7 +832,9 @@ Every admin action must be logged.
 
 ### Support Thread
 
-A support conversation between a user and support/admin.
+A support conversation between a non-banned user and support/admin.
+
+Banned users cannot create normal support threads.
 
 ### Support Message
 
@@ -838,7 +844,11 @@ Support messages must be rate-limited.
 
 ### Appeal
 
-A limited message/action available to banned users.
+A limited ban-review request available to banned users.
+
+An appeal is stored as `UserAppeal`.
+
+A banned user can submit one appeal per ban event. If an appeal already exists for the current ban event, the user can only view its status.
 
 ## 8. Media, Localization, Jobs, and Audit Terms
 
