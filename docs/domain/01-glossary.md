@@ -496,6 +496,8 @@ A free weak signal from one user to another.
 
 A normal Like appears in the receiver’s Liked By section.
 
+A normal Like is permanent in MVP and cannot be undone, cancelled, or withdrawn by the sender.
+
 ### Liked By
 
 The section showing users who sent normal Likes to the current user.
