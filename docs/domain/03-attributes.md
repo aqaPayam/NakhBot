@@ -1044,6 +1044,7 @@ Notes:
 * id
 * user_id
 * payment_type
+* paid_action_reason
 * status
 * amount_credits
 * amount_stars
@@ -1058,8 +1059,14 @@ Notes:
 Allowed payment types:
 
 * buy_credit_package
+* direct_paid_action
 * pay_pending_action
-* direct_feature_payment
+
+Allowed paid action reasons:
+
+* send_nakh
+* unlock_chat
+* unlock_liked_by_profile
 
 Allowed statuses:
 
@@ -1076,11 +1083,21 @@ Allowed provider:
 
 Rules:
 
+Rules:
+
 * `provider_payment_id` must be unique when present.
 * Duplicate provider callbacks must not double-process a payment.
 * Paid actions can be funded by existing internal credits or by direct Telegram Stars payment.
 * Both funding paths must result in the same final domain action.
 * Direct Telegram Stars payment must not create different product behavior from credit-based payment.
+* `payment_type` describes how the Telegram Stars payment is used.
+* `paid_action_reason` describes the one-off paid action, when the payment is for a paid action.
+* For `payment_type = buy_credit_package`, `paid_action_reason` must be empty/null.
+* For `payment_type = direct_paid_action`, `paid_action_reason` must be one of `send_nakh`, `unlock_chat`, or `unlock_liked_by_profile`.
+* For `payment_type = pay_pending_action`, the paid action is resolved from the related PendingPayment.
+* `amount_stars` stores the Telegram Stars amount charged.
+* `amount_credits` stores the number of internal credits purchased or spent, when applicable.
+* Direct paid actions may have `amount_stars` without adding credits to the user balance.
 
 ### TelegramStarsPayment
 
@@ -1147,6 +1164,12 @@ Rules:
 * Pending payments should expire.
 * A PendingNakh may reference a PendingPayment.
 * Pending payment completion must apply the related paid action exactly once.
+* PendingPayment is used when payment cannot be completed immediately or when a paid action is waiting for Telegram Stars confirmation.
+* PendingPayment may be used for `send_nakh`, `unlock_chat`, `unlock_liked_by_profile`, or `buy_credit_package`.
+* For `send_nakh`, successful PendingPayment completion delivers the related Nakh.
+* For `unlock_chat`, successful PendingPayment completion creates the chat unlock.
+* For `unlock_liked_by_profile`, successful PendingPayment completion creates the liked-by profile unlock.
+* For `buy_credit_package`, successful PendingPayment completion adds credits to the user credit balance.
 
 ### RefundRecord
 
