@@ -623,6 +623,12 @@ Rules:
 * `chat_unlock` remains active until the Match is unmatched, closed by admin/moderation, or closed because of account deletion or ban.
 * Expiry configuration applies to `liked_by_profile_unlock`, not to `chat_unlock` in MVP.
 * FeatureUnlock is not used for sent Nakh. Nakh is a paid action, not persistent feature access.
+* For `chat_unlock`, `match_id` must be set and `target_user_id` must be empty.
+* For `liked_by_profile_unlock`, `target_user_id` must be set and `match_id` must be empty.
+* `user_id` is the user who paid for or triggered the unlock.
+* `payment_id` stores the direct Telegram Stars payment when the unlock was funded directly.
+* `credit_transaction_id` stores the credit spend transaction when the unlock was funded with existing credits.
+* ChatUnlock must not duplicate `payment_id`, `credit_transaction_id`, `status`, `expires_at`, or `revoked_at`.
 
 ## 6. Nakh Attributes
 
@@ -956,15 +962,17 @@ Note:
 
 * id
 * match_id
-* unlocked_by_user_id
 * feature_unlock_id
-* payment_id
-* credit_transaction_id
 * unlocked_at
 
 Rule:
 
 * One ChatUnlock is scoped to one Match.
+* One ChatUnlock belongs to one FeatureUnlock.
+* ChatUnlock is a chat-domain marker only.
+* ChatUnlock does not store payment, credit, status, expiry, or revocation fields.
+* FeatureUnlock is the source of truth for payment funding, unlock status, expiry, and revocation.
+* The user who paid for the unlock is stored on FeatureUnlock.user_id.
 * If one side unlocks chat, both users can send text in that Match.
 * The other matched user does not need to pay again for the same Match.
 * Chat unlock does not expire in MVP.
