@@ -553,6 +553,15 @@ Rules:
 * If a mutual Like creates a Match, the relevant Like records should be closed as `closed_by_match`.
 * If the Match is later unmatched, Like records related to that Match should be closed as `closed_by_unmatch`.
 
+Additional rules:
+
+* There is no user-facing Unlike or Like cancellation in MVP.
+* `cancelled` is reserved only for admin/system correction if kept.
+* A Like with status `active` may appear in Liked By only if it is still actionable.
+* When Like Back creates a Match, the original received Like should be closed with status `closed_by_match`.
+* When a pair unmatches, relevant Like records should be closed with status `closed_by_unmatch`.
+* Closed Likes do not appear in Liked By.
+
 ### NotInterested
 
 * id
