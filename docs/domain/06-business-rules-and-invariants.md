@@ -178,7 +178,13 @@ Visibility off blocks creation of new Pending Nakh and new Sent Nakh.
 
 Visibility off does not block payment completion for Pending Nakh records created before visibility was turned off.
 
-This is the only exception.
+If the sender turns visibility off after creating a Pending Nakh, the sender may still complete payment.
+
+If the receiver turns visibility off after a Pending Nakh was created, the receiver may still receive the delivered Sent Nakh after payment succeeds.
+
+Visibility off blocks new discovery and new Nakh creation only. It does not block already-created Pending Nakh payment completion.
+
+This is the only visibility exception.
 
 If the sender becomes restricted, banned, or deleted before payment succeeds, the Pending Nakh cannot be paid or delivered.
 
@@ -724,7 +730,11 @@ Sender eligibility fails if sender account is restricted, banned, or deleted.
 
 Receiver eligibility fails if receiver account is restricted, banned, deleted, or receiver profile is invalid.
 
-Sender visibility off does not fail eligibility if the Pending Nakh was created before visibility was turned off.
+Sender visibility off does not fail eligibility if the Pending Nakh was created before sender visibility was turned off.
+
+Receiver visibility off does not fail eligibility if the Pending Nakh was created before receiver visibility was turned off.
+
+Receiver visibility off only prevents the receiver from appearing in new Explore results. It does not block delivery of an already-created Pending Nakh after payment succeeds.
 
 ### Pending Nakh cancellation
 
