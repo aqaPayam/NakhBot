@@ -561,7 +561,11 @@ Nakh rules:
 - Pending Nakh does not notify the receiver.
 - Pending Nakh does not appear in Liked By or receiver’s Nakhes.
 - Pending Nakh consumes the target profile.
-- Only one Nakh can be sent per sender/receiver pair.
+- Only one Nakh flow is allowed per sender/receiver pair.
+- A Nakh flow starts when either a Pending Nakh is created or a Sent Nakh is created directly using existing credits.
+- After a Nakh flow exists for a sender/receiver pair, the sender cannot create another Pending Nakh or Sent Nakh for the same receiver.
+- This rule applies even if the Pending Nakh later expires, is abandoned, is cancelled, or has failed/cancelled payment.
+- This rule also applies if the Sent Nakh is rejected, accepted, closed, or expired.
 - Nakh text max length is 240 characters.
 - Sent Nakh expires after 14 days.
 - If rejected, sender cannot send another Nakh to the same target.
@@ -586,6 +590,8 @@ When a user chooses to send Nakh from Explore:
 * Existing credits and direct Telegram Stars payment must both result in the same final Sent Nakh behavior.
 * When payment succeeds, the Pending Nakh becomes paid and the system creates the delivered Sent Nakh.
 * The target profile is consumed when Pending Nakh is created or Sent Nakh is sent.
+* Creating a Pending Nakh permanently consumes the sender’s one allowed Nakh flow for that receiver.
+* If the Pending Nakh expires, is abandoned, is cancelled, or payment fails/cancels, the sender still cannot create another Nakh flow for the same receiver.
 * The target profile is not shown again, even if payment is completed later.
 
 Visibility-off users cannot create a new Pending Nakh or new Sent Nakh.
@@ -616,6 +622,7 @@ If the sender cancels unpaid Pending Nakh, they must choose either:
 If converted to Like, the receiver is notified and the sender appears in Liked By.
 
 If converted to Not Interested, the receiver is not notified and the target remains consumed.
+Cancellation does not restore the sender’s ability to send Nakh to the same receiver later.
 
 Unpaid Pending Nakh should expire. Exact expiry duration and reminder schedule are configurable/open decisions.
 
