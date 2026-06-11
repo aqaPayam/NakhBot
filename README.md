@@ -542,28 +542,111 @@ After a Match, the pair exits discovery actions and cannot Like each other again
 
 ## 7. Liked By
 
-Liked By shows people who liked the user.
+Liked By shows actionable received normal Likes.
 
-Liked By only contains normal Likes. Nakh senders do not appear in Liked By.
+Liked By only contains normal Likes.
+
+Nakh senders do not appear in Liked By.
+
+Liked By is not a separate stored card entity.
+
+Liked By is a derived inbox view based on:
+
+- Like
+- FeatureUnlock
+- Match
+- UserPairState
+- NotInterested
+- Liker account state
+- Liker profile completion status
+
+A received Like appears in Liked By only if all of these are true:
+
+- The Like status is `active`.
+- No Match exists for the pair.
+- UserPairState is not `matched`, `unmatched`, or `blocked`.
+- The current user has not marked the liker as Not Interested.
+- The liker account state is `active`.
+- The liker profile completion status is `complete`.
+- The liker is not restricted, banned, or deleted.
+
+Visibility off does not remove an already-sent Like from Liked By.
+
+If a liker turns visibility off after sending a Like, the Like may still appear in the receiver’s Liked By section as long as the liker account is active and the liker profile remains complete.
+
+If the liker becomes restricted, banned, deleted, or profile-invalid, the liker must not appear as an actionable Liked By card.
 
 Unpaid view:
 
-- Show number of likes.
+- Show the count of actionable received Likes.
 - Show locked liked-by cards.
 - Show blurred preview image.
 - Do not show full profile.
 - Do not show profile details.
+
+Liked By count includes only actionable received Likes.
+
+Liked By count does not include:
+
+- Nakh senders
+- matched users
+- unmatched users
+- blocked users
+- users marked as Not Interested by the receiver
+- restricted users
+- banned users
+- deleted users
+- profile-invalid users
+- closed Likes
 
 Unlock rules:
 
 - Each liked-by profile is unlocked separately.
 - Unlock is paid using Telegram Stars/credits.
 - Unlocking one liked-by profile does not unlock other liked-by profiles.
-- After unlocking a liked-by profile, user can view the full profile.
-- Liked By profile unlock has an expiry time. Exact expiry duration is configurable.
+- Unlocking creates a `FeatureUnlock` with type `liked_by_profile_unlock`.
+- After unlocking a liked-by profile, the user can view the full profile while the unlock is active.
+- Liked By profile unlock has an expiry time.
+- Exact expiry duration is configurable.
 - After unlocking, user can Like Back or mark as Not Interested.
-- If user Likes Back, a match is created.
-- If user marks Not Interested, the liked-by profile is closed and not shown again.
+
+Unlock expiry rules:
+
+- When a Liked By profile unlock expires, full profile access is removed.
+- If the original Like is still actionable, the card returns to locked state.
+- The user may unlock the same liked-by profile again.
+- Expired unlock does not remove the Like.
+- Expired unlock does not remove the card from the Liked By count.
+- No refund is given when an unlock expires.
+
+Like Back rules:
+
+- If user Likes Back from Liked By, a Match is created.
+- The original received Like is closed with status `closed_by_match`.
+- The pair moves to Matches.
+- The liked-by card is removed from normal Liked By.
+- The FeatureUnlock remains only as payment/audit history.
+
+Not Interested rules from Liked By:
+
+- If user marks an unlocked Liked By profile as Not Interested, create a NotInterested record with source `liked_by`.
+- The liked-by card is closed and not shown again.
+- The target user is not notified.
+- Any existing FeatureUnlock remains only as payment/audit history.
+
+Unmatch rules:
+
+- If users later unmatch, old Likes must not return to Liked By.
+- Relevant Like records are closed with status `closed_by_unmatch`.
+- UserPairState becomes `unmatched`.
+- The pair must not appear again in Liked By, Explore, Nakh, or Match flows.
+- Existing FeatureUnlock records remain only as payment/audit history.
+
+Like cancellation:
+
+- There is no user-facing Unlike or Like cancellation in MVP.
+- `LikeStatus.cancelled` is reserved only for admin/system correction if kept in implementation.
+- Normal users cannot cancel a Like in MVP.
 
 Liked By unlock cost:
 
