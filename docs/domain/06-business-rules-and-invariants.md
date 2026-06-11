@@ -1490,6 +1490,26 @@ Localization should cover:
 * Notification texts
 * Safety texts
 
+### UI language vs profile spoken languages
+
+UI language and profile spoken languages are separate.
+
+UI language controls bot interface text and is stored through `UserSettings.language_code`.
+
+MVP UI language is English.
+
+Persian and other UI languages may be added later through localization records.
+
+Profile spoken languages are dating profile fields.
+
+Profile spoken languages are selected from supported `Language` records and connected to profiles through `ProfileLanguage`.
+
+Profile spoken languages must not be stored as free text.
+
+Changing UI language must not change profile spoken languages.
+
+Changing profile spoken languages must not change UI language.
+
 ### Product constants
 
 Product constants should not be scattered through handlers.
