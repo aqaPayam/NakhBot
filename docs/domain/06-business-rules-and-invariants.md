@@ -1418,9 +1418,59 @@ A report alone does not automatically ban a user.
 
 ### Report threshold
 
-Five or more unique reporters should restrict the target until admin review.
+The automatic report threshold is a temporary safety restriction, not a ban.
 
-The threshold should count unique reporters, not total report count.
+A target user is automatically restricted when all of the following are true:
+
+* The target user has reports from 5 or more unique reporters.
+* The reports were created within the rolling report threshold window.
+* The report threshold window is 30 days for MVP.
+* The reports are unresolved.
+
+The threshold counts unique reporters, not total report count.
+
+Multiple reports from the same reporter against the same target user count as 1 reporter for threshold purposes.
+
+The threshold is counted at target-user level.
+
+The threshold is not counted separately by evidence type.
+
+Reports against the target user's profile, photos, chat/message context, and recently unmatched-user context all count toward the same target-user threshold.
+
+Only unresolved reports count toward the threshold.
+
+Unresolved report statuses are:
+
+* `submitted`
+* `pending_review`
+
+These report statuses do not count toward triggering a new automatic restriction:
+
+* `dismissed`
+* `closed`
+* `actioned`
+
+When the threshold is reached:
+
+* The target account becomes `restricted`.
+* A restriction warning should be sent to the target user.
+* A moderation/admin review should be created or flagged for priority review.
+* The automatic restriction remains until admin decision.
+
+Admin decision can:
+
+* Dismiss the reports and unrestrict the user.
+* Keep the user restricted.
+* Ban the user.
+* Take another moderation action.
+
+If admin dismisses reports, those reports stop counting toward the automatic restriction threshold.
+
+If admin action is taken, the handled reports stop counting toward a new automatic restriction.
+
+Reports do not automatically ban users.
+
+Ban always requires admin decision.
 
 ### No automatic ban
 
@@ -1611,6 +1661,9 @@ Product constants must not be scattered through handlers, payment code, backgrou
 SystemConfig or code-level configuration must be the source of truth for tunable MVP constants.
 
 Configurable constants include:
+
+* Report threshold unique reporter count
+* Report threshold window days
 
 Access and signup:
 
