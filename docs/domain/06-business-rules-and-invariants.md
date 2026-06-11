@@ -495,11 +495,23 @@ A profile can appear in normal Explore only if:
 
 ### Explore filters
 
-MVP Explore filters include:
+MVP Explore screen controls include:
 
 * Interested gender
 * Age range
 * City
+* Relationship goal
+
+Interested gender can be changed from the Explore screen, but it is not stored in ExploreFilter.
+
+Changing interested gender from Explore or Edit Profile updates the same profile-level field:
+
+* Profile.interested_gender
+
+ExploreFilter stores only:
+
+* Age range
+* Location
 * Relationship goal
 
 Default location is the user’s own city.
@@ -513,10 +525,6 @@ Explore location filtering is city-level.
 Province-wide browsing is not included in MVP.
 
 There is no whole-country filter in MVP.
-
-Interested gender is stored on Profile.
-
-Age range, location, and relationship goal are stored in ExploreFilter.
 
 ### Explore gender compatibility
 
