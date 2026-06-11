@@ -176,9 +176,12 @@ Notes:
 * closed
 * expired
 
-Note:
+Notes:
 
+* Receiver rejection must be stored as `rejected`.
 * Rejected Nakh is shown in UI as Closed.
+* `closed` must not be used for receiver rejection.
+* `closed` is reserved for generic non-rejection closure cases, such as admin/moderation/system closure.
 
 ### NakhReceiverActionType
 
@@ -489,7 +492,8 @@ Future locale:
 * Product constants should go in `SystemConfig`, not enums.
 * Enums should not be expanded casually; each new value may affect permissions, transitions, filters, or reporting.
 * Pending Nakh and Sent Nakh use separate status groups because they have different product meaning.
-* Rejected Nakh can be stored internally as `rejected`, but the UI should show it as Closed.
+* Rejected Nakh must be stored internally as `rejected`, but the UI should show it as Closed.
+* `NakhStatus.closed` must not be used for receiver rejection.
 * `UserPairState` is a summary state and does not replace source records.
 
 
