@@ -577,8 +577,9 @@ Nakh rules:
 
 When a user chooses to send Nakh from Explore:
 
-* If the user has enough credits, the system spends credits and creates a paid Sent Nakh immediately.
-* If the user does not have enough credits, the system creates a Pending Nakh and a related Pending Payment.
+* If the user chooses to spend credits and has enough credits, the system spends credits and creates a paid Sent Nakh immediately.
+* If the user chooses direct Telegram Stars payment, the system creates or uses a PendingPayment for `send_nakh` until Telegram confirms payment.
+* If the user does not have enough credits and chooses to continue, the system creates a Pending Nakh and a related PendingPayment for `send_nakh`.
 * Pending Nakh is an unpaid Nakh attempt, not a delivered Nakh.
 * Pending Nakh is visible only to the sender.
 * Pending Nakh does not notify the receiver.
@@ -587,7 +588,7 @@ When a user chooses to send Nakh from Explore:
 * Pending Nakh does not create a Match.
 * Pending Nakh can be paid later.
 * Pending Nakh text can be edited before payment.
-* Existing credits and direct Telegram Stars payment must both result in the same final Sent Nakh behavior.
+* Spending existing credits and paying Telegram Stars directly must both result in the same final Sent Nakh behavior.
 * When payment succeeds, the Pending Nakh becomes paid and the system creates the delivered Sent Nakh.
 * The target profile is consumed when Pending Nakh is created or Sent Nakh is sent.
 * Creating a Pending Nakh permanently consumes the sender’s one allowed Nakh flow for that receiver.
@@ -606,9 +607,11 @@ Visibility off blocks new discovery and new Nakh creation only. It does not bloc
 
 This exception applies only to visibility off.
 
-Nakh cost:
+Nakh pricing:
 
-- Send Nakh: 2 credits
+- Send Nakh credit cost: 2 credits.
+- Send Nakh direct Telegram Stars price is configurable.
+- Direct Telegram Stars payment for Nakh does not create a FeatureUnlock.
 
 Pending Nakh payment cannot be completed or delivered if the sender becomes restricted, banned, or deleted before payment succeeds.
 
@@ -796,17 +799,25 @@ Paid actions can be completed either by spending existing internal credits or th
 
 FeatureUnlock is used for Liked By unlock and Chat unlock. Nakh is a paid action, not a persistent feature unlock.
 
-MVP costs:
+MVP credit costs:
 
 - Send Nakh: 2 credits
 - Unlock one match chat: 4 credits
 - Unlock one liked-by profile: 4 credits
 
+Direct Telegram Stars prices:
+
+- Direct Stars price for Send Nakh is configurable.
+- Direct Stars price for unlocking one match chat is configurable.
+- Direct Stars price for unlocking one Liked By profile is configurable.
+- Direct Stars prices do not have to equal credit costs.
+
 Credit packages:
 
-- User can buy credit packages.
-- Credit packages may include discounts.
-- Exact package sizes and discount rules are not finalized in MVP specification.
+- User can buy credit packages using Telegram Stars.
+- Credit packages add internal app credits to the user credit balance.
+- Credit packages may include discounts compared with paying Stars directly for each action.
+- Exact package sizes, Stars prices, and discount rules are not finalized in MVP specification.
 
 When user attempts a paid action, bot shows a contextual purchase/unlock screen.
 
