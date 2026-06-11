@@ -500,17 +500,29 @@ A normal Like is permanent in MVP and cannot be undone, cancelled, or withdrawn 
 
 ### Liked By
 
-The section showing users who sent normal Likes to the current user.
+The section showing actionable received normal Likes.
 
 Nakh senders do not appear in Liked By.
 
+Liked By is not a separate stored card entity.
+
+Liked By is derived from Like, FeatureUnlock, Match, UserPairState, NotInterested, and the liker’s current account/profile eligibility.
+
+A Like appears in Liked By only while it is still actionable.
+
+Matched, unmatched, blocked, Not Interested, restricted, banned, deleted, profile-invalid, and closed Like cases do not appear in the normal Liked By view.
+
 ### Liked By Unlock
 
-A paid unlock that lets the receiver view one specific liked-by profile fully.
+A paid FeatureUnlock that lets the receiver view one specific liked-by profile fully.
 
 Unlocking one liked-by profile does not unlock other liked-by profiles.
 
 Liked By unlock expires according to configured unlock duration.
+
+After expiry, if the original Like is still actionable, the liked-by card returns to locked state and can be unlocked again.
+
+Liked By unlock remains as payment/audit history after expiry, match, Not Interested, unmatch, or account/profile invalidity.
 
 ### Not Interested
 
