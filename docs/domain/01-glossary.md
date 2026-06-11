@@ -592,17 +592,28 @@ After unlock, users may share phone numbers, Telegram IDs, or other contact info
 
 ### Credit
 
-Internal unit used to pay for paid features.
+Internal app unit used to pay for paid actions.
 
-Paid features include:
+Paid actions include:
 
 * Send Nakh
 * Unlock one match chat
 * Unlock one liked-by profile
 
+Credits are different from Telegram Stars.
+
+Users can buy credit packages with Telegram Stars, then spend credits inside the app.
+
 ### Telegram Stars
 
 The payment provider used in MVP.
+
+Telegram Stars can be used in two ways:
+
+* Direct payment for one paid action
+* Purchase of an internal credit package
+
+Direct Telegram Stars prices and internal credit costs are separate product settings.
 
 ### Credit Balance
 
@@ -646,6 +657,10 @@ Examples:
 
 * One liked-by profile unlock
 * One match chat unlock
+
+FeatureUnlock is not used for Nakh.
+
+Nakh is a paid action that creates a sent interaction, not persistent feature access.
 
 ### Payment Record
 
