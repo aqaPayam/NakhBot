@@ -467,13 +467,22 @@ Rules:
 
 ### User and FeatureUnlock
 
-* User has many FeatureUnlocks.
-* FeatureUnlock belongs to the user who paid for or received the unlock.
+* User has many FeatureUnlocks as payer.
+* FeatureUnlock belongs to the user who paid for the unlock through `payer_user_id`.
+* FeatureUnlock does not represent all users who receive access.
 
 Feature unlock types:
 
 * Liked By profile unlock
 * Chat unlock
+
+Rules:
+
+* For Liked By unlock, the payer receives access to one specific liked-by profile.
+* For Chat unlock, the payer is only the user who paid.
+* Chat unlock access belongs to the Match.
+* Once one matched user pays for chat unlock, both Match participants can send free-text messages in that Match.
+* The other matched user must not be charged again for the same Match.
 
 ## 4. Nakh Relationships
 
@@ -866,6 +875,12 @@ Rules:
 * For chat unlock, FeatureUnlock is the access/payment source of truth.
 * ChatUnlock is only the Match-level chat marker connected to that FeatureUnlock.
 * Chat access should be allowed only when the related FeatureUnlock is active and the Match/ChatSession is still active.
+
+Ownership rule:
+
+* `FeatureUnlock.payer_user_id` records who paid.
+* `FeatureUnlock.match_id` records which Match was unlocked.
+* For chat unlock, access checks must be based on the Match/ChatUnlock, not on `payer_user_id`.
 
 ### FeatureUnlock and Nakh
 
