@@ -241,8 +241,30 @@ Notes:
 ### PaymentType
 
 * buy_credit_package
+* direct_paid_action
 * pay_pending_action
-* direct_feature_payment
+
+Notes:
+
+* `buy_credit_package` means the user pays Telegram Stars to receive internal app credits.
+* `direct_paid_action` means the user pays Telegram Stars directly for one paid action without first buying credits.
+* `pay_pending_action` means the user pays a previously created PendingPayment.
+* Do not use `direct_paid_action` for credit package purchases.
+* Do not use `buy_credit_package` for one-off paid actions.
+
+### PaidActionReason
+
+* send_nakh
+* unlock_chat
+* unlock_liked_by_profile
+
+Notes:
+
+* PaidActionReason describes what paid action the payment or credit spend is for.
+* `send_nakh` creates or delivers a Nakh.
+* `unlock_chat` creates a chat unlock for one Match.
+* `unlock_liked_by_profile` creates a liked-by profile unlock.
+* Nakh is a paid action, not a FeatureUnlock.
 
 ### PendingPaymentStatus
 
@@ -258,6 +280,12 @@ Notes:
 * unlock_chat
 * unlock_liked_by_profile
 * buy_credit_package
+
+Notes:
+
+* PendingPaymentReason describes why a pending payment exists.
+* For pending one-off paid actions, use `send_nakh`, `unlock_chat`, or `unlock_liked_by_profile`.
+* For pending credit package purchases, use `buy_credit_package`.
 
 ### CreditTransactionType
 
