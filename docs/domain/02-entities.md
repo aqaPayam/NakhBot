@@ -357,20 +357,21 @@ Data-driven answer option for a predefined question.
 
 #### ChatUnlock
 
-Chat-specific unlock state for a Match.
+Chat-specific marker that a Match chat has been unlocked.
 
 One ChatUnlock belongs to one Match.
+
+One ChatUnlock belongs to one FeatureUnlock.
+
+ChatUnlock does not own payment, credit, expiry, revocation, or unlock status.
+
+FeatureUnlock is the source of truth for paid unlock state.
 
 If one side unlocks chat, both users can send text in that Match.
 
 The other matched user does not need to pay again for the same Match.
 
 Chat unlock does not expire in MVP.
-
-#### ChatSafetyWarning
-
-Record that the one-time chat unlock safety warning was shown.
-
 
 
 ### 2.11 Payment
