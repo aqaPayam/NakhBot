@@ -530,11 +530,15 @@ Like is stored permanently.
 
 A liked profile is not shown again.
 
+Users cannot undo, cancel, or withdraw a normal Like in MVP.
+
 The target user receives a notification.
 
 The liker appears in the target user’s Liked By section.
 
 If both users like each other, a match is created.
+
+After a Match, the pair exits discovery actions and cannot Like each other again.
 
 ## 7. Liked By
 
