@@ -1050,6 +1050,18 @@ Evidence types:
 * Message
 * Unmatched user
 
+### ReportEvidence and UnmatchRecord
+
+* ReportEvidence can belong to one UnmatchRecord when the evidence type is `unmatched_user`.
+* UnmatchRecord can be referenced by many ReportEvidence records.
+
+Rules:
+
+* This relationship is required for post-unmatch reports.
+* The referenced UnmatchRecord is the source of truth for the 24-hour post-unmatch report window.
+* The system must reject unmatched-user reports if the current time is after `UnmatchRecord.report_window_expires_at`.
+* The reporter and reported user must both belong to the referenced UnmatchRecord.
+
 ### Report and ReportSnapshot
 
 * Report has one or more ReportSnapshots.
