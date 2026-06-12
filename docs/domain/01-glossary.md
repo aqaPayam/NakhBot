@@ -874,6 +874,37 @@ User-deleted media assets must be permanently deleted from object storage/CDN un
 
 A media asset attached to a dating profile.
 
+### Photo Upload Validation
+
+The process that checks whether an uploaded file can become a dating profile photo.
+
+Validation includes file type, file size, image readability, image dimensions, and duplicate detection where available.
+
+A file that fails validation must not become a visible profile photo.
+
+### Required Photo Variant
+
+A generated photo version that must exist before a profile photo becomes visible.
+
+MVP required variants are:
+
+* Thumbnail
+* Blurred preview
+
+### Failed Photo Upload
+
+An upload attempt where validation, object-storage upload, or required variant generation fails.
+
+A failed photo upload does not create a visible profile photo and does not count toward active photo limits.
+
+### Telegram File ID
+
+A Telegram-side file reference that may be used temporarily to fetch an uploaded image.
+
+It is not the system source of truth for profile photos.
+
+The system source of truth is the stored MediaAsset in object storage.
+
 ### Primary Photo
 
 The main visible photo of a profile.
