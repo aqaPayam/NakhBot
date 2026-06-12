@@ -99,18 +99,6 @@ UserSettings owns:
 
 Notification preferences are handled by NotificationPreference.
 
-### User and UserBlock
-
-* User can block many users.
-* User can be blocked by many users.
-* UserBlock connects blocker_user_id and blocked_user_id.
-
-Used for:
-
-* Safety flows
-* Moderation flows
-* Preventing future interaction when needed
-
 ### User and SignupProgress
 
 * User has one SignupProgress.
@@ -430,7 +418,6 @@ Allowed pair-level states:
 * none
 * matched
 * unmatched
-* blocked
 
 Purpose:
 
@@ -449,9 +436,8 @@ Directional actions must be read from source records:
 
 Examples:
 
-* If pair is matched, block Like, Nakh, Not Interested, and Explore repeat.
+* If pair is matched, prevent Like, Nakh, Not Interested, and Explore repeat.
 * If pair is unmatched, prevent future Match between the same users.
-* If pair is blocked, prevent future interaction.
 * If pair is matched, unmatched, or blocked, do not show either user in the other user’s Liked By view.
 
 Important:
