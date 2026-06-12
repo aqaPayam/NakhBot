@@ -239,6 +239,16 @@ They can still edit/fix the profile and access existing matches or chats unless 
 
 The Gregorian year entered by the user during signup.
 
+For MVP, a valid birth year must be a 4-digit Gregorian year.
+
+The accepted range is:
+
+`1900 <= birth_year <= current_gregorian_year - 18`
+
+The system may normalize Persian/Arabic numerals to Western digits before validation, but the stored value must be an integer Gregorian year.
+
+Invalid examples include future years, current year, under-18 years, impossible old years, Jalali years, full dates, decimals, and non-numeric input.
+
 Exact birth date is not collected.
 
 Age is derived from Gregorian birth year.
