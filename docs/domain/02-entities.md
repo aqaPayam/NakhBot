@@ -581,6 +581,8 @@ Configurable product constants.
 Examples:
 
 * Guest preview limit
+* Minimum allowed birth year
+* Birth year validation format
 * Minimum signup age
 * Photo limits
 * Interest limits
