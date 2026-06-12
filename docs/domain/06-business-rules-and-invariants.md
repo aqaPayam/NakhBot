@@ -989,7 +989,7 @@ The following directional actions must be read from their source records:
 * Pending Nakh: PendingNakh
 * Sent Nakh: Nakh
 
-A normalized pair state can be used to block invalid future actions after Match, Unmatch, or Block.
+A normalized pair state can be used to prevent invalid future actions after Match or Unmatch.
 
 ### Match notification
 
@@ -1439,6 +1439,18 @@ Reports may include optional extra text.
 Every report goes to admin review.
 
 A report alone does not automatically ban a user.
+
+### No user block in MVP
+
+Users cannot block other users in MVP.
+
+Admins do not have a pair-level block action in MVP.
+
+Safety issues should be handled through Reports.
+
+After report review, admin can use the existing moderation actions: restrict user, unrestrict user, ban user, unban user, hide photo, restore photo, dismiss report, or review related support/appeal/change requests.
+
+Future user-facing block functionality can be added later if needed, but it is not part of the MVP.
 
 ### Report threshold
 
