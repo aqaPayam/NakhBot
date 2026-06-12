@@ -1021,6 +1021,15 @@ After unmatch, either user can report the other for 24 hours.
 
 After the 24-hour window expires, the special unmatched-user report access should close.
 
+### Post-unmatch report evidence
+
+If a user reports another user through the post-unmatch report flow:
+
+* The report evidence type must be `unmatched_user`.
+* The report evidence must reference the exact `UnmatchRecord`.
+* The report is valid only inside the 24-hour report window stored on that UnmatchRecord.
+* The report must be rejected if the reporter or reported user is not one of the two users involved in that UnmatchRecord.
+
 ### Message retention after unmatch
 
 After unmatch:
