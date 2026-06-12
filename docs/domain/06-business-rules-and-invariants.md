@@ -270,6 +270,40 @@ Users must confirm they are 18+ before entering birth year.
 
 Users enter Gregorian birth year only.
 
+### Birth year validation
+
+Birth year input must be validated before it can be stored.
+
+Validation rules:
+
+* Trim surrounding whitespace.
+* Persian/Arabic numerals may be normalized to Western digits before validation.
+* After normalization, the input must be exactly 4 digits.
+* The value must be interpreted as a Gregorian year.
+* The value must satisfy:
+
+`1900 <= birth_year <= current_gregorian_year - 18`
+
+Invalid birth year inputs must be rejected.
+
+Invalid inputs include:
+
+* Future years
+* Current year
+* Under-18 years
+* Impossible old years before 1900
+* Jalali years
+* Full dates
+* Decimals
+* Non-numeric input
+
+The stored value must be an integer Gregorian year.
+
+Birth year validation applies to:
+
+* Signup birth year entry
+* Admin approval of birth year change requests
+
 Exact birth date is not collected.
 
 Age verification is not included in MVP.
