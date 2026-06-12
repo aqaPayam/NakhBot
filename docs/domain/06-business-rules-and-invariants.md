@@ -424,6 +424,75 @@ The app server must not be the permanent image store.
 
 Photos should be served through CDN URLs.
 
+### Photo upload validation
+
+Profile photo upload validation must happen before a photo becomes visible.
+
+MVP accepted image formats:
+
+* JPEG
+* PNG
+* WebP
+
+HEIC/HEIF may be accepted only if the backend converts it into a supported delivery format before saving it as a profile photo.
+
+The following are not valid profile photos in MVP:
+
+* GIF
+* Animated images
+* Videos
+* Stickers
+* Documents
+* Corrupt or unreadable image files
+* Non-image files
+
+Maximum original file size is configurable.
+
+MVP default maximum original file size:
+
+`10 MB`
+
+Minimum image resolution is configurable.
+
+MVP default minimum image resolution:
+
+`600x600 pixels`
+
+Duplicate active photos for the same profile should be rejected when file hash or normalized image hash is available.
+
+A photo becomes visible only after:
+
+* The original image passes validation.
+* The original image is stored in object storage.
+* Required variants are generated and stored.
+* The ProfilePhoto record is created successfully.
+
+Required MVP variants:
+
+* Thumbnail
+* Blurred preview
+
+If upload validation fails:
+
+* Do not create a visible ProfilePhoto.
+* Do not count the failed upload toward active photo limits.
+* Show a retry/error message to the user.
+
+If required variant generation fails:
+
+* Do not create a visible ProfilePhoto.
+* Do not count the failed upload toward active photo limits.
+* Clean up partially stored media or mark it for cleanup.
+* Ask the user to retry.
+
+Telegram file IDs may be used only as temporary upload transport references.
+
+The system source of truth is the stored MediaAsset in object storage.
+
+MVP does not include automated NSFW detection, face detection, liveness checks, or identity verification.
+
+Photo moderation is report/admin-based in MVP.
+
 ### Photo count
 
 A complete profile must have at least 2 visible photos.
@@ -479,11 +548,11 @@ A hidden photo can become primary only after it is restored to visible status th
 
 Photos are not pre-approved.
 
-Uploaded photos become visible immediately.
+Uploaded photos become visible immediately after successful validation, object-storage upload, and required variant generation.
 
 Users can report photos.
 
-Admin can hide, restore, or delete profile photos.
+Admin can hide or restore photos.
 
 Admin photo actions mean:
 
