@@ -377,9 +377,15 @@ Rules:
 * original_file_name
 * mime_type
 * file_size
+* image_width
+* image_height
+* content_hash
+* normalized_image_hash
 * storage_provider
 * storage_key
 * cdn_url
+* validation_status
+* validation_error
 * uploaded_at
 * deleted_at
 
@@ -391,6 +397,23 @@ Notes:
 * * User-deleted profile-photo media objects must be permanently deleted from object storage/CDN.
 * Deleted media may be retained only when required for an active report, moderation case, safety case, legal/audit case, or immutable report snapshot.
 * Retained evidence media must not remain available through normal user-facing profile URLs.
+
+Validation statuses:
+
+* pending
+* valid
+* rejected
+* failed
+
+Rules:
+
+* `mime_type` must be one of the accepted MVP image formats after validation/conversion.
+* `file_size` stores the original uploaded file size.
+* `image_width` and `image_height` store detected image dimensions after decoding.
+* `content_hash` may be used to detect exact duplicate uploads.
+* `normalized_image_hash` may be used to detect visually duplicate uploads after normalization.
+* A rejected or failed MediaAsset must not become a visible ProfilePhoto.
+* A MediaAsset is not enough to make a photo visible; required PhotoVariant records must also exist.
 
 ### ProfilePhoto
 
@@ -425,6 +448,9 @@ Rules:
 * If admin hides or deletes the primary photo, another visible photo should become primary if available.
 * If no visible primary photo can be assigned, profile validity must be rechecked.
 * If a deleted photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
+* A ProfilePhoto can become visible only after the related MediaAsset is valid.
+* A ProfilePhoto can become visible only after required PhotoVariant records exist.
+* Failed uploads and failed variant-generation attempts do not count toward active profile photo limits.
 
 ### PhotoVariant
 
@@ -439,6 +465,12 @@ Variant types:
 
 * thumbnail
 * blurred_preview
+
+Rules:
+
+* Required MVP variants are thumbnail and blurred_preview.
+* Required variants must be generated before a new ProfilePhoto becomes visible.
+* If required variant generation fails, the upload must not create a visible ProfilePhoto.
 
 ### PhotoModerationRecord
 
@@ -1753,6 +1785,13 @@ Rate-limited actions:
 * is_active
 * updated_at
 * updated_by_admin_id
+* accepted_photo_mime_types
+* max_photo_file_size_mb
+* min_photo_width_px
+* min_photo_height_px
+* required_photo_variants
+* allow_heic_uploads
+* duplicate_photo_detection_enabled
 
 Purpose:
 
