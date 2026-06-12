@@ -183,6 +183,12 @@ Notes:
 * Account state does not belong to `Profile`.
 * Age is derived from `birth_year`, not stored directly.
 * `birth_year` uses the Gregorian calendar.
+* `birth_year` must be stored as an integer Gregorian year.
+* `birth_year` must be validated during signup and profile change approval.
+* MVP accepted range: `1900 <= birth_year <= current_gregorian_year - 18`.
+* Input may be normalized from Persian/Arabic numerals to Western digits before validation.
+* After normalization, input must be exactly 4 digits.
+* Jalali years, full dates, decimals, future years, current year, under-18 years, impossible old years, and non-numeric inputs must be rejected.
 * MVP age eligibility is approximate because exact birth date is not collected.
 * Eligibility rule: `birth_year <= current_gregorian_year - 18`.
 * The system cannot verify whether the user has already had their 18th birthday in the current year.
