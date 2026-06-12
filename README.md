@@ -963,6 +963,12 @@ Visibility off:
 
 Users can report others.
 
+There is no user-facing Block action in MVP.
+
+If a user has a safety issue, they should use Report.
+
+Admins review reports and decide whether to restrict, ban, dismiss, or take another supported moderation action.
+
 Report reasons:
 
 - Fake profile
