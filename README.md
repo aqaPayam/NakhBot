@@ -241,6 +241,7 @@ Photo rules:
 - The system must not allow users to create unlimited stored images by repeatedly uploading and deleting photos.
 - If a deleted photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
 - User uploads the primary photo first.
+- The primary photo is accepted only after successful photo upload validation and required variant generation.
 - User can upload additional photos after the primary photo.
 - Extra saved photos are rejected.
 - One visible photo must always be primary.
@@ -255,6 +256,45 @@ If a previously completed profile becomes Invalid, the user keeps `Account.state
 Invalid profile status does not change the account back to Incomplete.
 
 An active user with an Invalid profile must be routed to Fix Profile until the profile becomes Complete again.
+
+### Photo Upload Validation
+
+MVP photo upload validation rules:
+
+- Accepted image formats are JPEG, PNG, and WebP.
+- HEIC/HEIF may be accepted only if the backend converts it into a supported delivery format before saving it as a profile photo.
+- GIF, animated images, videos, stickers, and documents are not valid profile photos.
+- Maximum original file size is configurable. MVP default: 10 MB.
+- Minimum image resolution is configurable. MVP default: 600x600 pixels.
+- Corrupt, unreadable, or non-image files must be rejected.
+- Duplicate active photos for the same profile should be rejected based on file hash or normalized image hash when available.
+- Telegram profile photos are not used as dating profile photos.
+- Telegram file IDs may be used only as temporary upload transport references. The system source of truth is the stored `MediaAsset` in object storage.
+- The original uploaded image should be retained in object storage unless deletion or retention rules require removal.
+- The app server must not be the permanent photo store.
+
+A photo becomes visible only after:
+
+- The original image passes validation.
+- The original image is stored in object storage.
+- The required photo variants are generated and stored.
+- The profile photo record is created successfully.
+
+Required MVP photo variants:
+
+- Thumbnail
+- Blurred preview
+
+If variant generation fails:
+
+- The upload must not create a visible `ProfilePhoto`.
+- The user should be asked to retry the upload.
+- Any partially stored media should be cleaned up or marked for cleanup.
+- The failed upload must not count toward the active photo limit.
+
+MVP does not include automated NSFW detection, face detection, liveness checks, or identity verification.
+
+Photo moderation is report/admin-based in MVP.
 
 ### Restricted Profile Fields
 
