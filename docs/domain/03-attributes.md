@@ -115,23 +115,6 @@ Notes:
 * Visibility off is not the same as restricted, banned, deleted, or photo hidden.
 * Notification settings are stored in `NotificationPreference`, not here.
 
-### UserBlock
-
-* id
-* blocker_user_id
-* blocked_user_id
-* reason
-* source
-* created_at
-* removed_at
-
-Possible sources:
-
-* user_action
-* moderation
-* unmatch
-* safety
-
 ## 2. Signup Attributes
 
 ### SignupProgress
@@ -590,7 +573,6 @@ Allowed states:
 * none
 * matched
 * unmatched
-* blocked
 
 Rules:
 
@@ -609,7 +591,7 @@ Directional actions must be read from source records:
 Notes:
 
 * `UserPairState` does not replace `Like`, `NotInterested`, `PendingNakh`, `Nakh`, `Match`, or `UnmatchRecord`.
-* `UserPairState` should only be used to quickly block pair-level actions after match, unmatch, or block.
+`UserPairState` should only be used to quickly prevent invalid pair-level actions after match or unmatch.
 
 ### FeatureUnlock
 
