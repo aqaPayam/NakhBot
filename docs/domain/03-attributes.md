@@ -1384,6 +1384,7 @@ Default reason codes:
 * chat_session_id
 * chat_message_id
 * created_at
+* unmatch_record_id
 
 Allowed evidence types:
 
@@ -1392,6 +1393,13 @@ Allowed evidence types:
 * chat
 * message
 * unmatched_user
+
+Rules:
+
+* `unmatch_record_id` is required when `evidence_type = unmatched_user`.
+* `unmatch_record_id` must reference the exact UnmatchRecord that created the post-unmatch report window.
+* A report with `evidence_type = unmatched_user` is allowed only if the report is submitted before `UnmatchRecord.report_window_expires_at`.
+* The reporter and reported user must be the two users involved in the referenced UnmatchRecord.
 
 ### ReportSnapshot
 
