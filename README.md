@@ -133,6 +133,19 @@ Users must first confirm that they are 18+.
 
 Users then enter Gregorian birth year only.
 
+Birth year input validation:
+
+- The input is trimmed before validation.
+- Persian/Arabic numerals may be normalized to Western digits before validation.
+- After normalization, birth year must be exactly 4 digits.
+- Birth year must be a Gregorian year.
+- MVP accepted range is:
+
+`1900 <= birth_year <= current_gregorian_year - 18`
+
+- Future years, current year, under-18 years, impossible old years, Jalali years, decimals, full dates, and non-numeric inputs are rejected.
+- The stored value must be an integer Gregorian year.
+
 A user is eligible if:
 
 `birth_year <= current_gregorian_year - 18`
