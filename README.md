@@ -251,11 +251,16 @@ Photo rules:
   - A previously completed profile becomes Invalid.
 - Hidden is not a profile completion status.
 
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">What is the point of hidden profiels? Why should a user be able to hide some of it's photos?</span>
+
 If a previously completed profile becomes Invalid, the user keeps `Account.state = active`.
 
 Invalid profile status does not change the account back to Incomplete.
 
 An active user with an Invalid profile must be routed to Fix Profile until the profile becomes Complete again.
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">How should it be routed? Could it not use main features? Where should the routing start?</span>
 
 ### Photo Upload Validation
 
@@ -276,6 +281,8 @@ MVP photo upload validation rules:
 A photo becomes visible only after:
 
 - The original image passes validation.
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">Photo upload validation rules or other types of validation? </span>
 - The original image is stored in object storage.
 - The required photo variants are generated and stored.
 - The profile photo record is created successfully.
@@ -284,6 +291,12 @@ Required MVP photo variants:
 
 - Thumbnail
 - Blurred preview
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">What is the point of thumbnail?</span>
+
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">Is there any need to store blurred preview? Does it make sense to store such photo specially if users can delete photos at any time? Also is there any need to store blurred version of each and every photo of a user? Is it not enough to store only the blurred version of primary photo? Blurred preview is only used to tease user to either pay premium to view full liked by page or start sending Nakh, and such blurred photos could be created upon request (and be saved permanently then).</span>
+
 
 If variant generation fails:
 
@@ -313,6 +326,8 @@ Interested gender can be changed later from:
 
 - Explore filters
 - Edit Profile
+> **Important Note**  
+> <span style="font-size: 1.2rem;">Explore filter is what you choose to see, but not necessarily your preferred gender. Interested gender is what the matching algorithm will be using, but gender filter in explore is simply what you like to see at the moment. These two should not be mistaken. </span>
 
 ## 4. Profile Fields
 
@@ -398,6 +413,8 @@ Gender options:
 - Woman
 - Other
 - Prefer not to say
+> **Disagreement**  
+> <span style="font-size: 1.2rem;">There should not be "Prefer not to say"! User could simply use other.</span>
 
 Gender values must be configurable/extensible because more gender options may be added later. For MVP, `Men` shows `Man`, `Women` shows `Woman`, and `Everyone` can show all active visible genders, including `Other` and `Prefer not to say`.
 
@@ -498,6 +515,8 @@ MVP Explore controls:
 - Relationship goal
 
 Changing interested gender from Explore filters or Edit Profile updates the same profile-level value.
+> **Disagreement**  
+> <span style="font-size: 1.2rem;">Nope. Preferred gender should only be changed from edit profile and explore filter simply shows you who you like to see now.</span>
 
 Default age range:
 
@@ -536,6 +555,8 @@ Explore only shows profiles where:
 
 - Profile completion status is complete
 - User visibility is enabled
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">We have not defined visibility up to this point. Is it modifiable by user or set by satisfying the rules?</span>
 - Account state is active
 - User is not restricted, banned, or deleted
 - Profile matches viewer filters
@@ -560,6 +581,9 @@ A target profile is gender-compatible only if both conditions are true:
 - The target’s interested gender includes the viewer’s gender.
 
 Gender compatibility must be data-driven and extensible.
+
+> **Important Note**  
+> <span style="font-size: 1.2rem;">Having this rule, matching and exploring become the same actions. Matching should follow such rule but I'm not too sure about exploring! Needs further discussion</span>
 
 The implementation must not hardcode gender matching only for Man/Woman.
 
@@ -626,6 +650,8 @@ A received Like appears in Liked By only if all of these are true:
 Visibility off does not remove an already-sent Like from Liked By.
 
 If a liker turns visibility off after sending a Like, the Like may still appear in the receiver’s Liked By section as long as the liker account is active and the liker profile remains complete.
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">If a liker is invisible, how could it be active at the same time?</span>
 
 If the liker becomes restricted, banned, deleted, or profile-invalid, the liker must not appear as an actionable Liked By card.
 
@@ -671,11 +697,15 @@ Unlock expiry rules:
 - Expired unlock does not remove the Like.
 - Expired unlock does not remove the card from the Liked By count.
 - No refund is given when an unlock expires.
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">Why should there be an expiry? Is there really any need to have this feature or is it simply cash grab?</span>
 
 Like Back rules:
 
 - If user Likes Back from Liked By, a Match is created.
 - The original received Like is closed with status `closed_by_match`.
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">Why should a like have status?</span>
 - The pair moves to Matches.
 - The liked-by card is removed from normal Liked By.
 - The FeatureUnlock remains only as payment/audit history.
@@ -762,6 +792,8 @@ A sender whose visibility is off may complete payment for a Pending Nakh that wa
 A receiver whose visibility is off may still receive a Sent Nakh if the Pending Nakh was created before the receiver turned visibility off.
 
 Completing an existing Pending Nakh payment while either side has visibility off is allowed because the Nakh attempt was initiated while the receiver was visible in Explore.
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">What if a user decides to send Nakh to one of his liked by users? And what if strangly enough the liker is invisible?</span>
 
 Visibility off blocks new discovery and new Nakh creation only. It does not block already-created Pending Nakh payment completion.
 
@@ -1174,6 +1206,9 @@ Users cannot mute:
 - Admin notices
 - Ban notices
 - Restriction notices
+
+> **Ambiguous**  
+> <span style="font-size: 1.2rem;">How do notifications work? Are they real-time?</span>
 
 ## 17. Settings
 
