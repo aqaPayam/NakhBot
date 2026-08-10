@@ -104,13 +104,29 @@ The appeal is stored as `UserAppeal`, not as `SupportThread` or `SupportMessage`
 
 A user who deleted the account.
 
-The profile becomes hidden, chats close, and minimal audit, payment, report, and safety records remain.
+Account deletion permanently removes the user’s previous non-safety product data.
 
-A deleted user is still the same internal User.
+Deleted product data is not recoverable and must not be restored if the user later returns.
 
-The same Telegram account must not create a clean new User to bypass previous reports, restrictions, bans, payments, safety records, moderation records, or audit history.
+This includes previous:
 
-If reactivation is allowed, the user reactivates the same account and rebuilds the existing dating profile under the same User.
+* Dating profile data
+* Likes and Not Interested records
+* Pending Nakhes and Sent Nakhes
+* Matches and normal chat history
+* Credits and payment history
+* Feature unlocks
+* Normal notifications and other non-safety product history
+
+Only information required for safety, abuse prevention, moderation, restrictions, bans, and related safety evidence may remain.
+
+The stable User/TelegramIdentity linkage must remain sufficient to recognize the same Telegram user and prevent account deletion from bypassing previous safety actions.
+
+The permanent GuestPreviewCounter also remains and is not reset by account deletion.
+
+If the same Telegram user is later allowed to use the product again, they start the dating profile/signup flow from zero.
+
+Previous profile fields, matches, chats, payments, credits, Nakhes, Likes, or paid unlocks must not be restored.
 
 ### Visibility
 
@@ -998,4 +1014,7 @@ Used for account, profile, payment, moderation, safety, and admin events.
 
 ### Data Retention Record
 
-Record of minimal data retained after account deletion.
+Record of safety and abuse-prevention data retained after account deletion.
+
+It must not be used to retain normal profile, payment, match, chat, credit, or feature-access history for later restoration.
+
