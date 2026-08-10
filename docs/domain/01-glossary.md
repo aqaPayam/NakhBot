@@ -970,6 +970,10 @@ The app server must not be the permanent image store.
 
 Public delivery URL used to serve media efficiently.
 
+Cloudflare Images/CDN is the MVP media delivery provider.
+
+The domain model should remain provider-independent so the CDN provider can be replaced later without changing domain behavior.
+
 ### Hidden Photo
 
 A photo hidden by moderation/admin.
