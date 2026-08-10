@@ -73,6 +73,45 @@ Notes:
 * marriage
 * not_sure_yet
 
+### EducationLevel
+
+Controlled optional profile enum for MVP.
+
+Represents level of education, not exact major.
+
+Exact MVP values are not finalized yet.
+
+### SmokingPreference
+
+Controlled optional profile enum for MVP.
+
+Exact MVP values are not finalized yet.
+
+### PetsPreference
+
+Controlled optional profile enum for MVP.
+
+Exact MVP values are not finalized yet.
+
+### ExerciseFrequency
+
+Controlled optional profile enum for MVP.
+
+Exact MVP values are not finalized yet.
+
+### ReligionImportance
+
+Controlled optional profile enum for MVP.
+
+Exact MVP values are not finalized yet.
+
+### ChildrenPreference
+
+Controlled optional profile enum for MVP.
+
+Exact MVP values are not finalized yet.
+
+
 ### ProfileCompletionStatus
 
 * incomplete
