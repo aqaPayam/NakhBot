@@ -46,13 +46,17 @@ Used for restriction, ban, deletion, reactivation, and admin traceability.
 
 Separate record for account deletion.
 
-Tracks deletion time, profile hiding, chat closure, and reactivation eligibility.
+Tracks deletion time, product-data deletion, chat closure, and whether the same Telegram identity may use the product again.
 
-Reactivation eligibility controls whether the same internal User may reactivate after deletion.
+Account deletion permanently removes previous non-safety product data.
 
-AccountDeletionRecord must not be used to allow a clean new User for the same Telegram identity.
+AccountDeletionRecord must not be used to restore old profile, payment, Match, chat, Nakh, Like, credit, or FeatureUnlock data.
 
-Reports, restrictions, bans, payment history, safety history, moderation history, and audit history remain attached to the same User after deletion and after any later reactivation.
+Safety, abuse-prevention, restriction, ban, moderation, and required safety-evidence history remain linked to the persistent User/TelegramIdentity.
+
+The permanent GuestPreviewCounter also remains and is not reset by account deletion.
+
+If the user is later allowed to return, they start the dating profile/signup flow from zero.
 
 #### GuestPreviewCounter
 
