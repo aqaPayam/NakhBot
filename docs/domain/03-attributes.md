@@ -267,6 +267,11 @@ Rules:
 * created_at
 * reviewed_at
 
+Rules:
+
+* `reason` is required.
+* `reason` has a maximum length of 1024 characters.
+  
 Allowed fields:
 
 * birth_year
@@ -1817,7 +1822,7 @@ Access and signup:
 * guest_preview_limit
 * min_signup_age
 * name_max_length = 32
-* change_request_reason_max_length
+* change_request_reason_max_length = 1024
 
 Profile completion:
 
