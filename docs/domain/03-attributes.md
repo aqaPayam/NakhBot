@@ -408,6 +408,10 @@ Rules:
 Notes:
 
 * Photos are stored in object storage.
+* Cloudflare R2 is the MVP object storage provider.
+* `storage_provider` must use `cloudflare_r2` for MVP MediaAsset records.
+* Storage access should remain behind an S3-compatible provider abstraction.
+* The domain model must not depend on Cloudflare-specific storage semantics.
 * The app server is not the permanent image store.
 * CDN URL is used for media delivery.
 * * User-deleted profile-photo media objects must be permanently deleted from object storage/CDN.
@@ -1866,7 +1870,7 @@ Payments and credits:
 
 Media:
 
-* media_storage_provider
+* media_storage_provider = cloudflare_r2
 * media_cdn_provider
 * max_photo_file_size_mb
 * allowed_photo_mime_types
