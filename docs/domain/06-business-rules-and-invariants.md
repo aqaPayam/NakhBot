@@ -354,6 +354,16 @@ Signup follows this order:
 12. Optional bio and optional profile details
 13. Confirm profile
 
+### Profile name
+
+Profile name is required.
+
+The maximum allowed profile name length is 32 characters.
+
+Names longer than 32 characters must be rejected.
+
+The limit must come from the configured `name_max_length` value rather than being hardcoded inside handlers.
+
 ### Required profile fields
 
 A profile cannot become complete unless it has:
@@ -1844,7 +1854,7 @@ Access and signup:
 
 * Guest preview limit
 * Minimum signup age
-* Name max length
+* Name max length: 32 characters
 * Change request reason max length
 
 Profile completion:
