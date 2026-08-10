@@ -65,16 +65,19 @@ Allowed states:
 * deleted_at
 * deletion_reason
 * requested_by_user
-* profile_hidden_at
+* product_data_deleted_at
 * chats_closed_at
 * reactivation_allowed
 
 Rules:
 
-* `reactivation_allowed` controls whether the deleted account may be reactivated.
-* Reactivation reuses the same `user_id`.
-* Reactivation must not create a clean new User for the same Telegram identity.
-* Retained report, moderation, payment, safety, and audit records remain attached to the same `user_id`.
+* `reactivation_allowed` controls whether the same Telegram identity may use the product again after deletion.
+* The same persistent User/TelegramIdentity linkage must be used for safety and abuse-prevention continuity.
+* Returning after deletion must not restore old product data.
+* Previous profile fields, Matches, chats, Likes, NotInterested records, PendingNakhes, Nakhes, credits, payments, FeatureUnlocks, and normal notifications must not be restored.
+* Safety, restriction, ban, moderation, abuse-prevention, and required safety-evidence records may remain linked to the same identity.
+* The permanent GuestPreviewCounter remains and is not reset.
+* If return is allowed, profile/signup starts from zero.
 
 ### GuestPreviewCounter
 
@@ -1756,7 +1759,13 @@ Purpose:
 
 Purpose:
 
-* Tracks minimal retained data after account deletion.
+* Tracks safety and abuse-prevention data retained after account deletion.
+* Must not be used to preserve ordinary product data for later restoration.
+
+Rules:
+
+* Retained data must be required for safety, abuse prevention, moderation, restriction, ban enforcement, or required safety evidence.
+* Profile, Match, chat, Like, Nakh, credit, payment, notification, and FeatureUnlock history must not be retained here merely for future account restoration.
 
 ### RateLimitRecord
 
