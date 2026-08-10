@@ -442,6 +442,10 @@ Users must upload dating profile photos explicitly.
 
 Photos must be stored in object storage.
 
+Cloudflare R2 is the MVP object storage provider.
+
+Storage access must remain behind an S3-compatible provider abstraction so the storage provider can be replaced later without changing domain behavior.
+
 The app server must not be the permanent image store.
 
 Photos should be served through CDN URLs.
@@ -1895,7 +1899,7 @@ Payments and credits:
 
 Media:
 
-* Media storage provider
+* Media storage provider: Cloudflare R2
 * Media CDN provider
 * Maximum photo file size
 * Allowed photo MIME types
