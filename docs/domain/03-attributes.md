@@ -1873,16 +1873,13 @@ Payments and credits:
 Media:
 
 * media_storage_provider = cloudflare_r2
-* media_cdn_provider
+* media_cdn_provider = cloudflare_images
 * max_photo_file_size_mb
 * allowed_photo_mime_types
 
 Admin bootstrap:
 
 * bootstrap_admin_telegram_ids
-
-
-
 * report_threshold_unique_reporter_count
 * report_threshold_window_days
 
