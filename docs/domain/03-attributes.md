@@ -1816,7 +1816,7 @@ Access and signup:
 
 * guest_preview_limit
 * min_signup_age
-* name_max_length
+* name_max_length = 32
 * change_request_reason_max_length
 
 Profile completion:
