@@ -638,7 +638,9 @@ Safety and moderation-specific audit trail.
 
 #### DataRetentionRecord
 
-Record of minimal retained data after account deletion.
+Record of safety and abuse-prevention data retained after account deletion.
+
+It must not retain ordinary deleted product data for later restoration.
 
 #### RateLimitRecord
 
