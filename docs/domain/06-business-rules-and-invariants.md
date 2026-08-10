@@ -410,6 +410,10 @@ Gender cannot be changed directly after signup.
 
 To change either field, the user must submit a profile change request with a reason.
 
+The change-request reason is required and has a maximum length of 1024 characters.
+
+The limit must come from `change_request_reason_max_length` and must not be hardcoded inside handlers.
+
 Admin can approve or reject the request.
 
 ### Interested gender
@@ -1855,7 +1859,7 @@ Access and signup:
 * Guest preview limit
 * Minimum signup age
 * Name max length: 32 characters
-* Change request reason max length
+* Change request reason max length: 1024 characters
 
 Profile completion:
 
