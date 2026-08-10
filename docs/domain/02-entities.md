@@ -116,7 +116,7 @@ Explore gender compatibility must not be hardcoded only around Man/Woman.
 
 Optional profile information.
 
-Includes optional data such as height, job title, education, smoking preference, pets, exercise/gym, religion importance, and children preference.
+Includes optional data such as height, job title, education level, smoking preference, pets preference, exercise frequency, religion importance, and children preference.
 
 #### Interest
 
@@ -717,7 +717,21 @@ These should not be confused with UI localization.
 
 UI localization is handled by `Locale`, `UIText`, and `UserSettings.language_code`.
 
-Other optional profile values such as smoking preference, pets, exercise/gym, religion importance, children preference, and education level may remain enum/config values until the product requires admin-editable lookup records.
+The following optional profile values are controlled enums for MVP:
+
+* EducationLevel
+* SmokingPreference
+* PetsPreference
+* ExerciseFrequency
+* ReligionImportance
+* ChildrenPreference
+
+They must not be stored as arbitrary free text.
+
+Education represents education level, not exact major.
+
+These values may later be migrated to admin-editable lookup records if product requirements change.
+
 
 ## 5. Enum / Config Values
 
@@ -768,39 +782,41 @@ MVP values:
 
 ### SmokingPreference
 
-Optional profile value.
+Optional controlled enum for MVP.
 
-Exact options are not finalized yet.
+Exact enum values are not finalized yet.
 
 ### PetsPreference
 
-Optional profile value.
+Optional controlled enum for MVP.
 
-Exact options are not finalized yet.
+Exact enum values are not finalized yet.
 
 ### ExerciseFrequency
 
-Optional profile value.
+Optional controlled enum for MVP.
 
-Exact options are not finalized yet.
+Exact enum values are not finalized yet.
 
 ### ReligionImportance
 
-Optional profile value.
+Optional controlled enum for MVP.
 
-Exact options are not finalized yet.
+Exact enum values are not finalized yet.
 
 ### ChildrenPreference
 
-Optional profile value.
+Optional controlled enum for MVP.
 
-Exact options are not finalized yet.
+Exact enum values are not finalized yet.
 
 ### EducationLevel
 
-Optional profile value.
+Optional controlled enum for MVP.
 
-Exact options are not finalized yet.
+Represents education level, not exact major.
+
+Exact enum values are not finalized yet.
 
 ## 6. Optional / Later Entities
 
