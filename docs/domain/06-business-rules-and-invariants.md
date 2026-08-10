@@ -246,19 +246,27 @@ Deleted users do not have normal access.
 
 After deletion:
 
-* Profile becomes hidden
-* Chats close
-* Minimal audit, report, payment, and safety records remain
+* Account enters `deleted` state.
+* Previous dating-profile data is permanently removed.
+* Existing Matches are removed as recoverable product state.
+* Existing chats close.
+* Previous Likes, NotInterested records, PendingNakhes, Nakhes, credits, payments, FeatureUnlocks, normal notifications, and other non-safety product history must not be restored.
+* Only safety, abuse-prevention, moderation, restriction/ban, and required safety-evidence information may remain.
+* The stable User/TelegramIdentity linkage remains for safety continuity.
+* The permanent GuestPreviewCounter remains and is not reset.
 
-A deleted user may later start a reactivation flow using the same Telegram account only if reactivation is allowed.
+Account deletion must not allow a user to bypass previous restrictions, bans, moderation actions, reports, or other retained safety measures.
 
-Reactivation must reuse the same internal User, TelegramIdentity, Account, and existing Profile record.
+If the same Telegram identity is later allowed to use the product again:
 
-Deletion does not clear reports, restrictions, bans, payment history, safety history, moderation history, or audit history.
-
-A reactivated user rebuilds the existing dating profile through the signup/profile-completion flow.
-
-Reactivation must not create a clean new User and must not bypass retained safety or moderation history.
+* Resolve the identity against retained safety information.
+* Do not restore previous product data.
+* Start profile/signup from zero.
+* Do not restore previous profile fields.
+* Do not restore Matches or chats.
+* Do not restore Likes or Nakhes.
+* Do not restore credits or payment history.
+* Do not restore FeatureUnlock access.
 
 ## 2. Signup and Profile Rules
 
@@ -1700,41 +1708,56 @@ Admin logs should include:
 * Metadata when needed
 
 ## 12. Deletion, Retention, and Audit Rules
-
 ### Account deletion
 
 Users can delete their account.
 
+Account deletion permanently removes previous non-safety product data.
+
 After deletion:
 
-* Profile becomes hidden
-* Chats close
-* Account enters deleted state
-* Minimal audit, report, payment, and safety records remain
+* Account enters `deleted` state.
+* Dating-profile data is permanently removed.
+* Matches and normal chat history are not recoverable.
+* Likes, NotInterested records, PendingNakhes, and Nakhes are not recoverable.
+* Credits and payment history are not restored.
+* FeatureUnlock records do not restore previous paid access.
+* Normal notifications and other ordinary product history are not restored.
+* Safety and abuse-prevention records required to protect users may remain.
+* The persistent User/TelegramIdentity linkage remains for safety continuity.
+* The GuestPreviewCounter remains and is not reset.
 
-### Reactivation
+### Return after deletion
 
-A deleted user may later reactivate the same account with the same Telegram account only if `AccountDeletionRecord.reactivation_allowed = true`.
+A deleted user may use the product again only if return is allowed for that identity.
 
-Reactivation uses the same internal User, same TelegramIdentity, same Account, and same Profile record.
+The same Telegram identity must first be resolved against retained safety and abuse-prevention information.
 
-Reactivation changes `Account.state` from `deleted` to `incomplete` until the rebuilt profile satisfies all required completion rules.
+Deletion must not clear a retained restriction, ban, moderation action, or other safety measure.
 
-During reactivation, dating-visible profile fields may be cleared, overwritten, or re-entered through the signup/profile-completion flow.
+If return is allowed:
 
-Retained reports, restrictions, bans, payment records, safety records, moderation records, audit logs, and deletion records remain attached to the same User.
-
-Reactivation must not create a clean new User, must not create a second active Profile for the same User, and must not erase retained safety or moderation history.
+* Start profile/signup from zero.
+* Do not recover old profile fields.
+* Do not recover old Matches or chats.
+* Do not recover Likes, PendingNakhes, or Nakhes.
+* Do not recover credits or payment history.
+* Do not recover FeatureUnlock access.
+* Do not treat the returning identity as safety-clean.
 
 ### Data retention
 
-After deletion, retain only minimal records needed for:
+After account deletion, retain only information required for:
 
-* Payment safety
-* Report history
+* Safety
 * Abuse prevention
-* Auditability
-* Legal/accounting traceability
+* Restriction and ban enforcement
+* Moderation history required for future safety decisions
+* Required report or safety evidence
+
+The permanent GuestPreviewCounter also remains because account deletion must not reset the guest/incomplete preview limit.
+
+Normal profile, Match, chat, Like, Nakh, credit, payment, FeatureUnlock, notification, and other product history must not be retained for future restoration.
 
 ### Audit requirements
 
@@ -1755,6 +1778,10 @@ Audit should cover:
 * Photo deletion
 * Chat closure
 * Admin actions
+
+Post-deletion retention of audit information is limited to audit data required for safety, abuse prevention, moderation, restriction/ban enforcement, or required safety evidence.
+
+Normal product audit history must not be retained merely to restore the deleted account or previous product state.
 
 ## 13. Localization and Config Rules
 
