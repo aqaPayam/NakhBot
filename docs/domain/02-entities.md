@@ -198,7 +198,13 @@ Represents the original uploaded file stored in object storage and served throug
 
 Cloudflare R2 is the MVP object storage provider.
 
-The domain model must not depend on Cloudflare-specific storage semantics. Storage access should remain behind an S3-compatible provider abstraction so another S3-compatible provider can replace R2 later.
+Cloudflare Images/CDN is the MVP media delivery provider.
+
+The domain model must not depend on Cloudflare-specific storage or delivery semantics.
+
+Storage access should remain behind an S3-compatible provider abstraction.
+
+Media delivery should remain behind a CDN/provider abstraction so either provider can be replaced later without changing domain behavior.
 
 #### ProfilePhoto
 
