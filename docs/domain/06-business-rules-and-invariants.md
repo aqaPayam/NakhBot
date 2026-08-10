@@ -444,11 +444,15 @@ Photos must be stored in object storage.
 
 Cloudflare R2 is the MVP object storage provider.
 
-Storage access must remain behind an S3-compatible provider abstraction so the storage provider can be replaced later without changing domain behavior.
+Cloudflare Images/CDN is the MVP media delivery provider.
+
+Storage access must remain behind an S3-compatible provider abstraction.
+
+Media delivery must remain behind a provider abstraction so the CDN provider can be replaced later without changing domain behavior.
 
 The app server must not be the permanent image store.
 
-Photos should be served through CDN URLs.
+User-facing photos should be served through CDN delivery URLs.
 
 ### Photo upload validation
 
@@ -1900,7 +1904,7 @@ Payments and credits:
 Media:
 
 * Media storage provider: Cloudflare R2
-* Media CDN provider
+* Media CDN provider: Cloudflare Images/CDN
 * Maximum photo file size
 * Allowed photo MIME types
 
