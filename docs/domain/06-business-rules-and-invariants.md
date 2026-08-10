@@ -1911,6 +1911,29 @@ Rules:
 * Payment and credit services must read costs, package options, Stars pricing, and refund policy from SystemConfig or code-level configuration.
 * README may describe product behavior, but it must not be treated as the config-key registry.
 
+
+### Optional profile details
+
+Optional profile details are not required for profile completion.
+
+For MVP, the following optional fields use controlled enums:
+
+* Education level
+* Smoking preference
+* Pets preference
+* Exercise frequency
+* Religion importance
+* Children preference
+
+These fields must not accept arbitrary free text.
+
+Education stores level of education, not exact major.
+
+Spoken languages and personality tags are separate data-driven profile options and must not be stored through these enums.
+
+Exact enum values for the six optional fields must be finalized separately before implementation.
+
+
 ## 14. Notes
 
 * These rules are product invariants.
