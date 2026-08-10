@@ -365,14 +365,26 @@ Includes:
 
 * Height
 * Job title
-* Education
+* Education level
 * Smoking preference
-* Pets
+* Pets preference
 * Languages
-* Exercise/gym
+* Exercise frequency
 * Religion importance
 * Children preference
 * Personality tags
+
+For MVP:
+
+* Education level is a controlled enum, not a major or free-text education field.
+* Smoking preference is a controlled enum.
+* Pets preference is a controlled enum.
+* Exercise frequency is a controlled enum.
+* Religion importance is a controlled enum.
+* Children preference is a controlled enum.
+
+Spoken languages and personality tags use their own data-driven entities and are not stored as these enums.
+
 
 ### Profile Spoken Language
 
