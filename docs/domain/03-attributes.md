@@ -413,7 +413,9 @@ Notes:
 * Storage access should remain behind an S3-compatible provider abstraction.
 * The domain model must not depend on Cloudflare-specific storage semantics.
 * The app server is not the permanent image store.
-* CDN URL is used for media delivery.
+* Cloudflare Images/CDN is the MVP media delivery provider.
+* `cdn_url` stores the delivery URL used by user-facing surfaces.
+* Media delivery must remain behind a provider abstraction and must not depend on Cloudflare-specific semantics at the domain level.
 * * User-deleted profile-photo media objects must be permanently deleted from object storage/CDN.
 * Deleted media may be retained only when required for an active report, moderation case, safety case, legal/audit case, or immutable report snapshot.
 * Retained evidence media must not remain available through normal user-facing profile URLs.
