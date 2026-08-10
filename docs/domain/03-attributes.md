@@ -219,10 +219,10 @@ Notes:
 * profile_id
 * height_cm
 * job_title
-* education
+* education_level
 * smoking_preference
-* pets
-* exercise_gym
+* pets_preference
+* exercise_frequency
 * religion_importance
 * children_preference
 * created_at
@@ -231,7 +231,15 @@ Notes:
 Notes:
 
 * These fields are optional.
-* Exact enum values for optional fields are not finalized yet.
+* `education_level` uses the `EducationLevel` enum.
+* `smoking_preference` uses the `SmokingPreference` enum.
+* `pets_preference` uses the `PetsPreference` enum.
+* `exercise_frequency` uses the `ExerciseFrequency` enum.
+* `religion_importance` uses the `ReligionImportance` enum.
+* `children_preference` uses the `ChildrenPreference` enum.
+* These six fields must not accept arbitrary free text.
+* `education_level` represents level of education, not exact major.
+* Exact enum values are not finalized yet.
 
 ### Interest
 
