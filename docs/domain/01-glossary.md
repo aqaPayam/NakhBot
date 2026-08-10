@@ -960,7 +960,11 @@ Blurred image shown in locked Liked By cards.
 
 External storage for uploaded photos.
 
-The app server should not be the permanent image store.
+Cloudflare R2 is the object storage provider for MVP.
+
+The storage integration should use an S3-compatible abstraction so the provider can be replaced later without changing the domain model.
+
+The app server must not be the permanent image store.
 
 ### CDN URL
 
