@@ -196,6 +196,10 @@ Stored uploaded file metadata.
 
 Represents the original uploaded file stored in object storage and served through CDN.
 
+Cloudflare R2 is the MVP object storage provider.
+
+The domain model must not depend on Cloudflare-specific storage semantics. Storage access should remain behind an S3-compatible provider abstraction so another S3-compatible provider can replace R2 later.
+
 #### ProfilePhoto
 
 Photo attached to a dating profile.
