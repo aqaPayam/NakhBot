@@ -17,11 +17,13 @@ Notes:
 * Telegram user ID is the external platform identifier.
 * Telegram username is optional and mutable.
 
-Deletion does not break this relationship.
+Deletion does not break the minimal identity relationship needed for safety and abuse prevention.
 
-If a deleted user later reactivates, the same TelegramIdentity remains attached to the same User.
+The same TelegramIdentity remains linked to the persistent User after deletion.
 
-The same Telegram identity must not be used to create a clean new User for the purpose of bypassing retained reports, restrictions, bans, moderation history, payment history, safety history, or audit history.
+The same Telegram identity must not bypass retained restrictions, bans, moderation history, safety history, abuse-prevention state, or required safety evidence by deleting and returning.
+
+Payment history and other normal product history are not retained for account restoration.
 
 ### User and Account
 
@@ -66,9 +68,10 @@ Rule:
 Used when:
 
 * User deletes account
-* Profile is hidden
+* Previous non-safety product data is permanently removed
 * Chats are closed
-* Minimal retained records are tracked
+* Safety and abuse-prevention retention is tracked
+* Future access by the same Telegram identity must preserve safety continuity
 
 ### User and GuestPreviewCounter
 
@@ -117,19 +120,21 @@ Purpose:
 
 ### User and Profile
 
-* User has one Profile.
+* User can have zero or one current Profile.
 * Profile belongs to one User.
 
-Deletion does not create a second active Profile for the same User.
+On account deletion, previous dating-profile data is permanently removed and must not be recoverable.
 
-If reactivation is allowed, the user rebuilds the existing Profile record through the signup/profile-completion flow.
+If the same Telegram identity is later allowed to return, the user starts profile/signup from zero.
 
-Historical report snapshots, audit records, moderation records, and deletion records remain separate from the rebuilt dating-visible profile data.
+Old profile fields must not be restored.
+
+Safety records and required safety evidence remain separate from dating-visible Profile data.
 
 Important distinction:
 
-* User owns identity and access.
-* Profile owns dating-visible information.
+* User owns persistent identity and safety linkage.
+* Profile owns current dating-visible information.
 
 ### Profile and ProfileOptionalDetails
 
@@ -1217,10 +1222,12 @@ Used for:
 
 ### User and DataRetentionRecord
 
-* User has many DataRetentionRecords.
+* User can have many DataRetentionRecords.
 * DataRetentionRecord belongs to one User.
 
-Used after account deletion.
+Used after account deletion only for safety, abuse prevention, moderation, restriction/ban enforcement, and required safety evidence.
+
+DataRetentionRecord must not be used to restore normal deleted product data.
 
 ### ScheduledJob and JobRunLog
 
