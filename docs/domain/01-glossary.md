@@ -957,7 +957,9 @@ Banned users cannot create normal support threads.
 
 An individual message inside a support thread.
 
-Support messages must be rate-limited.
+A user may have at most 2 unanswered support messages.
+
+If the user already has 2 unanswered support messages, another user support message must not be accepted until support/admin responds.
 
 ### Appeal
 
