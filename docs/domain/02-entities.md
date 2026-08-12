@@ -313,6 +313,14 @@ Visible only to the sender.
 
 Does not notify the receiver, does not create Like, does not appear in Liked By, and does not create Match.
 
+A sender may have at most 5 concurrent PendingNakh records with status `pending_payment`.
+
+PendingNakhes form a sender-level unpaid queue ordered by `created_at`.
+
+When credits are added to the sender’s CreditAccount, eligible unpaid PendingNakhes are automatically settled in FIFO order while sufficient credits remain.
+
+An unpaid PendingNakh expires after 14 days.
+
 #### Nakh
 
 Paid strong signal sent from one user to another.
