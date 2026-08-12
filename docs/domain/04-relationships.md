@@ -927,13 +927,17 @@ Rules:
 
 * Chat unlock is scoped to one Match.
 * One successful chat unlock payment unlocks free-text chat for both users in that Match.
-* If one user unlocks chat, both users can send text in that Match.
+* If one user unlocks chat, both users can send text in that Match while the unlock remains effectively active.
 * The other matched user does not need to pay again for the same Match.
-* Chat unlock does not expire in MVP.
-* Chat unlock remains active until the Match is unmatched, closed by admin/moderation, or closed because of account deletion or ban.
-* For chat unlock, FeatureUnlock is the access/payment source of truth.
+* Chat unlock may expire according to configured FeatureUnlock expiry.
+* Chat unlock access ends when the Match closes, the FeatureUnlock is revoked, or configured expiry is reached.
+* For chat unlock, FeatureUnlock is the access/payment/expiry/revocation source of truth.
 * ChatUnlock is only the Match-level chat marker connected to that FeatureUnlock.
-* Chat access should be allowed only when the related FeatureUnlock is active and the Match/ChatSession is still active.
+* Chat access is allowed only when:
+  * The related FeatureUnlock has `status = active`.
+  * The FeatureUnlock has not reached `expires_at`.
+  * The FeatureUnlock has not been revoked.
+  * The Match and ChatSession are still active.
 
 Ownership rule:
 
