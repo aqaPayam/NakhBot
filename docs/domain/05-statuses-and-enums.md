@@ -201,13 +201,15 @@ Notes:
 * none
 * matched
 * unmatched
+* blocked
 
 Notes:
 
 * UserPairState is a symmetric pair-level summary.
 * It must not store directional actions.
 * Directional actions must be read from their source records.
-
+* `blocked` is internal/safety-only.
+* It is not exposed as a user-facing action or visible status.
 
 ## 2. Nakh, Match, Chat, Payment, and Feature Unlock Enums
 
