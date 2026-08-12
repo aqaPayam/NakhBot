@@ -452,6 +452,10 @@ MVP package records are:
 * Best Value — 50 credits — 35 Stars — Best Value
 * Ultimate — 100 credits — 60 Stars — Best Value
 
+Telegram Stars is the sole purchase currency for CreditPackage in MVP.
+
+The package's Stars price is stored in `CreditPackage.stars_price`; there is no separate package-pricing entity or second package-price table.
+
 CreditPackage is data/configuration, not a hardcoded payment-handler concept.
 
 Package records may later be changed or deactivated without changing the payment domain model.
@@ -463,6 +467,8 @@ Internal record of a payment attempt and result.
 #### TelegramStarsPayment
 
 Telegram Stars-specific payment data.
+
+Telegram Stars is the only external payment provider/currency used for MVP credit-package purchases and direct paid actions.
 
 #### PaymentProviderEvent
 
