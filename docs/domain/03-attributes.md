@@ -435,7 +435,9 @@ Rules:
 * `content_hash` may be used to detect exact duplicate uploads.
 * `normalized_image_hash` may be used to detect visually duplicate uploads after normalization.
 * A rejected or failed MediaAsset must not become a visible ProfilePhoto.
-* A MediaAsset is not enough to make a photo visible; required PhotoVariant records must also exist.
+* A MediaAsset is not enough to make a photo visible; all required upload-time PhotoVariant records must also exist.
+* For MVP, the required upload-time PhotoVariant is `thumbnail`.
+* `blurred_preview` is generated on demand and is not required for ProfilePhoto visibility.
 
 ### ProfilePhoto
 
@@ -471,8 +473,12 @@ Rules:
 * If no visible primary photo can be assigned, profile validity must be rechecked.
 * If a deleted photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
 * A ProfilePhoto can become visible only after the related MediaAsset is valid.
-* A ProfilePhoto can become visible only after required PhotoVariant records exist.
-* Failed uploads and failed variant-generation attempts do not count toward active profile photo limits.
+* A ProfilePhoto can become visible only after all required upload-time PhotoVariant records exist.
+* For MVP, `thumbnail` is the required upload-time variant.
+* `blurred_preview` is not required before ProfilePhoto visibility.
+* Failure to generate the required thumbnail prevents the upload from creating a visible ProfilePhoto.
+* Failure to generate an on-demand blurred preview does not invalidate the ProfilePhoto.
+* Failed uploads and failed required upload-time variant generation do not count toward active profile photo limits.
 
 ### PhotoVariant
 
@@ -490,9 +496,14 @@ Variant types:
 
 Rules:
 
-* Required MVP variants are thumbnail and blurred_preview.
-* Required variants must be generated before a new ProfilePhoto becomes visible.
-* If required variant generation fails, the upload must not create a visible ProfilePhoto.
+* `thumbnail` is generated during upload processing after validation and object-storage upload.
+* `thumbnail` is required before a new ProfilePhoto becomes visible.
+* If thumbnail generation fails, the upload must not create a visible ProfilePhoto.
+* `blurred_preview` is generated on demand when needed for a locked Liked By card.
+* For MVP, blurred preview generation applies to the relevant primary profile photo.
+* Once generated, a blurred preview should be cached as a PhotoVariant.
+* `blurred_preview` is not required before the ProfilePhoto becomes visible.
+* Failure to generate a blurred preview must not invalidate an otherwise valid ProfilePhoto.
 
 ### PhotoModerationRecord
 
@@ -1817,7 +1828,7 @@ Rate-limited actions:
 * max_photo_file_size_mb
 * min_photo_width_px
 * min_photo_height_px
-* required_photo_variants
+* required_photo_variants = [thumbnail]
 * allow_heic_uploads
 * duplicate_photo_detection_enabled
 
