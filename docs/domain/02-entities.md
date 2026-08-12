@@ -499,7 +499,18 @@ Examples:
 
 #### RefundRecord
 
-Refund or payment correction record.
+Automatic system-fault refund or payment/credit correction record.
+
+RefundRecord is used only when a successful payment or credit spend requires correction because the intended paid action was not delivered correctly.
+
+MVP does not include a user-initiated refund-request flow.
+
+RefundRecord may represent:
+
+* A direct Telegram Stars refund
+* An internal credit re-credit/correction
+
+Normal expiry, Nakh rejection, unmatch, change of mind, and accidental purchase are not refund reasons.
 
 ### 2.12 Notification
 
