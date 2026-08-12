@@ -143,6 +143,12 @@ Notes:
 * thumbnail
 * blurred_preview
 
+Notes:
+
+* `thumbnail` is generated during upload processing and is required before ProfilePhoto visibility.
+* `blurred_preview` is generated on demand and cached when needed.
+* `blurred_preview` is not an upload-time visibility requirement.
+
 ### PhotoModerationActionType
 
 * hidden
