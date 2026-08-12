@@ -1927,7 +1927,7 @@ Explore:
 Nakh:
 
 * nakh_text_max_length
-* nakh_cost
+* nakh_cost = 2
 * nakh_expiry_days
 * max_unpaid_pending_nakhes_per_sender = 5
 * pending_nakh_expiry_days = 14
@@ -1935,12 +1935,12 @@ Nakh:
 
 Liked By:
 
-* liked_by_unlock_cost
+* liked_by_unlock_cost = 4
 * liked_by_unlock_expiry_hours
 
 Chat:
 
-* chat_unlock_cost
+* chat_unlock_cost = 4
 
 Payments and credits:
 
