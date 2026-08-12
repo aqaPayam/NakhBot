@@ -543,11 +543,23 @@ Rules:
 * PendingNakh starts the sender’s single allowed Nakh flow for that receiver.
 * A sender/receiver pair can have only one Nakh flow ever across PendingNakh and Nakh.
 * Terminal PendingNakh statuses do not allow a new Nakh flow for the same sender/receiver pair.
+* A sender may have at most 5 concurrent PendingNakhes with status `pending_payment` across all receivers.
+* The cap is sender-wide, not per receiver.
+* Only `pending_payment` records count toward the concurrent unpaid cap.
+* Unpaid PendingNakhes are ordered FIFO by `created_at`.
+* When credits are added to the sender’s CreditAccount, eligible unpaid PendingNakhes are settled oldest-first while sufficient credits remain.
+* An unpaid PendingNakh expires 14 days after creation.
 
 ### PendingNakh and PendingPayment
 
 * PendingNakh belongs to one PendingPayment.
 * PendingPayment can belong to one PendingNakh.
+
+For an unpaid PendingNakh:
+
+* PendingPayment expiry must align with PendingNakh expiry.
+* Both expire after 14 days if the Nakh remains unpaid.
+* If PendingNakh is auto-settled from available credits, the PendingPayment must no longer be completable.
 
 Used when:
 
@@ -787,6 +799,13 @@ Used for:
 * Liked By unlock spending
 * Refund
 * Admin adjustment
+
+Rules:
+
+* When a successful credit-balance increase makes credits available, the system must attempt to settle that user’s unpaid PendingNakh queue.
+* PendingNakhes are considered in ascending `created_at` order.
+* Each successful settlement creates the normal Nakh-spending CreditTransaction and delivered Nakh.
+* Settlement stops when the queue is empty or the next PendingNakh cannot be fully funded.
 
 ### User and CreditTransaction
 
