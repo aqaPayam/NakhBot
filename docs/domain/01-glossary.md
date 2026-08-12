@@ -813,6 +813,10 @@ FeatureUnlock is not used for Nakh.
 
 Nakh is a paid action that creates a sent interaction, not persistent feature access.
 
+Account deletion permanently removes normal FeatureUnlock product history and access.
+
+If the same Telegram identity later returns and starts signup again, previous FeatureUnlock access must not be restored.
+
 ### Payment Record
 
 Internal record of a payment attempt and result.
