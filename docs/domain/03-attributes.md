@@ -1188,6 +1188,9 @@ Rules:
 * Package definitions must be loaded from configuration/data rather than hardcoded inside payment handlers.
 * `credit_amount` and `stars_price` must be positive integers.
 * `discount_label` is optional.
+* `stars_price` is the complete Telegram Stars purchase price for that CreditPackage.
+* Telegram Stars is the sole purchase currency for CreditPackage in MVP.
+* No separate package-price table is required.
 
 ### PaymentRecord
 
@@ -1942,11 +1945,11 @@ Chat:
 Payments and credits:
 
 * credit_package_options =
-  * Starter: 10 credits
-  * Plus: 25 credits
-  * Best Value: 50 credits
-  * Ultimate: 100 credits
-* telegram_stars_pricing
+  * Starter: 10 credits at 10 Stars
+  * Plus: 25 credits at 20 Stars
+  * Best Value: 50 credits at 35 Stars
+  * Ultimate: 100 credits at 60 Stars
+* telegram_stars_pricing = defined by CreditPackage.stars_price for package purchases
 * refund_policy
 
 Media:
