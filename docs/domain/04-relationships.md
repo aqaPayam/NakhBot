@@ -968,6 +968,12 @@ Used for:
 
 Notification belongs to the receiver of the notice.
 
+For `pending_nakh_payment_reminder`:
+
+* The notification belongs to the PendingNakh sender.
+* The PendingNakh receiver must not receive the reminder.
+* Reminders stop when the PendingNakh leaves `pending_payment`.
+
 ### Notification and NotificationDelivery
 
 * Notification can have many NotificationDeliveries.
@@ -1265,7 +1271,7 @@ Examples:
 
 * Expire Nakh
 * Expire pending payment
-* Send payment reminder
+* Send Pending Nakh payment reminders
 * Cleanup chat messages
 * Retry notification delivery
 
