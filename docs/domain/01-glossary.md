@@ -801,6 +801,14 @@ Examples:
 * One liked-by profile unlock
 * One match chat unlock
 
+FeatureUnlock supports expiry through `expires_at` and may also be revoked.
+
+Liked By profile unlock expires according to its configured unlock duration.
+
+Chat unlock is scoped to one Match and remains usable until the Match closes, the unlock is revoked, or its configured expiry is reached.
+
+Exact expiry durations are configuration and must not be hardcoded.
+
 FeatureUnlock is not used for Nakh.
 
 Nakh is a paid action that creates a sent interaction, not persistent feature access.
