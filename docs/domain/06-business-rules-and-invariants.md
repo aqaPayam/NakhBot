@@ -1253,6 +1253,12 @@ Allowed UserPairState values for MVP:
 * unmatched
 * blocked
 
+`blocked` is internal/safety-only.
+
+Users must not be given a user-facing Block action in MVP.
+
+Users must not be notified that an internal block exists.
+
 UserPairState must not store directional actions.
 
 The following directional actions must be read from their source records:
@@ -1852,17 +1858,21 @@ Every report goes to admin review.
 
 A report alone does not automatically ban a user.
 
-### No user block in MVP
+### Internal block in MVP
 
-Users cannot block other users in MVP.
+Block is internal/safety-only in MVP.
 
-Admins do not have a pair-level block action in MVP.
+Normal users do not have a user-facing Block action.
 
-Safety issues should be handled through Reports.
+Users are not notified when an internal block exists.
 
-After report review, admin can use the existing moderation actions: restrict user, unrestrict user, ban user, unban user, hide photo, restore photo, dismiss report, or review related support/appeal/change requests.
+Internal blocked pair state is represented by:
 
-Future user-facing block functionality can be added later if needed, but it is not part of the MVP.
+`UserPairState.state = blocked`
+
+Blocked pairs must be excluded from normal pair-level interaction and discovery flows.
+
+Future user-facing Block functionality can be added later if needed, but it is not part of MVP.
 
 ### Report threshold
 
