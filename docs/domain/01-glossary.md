@@ -445,6 +445,12 @@ There is no free-text city and no “Other” city option in MVP.
 
 The normal discovery flow where an active complete user sees one eligible profile at a time.
 
+Eligible profiles are randomized before being shown.
+
+For MVP, the database first filters eligible profiles and selects a capped candidate set using a periodically refreshed random shuffle key.
+
+The application then shuffles that candidate set before serving profiles.
+
 Guest Preview is separate from normal Explore.
 
 ### Explore Filter
