@@ -277,13 +277,21 @@ Rules:
 
 ### MediaAsset and PhotoVariant
 
-* MediaAsset has many PhotoVariants.
+* MediaAsset can have many PhotoVariants.
 * PhotoVariant belongs to one MediaAsset.
 
 Used for:
 
 * Thumbnail
 * Blurred preview
+
+Rules:
+
+* Thumbnail is generated during upload processing.
+* Thumbnail must exist before the related ProfilePhoto becomes visible.
+* Blurred preview is generated only when needed by a locked Liked By card.
+* Blurred preview is generated for the relevant primary profile photo and cached as a PhotoVariant.
+* A MediaAsset does not need a blurred-preview PhotoVariant in order for its ProfilePhoto to be visible.
 
 ### ProfilePhoto and PhotoModerationRecord
 
