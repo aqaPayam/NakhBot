@@ -1499,6 +1499,9 @@ Rules:
 * If reports are actioned by admin, they stop counting toward a new automatic restriction.
 * Automatic restriction does not automatically ban users.
 * Ban requires admin decision.
+* `extra_text` is optional.
+* `extra_text` maximum length is 1024 characters.
+* The maximum length must come from `report_extra_text_max_length`.
 
 ### ReportReason
 
@@ -1986,6 +1989,7 @@ Admin bootstrap:
 * bootstrap_admin_telegram_ids
 * report_threshold_unique_reporter_count
 * report_threshold_window_days
+* report_extra_text_max_length = 1024
 
 Rules:
 
