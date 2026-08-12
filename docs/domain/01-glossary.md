@@ -600,7 +600,32 @@ Pending Nakh does not:
 * Appear in Liked By
 * Create a Match
 
+A sender may have at most 5 concurrent unpaid Pending Nakhes system-wide.
+
+Only Pending Nakhes with status `pending_payment` count toward this limit.
+
+If the sender already has 5 unpaid Pending Nakhes, they must resolve at least one before creating another.
+
+A Pending Nakh can be resolved by:
+
+* Paying/sending it
+* Converting it to a normal Like
+* Marking the target as Not Interested
+* Expiry or another terminal system outcome
+
+When credits are successfully added to the sender’s CreditAccount, unpaid Pending Nakhes are automatically settled in FIFO order by `created_at`.
+
+Settlement continues until:
+
+* The unpaid queue is empty, or
+* The available credit balance is insufficient to pay for the next Pending Nakh.
+
+Each successfully settled Pending Nakh becomes a delivered Sent Nakh.
+
+An unpaid Pending Nakh expires 14 days after creation.
+
 If cancelled before payment, the sender must choose whether to convert it to a normal Like or mark the target as Not Interested.
+
 Cancelled, expired, abandoned, failed-payment, or cancelled-payment Pending Nakh records still consume the sender’s one allowed Nakh flow for that receiver.
 
 ### Sent Nakh
