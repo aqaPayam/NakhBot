@@ -1842,6 +1842,10 @@ Default report reasons:
 
 Reports may include optional extra text.
 
+Report extra text maximum length is 1024 characters.
+
+The limit must come from `report_extra_text_max_length` and must not be hardcoded in handlers.
+
 ### Report review
 
 Every report goes to admin review.
@@ -2127,6 +2131,7 @@ Configurable constants include:
 
 * Report threshold unique reporter count
 * Report threshold window days
+* Report extra text max length: 1024 characters
 
 Access and signup:
 
