@@ -471,6 +471,7 @@ Rules:
 * Liked By unlock expires according to configured unlock duration.
 * If a Liked By unlock expires and the Like is still actionable, the card returns to locked state and may be unlocked again.
 * Expired FeatureUnlock records remain as payment/audit history.
+* This historical retention applies only while the account has not been permanently deleted; account deletion follows the separate deletion-retention rules and does not preserve FeatureUnlock as restorable product history.
 * Nakh senders do not appear in Liked By and are not unlocked through this relationship.
 
 ### Liked By derived view
@@ -510,6 +511,12 @@ If the liker becomes restricted, banned, deleted, or profile-invalid, the Like n
 * User has many FeatureUnlocks as payer.
 * FeatureUnlock belongs to the user who paid for the unlock through `payer_user_id`.
 * FeatureUnlock does not represent all users who receive access.
+
+Deletion rule:
+
+* This relationship exists only for normal product lifecycle/history before account deletion.
+* Account deletion must not preserve FeatureUnlock as restorable user product state.
+* If the same Telegram identity later returns, no previous FeatureUnlock may grant access.
 
 Feature unlock types:
 
