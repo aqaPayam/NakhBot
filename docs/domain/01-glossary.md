@@ -1066,7 +1066,7 @@ Examples:
 
 * Expire Nakh
 * Expire pending payment
-* Send pending payment reminder
+* Send Pending Nakh payment reminders
 * Cleanup chat messages
 * Retry notification delivery
 
