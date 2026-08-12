@@ -1626,6 +1626,24 @@ Direct Telegram Stars payment for Nakh must not create a FeatureUnlock.
 
 Only chat unlock and Liked By profile unlock create FeatureUnlock records.
 
+
+### Feature unlocks after account deletion
+
+Account deletion permanently removes normal FeatureUnlock product access.
+
+Previous Liked By unlocks and chat unlocks must not be restored if the same Telegram identity later returns.
+
+A returning user starts with no previous FeatureUnlock access.
+
+Any future paid unlock must be purchased again through the normal payment or credit flow.
+
+Statements that FeatureUnlock remains as payment/audit history after normal events such as expiry, Match, Not Interested, or unmatch apply only during the normal lifetime of the account.
+
+They do not override account-deletion retention rules.
+
+Account deletion must not preserve FeatureUnlock or normal payment history as restorable product data.
+
+
 ### Liked By unlock
 
 Unlocking one Liked By profile unlocks only that specific profile.
