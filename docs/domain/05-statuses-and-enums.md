@@ -299,6 +299,12 @@ Notes:
 * refunded
 * expired
 
+Notes:
+
+* `refunded` is used when the external payment itself is refunded, such as an automatic direct Telegram Stars refund.
+* Internal credit re-crediting may instead be represented through RefundRecord and a `refund` CreditTransaction without requiring reversal of the original package purchase.
+* MVP refunds are system-fault-only and are not user initiated.
+
 ### PaymentProvider
 
 * telegram_stars
