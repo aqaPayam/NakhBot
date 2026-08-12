@@ -671,6 +671,34 @@ A profile can appear in normal Explore only if:
 * Profile is reciprocally gender-compatible with the viewer
 * Target has not previously been consumed by the viewer
 
+### Explore randomization
+
+Explore must randomize eligible profiles before they are shown.
+
+The database must first apply all normal Explore eligibility rules.
+
+Eligible candidate selection must not rely on stable ordering such as `created_at`.
+
+Each Profile has a `random_shuffle_key` used for candidate ordering.
+
+The shuffle key must be refreshed periodically through the `refresh_explore_shuffle_keys` scheduled job.
+
+The exact refresh schedule is configurable.
+
+For each Explore candidate request:
+
+1. Filter eligible profiles in the database.
+2. Order/select candidates using `random_shuffle_key`.
+3. Fetch only a capped candidate set.
+4. Shuffle that candidate set in application code.
+5. Serve profiles from the shuffled set one at a time.
+
+The candidate-set cap must come from `explore_candidate_pool_limit`.
+
+The implementation must not use expensive full-table per-request random ordering such as `ORDER BY RANDOM()` for normal Explore.
+
+The exact candidate-pool limit is not yet finalized and must not be hardcoded.
+
 ### Explore filters
 
 MVP Explore screen controls include:
@@ -1899,6 +1927,11 @@ Profile completion:
 * Highlight max length
 * Bio max length
 
+Explore:
+
+* Explore candidate pool limit
+* Explore shuffle-key refresh schedule
+
 Nakh:
 
 * Nakh text max length
@@ -1939,7 +1972,7 @@ Rules:
 * Background jobs must read tunable schedules and expiry durations from SystemConfig or code-level configuration.
 * Payment and credit services must read costs, package options, Stars pricing, and refund policy from SystemConfig or code-level configuration.
 * README may describe product behavior, but it must not be treated as the config-key registry.
-
+* Explore candidate-pool size and shuffle-key refresh schedule must come from SystemConfig or code-level configuration.
 
 ### Optional profile details
 
