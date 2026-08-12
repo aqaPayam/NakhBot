@@ -522,6 +522,7 @@ Non-mutable notification categories:
 * send_pending_payment_reminder
 * cleanup_chat_messages
 * notification_retry
+* refresh_explore_shuffle_keys
 
 ### LocaleCode
 
