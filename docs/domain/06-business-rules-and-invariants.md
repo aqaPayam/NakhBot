@@ -494,13 +494,18 @@ A photo becomes visible only after:
 
 * The original image passes validation.
 * The original image is stored in object storage.
-* Required variants are generated and stored.
+* The required upload-time thumbnail is generated and stored.
 * The ProfilePhoto record is created successfully.
 
-Required MVP variants:
+Required upload-time MVP variant:
 
 * Thumbnail
-* Blurred preview
+
+Thumbnail generation must happen after successful validation and object-storage upload.
+
+Thumbnail generation should be performed by backend image-processing infrastructure, such as a worker or serverless function, rather than inside the bot interaction handler.
+
+Blurred preview is not generated as part of the normal upload-time visibility pipeline.
 
 If upload validation fails:
 
@@ -508,12 +513,14 @@ If upload validation fails:
 * Do not count the failed upload toward active photo limits.
 * Show a retry/error message to the user.
 
-If required variant generation fails:
+If thumbnail generation fails:
 
 * Do not create a visible ProfilePhoto.
 * Do not count the failed upload toward active photo limits.
 * Clean up partially stored media or mark it for cleanup.
 * Ask the user to retry.
+
+Failure to generate a blurred preview later must not invalidate the original ProfilePhoto.
 
 Telegram file IDs may be used only as temporary upload transport references.
 
@@ -578,7 +585,9 @@ A hidden photo can become primary only after it is restored to visible status th
 
 Photos are not pre-approved.
 
-Uploaded photos become visible immediately after successful validation, object-storage upload, and required variant generation.
+Uploaded photos become visible immediately after successful validation, object-storage upload, and required thumbnail generation.
+
+Blurred-preview generation is not required for normal ProfilePhoto visibility.
 
 Users can report photos.
 
@@ -608,7 +617,19 @@ If admin hides or deletes a primary photo:
 
 Locked Liked By cards require blurred photo previews.
 
-Blurred previews should be generated as photo variants.
+Blurred previews are generated on demand when a locked Liked By card needs one.
+
+For MVP, the blurred preview is needed only for the relevant primary profile photo.
+
+If a cached `blurred_preview` PhotoVariant already exists, reuse it.
+
+If it does not exist, generate it on demand and cache it as a PhotoVariant for later requests.
+
+Blurred previews must not be pre-generated for every uploaded profile photo.
+
+Blurred-preview generation is not required before a ProfilePhoto becomes visible.
+
+Failure to generate a blurred preview must not invalidate the underlying ProfilePhoto.
 
 ## 4. Explore and Consumption Rules
 
