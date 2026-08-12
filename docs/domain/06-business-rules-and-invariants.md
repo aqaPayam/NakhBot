@@ -1083,6 +1083,38 @@ When the expiry deadline is reached:
 
 The 14-day duration must come from `pending_nakh_expiry_days`.
 
+### Pending Nakh reminders
+
+Unpaid Pending Nakhes should receive periodic sender reminders during their 14-day lifetime.
+
+The reminder cadence for MVP is approximately every 2 days.
+
+Only PendingNakhes with:
+
+`PendingNakh.status = pending_payment`
+
+are eligible for reminders.
+
+Each reminder:
+
+* Is sent only to the sender.
+* Does not notify the receiver.
+* Uses notification type `pending_nakh_payment_reminder`.
+* Should be phrased as a neutral nudge that unpaid Nakhes are waiting.
+* Should not be framed as an urgent countdown warning.
+
+Stop reminders immediately when the PendingNakh is:
+
+* Paid and sent
+* Cancelled
+* Converted to Like
+* Converted to Not Interested
+* Expired
+* Abandoned
+* Otherwise resolved
+
+The reminder cadence must come from `pending_nakh_reminder_schedule` and must not be hardcoded in handlers.
+
 ### Pending Nakh payment
 
 If the sender does not have enough credits:
@@ -1611,6 +1643,10 @@ Only paid Sent Nakh creates a receiver notification.
 
 Pending Nakh creates no receiver notification.
 
+The sender of an unpaid Pending Nakh may receive `pending_nakh_payment_reminder` notifications approximately every 2 days while the PendingNakh remains unpaid.
+
+These sender reminders must never be delivered to the receiver.
+
 Sent Nakh appears in receiver’s Nakhes, not Liked By.
 
 ### Match notification
@@ -2012,7 +2048,7 @@ Nakh:
 * Sent Nakh expiry duration
 * Maximum concurrent unpaid Pending Nakhes per sender: 5
 * Pending Nakh expiry duration: 14 days
-* Pending Nakh reminder schedule
+* Pending Nakh reminder schedule: approximately every 2 days
 
 Liked By:
 
