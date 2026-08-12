@@ -858,6 +858,10 @@ A report may target:
 * Chat/message context
 * Recently unmatched user
 
+A report may include optional extra text.
+
+Report extra text maximum length is 1024 characters.
+
 ### Report Reason
 
 The selected reason for a report.
