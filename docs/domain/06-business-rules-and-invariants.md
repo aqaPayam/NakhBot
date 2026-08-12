@@ -1963,6 +1963,14 @@ If required photo rules are no longer satisfied after photo moderation or admin 
 * A never-completed profile stays `incomplete`.
 * A previously complete profile becomes `invalid`.
 
+### Support rate limit
+
+A user may have at most 2 unanswered support messages.
+
+If a user already has 2 unanswered support messages, the system must reject another user support message until support/admin responds.
+
+The limit must come from `support_unanswered_message_limit` and must not be hardcoded in handlers.
+
 ### Admin interface
 
 MVP admin interface is Telegram admin commands.
@@ -2132,6 +2140,7 @@ Configurable constants include:
 * Report threshold unique reporter count
 * Report threshold window days
 * Report extra text max length: 1024 characters
+* Support unanswered message limit: 2
 
 Access and signup:
 
