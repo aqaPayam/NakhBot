@@ -695,17 +695,24 @@ Allowed statuses:
 
 Rules:
 
-* `liked_by_profile_unlock` expires according to configured unlock duration.
+* `expires_at` is the optional configured expiry timestamp for a FeatureUnlock.
+* `revoked_at` records explicit unlock revocation.
+* `liked_by_profile_unlock` expires according to its configured unlock duration.
 * `chat_unlock` is scoped to one Match.
 * One successful `chat_unlock` unlocks free-text chat for both users in that Match.
 * The other matched user does not need to pay again for the same Match.
-* `chat_unlock` does not expire in MVP.
-* `chat_unlock` remains active until the Match is unmatched, closed by admin/moderation, or closed because of account deletion or ban.
-* Expiry configuration applies to `liked_by_profile_unlock`, not to `chat_unlock` in MVP.
+* `chat_unlock` may have a configured expiry.
+* Chat unlock access remains usable only while all of the following are true:
+  * The related FeatureUnlock has `status = active`.
+  * `expires_at` is null or has not been reached.
+  * The unlock has not been revoked.
+  * The related Match and ChatSession remain active.
+* Chat unlock access ends when the Match closes, the unlock is revoked, or configured expiry is reached.
+* Exact expiry durations must come from configuration and must not be hardcoded.
 * FeatureUnlock is not used for sent Nakh. Nakh is a paid action, not persistent feature access.
 * For `chat_unlock`, `match_id` must be set and `target_user_id` must be empty.
 * For `liked_by_profile_unlock`, `target_user_id` must be set and `match_id` must be empty.
-* `user_id` is the user who paid for or triggered the unlock.
+* `payer_user_id` is the user who paid for or triggered the unlock.
 * `payment_id` stores the direct Telegram Stars payment when the unlock was funded directly.
 * `credit_transaction_id` stores the credit spend transaction when the unlock was funded with existing credits.
 * ChatUnlock must not duplicate `payment_id`, `credit_transaction_id`, `status`, `expires_at`, or `revoked_at`.
@@ -1941,6 +1948,7 @@ Liked By:
 Chat:
 
 * chat_unlock_cost = 4
+* chat_unlock_expiry_duration
 
 Payments and credits:
 
