@@ -717,15 +717,17 @@ After unlock, users may share phone numbers, Telegram IDs, or other contact info
 
 Internal app unit used to pay for paid actions.
 
-Paid actions include:
+MVP paid-action credit costs are:
 
-* Send Nakh
-* Unlock one match chat
-* Unlock one liked-by profile
+* Send Nakh: 2 credits
+* Unlock one match chat: 4 credits
+* Unlock one Liked By profile: 4 credits
 
 Credits are different from Telegram Stars.
 
 Users can buy credit packages with Telegram Stars, then spend credits inside the app.
+
+Paid-action credit costs are product configuration and must not be hardcoded inside handlers.
 
 ### Telegram Stars
 
