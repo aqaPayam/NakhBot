@@ -216,10 +216,17 @@ Controls primary photo status, display order, and photo visibility.
 
 Generated version of a media asset.
 
-Examples:
+MVP variant types:
 
 * Thumbnail
 * Blurred preview
+
+Generation behavior differs by variant type:
+
+* Thumbnail is generated during upload processing before the ProfilePhoto becomes visible.
+* Blurred preview is generated on demand when needed for a locked Liked By card and then cached.
+
+PhotoVariant therefore contains both upload-time generated variants and cached on-demand variants.
 
 #### PhotoModerationRecord
 
