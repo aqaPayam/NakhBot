@@ -1656,6 +1656,45 @@ If one side unlocks chat, both sides can send text in that Match.
 
 Chat unlock may expire according to configured `FeatureUnlock.expires_at`, and access also ends when the Match closes or the unlock is revoked.
 
+### Refund policy
+
+MVP does not support user-initiated refund requests.
+
+Refunds and payment corrections occur automatically only when a system fault prevents a successfully funded paid action from being delivered correctly.
+
+Refundable examples include:
+
+* Telegram Stars payment succeeds but the corresponding Nakh or unlock cannot be delivered because of a system fault.
+* A duplicate or idempotency failure causes an incorrect duplicate charge or credit spend.
+* Credits are deducted but the corresponding paid action fails to complete.
+
+The following are not refundable:
+
+* A successfully delivered Nakh later expires
+* A receiver rejects a Nakh
+* A Liked By unlock expires normally
+* A Match is unmatched
+* A user changes their mind
+* A user says the purchase was accidental
+* A successfully delivered paid action is no longer useful to the user
+
+For a direct Telegram Stars payment:
+
+* If payment succeeded but the corresponding paid action failed because of a system fault, issue the refund through Telegram's Stars refund mechanism.
+* Record the correction in RefundRecord.
+* The refund must be idempotent.
+
+For an internal-credit correction:
+
+* Restore the required credits to CreditAccount.
+* Create a `CreditTransaction` with transaction type `refund`.
+* Link the correction to RefundRecord.
+* Do not apply the credit restoration more than once.
+
+For credit-package-related corrections, restore internal credits when appropriate rather than automatically reversing the original Stars package purchase.
+
+There is no manual refund-request or dispute-handling flow in MVP.
+
 ### Payment audit
 
 Payment lifecycle events must be auditable.
@@ -2120,7 +2159,7 @@ Payments and credits:
   * Ultimate — 100 credits — 60 Stars
 * Credit-package purchase currency: Telegram Stars only
 * Telegram Stars package pricing comes from `CreditPackage.stars_price`
-* Refund policy
+* Refund policy: automatic system-fault refunds only; no user-initiated refunds
 
 Media:
 
