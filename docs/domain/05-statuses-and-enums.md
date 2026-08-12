@@ -372,6 +372,15 @@ Notes:
 * expired
 * revoked
 
+Notes:
+
+* `active` means the unlock has not expired or been revoked.
+* `expired` is used when configured `expires_at` is reached.
+* `revoked` is used when access is explicitly revoked.
+* Both `liked_by_profile_unlock` and `chat_unlock` may use configured expiry.
+* Chat access additionally requires the related Match and ChatSession to remain active.
+* Closing a Match ends effective chat-unlock access even though the FeatureUnlock record may remain for history.
+
 ## 3. Notification Enums
 
 ### NotificationType
