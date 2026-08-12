@@ -445,7 +445,16 @@ Examples:
 
 Purchasable bundle of credits.
 
-Exact package sizes and discounts are not finalized yet.
+MVP package records are:
+
+* Starter — 10 credits — 10 Stars
+* Plus — 25 credits — 20 Stars — Popular
+* Best Value — 50 credits — 35 Stars — Best Value
+* Ultimate — 100 credits — 60 Stars — Best Value
+
+CreditPackage is data/configuration, not a hardcoded payment-handler concept.
+
+Package records may later be changed or deactivated without changing the payment domain model.
 
 #### PaymentRecord
 
