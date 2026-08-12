@@ -1698,9 +1698,11 @@ Allowed statuses:
 * message_text
 * created_at
 
-Rule:
+Rules:
 
-* Support messages must be rate-limited.
+* A user may have at most 2 unanswered support messages.
+* If the user already has 2 unanswered support messages, another user SupportMessage must be rejected until support/admin responds.
+* The limit must come from `support_unanswered_message_limit`.
 
 ### UserAppeal
 
@@ -1990,6 +1992,7 @@ Admin bootstrap:
 * report_threshold_unique_reporter_count
 * report_threshold_window_days
 * report_extra_text_max_length = 1024
+* support_unanswered_message_limit = 2
 
 Rules:
 
