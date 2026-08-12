@@ -531,6 +531,12 @@ Non-mutable notification categories:
 * notification_retry
 * refresh_explore_shuffle_keys
 
+Notes:
+
+* `send_pending_payment_reminder` is used in MVP for unpaid PendingNakh reminders.
+* The reminder cadence is approximately every 2 days during the 14-day PendingNakh lifetime.
+* Reminder scheduling applies only while `PendingNakh.status = pending_payment`.
+
 ### LocaleCode
 
 Initial supported value:
