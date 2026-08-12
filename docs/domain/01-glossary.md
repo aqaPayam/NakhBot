@@ -894,6 +894,16 @@ Frozen copy of reported context at report time.
 
 Used so evidence is not lost after edits or chat cleanup.
 
+### Internal Block
+
+An internal safety-only blocked state between two users.
+
+Block is not exposed as a user-facing action in MVP.
+
+Users are not notified that an internal block exists.
+
+Internal block is represented by `UserPairState.state = blocked`.
+
 ### Moderation Review
 
 Admin review process for reports or safety cases.
