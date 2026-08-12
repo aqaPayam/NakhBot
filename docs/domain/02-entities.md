@@ -293,6 +293,12 @@ Used for:
 
 Feature unlocks can expire or be revoked depending on feature type and configuration.
 
+For MVP:
+
+* Liked By profile unlock expires according to configured unlock duration.
+* Chat unlock is Match-scoped and remains usable until the Match closes, the unlock is revoked, or a configured expiry is reached.
+* Exact expiry durations remain configurable.
+
 Nakh is not modeled as a FeatureUnlock. Nakh is a paid action, not persistent feature access.
 
 FeatureUnlock ownership:
@@ -412,11 +418,15 @@ ChatUnlock does not own payment, credit, expiry, revocation, or unlock status.
 
 FeatureUnlock is the source of truth for paid unlock state.
 
-If one side unlocks chat, both users can send text in that Match.
+If one side unlocks chat, both users can send text in that Match while the related chat FeatureUnlock remains effectively active and the Match remains active.
 
 The other matched user does not need to pay again for the same Match.
 
-Chat unlock does not expire in MVP.
+Chat unlock may end because:
+
+* The Match closes
+* The FeatureUnlock is revoked
+* The configured FeatureUnlock expiry is reached
 
 ChatUnlock is the chat-specific state showing that one Match has unlocked text chat.
 
