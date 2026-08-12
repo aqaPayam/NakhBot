@@ -1450,9 +1450,33 @@ MVP costs:
 
 ### Credit packages
 
-Users can buy credit packages.
+Users can buy credit packages using Telegram Stars.
 
-Exact package sizes and discount rules are not finalized yet.
+The active MVP packages are:
+
+| Package | Credits | Stars | Label |
+|---|---:|---:|---|
+| Starter | 10 | 10 | None |
+| Plus | 25 | 20 | Popular |
+| Best Value | 50 | 35 | Best Value |
+| Ultimate | 100 | 60 | Best Value |
+
+The package order is:
+
+1. Starter
+2. Plus
+3. Best Value
+4. Ultimate
+
+Package definitions must be data/config-driven.
+
+Payment handlers must not hardcode package amounts, Stars prices, or labels.
+
+A successful credit-package purchase must add exactly the configured `credit_amount` to the user’s CreditAccount.
+
+Every resulting balance increase must create the corresponding CreditTransaction.
+
+After credits are successfully added, the Pending Nakh FIFO auto-settlement rule applies.
 
 ### Contextual purchase
 
@@ -2061,7 +2085,11 @@ Chat:
 
 Payments and credits:
 
-* Credit package options
+* Credit package options:
+  * Starter — 10 credits
+  * Plus — 25 credits
+  * Best Value — 50 credits
+  * Ultimate — 100 credits
 * Telegram Stars pricing
 * Refund policy
 
