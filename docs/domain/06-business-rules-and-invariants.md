@@ -1368,18 +1368,28 @@ Chat unlock is paid per Match.
 
 One successful chat unlock payment unlocks free-text chat for both users in that specific Match.
 
-If either matched user unlocks chat, both users can send text in that Match.
+If either matched user unlocks chat, both users can send text in that Match while the unlock remains effectively active.
 
 The other matched user does not need to pay again for the same Match.
 
-Chat unlock does not expire in MVP.
+Chat unlock supports configured expiry through `FeatureUnlock.expires_at`.
 
-Chat unlock remains active until:
+Chat unlock access remains available until the first applicable terminating condition:
 
-* The Match is unmatched
+* The Match is unmatched or otherwise closed
 * The Match is closed by admin/moderation
 * The chat is closed because of account deletion or ban
-* The unlock is revoked by admin/moderation
+* The unlock is revoked
+* The configured FeatureUnlock expiry is reached
+
+Free-text chat permission requires:
+
+* `FeatureUnlock.status = active`
+* `expires_at` is null or still in the future
+* The unlock has not been revoked
+* Match and ChatSession are active
+
+Exact chat-unlock expiry duration is configurable and must not be hardcoded.
 
 ### Unlocked chat limits
 
@@ -1604,7 +1614,13 @@ FeatureUnlock is not needed for sent Nakh.
 
 Nakh is a paid action, not persistent access.
 
-For MVP, `liked_by_profile_unlock` can expire, but `chat_unlock` does not expire.
+Both `liked_by_profile_unlock` and `chat_unlock` support configurable expiry through `FeatureUnlock.expires_at`.
+
+Liked By profile unlock expires according to its configured unlock duration.
+
+Chat unlock remains usable until the Match closes, the unlock is revoked, or its configured expiry is reached.
+
+Exact expiry durations must not be hardcoded in handlers.
 
 Direct Telegram Stars payment for Nakh must not create a FeatureUnlock.
 
@@ -1638,7 +1654,7 @@ The other matched user does not need to pay again.
 
 If one side unlocks chat, both sides can send text in that Match.
 
-Chat unlock does not expire in MVP.
+Chat unlock may expire according to configured `FeatureUnlock.expires_at`, and access also ends when the Match closes or the unlock is revoked.
 
 ### Payment audit
 
@@ -2093,6 +2109,7 @@ Liked By:
 Chat:
 
 * Chat unlock cost: 4 credits
+* Chat unlock expiry duration
 
 Payments and credits:
 
