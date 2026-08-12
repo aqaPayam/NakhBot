@@ -1359,6 +1359,10 @@ Rules:
 * Pending Nakh creates no receiver notification.
 * Match creates notifications for both users.
 * Payment, safety, admin, ban, and restriction notices cannot be muted.
+* `pending_nakh_payment_reminder` is sent only to the PendingNakh sender.
+* It is sent only while the related PendingNakh has `status = pending_payment`.
+* The MVP cadence is approximately once every 2 days during the 14-day unpaid lifetime.
+* No reminder is sent after the PendingNakh is paid, cancelled, expired, abandoned, converted to Like, or converted to Not Interested.
 
 ### NotificationDelivery
 
@@ -1741,6 +1745,14 @@ Allowed job types:
 * notification_retry
 * refresh_explore_shuffle_keys
 
+Rules:
+
+* For MVP, `send_pending_payment_reminder` handles unpaid PendingNakh reminders.
+* It must consider only PendingNakhes with `status = pending_payment`.
+* Pending Nakh reminders should be sent approximately every 2 days.
+* The schedule must come from `pending_nakh_reminder_schedule`.
+* The job must not send reminders for already resolved or expired PendingNakhes.
+
 ### JobRunLog
 
 * id
@@ -1891,7 +1903,7 @@ Nakh:
 * nakh_expiry_days
 * max_unpaid_pending_nakhes_per_sender = 5
 * pending_nakh_expiry_days = 14
-* pending_nakh_reminder_schedule
+* pending_nakh_reminder_schedule = approximately_every_2_days
 
 Liked By:
 
