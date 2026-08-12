@@ -276,7 +276,7 @@ Used when a user rejects a profile from Explore, Liked By, cancelled Pending Nak
 
 Current symmetric summary state between two users.
 
-Used to prevent invalid pair-level actions after match, unmatch, or block.
+Used to prevent invalid pair-level actions after match, unmatch, or internal safety block.
 
 UserPairState must not store directional actions such as Like, Not Interested, Pending Nakh, or Sent Nakh.
 
@@ -944,21 +944,17 @@ Rejected because ReportSnapshot and ChatMessageSnapshot cover moderation evidenc
 
 Rejected because PendingPayment and PendingNakh cover the required pending flows.
 
-### UserBlock
+### UserBlock Entity
 
-Rejected for MVP.
+A separate user-facing UserBlock entity is not required for MVP.
 
-Users cannot block other users in MVP.
+Internal safety-only block state is represented by `UserPairState.state = blocked`.
 
-Admins also do not have a pair-level block action in MVP.
+Normal users cannot create or view Block as a product action.
 
-If a user has a safety issue, the user should submit a Report.
+Users are not notified when an internal block exists.
 
-Admin review can result in existing moderation actions such as restricting the user, banning the user, hiding/restoring a photo, or dismissing the report.
-
-Pair-level rediscovery prevention is handled by existing source records such as NotInterested, Match, UnmatchRecord, and UserPairState where applicable.
-
-A user-facing block feature may be added later if product requirements change
+A user-facing Block feature may be added later if product requirements change.
 
 ## 8. Notes
 
