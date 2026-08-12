@@ -817,6 +817,18 @@ Nakh is a paid action that creates a sent interaction, not persistent feature ac
 
 Internal record of a payment attempt and result.
 
+### Refund
+
+An automatic payment or credit correction caused by a system fault.
+
+MVP does not support user-initiated refund requests.
+
+A successfully delivered Nakh or FeatureUnlock is not refundable because of expiry, rejection, unmatch, change of mind, or accidental purchase.
+
+If a direct Telegram Stars payment succeeds but the corresponding paid action fails because of a system fault, the Stars payment should be refunded through Telegram.
+
+If correction requires restoring internal credits, the user’s CreditAccount is re-credited and the correction is recorded through CreditTransaction and RefundRecord.
+
 ### Payment Provider Event
 
 Raw Telegram Stars payment callback/event.
