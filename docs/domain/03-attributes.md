@@ -1349,7 +1349,18 @@ Rules:
 
 Purpose:
 
-* Tracks refunds or payment corrections.
+* Tracks automatic system-fault refunds or payment/credit corrections.
+
+Rules:
+
+* MVP does not support user-initiated refund requests.
+* A RefundRecord may be created only for an automatic system-fault correction.
+* Normal expiry, Nakh rejection, unmatch, change of mind, or accidental purchase must not create a refund.
+* If a direct Telegram Stars payment succeeded but the corresponding action failed because of a system fault, `amount_stars` records the Stars refund amount.
+* Direct Stars refunds must be processed through Telegram's refund mechanism.
+* If internal credits must be restored, `amount_credits` records the credit correction and `credit_transaction_id` references the corresponding refund CreditTransaction.
+* Credit restoration must update CreditAccount transactionally.
+* A refund/correction must be idempotent and must not be applied twice.
 
 ## 9. Notification Attributes
 
@@ -1958,7 +1969,7 @@ Payments and credits:
   * Best Value: 50 credits at 35 Stars
   * Ultimate: 100 credits at 60 Stars
 * telegram_stars_pricing = defined by CreditPackage.stars_price for package purchases
-* refund_policy
+* refund_policy = automatic system-fault refunds only; no user-initiated refunds
 
 Media:
 
