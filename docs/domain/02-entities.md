@@ -299,6 +299,11 @@ For MVP:
 * Chat unlock is Match-scoped and remains usable until the Match closes, the unlock is revoked, or a configured expiry is reached.
 * Exact expiry durations remain configurable.
 
+Deletion rule:
+
+* FeatureUnlock is normal product/payment data and is not retained as restorable product state after account deletion.
+* Returning with the same Telegram identity must not reactivate or restore any previous FeatureUnlock.
+
 Nakh is not modeled as a FeatureUnlock. Nakh is a paid action, not persistent feature access.
 
 FeatureUnlock ownership:
