@@ -219,6 +219,13 @@ Notes:
 * expired
 * abandoned
 
+Notes:
+
+* `pending_payment` means the PendingNakh is unpaid and counts toward the sender’s maximum of 5 concurrent unpaid PendingNakhes.
+* `paid_and_sent`, `cancelled`, `expired`, and `abandoned` do not count toward the concurrent unpaid cap.
+* Auto-settlement from available credits moves the PendingNakh out of `pending_payment` after successful transactional Nakh delivery.
+* An unpaid PendingNakh becomes `expired` after 14 days.
+
 ### PendingNakhCancelResolution
 
 * converted_to_like
