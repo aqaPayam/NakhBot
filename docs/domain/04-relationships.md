@@ -961,9 +961,16 @@ Reason:
 
 Used for:
 
-* Payment correction
-* Manual refund
-* Failed dispute handling
+* Automatic system-fault refund
+* Automatic payment correction
+* Internal credit correction
+
+Rules:
+
+* MVP has no user-initiated or manual refund-request flow.
+* A direct Telegram Stars refund is used when a Stars payment succeeded but the corresponding paid action failed because of a system fault.
+* An internal credit correction is used when credits must be restored.
+* Refund processing must be idempotent.
 
 ### User and Notification
 
