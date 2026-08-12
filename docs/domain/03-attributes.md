@@ -716,6 +716,9 @@ Rules:
 * `payment_id` stores the direct Telegram Stars payment when the unlock was funded directly.
 * `credit_transaction_id` stores the credit spend transaction when the unlock was funded with existing credits.
 * ChatUnlock must not duplicate `payment_id`, `credit_transaction_id`, `status`, `expires_at`, or `revoked_at`.
+* Account deletion permanently removes normal FeatureUnlock product state according to account-deletion retention rules.
+* Previous FeatureUnlock records must never grant access to a user who returns after deletion.
+* A returning user must purchase/create any future unlock again through the normal paid flow.
 
 Ownership rules:
 
