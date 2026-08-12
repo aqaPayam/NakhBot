@@ -636,7 +636,9 @@ Banned users cannot create SupportThread records.
 
 Individual message inside a support thread.
 
-Support messages must be rate-limited.
+A user may have at most 2 unanswered SupportMessages.
+
+A third unanswered user message must not be created until support/admin responds.
 
 #### UserAppeal
 
