@@ -177,6 +177,7 @@ Purpose:
 * bio
 * completion_status
 * completed_at
+* random_shuffle_key
 * created_at
 * updated_at
 
@@ -211,7 +212,10 @@ Notes:
 * This combination routes the user to Fix Profile.
 * Invalid active profile users cannot Explore, appear in Explore, Like, send Nakh, or create new discovery interactions.
 * When required profile completion rules are satisfied again, `completion_status` should be set back to `complete`.
-
+* `random_shuffle_key` is internal discovery metadata and is not shown to users.
+* `random_shuffle_key` is used to avoid stable ordering bias when selecting Explore candidates.
+* The key must be refreshed periodically.
+* The exact refresh schedule is configurable.
 
 ### ProfileOptionalDetails
 
@@ -1719,6 +1723,7 @@ Allowed job types:
 * send_pending_payment_reminder
 * cleanup_chat_messages
 * notification_retry
+* refresh_explore_shuffle_keys
 
 ### JobRunLog
 
@@ -1857,6 +1862,11 @@ Profile completion:
 * max_interests
 * highlight_max_length
 * bio_max_length
+
+Explore:
+
+* explore_candidate_pool_limit
+* explore_shuffle_key_refresh_schedule
 
 Nakh:
 
