@@ -1221,9 +1221,10 @@ Rule:
 * SupportThread has many SupportMessages.
 * SupportMessage belongs to one SupportThread.
 
-Rule:
+Rules:
 
-* Support messages must be rate-limited.
+* A user may have at most 2 unanswered SupportMessages.
+* A third unanswered user SupportMessage must not be accepted until support/admin responds.
 
 ### User and UserAppeal
 
