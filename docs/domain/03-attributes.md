@@ -776,8 +776,16 @@ Rules:
 * A Nakh flow may be represented first by PendingNakh and then by Nakh after successful payment.
 * If PendingNakh becomes expired, abandoned, cancelled, or payment failed/cancelled, the sender still cannot create another PendingNakh or Nakh for the same receiver.
 * Pending Nakh text can be edited before payment.
-* Pending Nakh expires if it is not paid within the configured expiry duration.
-* Exact Pending Nakh expiry duration is configurable and must not be hardcoded in handlers.
+* A sender may have at most 5 concurrent PendingNakh records with `status = pending_payment`.
+* Only `pending_payment` PendingNakhes count toward the concurrent unpaid limit.
+* If a sender already has 5 unpaid PendingNakhes, creation of a 6th must be rejected until at least one existing unpaid PendingNakh leaves `pending_payment`.
+* Unpaid PendingNakhes are ordered FIFO by `created_at`.
+* When credits are successfully added to the sender’s CreditAccount, eligible unpaid PendingNakhes must be auto-settled in ascending `created_at` order.
+* Auto-settlement continues until the unpaid queue is empty or the available balance is insufficient for the next PendingNakh.
+* Each successful auto-settlement deducts the required credits transactionally and converts the PendingNakh into a delivered Nakh.
+* Pending Nakh expires 14 days after creation if it remains unpaid.
+* `expires_at` must be set from the configured 14-day Pending Nakh expiry duration.
+* Pending Nakh expiry duration must come from SystemConfig and must not be hardcoded in handlers.
 * If cancelled before payment, the sender must choose whether to convert it to a normal Like or mark the target as Not Interested.
 * A visibility-off sender cannot create a new Pending Nakh.
 * A visibility-off sender may complete payment for a Pending Nakh created before sender visibility was turned off.
@@ -1102,9 +1110,11 @@ Rule:
 * created_at
 * updated_at
 
-Rule:
+Rules:
 
 * One user has one credit account.
+* Any successful operation that increases the available credit balance must trigger PendingNakh FIFO auto-settlement for that user.
+* Auto-settlement must occur only after the credit increase is successfully committed.
 
 ### CreditTransaction
 
@@ -1133,6 +1143,9 @@ Rules:
 
 * Every credit balance change must create a CreditTransaction.
 * Spending credits must be transactional with the paid action.
+* A wallet-funding credit transaction that increases the available balance must trigger PendingNakh FIFO auto-settlement.
+* Each PendingNakh settled from credits must create its own `spend_nakh` CreditTransaction.
+* FIFO ordering is based on `PendingNakh.created_at`.
 
 ### CreditPackage
 
@@ -1279,6 +1292,9 @@ Rules:
 * PendingPayment is used when payment cannot be completed immediately or when a paid action is waiting for Telegram Stars confirmation.
 * PendingPayment may be used for `send_nakh`, `unlock_chat`, `unlock_liked_by_profile`, or `buy_credit_package`.
 * For `send_nakh`, successful PendingPayment completion delivers the related Nakh.
+* For a PendingPayment belonging to PendingNakh, `expires_at` must align with the related PendingNakh 14-day expiry.
+* Expiring the PendingPayment for an unpaid PendingNakh must also transition the related PendingNakh to `expired`.
+* A PendingNakh auto-settled from newly available credits must not later be completed again through its PendingPayment.
 * For `unlock_chat`, successful PendingPayment completion creates the chat unlock.
 * For `unlock_liked_by_profile`, successful PendingPayment completion creates the liked-by profile unlock.
 * For `buy_credit_package`, successful PendingPayment completion adds credits to the user credit balance.
@@ -1873,7 +1889,8 @@ Nakh:
 * nakh_text_max_length
 * nakh_cost
 * nakh_expiry_days
-* pending_nakh_expiry_minutes
+* max_unpaid_pending_nakhes_per_sender = 5
+* pending_nakh_expiry_days = 14
 * pending_nakh_reminder_schedule
 
 Liked By:
