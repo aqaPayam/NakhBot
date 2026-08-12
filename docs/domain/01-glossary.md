@@ -757,9 +757,16 @@ Examples:
 
 ### Credit Package
 
-A purchasable bundle of credits.
+A purchasable bundle of credits bought with Telegram Stars.
 
-Exact package sizes and discount rules are not finalized yet.
+MVP credit packages are:
+
+* Starter: 10 credits for 10 Stars
+* Plus: 25 credits for 20 Stars — Popular
+* Best Value: 50 credits for 35 Stars — Best Value
+* Ultimate: 100 credits for 60 Stars — Best Value
+
+These package definitions are product configuration and must not be hardcoded inside payment handlers.
 
 ### Pending Payment
 
