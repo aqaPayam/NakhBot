@@ -1461,6 +1461,17 @@ The active MVP packages are:
 | Best Value | 50 | 35 | Best Value |
 | Ultimate | 100 | 60 | Best Value |
 
+
+Telegram Stars is the sole purchase currency for credit packages in MVP.
+
+Each package's complete Stars price is stored in its `CreditPackage.stars_price`.
+
+There is no separate second Stars-pricing table for credit-package purchases.
+
+Internal credits cannot be used to buy additional credit packages.
+
+The package payment must use the configured Stars price of the selected CreditPackage.
+
 The package order is:
 
 1. Starter
@@ -2086,11 +2097,12 @@ Chat:
 Payments and credits:
 
 * Credit package options:
-  * Starter — 10 credits
-  * Plus — 25 credits
-  * Best Value — 50 credits
-  * Ultimate — 100 credits
-* Telegram Stars pricing
+  * Starter — 10 credits — 10 Stars
+  * Plus — 25 credits — 20 Stars
+  * Best Value — 50 credits — 35 Stars
+  * Ultimate — 100 credits — 60 Stars
+* Credit-package purchase currency: Telegram Stars only
+* Telegram Stars package pricing comes from `CreditPackage.stars_price`
 * Refund policy
 
 Media:
