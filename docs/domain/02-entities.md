@@ -112,6 +112,12 @@ Implementation should treat interested gender as a configurable preference optio
 
 Explore gender compatibility must not be hardcoded only around Man/Woman.
 
+Profile also carries a non-user-facing `random_shuffle_key` used for Explore candidate ordering.
+
+The key is discovery infrastructure metadata, not dating-visible profile data.
+
+It should be refreshed periodically to avoid stable ordering and repeated exposure bias.
+
 #### ProfileOptionalDetails
 
 Optional profile information.
@@ -612,7 +618,9 @@ Examples:
 * Nakh expiry duration
 * Report threshold unique reporter count
 * Report threshold window days
-
+* Explore candidate pool limit
+* Explore shuffle-key refresh schedule
+  
 #### Locale
 
 Supported language/locale.
@@ -636,6 +644,7 @@ Examples:
 * Send pending payment reminder
 * Cleanup chat messages
 * Retry notification delivery
+* Refresh Explore shuffle keys
 
 #### JobRunLog
 
