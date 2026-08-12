@@ -648,12 +648,15 @@ Allowed states:
 * none
 * matched
 * unmatched
+* blocked
 
 Rules:
 
 * Use normalized pair ordering: `user_a_id < user_b_id`.
 * UserPairState is a symmetric pair-level summary only.
 * UserPairState must not store directional states.
+* `blocked` is internal/safety-only.
+* `blocked` must not be exposed as a user-facing Block action or visible user status.
 
 Directional actions must be read from source records:
 
