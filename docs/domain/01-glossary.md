@@ -914,16 +914,21 @@ A file that fails validation must not become a visible profile photo.
 
 A generated photo version that must exist before a profile photo becomes visible.
 
-MVP required variants are:
+For MVP, the only upload-time required variant is:
 
 * Thumbnail
-* Blurred preview
+
+The thumbnail must be generated after the original image passes validation and is stored successfully.
+
+Blurred preview is not an upload-time required variant.
 
 ### Failed Photo Upload
 
-An upload attempt where validation, object-storage upload, or required variant generation fails.
+An upload attempt where validation, object-storage upload, or required upload-time variant generation fails.
 
 A failed photo upload does not create a visible profile photo and does not count toward active photo limits.
+
+Failure to generate an on-demand blurred preview does not invalidate the original profile photo.
 
 ### Telegram File ID
 
@@ -955,6 +960,14 @@ Examples:
 ### Blurred Preview
 
 Blurred image shown in locked Liked By cards.
+
+Blurred previews are generated on demand when a locked Liked By card needs them.
+
+For MVP, only the relevant primary profile photo requires a blurred preview.
+
+Once generated, the blurred preview should be cached and represented as a PhotoVariant.
+
+A blurred preview is not required before the original ProfilePhoto becomes visible.
 
 ### Object Storage
 
