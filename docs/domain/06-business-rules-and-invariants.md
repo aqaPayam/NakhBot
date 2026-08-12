@@ -1023,6 +1023,66 @@ Pending Nakh does consume the target profile.
 
 Pending Nakh also consumes the sender’s one allowed Nakh flow for that receiver.
 
+### Pending Nakh unpaid queue
+
+A sender may have at most 5 concurrent unpaid Pending Nakhes system-wide.
+
+An unpaid Pending Nakh means:
+
+`PendingNakh.status = pending_payment`
+
+The cap is sender-wide, not per receiver.
+
+If the sender already has 5 unpaid Pending Nakhes, the system must not allow creation of a 6th.
+
+The sender must first resolve at least one existing unpaid Pending Nakh.
+
+A Pending Nakh stops counting toward the cap when it leaves `pending_payment`, including when it is:
+
+* Paid and sent
+* Converted to Like through cancellation
+* Converted to Not Interested through cancellation
+* Expired
+* Abandoned
+
+The one-Nakh-flow-per-receiver rule remains permanent even after the Pending Nakh becomes terminal.
+
+### Pending Nakh FIFO settlement
+
+Unpaid Pending Nakhes form a FIFO queue ordered by `PendingNakh.created_at`.
+
+Whenever credits are successfully added to the sender’s CreditAccount:
+
+1. Load the sender’s eligible unpaid PendingNakhes in ascending `created_at` order.
+2. Recheck sender and receiver eligibility before each settlement.
+3. If enough credits exist for the oldest eligible PendingNakh, deduct the required credits transactionally.
+4. Create and deliver the corresponding Sent Nakh.
+5. Move the PendingNakh out of `pending_payment`.
+6. Continue to the next PendingNakh.
+7. Stop when the queue is empty or there are not enough credits for the next PendingNakh.
+
+The system must not skip an older payable PendingNakh in order to settle a newer one.
+
+Each settlement must preserve normal payment idempotency and transactional Nakh-delivery rules.
+
+### Pending Nakh expiry
+
+An unpaid Pending Nakh expires 14 days after creation.
+
+`PendingNakh.expires_at` must represent this deadline.
+
+The related PendingPayment must use the same effective expiry deadline.
+
+When the expiry deadline is reached:
+
+* Set the unpaid PendingNakh to `expired`.
+* Expire the related PendingPayment if it is still pending.
+* Do not notify or deliver anything to the receiver.
+* Keep the target consumed.
+* Keep the sender’s one-Nakh-flow allowance for that receiver consumed.
+
+The 14-day duration must come from `pending_nakh_expiry_days`.
+
 ### Pending Nakh payment
 
 If the sender does not have enough credits:
@@ -1450,6 +1510,19 @@ For example, sending paid Nakh must:
 * Create receiver notification
 
 The operation should either fully succeed or fully fail.
+
+### Wallet funding and Pending Nakh settlement
+
+Any successful operation that adds credits to a user’s CreditAccount must trigger Pending Nakh FIFO auto-settlement.
+
+This rule is based on the resulting credit-balance increase and does not require a separate payment type.
+
+The newly available credits must first be applied to unpaid PendingNakhes in FIFO order until:
+
+* The queue is empty, or
+* The remaining balance cannot fully fund the next PendingNakh.
+
+Each auto-settled PendingNakh must use the same transactional credit-spending and Nakh-delivery rules as an individually paid Nakh.
 
 ### Feature unlocks
 
@@ -1937,7 +2010,8 @@ Nakh:
 * Nakh text max length
 * Nakh cost
 * Sent Nakh expiry duration
-* Pending Nakh expiry duration
+* Maximum concurrent unpaid Pending Nakhes per sender: 5
+* Pending Nakh expiry duration: 14 days
 * Pending Nakh reminder schedule
 
 Liked By:
