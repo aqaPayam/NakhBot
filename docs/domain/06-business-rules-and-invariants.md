@@ -2079,7 +2079,7 @@ Explore:
 Nakh:
 
 * Nakh text max length
-* Nakh cost
+* Nakh cost: 2 credits
 * Sent Nakh expiry duration
 * Maximum concurrent unpaid Pending Nakhes per sender: 5
 * Pending Nakh expiry duration: 14 days
@@ -2087,12 +2087,12 @@ Nakh:
 
 Liked By:
 
-* Liked By unlock cost
+* Liked By unlock cost: 4 credits
 * Liked By unlock expiry duration
 
 Chat:
 
-* Chat unlock cost
+* Chat unlock cost: 4 credits
 
 Payments and credits:
 
