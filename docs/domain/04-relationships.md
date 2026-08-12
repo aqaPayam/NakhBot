@@ -431,6 +431,11 @@ Allowed pair-level states:
 * none
 * matched
 * unmatched
+* blocked
+
+`blocked` is an internal safety-only pair state.
+
+It must not create a user-facing Block control or notify either user that the internal block exists.
 
 Purpose:
 
