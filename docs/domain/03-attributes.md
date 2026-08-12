@@ -1159,10 +1159,35 @@ Rules:
 * created_at
 * updated_at
 
-Notes:
+MVP package records:
 
-* Exact package sizes are not finalized.
-* Exact discount rules are not finalized.
+1. Starter
+   * `credit_amount = 10`
+   * `stars_price = 10`
+   * `discount_label = null`
+
+2. Plus
+   * `credit_amount = 25`
+   * `stars_price = 20`
+   * `discount_label = Popular`
+
+3. Best Value
+   * `credit_amount = 50`
+   * `stars_price = 35`
+   * `discount_label = Best Value`
+
+4. Ultimate
+   * `credit_amount = 100`
+   * `stars_price = 60`
+   * `discount_label = Best Value`
+
+Rules:
+
+* These four packages are the active MVP package set.
+* Package ordering should follow Starter, Plus, Best Value, Ultimate.
+* Package definitions must be loaded from configuration/data rather than hardcoded inside payment handlers.
+* `credit_amount` and `stars_price` must be positive integers.
+* `discount_label` is optional.
 
 ### PaymentRecord
 
@@ -1916,7 +1941,11 @@ Chat:
 
 Payments and credits:
 
-* credit_package_options
+* credit_package_options =
+  * Starter: 10 credits
+  * Plus: 25 credits
+  * Best Value: 50 credits
+  * Ultimate: 100 credits
 * telegram_stars_pricing
 * refund_policy
 
