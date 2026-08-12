@@ -729,14 +729,25 @@ Users can buy credit packages with Telegram Stars, then spend credits inside the
 
 ### Telegram Stars
 
-The payment provider used in MVP.
+The payment provider and payment currency used in MVP.
 
 Telegram Stars can be used in two ways:
 
 * Direct payment for one paid action
 * Purchase of an internal credit package
 
-Direct Telegram Stars prices and internal credit costs are separate product settings.
+Telegram Stars is the sole purchase currency for credit packages in MVP.
+
+Credit-package Stars prices are stored directly on the corresponding CreditPackage records:
+
+* Starter: 10 Stars
+* Plus: 20 Stars
+* Best Value: 35 Stars
+* Ultimate: 60 Stars
+
+There is no separate second pricing table for credit-package purchases.
+
+Direct paid-action Stars pricing remains separate from internal credit costs and credit-package pricing.
 
 ### Credit Balance
 
