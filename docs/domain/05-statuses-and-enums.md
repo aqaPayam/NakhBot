@@ -236,12 +236,13 @@ Notes:
 
 ### NakhStatus
 
-* sent
-* seen
-* accepted
-* rejected
-* closed
-* expired
+* `pending_payment`: Unpaid Nakh attempt (PendingNakh phase).
+* `sent`: Paid Nakh delivered to receiver.
+* `viewed`: Receiver has viewed the Nakh.
+* `accepted`: Receiver accepted the Nakh (creates a Match).
+* `rejected`: Receiver explicitly rejected the Nakh.
+* `expired`: Nakh expired without receiver action.
+* `closed`: Closed by system, admin, or moderation action (e.g., sender/receiver account restricted, banned, or deleted). Receiver rejection must use `rejected`, not `closed`.
 
 Notes:
 
@@ -510,18 +511,23 @@ Non-mutable notification categories:
 * review_support
 * review_appeals
 
-### SupportThreadStatus
-
-* open
-* reviewed
-* closed
-
 ### UserAppealStatus
 
-* submitted
-* reviewed
-* accepted
-* rejected
+Used exclusively for banned-user appeals via `UserAppeal`. Banned users cannot create `SupportThread` records.
+
+* `submitted`: Appeal submitted by banned user and awaiting admin review.
+* `reviewed`: Admin has opened/reviewed the appeal details.
+* `accepted`: Appeal accepted; ban removed.
+* `rejected`: Appeal rejected; ban maintained (terminal state).
+
+### SupportThreadStatus
+
+Used only for non-banned user support threads (`SupportThread`). Banned users use `UserAppealStatus` instead.
+
+* `open`: Waiting for support/admin response.
+* `reviewed`: Under active support review.
+* `closed`: Thread resolved or closed.
+
 
 ### ProfileChangeRequestStatus
 

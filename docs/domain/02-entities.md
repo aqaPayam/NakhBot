@@ -76,7 +76,9 @@ After account activation, the counter remains for audit/history but no longer co
 
 General user settings.
 
-Owns visibility and language preference.
+Owns visibility (`visibility_enabled`) and language preference (`language_code`).
+
+Does not store temporary or permanent guest preview counters.
 
 ### 2.2 Signup
 
@@ -254,6 +256,8 @@ Interested gender is stored on Profile, not here.
 
 Permanent record that a viewer has already seen or acted on a target profile.
 
+Connects `viewer_user_id` to `target_user_id` with a consumption reason.
+
 Consumed profiles must not be shown again.
 
 ### 2.7 Interaction
@@ -371,7 +375,9 @@ Keeps participant-level data separate from the Match itself.
 
 Record of an unmatch action.
 
-Tracks who unmatched, when it happened, and the 24-hour post-unmatch report window.
+Tracks who unmatched (`unmatched_by_user_id`), when it happened (`unmatched_at`), and the 24-hour post-unmatch report window (`report_window_expires_at`).
+
+Serves as the evidence anchor and validation record for post-unmatch user reports.
 
 ### 2.10 Chat
 
@@ -455,6 +461,8 @@ Examples:
 * Spend on Liked By unlock
 * Refund
 * Admin adjustment
+
+Maintains audit linkage to related PaymentRecord, PendingPayment, FeatureUnlock, or Nakh records where applicable.
 
 #### CreditPackage
 
@@ -553,7 +561,7 @@ Examples:
 * Photo
 * Chat
 * Message
-* Unmatched user
+* Unmatched user (linked via `unmatch_record_id`)
 
 #### ReportSnapshot
 
@@ -770,6 +778,9 @@ Supporting entities include:
 * Locale
 * UIText
 * RateLimitRecord
+* MatchParticipant
+* UnmatchRecord
+* ChatParticipant
 
 ## 4. Profile Option Entities
 

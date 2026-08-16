@@ -1995,8 +1995,7 @@ Admin bootstrap:
 * report_threshold_unique_reporter_count
 * report_threshold_window_days
 * report_extra_text_max_length = 1024
-* support_unanswered_message_limit = 2
-
+* `support_unanswered_message_limit`: INT (default: 2) — Hard limit for unanswered support messages per user before rejecting additional messages.
 Rules:
 
 * Paid-action costs must be read from SystemConfig or code-level configuration.

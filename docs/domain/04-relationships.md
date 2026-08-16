@@ -364,8 +364,10 @@ The implementation must not hardcode compatibility only for Man/Woman.
 
 Rules:
 
-* Once consumed, the target profile is not shown again.
-* Consumption is permanent.
+* ExploreConsumption belongs directly to the viewer User, not to ExploreFilter.
+* Guest and incomplete users create ExploreConsumption records without requiring an ExploreFilter or complete Profile.
+* Once consumed, the target profile is not shown again to the same viewer.
+* Consumption reasons: preview, like, not_interested, pending_nakh, sent_nakh, match.
 
 Guest Preview relationship rule:
 
@@ -890,6 +892,14 @@ Used for:
 Rule:
 
 * Pending payment becomes paid, failed, cancelled, or expired.
+
+### PendingPayment and CreditTransaction
+
+* CreditTransaction may reference one PendingPayment.
+* PendingPayment can create or settle one or more CreditTransactions.
+
+Purpose:
+* Tracks which pending payment or queued action caused the credit transaction for audit and settlement tracing.
 
 ### PaymentRecord and CreditTransaction
 
