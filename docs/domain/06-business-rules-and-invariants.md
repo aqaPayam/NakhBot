@@ -1,2265 +1,732 @@
-# Business Rules and Invariants
+# Business Rules, Invariants, and Acceptance Criteria
 
-This file defines product rules that must always hold.
+This is the normative cross-entity product contract. An implementation is not correct unless every MUST/MUST NOT rule and acceptance criterion holds.
 
-These rules cross multiple entities and should not be buried inside individual entity files.
+## User-facing surfaces
 
-## 1. Account and Access Rules
+Complete active main menu:
 
-### Account states
+- Explore
+- Matches
+- Nakhes
+- Liked By
+- Edit Profile
+- Settings
 
-A user account must be in one of these states:
+Invalid active menu:
 
-* guest
-* incomplete
-* active
-* restricted
-* banned
-* deleted
+- Fix Profile
+- Edit Profile
+- Matches
+- Nakhes
+- Settings
+- Support
 
-### Guest access
+Restricted menu:
 
-Guest users can:
+- Edit Profile
+- Matches and chats in read-only mode
+- Settings
+- Support
 
-* View limited teaser profile previews
-* Start signup
+Settings contains visibility, notification preferences, Edit Profile, account deletion, Support, and UI language when another locale is enabled. Wallet is not a main-menu surface.
 
-Guest users cannot:
+Guest Preview and normal Explore cards contain current primary photo, name, approximate age, City, and highlight. Show More opens the full Profile. Normal Explore actions are Like, Send Nakh, Not Interested, Show More, and Report. Guest Preview has no interaction actions.
 
-* Use filters
-* Like profiles
-* Send Nakh
-* Mark Not Interested
-* Match
-* Chat
-* Use paid features
+Nakhes contains received Sent Nakhes, sent Nakh status, sender-only Pending Nakhes, and terminal expired/closed history during the account lifetime. A receiver never sees another user's Pending Nakh.
 
-Guest preview is not normal Explore.
+The English UI tone SHOULD be casual, clear, respectful, and light without sexual pressure, manipulative urgency, or forced humor.
 
-Guest preview does not use Explore filters, reciprocal gender compatibility, viewer age, viewer city, viewer interested gender, or viewer relationship goal.
+## 1. Access and routing
 
-### Guest preview limit
+### Access matrix
 
-Guest users can see only 10 profile previews permanently.
-
-On first `/start`, a new Telegram user gets:
-
-* User
-* TelegramIdentity
-* Account with state `guest`
-* UserSettings with default values
-* GuestPreviewCounter with `preview_count = 0` and `limit_count = 10`
-
-Guest mode is persistent and tied to Telegram identity/user.
-
-Guest mode is not an anonymous temporary session.
-
-The preview counter is shared by guest and incomplete users.
-
-Starting signup does not reset the preview counter.
-
-After signup completion, the account becomes `active` and the preview counter no longer controls normal Explore access.
-
-### Incomplete user access
-
-Incomplete users are treated like guests until signup is completed.
-
-Incomplete users share the same permanent preview counter as guests.
-
-Incomplete users use the same Guest Preview Pool as guests.
-
-Partial signup draft data must not be used to filter Guest Preview.
-
-This means that even if an incomplete user has already entered gender, interested gender, age, city, or relationship goal, those partial values do not affect Guest Preview.
-
-### Guest Preview Pool
-
-Guest Preview is a teaser browsing mode for users whose account state is `guest` or `incomplete`.
-
-Guest Preview is separate from normal Explore.
-
-A target profile can appear in Guest Preview only if:
-
-* Profile completion status is `complete`
-* Target user visibility is enabled
-* Target account state is `active`
-* Target user is not restricted, banned, or deleted
-* Target profile belongs to the MVP-supported country, Iran
-* Target has a visible primary photo
-* Target has not already been consumed by the viewer
-
-Guest Preview does not require:
-
-* Viewer profile completion
-* Viewer ExploreFilter
-* Viewer age
-* Viewer city
-* Viewer interested gender
-* Viewer relationship goal
-* Reciprocal gender compatibility
-
-Guest Preview must not use SignupDraft values as filters.
-
-Guest Preview is randomized inside the eligible teaser pool.
-
-Each shown Guest Preview creates an `ExploreConsumption` record with reason `preview`.
-
-Guest and incomplete users share the same permanent `GuestPreviewCounter`.
-
-After the counter reaches the MVP limit, the bot shows a signup message instead of more previews.
-
-If no eligible Guest Preview target exists before the limit is reached, the bot shows an empty preview state and encourages signup.
-
-### Active user access
-
-Active users can use normal product features if:
-
-* Account state is `active`
-* Profile completion status is `complete`
-* User visibility is enabled where required
-
-### Invalid active profile access
-
-A user can have:
-
-* `Account.state = active`
-* `Profile.completion_status = invalid`
-
-This means the user completed signup before, but the profile later stopped satisfying required profile validity rules.
-
-Invalid profile status must not change `Account.state` back to `incomplete`.
-
-Invalid active profile users can:
-
-* Open the app
-* Edit profile
-* Fix missing or invalid profile requirements
-* Upload or replace required photos
-* Access settings
-* Contact support/admin
-* Read existing matches and chats, unless another account or moderation rule blocks them
-
-Invalid active profile users cannot:
-
-* Appear in Explore
-* Explore others
-* Like
-* Send Nakh
-* Use Liked By discovery actions
-* Create new discovery interactions
-
-The bot must route invalid active profile users to Fix Profile until `Profile.completion_status` becomes `complete` again.
-
-When all profile completion rules are satisfied again, set `Profile.completion_status = complete`.
-
-The account remains `active` throughout this flow.
-
-### Visibility off
-
-If visibility is off:
-
-* User does not appear in Explore
-* User cannot Explore others
-* User cannot Like
-* User cannot send Nakh
-
-Visibility off does not stop:
-
-* Existing matches
-* Existing chats
-* Existing sent Nakh flows
-* Existing pending Nakh payments
-
-Visibility is controlled only by `UserSettings.visibility_enabled`.
-
-The MVP does not use a separate `VisibilityStatus` enum.
-
-Visibility off blocks creation of new Pending Nakh and new Sent Nakh.
-
-Visibility off does not block payment completion for Pending Nakh records created before visibility was turned off.
-
-If the sender turns visibility off after creating a Pending Nakh, the sender may still complete payment.
-
-If the receiver turns visibility off after a Pending Nakh was created, the receiver may still receive the delivered Sent Nakh after payment succeeds.
-
-Visibility off blocks new discovery and new Nakh creation only. It does not block already-created Pending Nakh payment completion.
-
-This is the only visibility exception.
-
-If the sender becomes restricted, banned, or deleted before payment succeeds, the Pending Nakh cannot be paid or delivered.
-
-If the receiver becomes restricted, banned, deleted, or profile-invalid before payment succeeds, the Pending Nakh cannot be delivered.
-
-Blocked Pending Nakh records should be cancelled, expired, or refunded depending on payment state.
-
-
-### Restricted user access
-
-Restricted users can:
-
-* Open the app
-* Edit profile
-* Read existing chats
-* Contact support/admin
-
-Restricted users cannot:
-
-* Appear in Explore
-* Explore others
-* Like
-* Send Nakh
-* Send chat messages
-
-### Banned user access
-
-Banned users cannot use the app normally.
-
-Banned users cannot:
-
-* Explore
-* Edit profile
-* Like
-* Send Nakh
-* Match
-* Chat
-* Use paid features
-* Open normal Support
-* Create SupportThread
-* Create SupportMessage
-
-A banned user can submit one limited ban appeal per ban event.
-
-Ban appeal rules:
-
-* The appeal is stored as `UserAppeal`.
-* UserAppeal is the canonical MVP mechanism for banned-user appeal.
-* Banned users do not create SupportThread or SupportMessage records.
-* One UserAppeal is allowed per ban event.
-* The appeal must reference the AccountStateHistory record that changed the account state to `banned`.
-* If an appeal already exists for the current ban event, the user can only view the appeal status.
-* If the appeal is accepted, admin may unban the user.
-* If the appeal is rejected, the user remains banned and cannot submit another appeal for the same ban event.
-
-### Deleted user access
-
-Deleted users do not have normal access.
-
-After deletion:
-
-* Account enters `deleted` state.
-* Previous dating-profile data is permanently removed.
-* Existing Matches are removed as recoverable product state.
-* Existing chats close.
-* Previous Likes, NotInterested records, PendingNakhes, Nakhes, credits, payments, FeatureUnlocks, normal notifications, and other non-safety product history must not be restored.
-* Only safety, abuse-prevention, moderation, restriction/ban, and required safety-evidence information may remain.
-* The stable User/TelegramIdentity linkage remains for safety continuity.
-* The permanent GuestPreviewCounter remains and is not reset.
-
-Account deletion must not allow a user to bypass previous restrictions, bans, moderation actions, reports, or other retained safety measures.
-
-If the same Telegram identity is later allowed to use the product again:
-
-* Resolve the identity against retained safety information.
-* Do not restore previous product data.
-* Start profile/signup from zero.
-* Do not restore previous profile fields.
-* Do not restore Matches or chats.
-* Do not restore Likes or Nakhes.
-* Do not restore credits or payment history.
-* Do not restore FeatureUnlock access.
-
-## 2. Signup and Profile Rules
-
-### Minimum age
-
-Minimum allowed age is 18.
-
-Users must confirm they are 18+ before entering birth year.
-
-Users enter Gregorian birth year only.
-
-### Birth year validation
-
-Birth year input must be validated before it can be stored.
-
-Validation rules:
-
-* Trim surrounding whitespace.
-* Persian/Arabic numerals may be normalized to Western digits before validation.
-* After normalization, the input must be exactly 4 digits.
-* The value must be interpreted as a Gregorian year.
-* The value must satisfy:
-
-`1900 <= birth_year <= current_gregorian_year - 18`
-
-Invalid birth year inputs must be rejected.
-
-Invalid inputs include:
-
-* Future years
-* Current year
-* Under-18 years
-* Impossible old years before 1900
-* Jalali years
-* Full dates
-* Decimals
-* Non-numeric input
-
-The stored value must be an integer Gregorian year.
-
-Birth year validation applies to:
-
-* Signup birth year entry
-* Admin approval of birth year change requests
-
-Exact birth date is not collected.
-
-Age verification is not included in MVP.
-
-MVP age eligibility is approximate.
-
-A user is eligible if:
-
-`birth_year <= current_gregorian_year - 18`
-
-Because exact birth date is not collected, the system cannot verify whether the user has already had their 18th birthday in the current year.
-
-### Age calculation
-
-Age is derived from Gregorian birth year.
-
-Displayed age is approximate because exact birth date is not collected.
-
-Age should not be stored as a separate source-of-truth field.
-
-Approximate displayed age is calculated as:
-
-`current_gregorian_year - birth_year`
-
-### Signup order
-
-Signup follows this order:
-
-1. Confirm age 18+
-2. Name
-3. Birth year
-4. Gender
-5. Interested gender
-6. Interests
-7. Country, province, and city
-8. Relationship goal
-9. Upload primary photo
-10. Upload additional photos
-11. Write highlight
-12. Optional bio and optional profile details
-13. Confirm profile
-
-### Profile name
-
-Profile name is required.
-
-The maximum allowed profile name length is 32 characters.
-
-Names longer than 32 characters must be rejected.
-
-The limit must come from the configured `name_max_length` value rather than being hardcoded inside handlers.
-
-### Required profile fields
-
-A profile cannot become complete unless it has:
-
-* Name
-* Gregorian birth year
-* Gender
-* Interested gender
-* At least 5 profile interests
-* Country
-* Province
-* City
-* Relationship goal
-* At least 2 visible photos
-* At most 6 saved profile photos
-* One visible primary photo
-* Highlight
-
-### Interest rules
-
-A profile must have at least 5 interests to become complete.
-
-A profile can have at most 20 interests.
-
-Interests belong to the dating profile, not directly to the user.
-
-### Highlight rules
-
-Highlight is required.
-
-Highlight maximum length is 80 characters.
-
-### Bio rules
-
-Bio is optional.
-
-Bio maximum length is 500 characters.
-
-### Locked profile fields
-
-Birth year cannot be changed directly after signup.
-
-Gender cannot be changed directly after signup.
-
-To change either field, the user must submit a profile change request with a reason.
-
-The change-request reason is required and has a maximum length of 1024 characters.
-
-The limit must come from `change_request_reason_max_length` and must not be hardcoded inside handlers.
-
-Admin can approve or reject the request.
-
-### Interested gender
-
-Interested gender can be changed later.
-
-Changing interested gender from Explore filters or Edit Profile updates the same profile-level value.
-
-### Profile and account separation
-
-Profile data and account state must stay separate.
-
-Profile owns dating-visible data.
-
-Account owns access and lifecycle state.
-
-## 3. Media and Photo Rules
-
-### Photo source
-
-Telegram profile photo must not be used as the dating profile photo.
-
-Users must upload dating profile photos explicitly.
-
-### Photo storage
-
-Photos must be stored in object storage.
-
-Cloudflare R2 is the MVP object storage provider.
-
-Cloudflare Images/CDN is the MVP media delivery provider.
-
-Storage access must remain behind an S3-compatible provider abstraction.
-
-Media delivery must remain behind a provider abstraction so the CDN provider can be replaced later without changing domain behavior.
-
-The app server must not be the permanent image store.
-
-User-facing photos should be served through CDN delivery URLs.
-
-### Photo upload validation
-
-Profile photo upload validation must happen before a photo becomes visible.
-
-MVP accepted image formats:
-
-* JPEG
-* PNG
-* WebP
-
-HEIC/HEIF may be accepted only if the backend converts it into a supported delivery format before saving it as a profile photo.
-
-The following are not valid profile photos in MVP:
-
-* GIF
-* Animated images
-* Videos
-* Stickers
-* Documents
-* Corrupt or unreadable image files
-* Non-image files
-
-Maximum original file size is configurable.
-
-MVP default maximum original file size:
-
-`10 MB`
-
-Minimum image resolution is configurable.
-
-MVP default minimum image resolution:
-
-`600x600 pixels`
-
-Duplicate active photos for the same profile should be rejected when file hash or normalized image hash is available.
-
-A photo becomes visible only after:
-
-* The original image passes validation.
-* The original image is stored in object storage.
-* The required upload-time thumbnail is generated and stored.
-* The ProfilePhoto record is created successfully.
-
-Required upload-time MVP variant:
-
-* Thumbnail
-
-Thumbnail generation must happen after successful validation and object-storage upload.
-
-Thumbnail generation should be performed by backend image-processing infrastructure, such as a worker or serverless function, rather than inside the bot interaction handler.
-
-Blurred preview is not generated as part of the normal upload-time visibility pipeline.
-
-If upload validation fails:
-
-* Do not create a visible ProfilePhoto.
-* Do not count the failed upload toward active photo limits.
-* Show a retry/error message to the user.
-
-If thumbnail generation fails:
-
-* Do not create a visible ProfilePhoto.
-* Do not count the failed upload toward active photo limits.
-* Clean up partially stored media or mark it for cleanup.
-* Ask the user to retry.
-
-Failure to generate a blurred preview later must not invalidate the original ProfilePhoto.
-
-Telegram file IDs may be used only as temporary upload transport references.
-
-The system source of truth is the stored MediaAsset in object storage.
-
-MVP does not include automated NSFW detection, face detection, liveness checks, or identity verification.
-
-Photo moderation is report/admin-based in MVP.
-
-### Photo count
-
-A complete profile must have at least 2 visible photos.
-
-A profile can have at most 6 saved profile photos.
-
-Saved profile photos means visible + hidden profile photos currently stored for that profile.
-
-Hidden photos count toward the 6-photo saved-photo limit, but do not count toward profile completion.
-
-Only visible photos count toward the 2-photo completion requirement.
-
-Extra saved profile photos must be rejected.
-
-The system must not allow users to create unlimited stored images by repeatedly uploading and deleting photos.
-
-### Photo deletion and retention
-
-When a user deletes a profile photo:
-
-* The photo is removed from the profile immediately.
-* The stored media object must be permanently deleted from object storage/CDN.
-* The deleted photo no longer counts as a saved profile photo after its stored media object is deleted.
-* The user may upload a replacement photo if the profile has fewer than 6 saved profile photos.
-
-Exception:
-
-If the photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot:
-
-* The user-facing photo is removed immediately.
-* The normal profile media object should not remain publicly accessible.
-* A restricted evidence copy may be retained in moderation/audit storage.
-* The evidence copy must be deleted when retention rules allow deletion.
-
-Deleted photo records should be used only for cleanup tracking, retention tracking, moderation/audit references, or historical traceability.
-
-Deleted photos must not become a loophole for unlimited media storage.
-
-
-### Primary photo
-
-One visible photo must always be primary.
-
-The first uploaded photo becomes the primary photo.
-
-The user cannot delete the primary photo before choosing another visible primary photo.
-
-A hidden photo cannot be selected as primary by the user.
-
-A hidden photo can become primary only after it is restored to visible status through the allowed moderation/admin restore flow.
-
-### Photo visibility
-
-Photos are not pre-approved.
-
-Uploaded photos become visible immediately after successful validation, object-storage upload, and required thumbnail generation.
-
-Blurred-preview generation is not required for normal ProfilePhoto visibility.
-
-Users can report photos.
-
-Admin can hide or restore photos.
-
-Admin photo actions mean:
-
-* Hide photo: set the photo status to `hidden`; the photo is removed from user-visible profile surfaces but remains restorable.
-* Restore photo: set a hidden photo back to `visible`, if it is allowed by moderation rules.
-* Delete photo: set the photo status to `deleted`; the photo is removed from the dating profile and no longer counts as an active profile photo.
-
-Admin photo deletion is soft deletion from the profile. It must not immediately hard-delete the underlying media asset.
-
-Deleted photo records and media metadata may be retained for audit, moderation, reports, appeals, abuse prevention, and safety history.
-
-### Moderated primary photo
-
-If admin hides or deletes a primary photo:
-
-* Another visible photo should become primary if available.
-* If no visible primary photo can be assigned, profile validity must be rechecked.
-* If the profile was never completed and required photo rules are not satisfied, keep `Profile.completion_status = incomplete`.
-* If the profile was previously complete and required photo rules are no longer satisfied, set `Profile.completion_status = invalid`.
-* Do not use hidden or deleted as profile completion statuses.
-
-### Blurred previews
-
-Locked Liked By cards require blurred photo previews.
-
-Blurred previews are generated on demand when a locked Liked By card needs one.
-
-For MVP, the blurred preview is needed only for the relevant primary profile photo.
-
-If a cached `blurred_preview` PhotoVariant already exists, reuse it.
-
-If it does not exist, generate it on demand and cache it as a PhotoVariant for later requests.
-
-Blurred previews must not be pre-generated for every uploaded profile photo.
-
-Blurred-preview generation is not required before a ProfilePhoto becomes visible.
-
-Failure to generate a blurred preview must not invalidate the underlying ProfilePhoto.
-
-## 4. Explore and Consumption Rules
-
-### Explore access
-
-Only users with all of the following can Explore:
-
-* `Account.state = active`
-* `Profile.completion_status = complete`
-* `UserSettings.visibility_enabled = true`
-
-Restricted, banned, deleted, incomplete, visibility-off, and invalid-profile users cannot Explore.
-
-Users with invalid profiles also cannot appear in Explore.
-
-Guest Preview is not normal Explore and is governed by the Guest Preview Pool rules.
-
-### Explore display
-
-Explore shows one profile at a time.
-
-Explore preview includes:
-
-* Primary photo
-* Name
-* Age
-* City
-* Highlight
-
-### Eligible profile rules
-
-A profile can appear in normal Explore only if:
-
-* Profile completion status is `complete`
-* User visibility is enabled
-* Account state is `active`
-* User is not restricted, banned, or deleted
-* Profile is compatible with the viewer’s filters
-* Profile is reciprocally gender-compatible with the viewer
-* Target has not previously been consumed by the viewer
-
-### Explore randomization
-
-Explore must randomize eligible profiles before they are shown.
-
-The database must first apply all normal Explore eligibility rules.
-
-Eligible candidate selection must not rely on stable ordering such as `created_at`.
-
-Each Profile has a `random_shuffle_key` used for candidate ordering.
-
-The shuffle key must be refreshed periodically through the `refresh_explore_shuffle_keys` scheduled job.
-
-The exact refresh schedule is configurable.
-
-For each Explore candidate request:
-
-1. Filter eligible profiles in the database.
-2. Order/select candidates using `random_shuffle_key`.
-3. Fetch only a capped candidate set.
-4. Shuffle that candidate set in application code.
-5. Serve profiles from the shuffled set one at a time.
-
-The candidate-set cap must come from `explore_candidate_pool_limit`.
-
-The implementation must not use expensive full-table per-request random ordering such as `ORDER BY RANDOM()` for normal Explore.
-
-The exact candidate-pool limit is not yet finalized and must not be hardcoded.
-
-### Explore filters
-
-MVP Explore screen controls include:
-
-* Interested gender
-* Age range
-* City
-* Relationship goal
-
-Interested gender can be changed from the Explore screen, but it is not stored in ExploreFilter.
-
-Changing interested gender from Explore or Edit Profile updates the same profile-level field:
-
-* Profile.interested_gender
-
-ExploreFilter stores only:
-
-* Age range
-* Location
-* Relationship goal
-
-Default location is the user’s own city.
-
-For MVP, Country is fixed to Iran and is not shown as an Explore filter.
-
-Province is used only to group/select cities.
-
-Explore location filtering is city-level.
-
-Province-wide browsing is not included in MVP.
-
-There is no whole-country filter in MVP.
-
-### Explore gender compatibility
-
-Explore gender compatibility is reciprocal.
-
-A target profile can appear to a viewer only if both conditions are true:
-
-* The viewer’s interested gender includes the target’s gender.
-* The target’s interested gender includes the viewer’s gender.
-
-For MVP:
-
-* Men includes Man.
-* Women includes Woman.
-* Everyone includes all active visible gender options, including Man, Woman, Other, and Prefer not to say.
-
-Gender compatibility must be data-driven.
-
-Future gender options must be addable through configuration or mapping data.
-
-The implementation must not hardcode Explore matching only around Man/Woman.
-
-### Default filters
-
-Default age range is:
-
-* user age minus 5
-* user age plus 5
-
-Minimum age is always 18.
-
-Default location is the user’s own city.
-
-There is no whole-country filter in MVP.
-
-Relationship goal filter is optional.
-
-### Profile consumption
-
-A profile is consumed after:
-
-* Preview
-* Like
-* Not Interested
-* Pending Nakh
-* Sent Nakh
-* Match
-
-Consumed profiles must not be shown again to the same viewer.
-
-### Guest and incomplete consumption
-
-Guest and incomplete users consume profile previews from the Guest Preview Pool.
-
-Each shown Guest Preview creates permanent consumption with reason `preview`.
-
-Consumed Guest Preview targets must not be shown again to the same viewer.
-
-Guest and incomplete users share the same permanent preview counter tied to Telegram identity/user.
-
-Guest and incomplete preview consumption does not require normal Explore filters or reciprocal gender compatibility.
-
-### No results
-
-If no eligible profile exists, show the Nobody Found state.
-
-## 5. Like, Liked By, and Not Interested Rules
-
-### Normal Like
-
-A normal Like is free.
-
-A normal Like is permanent in MVP.
-
-Users cannot undo, cancel, or withdraw a normal Like.
-
-A normal Like appears in the receiver’s Liked By section.
-
-A normal Like can create a Match if the receiver has already liked the sender.
-
-A liked profile remains consumed and must not appear again to the same sender.
-
-If a user regrets a Like after a Match is created, the correct action is Unmatch, not Like cancellation.
-
-### Liked By
-
-Liked By shows actionable received normal Likes.
-
-Liked By does not include Nakh senders.
-
-Liked By is not a separate stored card entity.
-
-Liked By must be derived from:
-
-* Like
-* FeatureUnlock
-* Match
-* UserPairState
-* NotInterested
-* Liker account state
-* Liker profile completion status
-
-A received Like appears in Liked By only if all of these are true:
-
-* The Like status is `active`.
-* No Match exists for the pair.
-* UserPairState is not `matched`, `unmatched`, or `blocked`.
-* The current user has not marked the liker as Not Interested.
-* The liker account state is `active`.
-* The liker profile completion status is `complete`.
-* The liker is not restricted, banned, or deleted.
-
-Visibility off does not remove an already-sent Like from Liked By.
-
-If a liker turns visibility off after sending a Like, the Like may still appear in the receiver’s Liked By section as long as the liker account is active and the liker profile remains complete.
-
-If the liker becomes restricted, banned, deleted, or profile-invalid, the liker must not appear as an actionable Liked By card.
-
-### Liked By count
-
-Liked By count includes only actionable received Likes.
-
-Liked By count does not include:
-
-* Nakh senders
-* Matched users
-* Unmatched users
-* Blocked users
-* Users marked as Not Interested by the receiver
-* Restricted users
-* Banned users
-* Deleted users
-* Profile-invalid users
-* Closed Likes
-
-An expired Liked By unlock does not remove the Like from the count.
-
-### Locked Liked By view
-
-Before unlock, the user can see:
-
-* Number of actionable Likes
-* Locked liked-by cards
-* Blurred preview image
-
-Before unlock, the user cannot see:
-
-* Full profile
-* Profile details
-
-### Liked By unlock
-
-Each liked-by profile is unlocked separately.
-
-Unlocking one liked-by profile does not unlock other liked-by profiles.
-
-Unlocking creates a `FeatureUnlock` with type `liked_by_profile_unlock`.
-
-After unlock, the user can:
-
-* View the full profile while the unlock is active
-* Like Back
-* Mark Not Interested
-
-### Liked By unlock expiry
-
-Liked By profile unlock expires according to configured unlock duration.
-
-The expiry duration must be configurable and must not be hardcoded in handlers.
-
-When a Liked By profile unlock expires:
-
-* Full profile access is removed.
-* If the original Like is still actionable, the card returns to locked state.
-* The user may unlock the same liked-by profile again.
-* The expired unlock remains as payment/audit history.
-* No refund is given because the unlock expired normally.
-
-Expired unlock does not remove the Like.
-
-Expired unlock does not remove the card from the Liked By count if the Like is still actionable.
-
-### Like Back from Liked By
-
-If user Likes Back from Liked By, a Match is created.
-
-When Like Back creates a Match:
-
-* The original received Like is closed with status `closed_by_match`.
-* UserPairState becomes `matched`.
-* The pair moves to Matches.
-* The liked-by card is removed from normal Liked By.
-* The FeatureUnlock remains only as payment/audit history.
-
-After Match, the pair exits discovery actions.
-
-### Not Interested
-
-Not Interested is permanent.
-
-A target marked as Not Interested should not appear again.
-
-Not Interested can come from:
-
-* Explore
-* Liked By
-* Cancelled Pending Nakh
-* Unmatch
-
-### Not Interested from Liked By
-
-If user marks an unlocked Liked By profile as Not Interested:
-
-* Create NotInterested pair record with source `liked_by`.
-* Hide/close that liked-by card from default view.
-* Do not notify the target.
-* Keep any existing FeatureUnlock only as payment/audit history.
-
-### Unmatch effect on Liked By
-
-If users later unmatch:
-
-* Old Likes must not return to Liked By.
-* Relevant Like records are closed with status `closed_by_unmatch`.
-* UserPairState becomes `unmatched`.
-* The pair must not appear again in Liked By, Explore, Nakh, or Match flows.
-* Existing FeatureUnlock records remain only as payment/audit history.
-
-### Like cancellation
-
-There is no user-facing Unlike or Like cancellation in MVP.
-
-Normal users cannot cancel a Like in MVP.
-
-If `LikeStatus.cancelled` is kept, it is reserved only for admin/system correction.
-
-## 6. Nakh Rules
-
-### Nakh meaning
-
-Nakh is a paid stronger signal.
-
-Nakh is separate from normal Like.
-
-### Nakh flow uniqueness
-
-Only one Nakh flow is allowed per sender/receiver pair.
-
-A Nakh flow starts when:
-
-* PendingNakh is created
-* Sent Nakh is created directly using existing credits
-
-After a Nakh flow exists, the sender cannot create another PendingNakh or Sent Nakh for the same receiver.
-
-This rule still applies if the PendingNakh later becomes:
-
-* expired
-* abandoned
-* cancelled
-* blocked
-* payment failed
-* payment cancelled
-
-This rule also applies if the Sent Nakh later becomes:
-
-* seen
-* accepted
-* rejected
-* closed
-* expired
-
-PendingNakh and Nakh must be checked together when enforcing this rule.
-
-### Pending Nakh
-
-Pending Nakh is an unpaid Nakh attempt.
-
-Pending Nakh is visible only to the sender.
-
-Pending Nakh does not:
-
-* Notify the receiver
-* Create normal Like
-* Appear in Liked By
-* Appear in receiver’s Nakhes
-* Create Match
-
-Pending Nakh does consume the target profile.
-
-Pending Nakh also consumes the sender’s one allowed Nakh flow for that receiver.
-
-### Pending Nakh unpaid queue
-
-A sender may have at most 5 concurrent unpaid Pending Nakhes system-wide.
-
-An unpaid Pending Nakh means:
-
-`PendingNakh.status = pending_payment`
-
-The cap is sender-wide, not per receiver.
-
-If the sender already has 5 unpaid Pending Nakhes, the system must not allow creation of a 6th.
-
-The sender must first resolve at least one existing unpaid Pending Nakh.
-
-A Pending Nakh stops counting toward the cap when it leaves `pending_payment`, including when it is:
-
-* Paid and sent
-* Converted to Like through cancellation
-* Converted to Not Interested through cancellation
-* Expired
-* Abandoned
-
-The one-Nakh-flow-per-receiver rule remains permanent even after the Pending Nakh becomes terminal.
-
-### Pending Nakh FIFO settlement
-
-Unpaid Pending Nakhes form a FIFO queue ordered by `PendingNakh.created_at`.
-
-Whenever credits are successfully added to the sender’s CreditAccount:
-
-1. Load the sender’s eligible unpaid PendingNakhes in ascending `created_at` order.
-2. Recheck sender and receiver eligibility before each settlement.
-3. If enough credits exist for the oldest eligible PendingNakh, deduct the required credits transactionally.
-4. Create and deliver the corresponding Sent Nakh.
-5. Move the PendingNakh out of `pending_payment`.
-6. Continue to the next PendingNakh.
-7. Stop when the queue is empty or there are not enough credits for the next PendingNakh.
-
-The system must not skip an older payable PendingNakh in order to settle a newer one.
-
-Each settlement must preserve normal payment idempotency and transactional Nakh-delivery rules.
-
-### Pending Nakh expiry
-
-An unpaid Pending Nakh expires 14 days after creation.
-
-`PendingNakh.expires_at` must represent this deadline.
-
-The related PendingPayment must use the same effective expiry deadline.
-
-When the expiry deadline is reached:
-
-* Set the unpaid PendingNakh to `expired`.
-* Expire the related PendingPayment if it is still pending.
-* Do not notify or deliver anything to the receiver.
-* Keep the target consumed.
-* Keep the sender’s one-Nakh-flow allowance for that receiver consumed.
-
-The 14-day duration must come from `pending_nakh_expiry_days`.
-
-### Pending Nakh reminders
-
-Unpaid Pending Nakhes should receive periodic sender reminders during their 14-day lifetime.
-
-The reminder cadence for MVP is approximately every 2 days.
-
-Only PendingNakhes with:
-
-`PendingNakh.status = pending_payment`
-
-are eligible for reminders.
-
-Each reminder:
-
-* Is sent only to the sender.
-* Does not notify the receiver.
-* Uses notification type `pending_nakh_payment_reminder`.
-* Should be phrased as a neutral nudge that unpaid Nakhes are waiting.
-* Should not be framed as an urgent countdown warning.
-
-Stop reminders immediately when the PendingNakh is:
-
-* Paid and sent
-* Cancelled
-* Converted to Like
-* Converted to Not Interested
-* Expired
-* Abandoned
-* Otherwise resolved
-
-The reminder cadence must come from `pending_nakh_reminder_schedule` and must not be hardcoded in handlers.
-
-### Pending Nakh payment
-
-If the sender does not have enough credits:
-
-* Create PendingNakh
-* Create PendingPayment
-* Allow editing Nakh text before payment
-* Do not notify receiver
-
-Before completing Pending Nakh payment, the system must recheck sender and receiver eligibility.
-
-Sender eligibility fails if sender account is restricted, banned, or deleted.
-
-Receiver eligibility fails if receiver account is restricted, banned, deleted, or receiver profile is invalid.
-
-Sender visibility off does not fail eligibility if the Pending Nakh was created before sender visibility was turned off.
-
-Receiver visibility off does not fail eligibility if the Pending Nakh was created before receiver visibility was turned off.
-
-Receiver visibility off only prevents the receiver from appearing in new Explore results. It does not block delivery of an already-created Pending Nakh after payment succeeds.
-
-### Pending Nakh cancellation
-
-If sender cancels unpaid Pending Nakh, ask whether to:
-
-* Convert to normal Like
-* Mark as Not Interested
-
-If converted to normal Like:
-
-* Create Like
-* Notify target
-* Show sender in target’s Liked By
-* Create Match if reverse Like exists
-
-If converted to Not Interested:
-
-* Create NotInterested
-* Do not notify target
-* Keep target consumed
-
-### Sent Nakh
-
-Sent Nakh is created only after payment succeeds or credits are successfully spent.
-
-Sent Nakh appears in receiver’s Nakhes.
-
-Sent Nakh does not appear in receiver’s Liked By.
-
-### Nakh delivery
-
-When Nakh is successfully sent:
-
-* Deduct credits or confirm payment
-* Create Nakh
-* Notify receiver
-* Show Nakh in receiver’s Nakhes
-
-### Nakh limits
-
-Only one Nakh flow is allowed per sender/receiver pair across both PendingNakh and Nakh.
-
-Nakh text maximum length is 240 characters.
-
-Nakh expires after 14 days.
-
-### Nakh receiver actions
-
-Receiver can:
-
-* View profile
-* Accept Nakh
-* Reject
-* Report
-
-### Nakh rejection
-
-Receiver rejection must be stored internally as `Nakh.status = rejected`.
-
-The UI must display rejected Nakh as Closed.
-
-`Nakh.status = closed` must not be used for receiver rejection.
-
-`Nakh.status = closed` is reserved for generic non-rejection closure cases, such as admin/moderation/system closure, where the Nakh is terminated without being accepted, rejected, or expired.
-
-If receiver rejects Nakh:
-
-* Set `Nakh.status = rejected`
-* Set `Nakh.rejected_at`
-* Do not set `Nakh.closed_at`
-* Sender cannot send another Nakh to the same target
-* Receiver should stop seeing sender in this flow
-
-### Nakh acceptance
-
-If receiver accepts a sent Nakh:
-
-* Create Match
-* Notify both users
-* Create ChatSession
-* Stop discovery actions between the pair
-
-## 7. Match and Unmatch Rules
-
-### Match creation
-
-A Match can be created by:
-
-* Mutual normal Like
-* Accepted Nakh
-
-### Match uniqueness
-
-A pair of users should not have duplicate active Matches.
-
-The pair should be normalized to prevent duplicate pair records.
-
-### Match effects
-
-After Match:
-
-* Users cannot Like each other again
-* Users cannot send Nakh to each other
-* Users cannot mark each other Not Interested
-* Users cannot appear to each other in Explore
-* ChatSession is created
-
-### UserPairState usage
-
-UserPairState is a symmetric pair-level summary only.
-
-Allowed UserPairState values for MVP:
-
-* none
-* matched
-* unmatched
-* blocked
-
-`blocked` is internal/safety-only.
-
-Users must not be given a user-facing Block action in MVP.
-
-Users must not be notified that an internal block exists.
-
-UserPairState must not store directional actions.
-
-The following directional actions must be read from their source records:
-
-* Profile viewed or consumed: ExploreConsumption
-* Like: Like
-* Not Interested: NotInterested
-* Pending Nakh: PendingNakh
-* Sent Nakh: Nakh
-
-A normalized pair state can be used to prevent invalid future actions after Match or Unmatch.
-
-### Match notification
-
-When a Match is created:
-
-* Both users receive a notification
-* Internal bot relay chat becomes available
-
-### Unmatch
-
-Either matched user can unmatch.
-
-When unmatch happens:
-
-* Match becomes unmatched
-* Chat closes visually for both users
-* Other side receives a chat closed message
-* Pair should not match again
-
-### Unmatch as rejection
-
-Unmatch acts like rejection.
-
-After unmatch, the pair should not return to discovery, Like, Nakh, or Match flows.
-
-### Post-unmatch report window
-
-After unmatch, either user can report the other for 24 hours.
-
-After the 24-hour window expires, the special unmatched-user report access should close.
-
-### Post-unmatch report evidence
-
-If a user reports another user through the post-unmatch report flow:
-
-* The report evidence type must be `unmatched_user`.
-* The report evidence must reference the exact `UnmatchRecord`.
-* The report is valid only inside the 24-hour report window stored on that UnmatchRecord.
-* The report must be rejected if the reporter or reported user is not one of the two users involved in that UnmatchRecord.
-
-### Message retention after unmatch
-
-After unmatch:
-
-* Chat closes visually
-* Last 50 messages may be retained internally
-* Report snapshots may preserve relevant messages for moderation
-
-## 8. Chat Rules
-
-### Chat creation
-
-Chat exists only after Match.
-
-No Match means no ChatSession.
-
-### Chat type
-
-Chat is internal bot relay chat.
-
-It is not native Telegram direct messaging.
-
-### Free chat mode
-
-Before chat unlock, users cannot type freely.
-
-Free matched users can only send:
-
-* Predefined questions
-* Predefined answers
-
-Free matched users cannot send:
-
-* Custom text
-* Photos
-* Stickers
-* Media
-* Emojis as custom free messages
-
-### Predefined chat data
-
-Predefined questions and answers must be data-driven.
-
-They must not be hardcoded inside chat logic.
-
-Default predefined topics:
-
-* Relationship intent
-* Ideal first date
-* Chat frequency
-* Introvert/extrovert
-* Weekend habits
-* Calls or texting
-* Important values
-* Meeting in person
-* Relationship pace
-* Current life focus
-
-### Chat unlock
-
-Chat unlock is paid per Match.
-
-One successful chat unlock payment unlocks free-text chat for both users in that specific Match.
-
-If either matched user unlocks chat, both users can send text in that Match while the unlock remains effectively active.
-
-The other matched user does not need to pay again for the same Match.
-
-Chat unlock supports configured expiry through `FeatureUnlock.expires_at`.
-
-Chat unlock access remains available until the first applicable terminating condition:
-
-* The Match is unmatched or otherwise closed
-* The Match is closed by admin/moderation
-* The chat is closed because of account deletion or ban
-* The unlock is revoked
-* The configured FeatureUnlock expiry is reached
-
-Free-text chat permission requires:
-
-* `FeatureUnlock.status = active`
-* `expires_at` is null or still in the future
-* The unlock has not been revoked
-* Match and ChatSession are active
-
-Exact chat-unlock expiry duration is configurable and must not be hardcoded.
-
-### Unlocked chat limits
-
-After chat unlock:
-
-* Text messages are allowed
-* Photo messages are not allowed
-* Sticker messages are not allowed
-* Media messages are not allowed
-
-### Contact sharing after unlock
-
-After chat unlock, users may share:
-
-* Phone number
-* Telegram ID
-* Other contact information
-
-A safety warning must be shown once when chat unlocks.
-
-### Chat message retention
-
-Only the last 50 visible messages per chat should remain available in normal chat view.
-
-Older messages may be archived or cleaned by background job.
-
-Reported messages must be snapshotted before cleanup when needed for moderation.
-
-### Restricted user chat access
-
-Restricted users can read existing chats.
-
-Restricted users cannot send chat messages.
-
-### Deleted or banned user chat effect
-
-If an account is deleted or banned, related chats should close visually according to account lifecycle rules.
-
-## 9. Payment and Credit Rules
-
-### Payment provider
-
-MVP payment provider is Telegram Stars.
-
-### Credits
-
-Credits are the internal unit used for paid actions.
-
-Paid actions include:
-
-* Send Nakh
-* Unlock one match chat
-* Unlock one Liked By profile
-
-### Credit balance
-
-Each user has one credit balance.
-
-Every credit balance change must create a CreditTransaction.
-
-### Paid feature costs
-
-MVP costs:
-
-* Send Nakh: 2 credits
-* Unlock one match chat: 4 credits
-* Unlock one Liked By profile: 4 credits
-
-### Credit packages
-
-Users can buy credit packages using Telegram Stars.
-
-The active MVP packages are:
-
-| Package | Credits | Stars | Label |
-|---|---:|---:|---|
-| Starter | 10 | 10 | None |
-| Plus | 25 | 20 | Popular |
-| Best Value | 50 | 35 | Best Value |
-| Ultimate | 100 | 60 | Best Value |
-
-
-Telegram Stars is the sole purchase currency for credit packages in MVP.
-
-Each package's complete Stars price is stored in its `CreditPackage.stars_price`.
-
-There is no separate second Stars-pricing table for credit-package purchases.
-
-Internal credits cannot be used to buy additional credit packages.
-
-The package payment must use the configured Stars price of the selected CreditPackage.
-
-The package order is:
-
-1. Starter
-2. Plus
-3. Best Value
-4. Ultimate
-
-Package definitions must be data/config-driven.
-
-Payment handlers must not hardcode package amounts, Stars prices, or labels.
-
-A successful credit-package purchase must add exactly the configured `credit_amount` to the user’s CreditAccount.
-
-Every resulting balance increase must create the corresponding CreditTransaction.
-
-After credits are successfully added, the Pending Nakh FIFO auto-settlement rule applies.
-
-### Contextual purchase
-
-Wallet is not shown in the MVP main menu.
-
-Paid flows appear contextually when the user attempts a paid action.
-
-### Paid action funding
-
-Paid actions can be funded in either of these ways:
-
-* Spending existing internal credits
-* Direct Telegram Stars payment
-
-Paid actions are:
-
-* Send Nakh
-* Unlock one match chat
-* Unlock one Liked By profile
-
-Both funding paths must result in the same final domain action.
-
-Direct Telegram Stars payment must not create different product behavior from credit-based payment.
-
-Payment callbacks must be idempotent and must not double-process credits, unlocks, Nakh delivery, or notifications.
-
-Payment type and paid action reason must stay separate:
-
-* `payment_type` describes the payment path.
-* `paid_action_reason` describes the paid action being completed.
-
-Payment types:
-
-* `buy_credit_package`
-* `direct_paid_action`
-* `pay_pending_action`
-
-Paid action reasons:
-
-* `send_nakh`
-* `unlock_chat`
-* `unlock_liked_by_profile`
-
-Credit package purchases are not paid actions.
-
-Credit package purchases use `payment_type = buy_credit_package`.
-
-Direct Telegram Stars payment for Send Nakh uses `payment_type = direct_paid_action` and `paid_action_reason = send_nakh`.
-
-Direct Telegram Stars payment for chat unlock uses `payment_type = direct_paid_action` and `paid_action_reason = unlock_chat`.
-
-Direct Telegram Stars payment for Liked By unlock uses `payment_type = direct_paid_action` and `paid_action_reason = unlock_liked_by_profile`.
-
-A payment for an existing PendingPayment uses `payment_type = pay_pending_action`; the action is resolved from the PendingPayment reason.
-
-### Pending payment
-
-A PendingPayment is created when a paid action cannot be completed immediately.
-
-Pending payments should expire.
-
-Pending payment completion must apply the related paid action exactly once.
-
-### Payment idempotency
-
-Payment callbacks must be idempotent.
-
-The same provider payment event must not be processed twice.
-
-Duplicate payment callbacks must not create:
-
-* Duplicate credits
-* Duplicate unlocks
-* Duplicate Nakh delivery
-* Duplicate notifications
-
-### Credit spending
-
-Credit spending must be transactional with the paid action.
-
-For example, sending paid Nakh must:
-
-* Check credit balance
-* Deduct credits
-* Create CreditTransaction
-* Create Nakh
-* Create receiver notification
-
-The operation should either fully succeed or fully fail.
-
-### Wallet funding and Pending Nakh settlement
-
-Any successful operation that adds credits to a user’s CreditAccount must trigger Pending Nakh FIFO auto-settlement.
-
-This rule is based on the resulting credit-balance increase and does not require a separate payment type.
-
-The newly available credits must first be applied to unpaid PendingNakhes in FIFO order until:
-
-* The queue is empty, or
-* The remaining balance cannot fully fund the next PendingNakh.
-
-Each auto-settled PendingNakh must use the same transactional credit-spending and Nakh-delivery rules as an individually paid Nakh.
-
-### Feature unlocks
-
-FeatureUnlock is used for scoped paid access.
-
-FeatureUnlock is used for:
-
-* Liked By profile unlock
-* Chat unlock
-
-FeatureUnlock is not needed for sent Nakh.
-
-Nakh is a paid action, not persistent access.
-
-Both `liked_by_profile_unlock` and `chat_unlock` support configurable expiry through `FeatureUnlock.expires_at`.
-
-Liked By profile unlock expires according to its configured unlock duration.
-
-Chat unlock remains usable until the Match closes, the unlock is revoked, or its configured expiry is reached.
-
-Exact expiry durations must not be hardcoded in handlers.
-
-Direct Telegram Stars payment for Nakh must not create a FeatureUnlock.
-
-Only chat unlock and Liked By profile unlock create FeatureUnlock records.
-
-
-### Feature unlocks after account deletion
-
-Account deletion permanently removes normal FeatureUnlock product access.
-
-Previous Liked By unlocks and chat unlocks must not be restored if the same Telegram identity later returns.
-
-A returning user starts with no previous FeatureUnlock access.
-
-Any future paid unlock must be purchased again through the normal payment or credit flow.
-
-Statements that FeatureUnlock remains as payment/audit history after normal events such as expiry, Match, Not Interested, or unmatch apply only during the normal lifetime of the account.
-
-They do not override account-deletion retention rules.
-
-Account deletion must not preserve FeatureUnlock or normal payment history as restorable product data.
-
-
-### Liked By unlock
-
-Unlocking one Liked By profile unlocks only that specific profile.
-
-It does not unlock other Liked By profiles.
-
-### Chat unlock
-
-Unlocking one match chat unlocks that specific match chat for both matched users.
-
-Only one successful chat unlock payment is needed per Match.
-
-The paying user is the chat unlock payer.
-
-The payer does not become the only beneficiary.
-
-Chat unlock is Match-scoped:
-
-* Store who paid.
-* Store which Match was unlocked.
-* Allow both Match participants to send free-text messages after unlock.
-* Do not charge the second participant for the same Match.
-* Do not check chat text permission by payer user ID alone.
-
-The other matched user does not need to pay again.
-
-If one side unlocks chat, both sides can send text in that Match.
-
-Chat unlock may expire according to configured `FeatureUnlock.expires_at`, and access also ends when the Match closes or the unlock is revoked.
-
-### Refund policy
-
-MVP does not support user-initiated refund requests.
-
-Refunds and payment corrections occur automatically only when a system fault prevents a successfully funded paid action from being delivered correctly.
-
-Refundable examples include:
-
-* Telegram Stars payment succeeds but the corresponding Nakh or unlock cannot be delivered because of a system fault.
-* A duplicate or idempotency failure causes an incorrect duplicate charge or credit spend.
-* Credits are deducted but the corresponding paid action fails to complete.
-
-The following are not refundable:
-
-* A successfully delivered Nakh later expires
-* A receiver rejects a Nakh
-* A Liked By unlock expires normally
-* A Match is unmatched
-* A user changes their mind
-* A user says the purchase was accidental
-* A successfully delivered paid action is no longer useful to the user
-
-For a direct Telegram Stars payment:
-
-* If payment succeeded but the corresponding paid action failed because of a system fault, issue the refund through Telegram's Stars refund mechanism.
-* Record the correction in RefundRecord.
-* The refund must be idempotent.
-
-For an internal-credit correction:
-
-* Restore the required credits to CreditAccount.
-* Create a `CreditTransaction` with transaction type `refund`.
-* Link the correction to RefundRecord.
-* Do not apply the credit restoration more than once.
-
-For credit-package-related corrections, restore internal credits when appropriate rather than automatically reversing the original Stars package purchase.
-
-There is no manual refund-request or dispute-handling flow in MVP.
-
-### Payment audit
-
-Payment lifecycle events must be auditable.
-
-Payment audit should cover:
-
-* Payment creation
-* Payment success
-* Payment failure
-* Credit purchase
-* Credit spending
-* Refund or correction
-* Provider callback processing
-
-## 10. Notification Rules
-
-### Notification history
-
-Notifications must be stored.
-
-Notification center keeps notification history with read/unread state.
-
-### Telegram delivery
-
-Important notifications should also be delivered through Telegram messages.
-
-### Normal Like notification
-
-Normal Like creates a notification for the receiver.
-
-The sender appears in receiver’s Liked By.
-
-### Nakh notification
-
-Only paid Sent Nakh creates a receiver notification.
-
-Pending Nakh creates no receiver notification.
-
-The sender of an unpaid Pending Nakh may receive `pending_nakh_payment_reminder` notifications approximately every 2 days while the PendingNakh remains unpaid.
-
-These sender reminders must never be delivered to the receiver.
-
-Sent Nakh appears in receiver’s Nakhes, not Liked By.
-
-### Match notification
-
-When a Match is created:
-
-* Both users receive a notification
-* Chat becomes available
-
-### Chat message notification
-
-New chat messages can create notifications for the receiver.
-
-Chat notifications should respect mute settings unless the message is safety/admin-related.
-
-### Chat unlock notification
-
-When chat is unlocked:
-
-* Both users may be notified
-* Chat mode changes to unlocked text
-* Safety warning should be shown once
-
-### Liked By unlock notification
-
-When a user unlocks one Liked By profile, the unlock result should be recorded.
-
-Notification may be shown to the unlocking user.
-
-### Payment notification
-
-Payment success and failure notices must be shown to the payer.
-
-Payment notices cannot be muted.
-
-### Safety and admin notices
-
-These notification types cannot be muted:
-
-* Safety notices
-* Payment notices
-* Admin notices
-* Ban notices
-* Restriction notices
-
-### Normal notification mute
-
-Users can mute normal notifications.
-
-Normal mute can apply to:
-
-* Chat notifications
-* Like notifications
-* Nakh notifications
-* Match notifications
-
-### Notification delivery retry
-
-Failed notification delivery should be retryable when appropriate.
-
-Delivery attempts should be tracked separately from the stored notification.
-
-## 11. Reporting, Moderation, and Admin Rules
-
-### Reportable targets
-
-Users can report:
-
-* Profile
-* Photo
-* Chat/message context
-* Recently unmatched user within the allowed report window
-
-### Report reasons
-
-Default report reasons:
-
-* Fake profile
-* Harassment
-* Inappropriate photo
-* Spam or scam
-* Under 18
-* Offensive behavior
-* Other
-
-Reports may include optional extra text.
-
-Report extra text maximum length is 1024 characters.
-
-The limit must come from `report_extra_text_max_length` and must not be hardcoded in handlers.
-
-### Report review
-
-Every report goes to admin review.
-
-A report alone does not automatically ban a user.
-
-### Internal block in MVP
-
-Block is internal/safety-only in MVP.
-
-Normal users do not have a user-facing Block action.
-
-Users are not notified when an internal block exists.
-
-Internal blocked pair state is represented by:
-
-`UserPairState.state = blocked`
-
-Blocked pairs must be excluded from normal pair-level interaction and discovery flows.
-
-Future user-facing Block functionality can be added later if needed, but it is not part of MVP.
-
-### Report threshold
-
-The automatic report threshold is a temporary safety restriction, not a ban.
-
-A target user is automatically restricted when all of the following are true:
-
-* The target user has reports from 5 or more unique reporters.
-* The reports were created within the rolling report threshold window.
-* The report threshold window is 30 days for MVP.
-* The reports are unresolved.
-
-The threshold counts unique reporters, not total report count.
-
-Multiple reports from the same reporter against the same target user count as 1 reporter for threshold purposes.
-
-The threshold is counted at target-user level.
-
-The threshold is not counted separately by evidence type.
-
-Reports against the target user's profile, photos, chat/message context, and recently unmatched-user context all count toward the same target-user threshold.
-
-Only unresolved reports count toward the threshold.
-
-Unresolved report statuses are:
-
-* `submitted`
-* `pending_review`
-
-These report statuses do not count toward triggering a new automatic restriction:
-
-* `dismissed`
-* `closed`
-* `actioned`
-
-When the threshold is reached:
-
-* The target account becomes `restricted`.
-* A restriction warning should be sent to the target user.
-* A moderation/admin review should be created or flagged for priority review.
-* The automatic restriction remains until admin decision.
-
-Admin decision can:
-
-* Dismiss the reports and unrestrict the user.
-* Keep the user restricted.
-* Ban the user.
-* Take another moderation action.
-
-If admin dismisses reports, those reports stop counting toward the automatic restriction threshold.
-
-If admin action is taken, the handled reports stop counting toward a new automatic restriction.
-
-Reports do not automatically ban users.
-
-Ban always requires admin decision.
-
-### No automatic ban
-
-There is no automatic ban in MVP.
-
-Ban requires admin decision.
-
-### Report snapshots
-
-Reports should preserve relevant context at report time.
-
-Snapshots may include:
-
-* Profile data
-* Photo data
-* Chat messages
-* Message context
-
-Report snapshots should be immutable.
-
-### Chat review privacy
-
-Admins should see chat messages only when:
-
-* A report is submitted
-* Chat review is needed for moderation
-
-Reported chat messages should be snapshotted.
-
-### Photo moderation
-
-Photos are not pre-approved.
-
-Photos become visible immediately after upload.
-
-Admin can hide, restore, or delete profile photos.
-
-If a hidden or deleted photo is primary, another visible photo should become primary if available.
-
-If required photo rules are no longer satisfied after photo moderation or admin photo deletion:
-
-* A never-completed profile stays `incomplete`.
-* A previously complete profile becomes `invalid`.
-
-### Support rate limit
-
-A user may have at most 2 unanswered support messages.
-
-If a user already has 2 unanswered support messages, the system must reject another user support message until support/admin responds.
-
-The limit must come from `support_unanswered_message_limit` and must not be hardcoded in handlers.
-
-### Admin interface
-
-MVP admin interface is Telegram admin commands.
-
-No web admin panel is required for MVP.
-
-### Admin capabilities
-
-Admin can:
-
-* View reports
-* View user profile
-* Restrict user
-* Unrestrict user
-* Ban user
-* Unban user
-* Hide photo
-* Restore photo
-* Delete photo
-* Dismiss report
-* Review birth year change requests
-* Review gender change requests
-* Review appeals/support messages
-
-### Admin logging
-
-Every admin action must be logged.
-
-Admin logs should include:
-
-* Admin user
-* Action type
-* Target user/entity
-* Timestamp
-* Metadata when needed
-
-## 12. Deletion, Retention, and Audit Rules
-### Account deletion
-
-Users can delete their account.
-
-Account deletion permanently removes previous non-safety product data.
-
-After deletion:
-
-* Account enters `deleted` state.
-* Dating-profile data is permanently removed.
-* Matches and normal chat history are not recoverable.
-* Likes, NotInterested records, PendingNakhes, and Nakhes are not recoverable.
-* Credits and payment history are not restored.
-* FeatureUnlock records do not restore previous paid access.
-* Normal notifications and other ordinary product history are not restored.
-* Safety and abuse-prevention records required to protect users may remain.
-* The persistent User/TelegramIdentity linkage remains for safety continuity.
-* The GuestPreviewCounter remains and is not reset.
-
-### Return after deletion
-
-A deleted user may use the product again only if return is allowed for that identity.
-
-The same Telegram identity must first be resolved against retained safety and abuse-prevention information.
-
-Deletion must not clear a retained restriction, ban, moderation action, or other safety measure.
-
-If return is allowed:
-
-* Start profile/signup from zero.
-* Do not recover old profile fields.
-* Do not recover old Matches or chats.
-* Do not recover Likes, PendingNakhes, or Nakhes.
-* Do not recover credits or payment history.
-* Do not recover FeatureUnlock access.
-* Do not treat the returning identity as safety-clean.
-
-### Data retention
-
-After account deletion, retain only information required for:
-
-* Safety
-* Abuse prevention
-* Restriction and ban enforcement
-* Moderation history required for future safety decisions
-* Required report or safety evidence
-
-The permanent GuestPreviewCounter also remains because account deletion must not reset the guest/incomplete preview limit.
-
-Normal profile, Match, chat, Like, Nakh, credit, payment, FeatureUnlock, notification, and other product history must not be retained for future restoration.
-
-### Audit requirements
-
-Important state-changing actions must be auditable.
-
-Audit should cover:
-
-* Account state changes
-* Profile deletion
-* Payment events
-* Credit spending
-* Feature unlocks
-* Report submission
-* Restriction
-* Ban
-* Photo hiding
-* Photo restoration
-* Photo deletion
-* Chat closure
-* Admin actions
-
-Post-deletion retention of audit information is limited to audit data required for safety, abuse prevention, moderation, restriction/ban enforcement, or required safety evidence.
-
-Normal product audit history must not be retained merely to restore the deleted account or previous product state.
-
-## 13. Localization and Config Rules
-
-### User-facing text
-
-User-facing bot text should not be hardcoded inside handlers.
-
-Text should be loaded through localization keys.
-
-### MVP language
-
-MVP language is English.
-
-Persian and other languages may be added later.
-
-### Localization coverage
-
-Localization should cover:
-
-* Button labels
-* Bot messages
-* Error texts
-* Admin texts
-* Payment texts
-* Notification texts
-* Safety texts
-
-### UI language vs profile spoken languages
-
-UI language and profile spoken languages are separate.
-
-UI language controls bot interface text and is stored through `UserSettings.language_code`.
-
-MVP UI language is English.
-
-Persian and other UI languages may be added later through localization records.
-
-Profile spoken languages are dating profile fields.
-
-Profile spoken languages are selected from supported `Language` records and connected to profiles through `ProfileLanguage`.
-
-Profile spoken languages must not be stored as free text.
-
-Changing UI language must not change profile spoken languages.
-
-Changing profile spoken languages must not change UI language.
-
-### Product constants
-
-Product constants must not be scattered through handlers, payment code, background jobs, or feature services.
-
-SystemConfig or code-level configuration must be the source of truth for tunable MVP constants.
-
-Configurable constants include:
-
-* Report threshold unique reporter count
-* Report threshold window days
-* Report extra text max length: 1024 characters
-* Support unanswered message limit: 2
-
-Access and signup:
-
-* Guest preview limit
-* Minimum signup age
-* Name max length: 32 characters
-* Change request reason max length: 1024 characters
-
-Profile completion:
-
-* Minimum profile photos
-* Maximum profile photos
-* Minimum interests
-* Maximum interests
-* Highlight max length
-* Bio max length
-
-Explore:
-
-* Explore candidate pool limit
-* Explore shuffle-key refresh schedule
-
-Nakh:
-
-* Nakh text max length
-* Nakh cost: 2 credits
-* Sent Nakh expiry duration
-* Maximum concurrent unpaid Pending Nakhes per sender: 5
-* Pending Nakh expiry duration: 14 days
-* Pending Nakh reminder schedule: approximately every 2 days
-
-Liked By:
-
-* Liked By unlock cost: 4 credits
-* Liked By unlock expiry duration
-
-Chat:
-
-* Chat unlock cost: 4 credits
-* Chat unlock expiry duration
-
-Payments and credits:
-
-* Credit package options:
-  * Starter — 10 credits — 10 Stars
-  * Plus — 25 credits — 20 Stars
-  * Best Value — 50 credits — 35 Stars
-  * Ultimate — 100 credits — 60 Stars
-* Credit-package purchase currency: Telegram Stars only
-* Telegram Stars package pricing comes from `CreditPackage.stars_price`
-* Refund policy: automatic system-fault refunds only; no user-initiated refunds
-
-Media:
-
-* Media storage provider: Cloudflare R2
-* Media CDN provider: Cloudflare Images/CDN
-* Maximum photo file size
-* Allowed photo MIME types
-
-Admin bootstrap:
-
-* Bootstrap admin Telegram IDs
+| Effective state | Entry route | Guest Preview | Edit/Profile settings | New discovery | Existing Match/chat | Paid actions | Support/deletion |
+|---|---|---:|---:|---:|---:|---:|---:|
+| guest | Guest / Sign Up | yes, within permanent limit | signup only | no | no | no | yes |
+| incomplete | Continue Signup / Browse | yes, same limit | signup only | no | no | no | yes |
+| active + complete + visible | Main menu | no | yes | yes | yes | yes | yes |
+| active + complete + visibility off | Main menu with paused discovery | no | yes | no | yes | chat unlock and existing Pending Nakh only | yes |
+| active + invalid | Fix Profile menu | no | yes | no | yes | existing-chat unlock only | yes |
+| restricted | Restricted menu | no | yes | no | read only | no | yes |
+| banned | Ban appeal | no | deletion only | no | no | no | appeal or deletion only |
+| deleted | Return decision | no | no | no | no | no | limited return message |
 
 Rules:
 
-* Handlers must read product constants from SystemConfig or code-level configuration.
-* Background jobs must read tunable schedules and expiry durations from SystemConfig or code-level configuration.
-* Payment and credit services must read costs, package options, Stars pricing, and refund policy from SystemConfig or code-level configuration.
-* README may describe product behavior, but it must not be treated as the config-key registry.
-* Explore candidate-pool size and shuffle-key refresh schedule must come from SystemConfig or code-level configuration.
+- Access checks MUST be centralized and evaluated from current Account, Profile completion, visibility, pair state, and scoped entity state.
+- A handler MUST NOT infer access from the menu button that led to it.
+- Active invalid users MAY use existing chat according to its current lock state and MAY unlock an existing active Match chat; they MUST NOT use Explore, Liked By actions, Like, Not Interested, or Nakh.
+- Visibility off MUST NOT close existing Matches or chats.
+- Visibility off users MAY view existing Matches, chats, and delivered Nakhes; they MAY act on a delivered Nakh or settle/cancel a Pending Nakh created earlier. They MUST NOT start Explore, Like/Like Back, a standalone Explore/Liked By Not Interested action, Liked By unlock, or a new NakhFlow.
+- Pending Nakh conversion to Like or Not Interested is permitted while visibility is off because it terminates a previously authorized flow; current Account/Profile/pair eligibility still applies.
+- Restricted users MAY read existing chats but MUST NOT send any message.
+- A banned user MUST NOT create SupportThread or SupportMessage and MAY create only one UserAppeal for the current ban event. Account deletion remains available through the dedicated banned-account route.
 
-### Optional profile details
+### Start routing
 
-Optional profile details are not required for profile completion.
+Every `/start` resolves TelegramIdentity before creating anything.
 
-For MVP, the following optional fields use controlled enums:
+- Unknown identity: create the first-start aggregate and show Guest / Sign Up.
+- guest: show Guest / Sign Up.
+- incomplete: show Continue Signup / Browse as Guest.
+- active + complete: show the main menu, with discovery paused if visibility is off.
+- active + invalid: show Fix Profile.
+- restricted: show restriction information and Support.
+- banned: show appeal creation or the existing appeal status.
+- deleted: evaluate return permission; never create a second User for the same Telegram user ID.
 
-* Education level
-* Smoking preference
-* Pets preference
-* Exercise frequency
-* Religion importance
-* Children preference
+## 2. Identity, Guest Preview, and signup
 
-These fields must not accept arbitrary free text.
+### Persistent identity
 
-Education stores level of education, not exact major.
+- TelegramIdentity.telegram_user_id MUST be globally unique.
+- Telegram username MUST NOT be used as an authentication key or permanent identifier.
+- MVP signup requires no phone number, email address, government ID, or identity outside Telegram.
+- First-start aggregate creation MUST be idempotent under duplicate Telegram updates.
 
-Spoken languages and personality tags are separate data-driven profile options and must not be stored through these enums.
+### Guest Preview
 
-Exact enum values for the six optional fields must be finalized separately before implementation.
+- Guest and Incomplete users share one GuestPreviewCounter.
+- The lifetime limit is 10 and MUST be incremented atomically.
+- Parallel requests MUST NOT allow the count to exceed the stored limit.
+- A count is consumed only after the preview message is successfully accepted by Telegram for delivery.
+- Each consumed preview MUST create the same transaction's ExploreConsumption.
+- Starting signup, abandoning signup, activation, deletion, or return MUST NOT reset GuestPreviewCounter.
 
+Guest Preview target eligibility:
 
-## 14. Notes
+- target is not the viewer;
+- target Account is active;
+- target Profile is complete and in Iran;
+- target visibility is enabled;
+- target has a visible primary photo;
+- no viewer/target ExploreConsumption exists;
+- pair is not blocked.
 
-* These rules are product invariants.
-* Database schema, constraints, and indexes must enforce these rules where possible.
-* Application services must enforce rules that cannot be fully enforced at database level.
-* Permission checks should be centralized.
-* Payment and credit operations must be transactional.
-* Nakh, Like, Match, and Chat rules must stay consistent across Explore, Liked By, Nakhes, and Chat flows.
-* The final database design must be checked against this file before coding starts.
+Guest Preview MUST ignore all viewer Profile fields, SignupDraft values, relationship preferences, age, City, relationship goal, and ExploreFilter.
 
+At the limit, the bot shows signup messaging. If the eligible pool is empty before the limit, it shows an empty teaser state without incrementing the counter.
 
+### Signup validation
 
+Signup order is the SignupStep registry order.
 
+General text rules:
 
+- Trim surrounding whitespace and normalize to Unicode NFC.
+- Lengths are counted in Unicode code points.
+- Reject control characters other than ordinary spaces.
+- Store validated values, never raw Telegram message formatting.
 
+Age:
 
+- The user MUST first confirm 18+.
+- Normalize Persian and Arabic digits to Western digits.
+- Birth year MUST then be exactly four decimal digits.
+- The integer MUST satisfy `min_birth_year <= year <= current Gregorian year - min_signup_age`.
+- Jalali years, full dates, decimals, future/current years, and non-numeric input are rejected.
+- Exact date, exact age, and age verification are outside MVP.
+- Displayed age is `current Gregorian year - birth_year` and is approximate.
 
+Profile:
 
+- Name is required and at most 32 characters.
+- Relationship gender preference is required.
+- At least 5 and at most 20 distinct active Interests are required.
+- Country, Province, and City must be a valid active hierarchy; MVP Country is Iran.
+- Relationship goal is required.
+- Highlight is required and at most 80 characters.
+- Bio is optional and at most 500 characters.
+- At least 2 visible photos, at most 6 saved visible+hidden photos, and exactly one visible primary photo are required.
+- Optional Profile fields never affect completion.
+- Optional height, when present, is an integer from 100 through 250 cm.
+- Optional job title is at most 64 characters.
+- A Profile may select at most 10 spoken languages and 5 personality tags.
 
+Confirmation MUST atomically validate the entire aggregate. A successful confirmation transitions Account to active and Profile to complete. Partial or stale draft data MUST NOT leak into a completed Profile.
+
+### Profile editing
+
+- Birth year and gender are locked after first completion.
+- A locked-field change requires a reason of 1–1024 characters and an admin-approved ProfileChangeRequest.
+- Admin approval MUST re-run the same validation as signup.
+- Relationship gender preference may be changed only through Edit Profile, not Explore filters.
+- A preference change affects future candidate eligibility and interactions; it does not retract already-sent Likes or delivered Nakhes.
+- Every edit to required data MUST synchronously re-evaluate Profile completion.
+
+## 3. Media and photos
+
+### Validation and storage
+
+- Dating photos MUST be explicit uploads; Telegram Profile photos are not imported.
+- Telegram file IDs are temporary transport references, not media source of truth.
+- The backend MUST decode and inspect actual content; filename extension and declared MIME are insufficient.
+- Accepted MVP formats are non-animated JPEG, PNG, and WebP.
+- GIF, HEIC/HEIF, video, sticker, document, animated image, corrupt image, and non-image files are rejected.
+- Original size MUST be at most 10 MB.
+- Decoded dimensions MUST be at least 600x600.
+- A User may start at most 20 photo-upload attempts in a rolling 24-hour window, including rejected attempts.
+- Exact duplicate active images for one Profile MUST be rejected by content hash; normalized visual hash SHOULD be used when available.
+- Original media MUST reside in Cloudflare R2 behind an S3-compatible abstraction; user delivery MUST use the CDN abstraction.
+- The app server MUST NOT be permanent media storage.
+
+### Visibility pipeline
+
+A ProfilePhoto MUST NOT become visible until:
+
+1. validation succeeded;
+2. the original is durably stored;
+3. the required thumbnail is durably stored;
+4. the ProfilePhoto transaction commits.
+
+A failed attempt MUST NOT consume one of six saved-photo slots. Partial objects MUST be removed or queued for cleanup.
+
+Thumbnail exists to keep Telegram previews and list/card delivery efficient and predictable. It is generated for every visible ProfilePhoto.
+
+Blurred preview:
+
+- is required only for a locked Liked By card;
+- is generated on demand for the liker's current primary photo;
+- is cached as a PhotoVariant;
+- is never an upload-time visibility requirement;
+- may fail without invalidating the ProfilePhoto.
+
+### Photo management
+
+- Users MAY reorder photos, select a visible primary photo, replace photos, and delete photos.
+- Users MUST NOT set a photo to hidden; hidden is moderation-only.
+- A user cannot delete the current primary photo until another visible photo is selected atomically.
+- Hidden photos count toward the six saved-photo limit and do not count toward the two-visible-photo requirement.
+- Deleted photos count toward neither limit.
+
+User deletion MUST hard-delete the public original and variants unless evidence retention is required. Evidence retention MUST use restricted storage and MUST remove public URLs.
+
+Admin hide is reversible. Admin delete removes the photo from product use and retains only the media/evidence allowed by safety retention.
+
+If moderation removes the primary photo, the lowest display-order visible photo MUST be promoted in the same transaction. Profile completion is then re-evaluated.
+
+MVP has report/admin moderation only; it does not claim automated identity, age, face, liveness, or NSFW verification.
+
+## 4. Explore, filtering, and consumption
+
+### Viewer eligibility
+
+Normal Explore requires Account active, Profile complete, and visibility enabled.
+
+### Target eligibility
+
+A target MUST:
+
+- not be the viewer;
+- have Account active, Profile complete, visibility enabled, and a visible primary photo;
+- be in the supported Country;
+- have no blocked, matched, or unmatched UserPairState with the viewer;
+- have no existing viewer/target ExploreConsumption;
+- satisfy reciprocal relationship-gender compatibility;
+- satisfy the viewer's ExploreFilter.
+
+### Relationship preference versus Explore filter
+
+Profile.gender_preference_id is the relationship preference and participates in reciprocal compatibility.
+
+ExploreFilter.target_gender_option_ids is the user's current browsing subset. It MUST be a subset of the genders included by the viewer's Profile preference. The server MUST intersect it with reciprocal eligibility even if a stale or manipulated client sends broader values.
+
+Default filters:
+
+- target genders: every GenderOption included by the Profile preference;
+- minimum age: `max(18, viewer approximate age - 5)`;
+- maximum age: `viewer approximate age + 5`;
+- City: viewer's City;
+- relationship goal: no additional restriction.
+
+MVP location filtering is City-only. Country is fixed to Iran; Province is used to group Cities. There is no Province-wide, Country-wide, free-text, or “Other City” option.
+
+### Randomization
+
+- The database MUST apply all eligibility filters before candidate selection.
+- It MUST select at most 100 candidates using Profile.random_shuffle_key or an equivalent indexed rotating key.
+- It MUST NOT use full-table per-request random ordering.
+- The application shuffles the bounded candidates.
+- Shuffle keys refresh every 6 hours.
+- Target eligibility MUST be rechecked immediately before display.
+
+### Consumption
+
+- Consumption is created when a Profile Preview is actually delivered or when an action creates a stronger event before preview recording.
+- Viewer/target MUST be unique under concurrency.
+- Preview, Like, Not Interested, NakhFlow, and Match all consume the target.
+- Consumption is permanent during the current account lifetime and cannot be undone by the user.
+- Deletion purges ordinary ExploreConsumption; GuestPreviewCounter remains separately permanent.
+
+## 5. Like, Liked By, and Not Interested
+
+### Like
+
+- Like is free, directional, and unique per sender/receiver during the account lifetime.
+- A normal user cannot unlike, withdraw, or resend a Like.
+- Creating Like MUST also ensure consumption.
+- If no reverse active Like exists, create one receiver Notification.
+- If a reverse active Like exists, create one Match atomically instead of two independent Match attempts.
+- Like is deleted with ordinary product data on account deletion; “permanent” elsewhere means non-reversible during the account lifetime.
+
+### Liked By
+
+Liked By contains a received Like only when:
+
+- Like is active;
+- no matched, unmatched, or blocked pair state exists;
+- receiver has no NotInterested toward the liker;
+- liker Account is active;
+- liker Profile is complete.
+
+Liker visibility and later Profile relationship-preference/filter changes do not retract an already-sent Like. Restricted, banned, deleted, or invalid likers are non-actionable.
+
+Locked view may show only:
+
+- actionable Like count;
+- one locked card per actionable Like;
+- blurred current primary photo.
+
+It MUST NOT reveal name, full photo, Profile details, City, or highlight before unlock.
+
+### Liked By unlock
+
+- Costs 4 credits or 4 Stars.
+- Is scoped to the specific Like.
+- Has no time expiry in MVP.
+- Reveals the Profile only while the Like remains actionable.
+- Cannot be purchased twice for the same Like.
+- Does not itself create Like, Match, or NotInterested.
+- Normal closure of the Like is not refundable.
+
+After unlock, receiver may Like Back or mark Not Interested. Like Back creates a Match. Not Interested creates a directional NotInterested, closes the received Like as `closed_by_not_interested`, removes the card, and sends no target notification.
+
+### Not Interested
+
+- Is unique and non-reversible during the account lifetime.
+- Ensures ExploreConsumption.
+- Never notifies the target.
+- Does not create a symmetric pair state.
+- May originate only from Explore, an unlocked Liked By card, or Pending Nakh cancellation.
+
+## 6. Nakh
+
+### Creation and uniqueness
+
+- Nakh is a paid directional signal sent from Explore only.
+- Liked By does not offer Send Nakh; it offers Like Back or Not Interested after unlock.
+- NakhFlow sender/receiver MUST be unique and created atomically before funding.
+- A terminal PendingNakh or Nakh never permits a second flow in the same direction.
+- The reverse direction is independently unique unless pair state blocks it.
+- Creating NakhFlow ensures ExploreConsumption.
+- Text is required, at most 240 characters, and may be edited only while PendingNakh is pending_payment.
+
+### Eligibility
+
+At flow creation, both users MUST be active, complete, visible, and not paired as matched/unmatched/blocked.
+
+At delayed delivery, both users MUST still be active and complete and the pair MUST remain eligible. Current visibility is intentionally ignored because the flow was created while visible. Restricted, banned, deleted, invalid, matched, unmatched, or blocked state prevents delivery.
+
+### Pending Nakh
+
+- Exists only when provider confirmation is needed.
+- Is visible only to the sender.
+- MUST NOT notify the receiver, appear in receiver Nakhes, create Like, or create Match.
+- MUST display clear consent that later wallet funding automatically settles pending items FIFO.
+- A sender may have at most 5 pending_payment PendingNakhes across all receivers.
+- Parallel requests MUST NOT create a sixth.
+- Expires exactly 14 days after creation.
+- Related PendingPayment MUST use the same deadline.
+
+Reminder rules:
+
+- First reminder is eligible 48 hours after creation.
+- Later reminders are eligible 48 hours after last_reminder_at.
+- Job execution MAY be delayed, so delivery is “at least 48 hours apart,” not exactly on the minute.
+- At most six reminders are sent for one PendingNakh, corresponding to the day 2, 4, 6, 8, 10, and 12 eligibility points before day-14 expiry.
+- No reminder is sent after paid, cancelled, expired, or system-closed status.
+- Receiver never receives a Pending Nakh reminder.
+
+### Funding and delivery
+
+Credit-funded Nakh costs 2 credits. Direct payment costs 2 Stars.
+
+Funding and delivery MUST atomically:
+
+1. claim the NakhFlow/PendingNakh idempotently;
+2. validate current non-visibility eligibility;
+3. deduct credits or confirm the paid PaymentRecord;
+4. create one delivered Nakh with an immutable text copy;
+5. transition PendingNakh when present;
+6. create one receiver Notification and delivery outbox item.
+
+Any failure rolls back all product effects or creates an idempotent correction if external funding can no longer be rolled back.
+
+### FIFO auto-settlement
+
+- Every successful CreditAccount increase triggers settlement after the credit grant is committed.
+- PendingNakhes are locked and processed by created_at then ID.
+- The system MUST NOT skip an older eligible item to fund a newer one.
+- Settlement stops when the next eligible item cannot be fully funded.
+- An item that is currently ineligible is closed_by_system and processing continues; it never releases NakhFlow uniqueness.
+- Each delivery has its own spend_nakh CreditTransaction.
+
+### Cancellation and expiry
+
+Cancellation requires conversion to Like or Not Interested in the same transaction. It never restores discovery or NakhFlow availability.
+
+Expiry sends no receiver notification, preserves NakhFlow and consumption, and expires the linked PendingPayment if still pending.
+
+### Delivered Nakh
+
+- Appears only in Nakhes, never Liked By.
+- Expires 14 days after sent_at if still sent or seen.
+- First receiver view records seen once.
+- Accept creates Match exactly once.
+- Reject records rejected; user-facing status is “Closed.”
+- Generic admin/system closure uses closed, never rejected.
+- Expiry, rejection, closure, or later unmatch does not refund a successfully delivered Nakh.
+
+## 7. Match, Unmatch, and chat
+
+### Match
+
+- A normalized pair has at most one Match during the account lifetime.
+- Match is created only by two opposite active Likes or acceptance of a delivered Nakh.
+- Match creation, pair state, source closure, chat creation, participant creation, and notifications are one transaction.
+- After Match, neither user may discover, Like, Nakh, or mark the other Not Interested.
+
+### Unmatch
+
+- Either participant may unmatch an active Match once.
+- Unmatch is permanent and symmetric.
+- It creates UserPairState.unmatched and closes Match/chat.
+- It MUST NOT create NotInterested.
+- Old Likes MUST NOT return to Liked By.
+- Other participant receives one chat-closed Notification.
+- Either participant may report the other through the UnmatchRecord for 24 hours.
+- After the deadline, unmatched_user evidence is rejected; ordinary retained evidence rules still apply to a previously created Report.
+
+### Predefined chat
+
+- Chat exists only for an active Match.
+- Without an effective chat unlock, only active seeded predefined questions and their valid predefined answers may be sent.
+- Custom text, photos, media, stickers, and free-form emoji messages are rejected.
+- Predefined text comes from localization keys, not handlers.
+
+### Chat unlock
+
+- Costs 4 credits or 4 Stars.
+- Is unique and scoped to one Match.
+- One participant pays; both participants receive text access.
+- Has no time expiry in MVP.
+- Access checks use Match scope, never payer ID.
+- Both users receive the unlock notification and one safety warning each.
+- The warning MAY be shown on the participant's next chat open if immediate delivery fails.
+- Closing the Match/chat or revoking FeatureUnlock ends access.
+- Normal closure is not refundable.
+
+### Unlocked chat
+
+- Allows text only.
+- Each free-text message is required and at most 1000 characters after normalization.
+- Photos, media, voice, video, files, and stickers remain prohibited.
+- Contact details may be shared after the safety warning.
+- Restricted users cannot send.
+- The normal view retains only the newest 50 visible messages.
+- Cleanup MUST snapshot reported context before deleting an otherwise-expired message.
+- Admins may access chat content only through a Report or explicit safety review with an audit event.
+
+## 8. Payments, credits, and refunds
+
+### General
+
+- Telegram Stars is the only external MVP payment provider/currency.
+- Wallet is not a main-menu item; purchase screens are contextual.
+- Stars amounts and credits are positive integers.
+- All costs and packages are loaded from configuration/data.
+- Credit balance MUST never be negative.
+- Every balance change MUST create exactly one immutable CreditTransaction with matching before/after balances.
+- A User may create at most 10 provider payment attempts in a rolling 10-minute window. Callback processing is never rate-limited by this user-facing limit.
+
+### Credit packages
+
+Active packages are exactly the four rows defined in `03-attributes.md`.
+
+- Internal credits cannot buy a CreditPackage.
+- A successful package callback grants exactly the selected package's configured credits once.
+- Granting credits triggers Pending Nakh FIFO settlement.
+
+### Direct actions
+
+Credit and direct Stars funding MUST produce identical domain access/delivery:
+
+- Nakh: one delivered Nakh.
+- Liked By unlock: one Like-scoped FeatureUnlock.
+- Chat unlock: one Match-scoped FeatureUnlock benefiting both participants.
+
+### Idempotency and concurrency
+
+- invoice_payload, provider_payment_id, telegram_charge_id, and provider_event_id MUST be unique at their appropriate boundaries.
+- Duplicate, reordered, or retried callbacks MUST NOT duplicate credits, spends, unlocks, Nakh delivery, refunds, or Notifications.
+- PendingPayment resolution MUST use locking or compare-and-set from pending to a terminal status.
+- Credit spending MUST lock the CreditAccount and scoped target.
+- Simultaneous attempts by both Match participants MUST create and charge for at most one chat unlock.
+
+### Refunds
+
+MVP has no user-requested refund, cancellation-after-delivery, or dispute workflow.
+
+Automatic correction is required only when successful funding fails to produce the promised action because of a system fault or duplicate charge.
+
+Not refundable:
+
+- delivered Nakh later rejected or expired;
+- Like/Profile unlock becomes irrelevant after Match or rejection;
+- Match is unmatched;
+- purchase was accidental or user changed their mind;
+- scoped access ends normally.
+
+Direct Stars corrections use Telegram's refund mechanism. Internal-credit corrections restore credits with a refund ledger entry. RefundRecord idempotency key prevents repeated correction.
+
+## 9. Notifications
+
+- Notification history is durable and has read/unread state.
+- Domain transaction MUST create Notification plus a delivery outbox record before external Telegram sending.
+- Telegram delivery is asynchronous and near-real-time; successful domain actions do not wait for the Telegram API response.
+- Failed retryable deliveries use bounded retry with backoff and recorded attempts.
+- Deduplication keys prevent duplicate notices from replayed domain/provider events.
+
+Normal mutable categories:
+
+- chat;
+- Like;
+- Nakh;
+- Match.
+
+Non-mutable categories:
+
+- safety;
+- payment;
+- admin;
+- ban;
+- restriction.
+
+Pending Nakh reminders belong only to the sender. Payment result belongs only to the payer. Match notifications belong to both participants.
+
+## 10. Reporting, moderation, support, and admin
+
+### Reports
+
+- Reporter and target MUST differ.
+- Reporter MUST have a valid product relationship to the evidence.
+- Optional extra text is at most 1024 characters.
+- A User may submit at most 10 Reports in a rolling 24-hour window; safety/admin-originated reports are not counted against this user limit.
+- Mutable evidence MUST be snapshotted in the Report transaction.
+- ReportSnapshot is immutable and hash-protected.
+- A Report alone never bans a User.
+
+### Automatic restriction threshold
+
+Restrict a target when at least 5 distinct reporters have unresolved Reports submitted in the rolling prior 30 days.
+
+- Count distinct reporter User IDs, not Reports.
+- Count all evidence types together at target-User level.
+- Only submitted and pending_review count.
+- Dismissed, actioned, and closed do not count.
+- Threshold evaluation and restriction creation MUST be race-safe and idempotent.
+- Only one active threshold restriction action is created for the same threshold episode.
+- Restriction remains until admin decision.
+- Ban always requires admin authorization.
+- If the target is already restricted, update/prioritize the review without creating another Account transition. If the target is banned or deleted, preserve/prioritize the Report without attempting an illegal transition to restricted.
+
+### Internal block
+
+- Users have no Block button and receive no block notification.
+- Moderation may set a normalized pair to blocked.
+- Block closes active Match/chat and prevents all pair discovery/interactions.
+- Removing an internal block does not restore old Match, Likes, Nakh, or discovery consumption.
+
+### Admin
+
+- MVP admin UI is Telegram commands.
+- Every command checks AdminUser active state, role, and specific permission.
+- Every state-changing attempt writes AdminActionLog whether it succeeds, is rejected, or fails.
+- Viewing sensitive report/chat evidence is audited.
+
+### Support and appeal
+
+- Non-banned users may create SupportThread.
+- At most 2 unanswered user SupportMessages are allowed across open threads.
+- An unanswered message is a user message created after the latest admin/support reply. An admin/support reply therefore starts a new unanswered-count segment.
+- Support and appeal messages are required and at most 2000 characters.
+- Banned users use UserAppeal only.
+- One appeal is allowed per ban AccountStateHistory record.
+- Accepted appeal permits an admin transition out of banned; rejected appeal is terminal for that ban event.
+
+## 11. Deletion, retention, and return
+
+### Account deletion
+
+- User confirmation is required.
+- Account becomes deleted before asynchronous purge begins, immediately blocking product access.
+- Ordinary product data MUST be permanently purged and never restored.
+- Purge is idempotent, restartable, and recorded by AccountDeletionRecord.
+- Public media access MUST be removed immediately.
+
+Ordinary product data includes:
+
+- Profile, optional details, selections, and ordinary media;
+- Signup draft/progress;
+- ExploreFilter and ExploreConsumption;
+- Likes, NotInterested, NakhFlow/PendingNakh/Nakh;
+- Matches, ordinary chat/messages, and FeatureUnlocks;
+- CreditAccount balance, CreditTransactions, product PaymentRecords, and normal refunds;
+- normal Notifications, preferences, and support conversations.
+
+Shared-record rule:
+
+- The deleted user's content and access MUST disappear from every participant's user-facing surfaces.
+- Shared Matches/chats are closed for the other participant before deleted-user content is removed.
+- A payment or credit ledger owned by another User is not deleted merely because its scope involved the deleted User; it is retained only as that other User's financial history, its access scope is terminated, and it MUST contain no restorable deleted-User Profile or message content.
+- A paid unlock owned by the deleted User is deleted. A paid unlock owned by the other participant becomes ineffective when its Like or Match scope closes.
+
+Permitted retained data:
+
+- User and TelegramIdentity;
+- GuestPreviewCounter;
+- Account, AccountStateHistory, and AccountDeletionRecord;
+- active restriction/ban/moderation facts required to prevent evasion;
+- Report/evidence/safety records that have an explicit retention reason;
+- minimum audit metadata required for safety enforcement.
+
+Retained data MUST be inaccessible to normal product restoration and described by DataRetentionRecord. Evidence media MUST be private.
+
+### Return
+
+- Return requires reactivation_allowed plus no retained safety bar.
+- Allowed return transitions deleted -> guest and starts Profile/signup from zero.
+- GuestPreviewCounter is not reset.
+- Credit balance starts at zero.
+- No old Profile, purchase, unlock, interaction, Match, chat, or Notification is restored.
+- If return is disallowed, the User remains deleted and sees only the limited decision message.
+
+## 12. Localization, configuration, jobs, and observability
+
+### Localization
+
+- MVP UI locale is English.
+- All user-facing button, message, error, payment, notification, safety, and admin text MUST load through UIText keys.
+- Handlers MUST NOT contain user-facing prose.
+- User-generated Profile, Nakh, support, appeal, Report, and chat text is stored as entered after validation and is not localized.
+- UI locale and ProfileLanguage selections are independent.
+
+### Configuration
+
+- Defaults in `03-attributes.md` are the approved MVP values.
+- Services and jobs read typed configuration through one configuration interface.
+- Invalid or missing required configuration MUST fail startup or disable the affected feature safely; it MUST NOT silently fall back to a different product rule.
+- Secrets, credentials, and bootstrap admin Telegram IDs are deployment configuration, never SystemConfig or source-controlled documentation values.
+- Seed catalogs are versioned, idempotent, and use stable codes.
+
+### Jobs
+
+- Jobs MUST be safe to retry and safe to run concurrently.
+- Expiry jobs claim records conditionally from the expected non-terminal status.
+- Reminder jobs recheck status and cadence at send time.
+- Chat cleanup preserves snapshots.
+- Media cleanup never deletes retained evidence.
+- Every run writes JobRunLog with counts and failures.
+
+### Audit and sensitive data
+
+- Account transitions, payment events, credit changes, paid actions, Report creation, restrictions, bans, photo moderation, chat closure, deletion, return, and admin actions are auditable.
+- Raw provider payload and chat/report evidence have restricted access.
+- Logs MUST NOT contain bot tokens, payment secrets, raw credentials, or unnecessary private text.
+
+## 13. Database and transaction invariants
+
+The database MUST enforce where practical:
+
+- unique Telegram user ID;
+- one Account, settings row, guest counter, and CreditAccount per User;
+- valid location hierarchy;
+- unique Profile option selections;
+- one visible primary photo per Profile and no more than six saved photos;
+- unique ExploreConsumption, Like, NotInterested, and NakhFlow directional pairs;
+- normalized UserPairState and Match pairs;
+- exactly two MatchParticipants and ChatParticipants after aggregate creation;
+- exactly one scope and one funding source per FeatureUnlock;
+- non-negative CreditAccount balance;
+- unique provider/idempotency keys;
+- one appeal per ban event;
+- one ProfileChangeReview per request.
+
+Rules that require counts or cross-table state MUST use transactions, locks, serializable logic, or equivalent conflict-safe constraints. An application pre-check without a conflict-safe write is insufficient.
+
+## 14. Minimum acceptance scenarios
+
+The automated test suite MUST include at least these scenarios.
+
+### Identity and access
+
+1. Two simultaneous first-start updates create one User aggregate.
+2. Guest and incomplete previews share one counter and cannot exceed 10.
+3. An active invalid Profile routes to Fix Profile while Account remains active.
+4. Visibility off blocks new discovery but allows an existing Pending Nakh to settle.
+5. Restricted user can read but cannot send chat.
+6. Banned user cannot create SupportThread and can create one appeal for the ban event.
+
+### Profile and media
+
+7. Persian-digit valid Gregorian birth year is normalized; Jalali and under-18 values are rejected.
+8. A Profile with one visible and one hidden photo is invalid.
+9. Seven concurrent accepted uploads cannot create more than six saved photos.
+10. Thumbnail failure creates no visible ProfilePhoto.
+11. Blurred-preview failure leaves ProfilePhoto valid.
+12. Hiding a primary promotes another visible photo and may invalidate the Profile.
+13. User photo deletion removes public media while preserving only required private evidence.
+
+### Explore and interactions
+
+14. Temporary Explore gender choices do not modify Profile relationship preference.
+15. A temporary filter cannot broaden reciprocal compatibility.
+16. Preview delivery and consumption are atomic enough to prevent repeat cards.
+17. Two opposite simultaneous Likes create one Match and one chat.
+18. Like cannot be withdrawn; Not Interested never notifies the target.
+19. Liked By excludes Nakh, invalid likers, and terminal pair states.
+20. One Liked By unlock reveals one Like, does not expire by time, and cannot be charged twice.
+
+### Nakh
+
+21. Concurrent Nakh starts for the same direction create one NakhFlow.
+22. A sender cannot have six pending_payment PendingNakhes.
+23. Pending Nakh is invisible to and silent for the receiver.
+24. Credit funding settles pending items strictly oldest first.
+25. Duplicate provider callbacks deliver one Nakh and one notification.
+26. Visibility off does not block existing Pending Nakh delivery; restriction or Profile invalidity does.
+27. Cancellation atomically converts to exactly one Like or NotInterested.
+28. Rejection stores rejected while displaying Closed.
+29. Pending and delivered Nakhes expire from their own 14-day start timestamps.
+
+### Match and chat
+
+30. Accepted Nakh creates one Match/chat under callback retry.
+31. Unmatch permanently prevents rediscovery/rematch and allows reports for exactly 24 hours.
+32. Simultaneous chat unlock attempts charge once and unlock both participants.
+33. Chat unlock has no clock expiry but ends on Match closure/revocation.
+34. Pre-unlock custom text and all photo/media messages are rejected.
+35. Cleanup retains only 50 normal messages while preserving reported snapshots.
+
+### Payments, notifications, moderation, and deletion
+
+36. Package callback replay grants credits once.
+37. A failed paid-action transaction restores credits or creates one Stars refund.
+38. Muted normal notifications do not send Telegram delivery; payment/safety notices still do.
+39. Five Reports by one reporter do not restrict; five distinct unresolved reporters do.
+40. Concurrent fifth Reports create one restriction episode and never an automatic ban.
+41. Every admin mutation attempt is permission-checked and logged.
+42. Deletion blocks access immediately, safely resumes a failed purge, and never restores product data on return.
+43. Returning identity keeps its GuestPreviewCounter and retained safety restrictions.
+44. No handler contains user-facing English prose outside localization seed/setup code.

@@ -1,2018 +1,824 @@
-# Domain Attributes
+# Domain Attributes and Configuration
 
-This file lists the attributes owned by each domain entity.
+This document defines logical entity-owned data and the finalized MVP defaults. Database types, foreign keys, check constraints, and indexes must preserve these meanings.
 
-These are domain-level attributes, not final database columns. Database types, constraints, indexes, and migrations will be designed later.
+Unless stated otherwise, persisted entities have a system-generated `id` and appropriate `created_at` / `updated_at` timestamps. All timestamps are UTC.
 
-## 1. Identity and Account Attributes
+## 1. Identity, account, and signup
 
 ### User
 
-* id
-* created_at
-* updated_at
-* last_activity_at
-* is_deleted_logically
+- `id`
+- `last_activity_at`
 
 ### TelegramIdentity
 
-* id
-* user_id
-* telegram_user_id
-* telegram_username
-* first_seen_at
-* last_seen_at
-
-Notes:
-
-* `telegram_user_id` is stable.
-* `telegram_username` is optional and mutable.
+- `user_id`
+- `telegram_user_id` — required and globally unique
+- `telegram_username` — nullable and mutable
+- `first_seen_at`
+- `last_seen_at`
 
 ### Account
 
-* id
-* user_id
-* state
-* state_reason
-* restricted_at
-* banned_at
-* deleted_at
-* reactivated_at
+- `user_id` — unique
+- `state`
+- `state_reason`
+- `state_changed_at`
 
-Allowed states:
-
-* guest
-* incomplete
-* active
-* restricted
-* banned
-* deleted
+State-specific timestamps are derived from AccountStateHistory and should not be duplicated unless needed as indexed projections.
 
 ### AccountStateHistory
 
-* id
-* user_id
-* old_state
-* new_state
-* reason
-* changed_by_admin_id
-* changed_at
+- `user_id`
+- `previous_state`
+- `next_state`
+- `reason_code`
+- `actor_type`
+- `actor_user_id` — nullable
+- `actor_admin_id` — nullable
+- `changed_at`
+
+Exactly one actor reference is set when actor type is user or admin; neither is set for a system action.
 
 ### AccountDeletionRecord
 
-* id
-* user_id
-* deleted_at
-* deletion_reason
-* requested_by_user
-* product_data_deleted_at
-* chats_closed_at
-* reactivation_allowed
-
-Rules:
-
-* `reactivation_allowed` controls whether the same Telegram identity may use the product again after deletion.
-* The same persistent User/TelegramIdentity linkage must be used for safety and abuse-prevention continuity.
-* Returning after deletion must not restore old product data.
-* Previous profile fields, Matches, chats, Likes, NotInterested records, PendingNakhes, Nakhes, credits, payments, FeatureUnlocks, and normal notifications must not be restored.
-* Safety, restriction, ban, moderation, abuse-prevention, and required safety-evidence records may remain linked to the same identity.
-* The permanent GuestPreviewCounter remains and is not reset.
-* If return is allowed, profile/signup starts from zero.
+- `user_id`
+- `requested_at`
+- `purge_started_at`
+- `product_data_purged_at`
+- `chats_closed_at`
+- `completed_at`
+- `reactivation_allowed`
+- `failure_detail` — nullable operational detail
 
 ### GuestPreviewCounter
 
-* id
-* user_id
-* telegram_user_id
-* preview_count
-* limit_count
-* first_preview_at
-* last_preview_at
+- `user_id` — unique
+- `preview_count` — starts at 0
+- `limit_count` — snapshot of the configured limit, 10 for new MVP users
+- `first_preview_at` — nullable
+- `last_preview_at` — nullable
 
-Rule:
-
-* Guest and incomplete users share the same permanent preview counter.
-* GuestPreviewCounter is created on first `/start` for every new Telegram identity.
-* `preview_count` starts at 0.
-* `limit_count` is 10 for MVP.
-* The counter is not reset when the user starts signup.
-* The counter stops controlling Explore access after the account becomes `active`.
-* The counter applies to Guest Preview, not normal Explore.
-* Guest Preview is available only while the account state is `guest` or `incomplete`.
-* Guest Preview uses the Guest Preview Pool and does not use normal Explore filters.
+Telegram user ID is not duplicated here; it is resolved through User and TelegramIdentity.
 
 ### UserSettings
 
-* id
-* user_id
-* visibility_enabled
-* language_code
-* created_at
-* updated_at
-
-
-Notes:
-
-* Visibility is stored only as `visibility_enabled`.
-* There is no separate `VisibilityStatus` enum in MVP.
-* Visibility off is not the same as restricted, banned, deleted, or photo hidden.
-* Notification settings are stored in `NotificationPreference`, not here.
-
-## 2. Signup Attributes
+- `user_id` — unique
+- `visibility_enabled` — default true
+- `ui_locale_code` — default `en`
 
 ### SignupProgress
 
-* id
-* user_id
-* current_step
-* started_at
-* updated_at
-* completed_at
-* is_completed
-
-Allowed signup steps:
-
-* age_confirmation
-* name
-* birth_year
-* gender
-* interested_gender
-* interests
-* location
-* relationship_goal
-* primary_photo
-* additional_photos
-* highlight
-* optional_details
-* confirm_profile
-* completed
+- `user_id` — unique for the current signup
+- `current_step`
+- `started_at`
+- `completed_at` — nullable
 
 ### SignupDraft
 
-* id
-* user_id
-* draft_data
-* last_step
-* updated_at
+- `user_id` — unique for the current signup
+- `draft_data` — validated structured values only
+- `last_completed_step`
+- `expires_at` — nullable; MVP does not automatically expire drafts
 
-Purpose:
+## 2. Profile catalogs, Profile, and location
 
-* Stores temporary signup answers before final profile completion.
+### GenderOption
 
-## 3. Profile and Location Attributes
+- `code` — unique stable code
+- `label_key`
+- `is_active`
+- `display_order`
+
+### GenderPreference
+
+- `code` — unique stable code
+- `label_key`
+- `is_active`
+- `display_order`
+
+### GenderPreferenceMember
+
+- `gender_preference_id`
+- `gender_option_id`
+
+The pair is unique.
 
 ### Profile
 
-* id
-* user_id
-* name
-* birth_year
-* gender
-* interested_gender
-* relationship_goal
-* country_id
-* province_id
-* city_id
-* highlight
-* bio
-* completion_status
-* completed_at
-* random_shuffle_key
-* created_at
-* updated_at
+- `user_id` — unique for the current Profile
+- `name`
+- `birth_year` — integer Gregorian year
+- `gender_option_id`
+- `gender_preference_id`
+- `relationship_goal`
+- `country_id`
+- `province_id`
+- `city_id`
+- `highlight`
+- `bio` — nullable
+- `completion_status`
+- `ever_completed` — immutable true after first completion
+- `completed_at` — nullable
+- `random_shuffle_key`
 
-Notes:
-
-* Telegram identity does not belong to `Profile`.
-* Account state does not belong to `Profile`.
-* Age is derived from `birth_year`, not stored directly.
-* `birth_year` uses the Gregorian calendar.
-* `birth_year` must be stored as an integer Gregorian year.
-* `birth_year` must be validated during signup and profile change approval.
-* MVP accepted range: `1900 <= birth_year <= current_gregorian_year - 18`.
-* Input may be normalized from Persian/Arabic numerals to Western digits before validation.
-* After normalization, input must be exactly 4 digits.
-* Jalali years, full dates, decimals, future years, current year, under-18 years, impossible old years, and non-numeric inputs must be rejected.
-* MVP age eligibility is approximate because exact birth date is not collected.
-* Eligibility rule: `birth_year <= current_gregorian_year - 18`.
-* The system cannot verify whether the user has already had their 18th birthday in the current year.
-* Age verification is not included in MVP.
-* `completion_status` is the profile completion source of truth.
-* Allowed completion statuses are `incomplete`, `complete`, and `invalid`.
-* `is_completed` should be treated as a derived application-level value, not stored as the source of truth.
-* `interested_gender` is one profile-level field. Updating it from Explore filters or Edit Profile changes the same value.
-* `gender` and `interested_gender` must support extensible compatibility logic.
-* `interested_gender` should be interpreted through a configurable mapping to allowed gender options.
-* Explore eligibility must check reciprocal gender compatibility:
-  * target gender is included in viewer interested-gender mapping
-  * viewer gender is included in target interested-gender mapping
-* `completion_status = invalid` is used when a previously complete profile becomes invalid, for example because moderation hides photos and the profile no longer has enough visible photos.
-* `completion_status = invalid` does not change `Account.state` back to `incomplete`.
-* A user can have `Account.state = active` and `Profile.completion_status = invalid`.
-* This combination routes the user to Fix Profile.
-* Invalid active profile users cannot Explore, appear in Explore, Like, send Nakh, or create new discovery interactions.
-* When required profile completion rules are satisfied again, `completion_status` should be set back to `complete`.
-* `random_shuffle_key` is internal discovery metadata and is not shown to users.
-* `random_shuffle_key` is used to avoid stable ordering bias when selecting Explore candidates.
-* The key must be refreshed periodically.
-* The exact refresh schedule is configurable.
+`age` is never stored as source-of-truth data.
 
 ### ProfileOptionalDetails
 
-* id
-* profile_id
-* height_cm
-* job_title
-* education_level
-* smoking_preference
-* pets_preference
-* exercise_frequency
-* religion_importance
-* children_preference
-* created_at
-* updated_at
+- `profile_id` — unique
+- `height_cm` — nullable
+- `job_title` — nullable
+- `education_level` — nullable
+- `smoking_preference` — nullable
+- `pets_preference` — nullable
+- `exercise_frequency` — nullable
+- `religion_importance` — nullable
+- `children_preference` — nullable
 
-Notes:
+Validation defaults:
 
-* These fields are optional.
-* `education_level` uses the `EducationLevel` enum.
-* `smoking_preference` uses the `SmokingPreference` enum.
-* `pets_preference` uses the `PetsPreference` enum.
-* `exercise_frequency` uses the `ExerciseFrequency` enum.
-* `religion_importance` uses the `ReligionImportance` enum.
-* `children_preference` uses the `ChildrenPreference` enum.
-* These six fields must not accept arbitrary free text.
-* `education_level` represents level of education, not exact major.
-* Exact enum values are not finalized yet.
+- `height_cm`: integer from 100 through 250
+- `job_title`: at most 64 characters after normalization
+- spoken languages: at most 10 distinct active selections
+- personality tags: at most 5 distinct active selections
 
-### Interest
+### Interest, Language, and PersonalityTag
 
-* id
-* name
-* is_active
-* display_order
-* created_at
-* updated_at
+Each option owns:
 
-### ProfileInterest
+- `code` — unique
+- `label_key`
+- `is_active`
+- `display_order`
 
-* id
-* profile_id
-* interest_id
-* created_at
+Required active MVP Interest seed codes:
 
-Rules:
+`travel`, `music`, `movies`, `books`, `fitness`, `hiking`, `cooking`, `coffee`, `photography`, `art`, `gaming`, `technology`, `animals`, `nature`, `dancing`, `fashion`, `football`, `volleyball`, `basketball`, `running`, `cycling`, `swimming`, `yoga`, `languages`, `history`, `science`, `entrepreneurship`, `volunteering`, `food`, and `cars`.
 
-* Interests belong to the dating profile, not directly to the user.
-* A complete profile must have at least 5 interests.
-* A profile can have at most 20 interests.
+Required active MVP spoken-language seed codes:
+
+`persian`, `english`, `azerbaijani_turkish`, `kurdish`, `luri`, `gilaki`, `mazandarani`, `arabic`, `armenian`, `turkmen`, `balochi`, `turkish`, `french`, and `german`.
+
+Required active MVP PersonalityTag seed codes:
+
+`adventurous`, `ambitious`, `calm`, `creative`, `curious`, `family_oriented`, `funny`, `kind`, `outgoing`, `romantic`, `thoughtful`, and `independent`.
+
+Seed labels and ordering are localized data and MAY be revised without changing the stable codes or Profile behavior.
+
+### ProfileInterest, ProfileLanguage, and ProfilePersonalityTag
+
+Each join owns its two parent IDs. Each parent pair is unique.
 
 ### ProfileChangeRequest
 
-* id
-* user_id
-* field_name
-* old_value
-* requested_value
-* reason
-* status
-* created_at
-* reviewed_at
+- `user_id`
+- `field_name`
+- `old_value_snapshot`
+- `requested_value`
+- `reason`
+- `status`
+- `submitted_at`
+- `resolved_at` — nullable
 
-Rules:
-
-* `reason` is required.
-* `reason` has a maximum length of 1024 characters.
-  
-Allowed fields:
-
-* birth_year
-* gender
+Only one pending request per User/field is allowed.
 
 ### ProfileChangeReview
 
-* id
-* request_id
-* admin_user_id
-* decision
-* admin_note
-* reviewed_at
-
-Decisions:
-
-* approved
-* rejected
-
-### Language
-
-* id
-* name
-* code
-* is_active
-* display_order
-
-Rules:
-
-* Represents a spoken language selectable on a dating profile.
-* Does not represent bot UI language.
-* MVP should include English as an available spoken language.
-* Additional spoken languages can be added later by adding Language records.
-* Spoken languages must not be stored as free text.
-
-### ProfileLanguage
-
-* id
-* profile_id
-* language_id
-* created_at
-
-Rules:
-
-* Connects a profile to a spoken language.
-* Spoken languages belong to the dating profile, not directly to the user account.
-
-### PersonalityTag
-
-* id
-* name
-* is_active
-* display_order
-
-Rules:
-
-* Represents a selectable personality tag shown on dating profiles.
-* Personality tags should be data-driven and should not be hardcoded inside bot handlers.
-
-### ProfilePersonalityTag
-
-* id
-* profile_id
-* personality_tag_id
-* created_at
-
-Rules:
-
-* Connects a profile to a selected personality tag.
-* Personality tags belong to the dating profile, not directly to the user account.
+- `request_id` — unique
+- `admin_user_id`
+- `decision`
+- `admin_note` — nullable
+- `reviewed_at`
 
 ### Country
 
-* id
-* name
-* code
-* is_active
-
-MVP rule:
-
-* Iran is the only supported country.
+- `code` — unique
+- `label_key`
+- `is_active`
 
 ### Province
 
-* id
-* country_id
-* name
-* is_active
-* display_order
+- `country_id`
+- `code`
+- `label_key`
+- `is_active`
+- `display_order`
+
+Country/code is unique.
 
 ### City
 
-* id
-* province_id
-* name
-* is_active
-* display_order
+- `province_id`
+- `code`
+- `label_key`
+- `is_active`
+- `display_order`
 
-Rules:
+Province/code is unique.
 
-* City must come from a fixed list.
-* Free-text city is not allowed.
-* “Other” city is not allowed in MVP.
-
-## 4. Media Attributes
+## 3. Media
 
 ### MediaAsset
 
-* id
-* owner_user_id
-* original_file_name
-* mime_type
-* file_size
-* image_width
-* image_height
-* content_hash
-* normalized_image_hash
-* storage_provider
-* storage_key
-* cdn_url
-* validation_status
-* validation_error
-* uploaded_at
-* deleted_at
-
-Notes:
-
-* Photos are stored in object storage.
-* Cloudflare R2 is the MVP object storage provider.
-* `storage_provider` must use `cloudflare_r2` for MVP MediaAsset records.
-* Storage access should remain behind an S3-compatible provider abstraction.
-* The domain model must not depend on Cloudflare-specific storage semantics.
-* The app server is not the permanent image store.
-* Cloudflare Images/CDN is the MVP media delivery provider.
-* `cdn_url` stores the delivery URL used by user-facing surfaces.
-* Media delivery must remain behind a provider abstraction and must not depend on Cloudflare-specific semantics at the domain level.
-* * User-deleted profile-photo media objects must be permanently deleted from object storage/CDN.
-* Deleted media may be retained only when required for an active report, moderation case, safety case, legal/audit case, or immutable report snapshot.
-* Retained evidence media must not remain available through normal user-facing profile URLs.
-
-Validation statuses:
-
-* pending
-* valid
-* rejected
-* failed
-
-Rules:
-
-* `mime_type` must be one of the accepted MVP image formats after validation/conversion.
-* `file_size` stores the original uploaded file size.
-* `image_width` and `image_height` store detected image dimensions after decoding.
-* `content_hash` may be used to detect exact duplicate uploads.
-* `normalized_image_hash` may be used to detect visually duplicate uploads after normalization.
-* A rejected or failed MediaAsset must not become a visible ProfilePhoto.
-* A MediaAsset is not enough to make a photo visible; all required upload-time PhotoVariant records must also exist.
-* For MVP, the required upload-time PhotoVariant is `thumbnail`.
-* `blurred_preview` is generated on demand and is not required for ProfilePhoto visibility.
+- `owner_user_id`
+- `original_filename`
+- `detected_mime_type`
+- `file_size_bytes`
+- `width_px`
+- `height_px`
+- `content_hash`
+- `normalized_image_hash` — nullable
+- `storage_provider`
+- `storage_key`
+- `cdn_url`
+- `validation_status`
+- `validation_error_code` — nullable
+- `uploaded_at`
+- `storage_deleted_at` — nullable
 
 ### ProfilePhoto
 
-* id
-* profile_id
-* media_asset_id
-* is_primary
-* status
-* display_order
-* uploaded_at
-* hidden_at
-* deleted_at
-
-Allowed statuses:
-
-* visible
-* hidden
-* deleted
-
-Rules:
-
-* Minimum visible profile photos for completion: 2.
-* Maximum saved profile photos per profile: 6.
-* Saved profile photos means profile photos currently stored as visible or hidden.
-* Hidden photos count toward the 6-photo saved-photo limit, but do not count toward profile completion.
-* Only visible photos count toward the 2-photo completion requirement.
-* Deleted photos are removed from the profile and their stored media objects must be permanently deleted from object storage/CDN.
-* A deleted photo no longer counts as a saved profile photo after its stored media object is deleted.
-* Extra saved profile photos are rejected.
-* One visible photo must always be primary.
-* User cannot delete the primary photo before choosing another visible primary photo.
-* If admin hides or deletes the primary photo, another visible photo should become primary if available.
-* If no visible primary photo can be assigned, profile validity must be rechecked.
-* If a deleted photo is linked to an active report, moderation case, safety case, legal/audit case, or immutable report snapshot, the user-facing photo is removed immediately, but the evidence copy may be retained in restricted moderation/audit storage until retention rules allow deletion.
-* A ProfilePhoto can become visible only after the related MediaAsset is valid.
-* A ProfilePhoto can become visible only after all required upload-time PhotoVariant records exist.
-* For MVP, `thumbnail` is the required upload-time variant.
-* `blurred_preview` is not required before ProfilePhoto visibility.
-* Failure to generate the required thumbnail prevents the upload from creating a visible ProfilePhoto.
-* Failure to generate an on-demand blurred preview does not invalidate the ProfilePhoto.
-* Failed uploads and failed required upload-time variant generation do not count toward active profile photo limits.
+- `profile_id`
+- `media_asset_id` — unique
+- `status`
+- `is_primary`
+- `display_order`
+- `visible_at` — nullable until processing completes
+- `hidden_at` — nullable
+- `deleted_at` — nullable
 
 ### PhotoVariant
 
-* id
-* media_asset_id
-* variant_type
-* storage_key
-* cdn_url
-* created_at
+- `media_asset_id`
+- `variant_type`
+- `storage_key`
+- `cdn_url`
+- `width_px`
+- `height_px`
+- `generated_at`
 
-Variant types:
-
-* thumbnail
-* blurred_preview
-
-Rules:
-
-* `thumbnail` is generated during upload processing after validation and object-storage upload.
-* `thumbnail` is required before a new ProfilePhoto becomes visible.
-* If thumbnail generation fails, the upload must not create a visible ProfilePhoto.
-* `blurred_preview` is generated on demand when needed for a locked Liked By card.
-* For MVP, blurred preview generation applies to the relevant primary profile photo.
-* Once generated, a blurred preview should be cached as a PhotoVariant.
-* `blurred_preview` is not required before the ProfilePhoto becomes visible.
-* Failure to generate a blurred preview must not invalidate an otherwise valid ProfilePhoto.
+MediaAsset/variant type is unique.
 
 ### PhotoModerationRecord
 
-* id
-* photo_id
-* action_type
-* reason
-* admin_user_id
-* report_id
-* created_at
+- `profile_photo_id`
+- `action_type`
+- `admin_user_id`
+- `report_id` — nullable
+- `reason`
+- `created_at`
 
-Action types:
-
-* hidden
-* restored
-* deleted
-
-Rules:
-
-* `hidden` means the photo was removed from user-visible profile surfaces but remains restorable.
-* `restored` means a hidden photo was made visible again.
-* `deleted` means the photo was soft-deleted from the dating profile.
-* Admin photo deletion must not immediately hard-delete the underlying media asset.
-* Deleted photo records and media metadata may be retained for audit, moderation, reports, appeals, abuse prevention, and safety history.
-
-## 5. Explore and Interaction Attributes
+## 4. Explore and interactions
 
 ### ExploreFilter
 
-* id
-* user_id
-* min_age
-* max_age
-* country_id
-* province_id
-* city_id
-* relationship_goal
-* updated_at
+- `user_id` — unique
+- `target_gender_option_ids` — non-empty set of current browsing choices
+- `min_age`
+- `max_age`
+- `city_id`
+- `relationship_goal` — nullable
 
-Notes:
-
-* `interested_gender` is not stored here.
-* `interested_gender` belongs to `Profile`.
-* Changing interested gender from Explore or Edit Profile updates the same profile-level value.
-* For MVP, Country is fixed to Iran and is not shown as a user-facing Explore filter.
-* Province is used only to group/select cities.
-* MVP Explore location filtering is city-level.
-* Province-wide browsing is not included in MVP.
-* Whole-country browsing is not included in MVP.
-* `country_id` and `province_id` are kept for structure and future extensibility.
+The target gender set only narrows reciprocal eligibility. It never writes Profile.gender_preference_id.
 
 ### ExploreConsumption
 
-* id
-* viewer_user_id
-* target_user_id
-* reason
-* created_at
+- `viewer_user_id`
+- `target_user_id`
+- `reason`
+- `consumed_at`
 
-Allowed reasons:
-
-* preview
-* like
-* not_interested
-* pending_nakh
-* sent_nakh
-* match
-
-Rule:
-
-* Once consumed, the target profile is not shown again to the same viewer.
-
-Guest Preview rule:
-
-* Guest and incomplete profile previews also create `ExploreConsumption` with reason `preview`.
-* Guest Preview consumption is permanent.
-* Guest Preview consumption does not require normal Explore filters or reciprocal gender compatibility.
+Viewer/target is unique regardless of reason.
 
 ### Like
 
-* id
-* sender_user_id
-* receiver_user_id
-* status
-* created_at
-* closed_at
+- `sender_user_id`
+- `receiver_user_id`
+- `status`
+- `created_at`
+- `closed_at` — nullable
 
-Allowed statuses:
-
-* active
-* closed_by_match
-* closed_by_unmatch
-
-Rules:
-
-* Normal Like appears in receiver’s Liked By.
-* Nakh does not create a normal Like automatically.
-* Normal Likes are permanent in MVP.
-* Users cannot undo, cancel, or withdraw a normal Like.
-* A liked profile remains consumed and must not be shown again to the same sender.
-* If a mutual Like creates a Match, the relevant Like records should be closed as `closed_by_match`.
-* If the Match is later unmatched, Like records related to that Match should be closed as `closed_by_unmatch`.
-
-Additional rules:
-
-* There is no user-facing Unlike or Like cancellation in MVP.
-* `cancelled` is reserved only for admin/system correction if kept.
-* A Like with status `active` may appear in Liked By only if it is still actionable.
-* When Like Back creates a Match, the original received Like should be closed with status `closed_by_match`.
-* When a pair unmatches, relevant Like records should be closed with status `closed_by_unmatch`.
-* Closed Likes do not appear in Liked By.
+Sender/receiver is unique during the current account lifetime.
 
 ### NotInterested
 
-* id
-* sender_user_id
-* receiver_user_id
-* source
-* created_at
+- `sender_user_id`
+- `receiver_user_id`
+- `source`
+- `created_at`
 
-Allowed sources:
-
-* explore
-* liked_by
-* cancelled_pending_nakh
-* unmatch
+Sender/receiver is unique during the current account lifetime.
 
 ### UserPairState
 
-* id
-* user_a_id
-* user_b_id
-* state
-* updated_at
+- `user_low_id`
+- `user_high_id`
+- `state`
+- `reason_code`
+- `changed_at`
 
-Allowed states:
-
-* none
-* matched
-* unmatched
-* blocked
-
-Rules:
-
-* Use normalized pair ordering: `user_a_id < user_b_id`.
-* UserPairState is a symmetric pair-level summary only.
-* UserPairState must not store directional states.
-* `blocked` is internal/safety-only.
-* `blocked` must not be exposed as a user-facing Block action or visible user status.
-
-Directional actions must be read from source records:
-
-* ExploreConsumption
-* Like
-* NotInterested
-* PendingNakh
-* Nakh
-
-Notes:
-
-* `UserPairState` does not replace `Like`, `NotInterested`, `PendingNakh`, `Nakh`, `Match`, or `UnmatchRecord`.
-`UserPairState` should only be used to quickly prevent invalid pair-level actions after match or unmatch.
+The normalized pair is unique and `user_low_id < user_high_id`.
 
 ### FeatureUnlock
 
-* id
-* payer_user_id
-* feature_type
-* target_user_id
-* match_id
-* payment_id
-* credit_transaction_id
-* status
-* unlocked_at
-* expires_at
-* revoked_at
+- `payer_user_id`
+- `feature_type`
+- `like_id` — nullable
+- `match_id` — nullable
+- `payment_record_id` — nullable
+- `credit_transaction_id` — nullable
+- `status`
+- `unlocked_at`
+- `revoked_at` — nullable
+- `revocation_reason` — nullable
+- `expires_at` — nullable, always null for MVP-created unlocks
 
-Feature types:
+Exactly one scope is set: Like for `liked_by_profile_unlock`, Match for `chat_unlock`. Exactly one funding reference is set. There may be at most one successful unlock of each type for its scope.
 
-* liked_by_profile_unlock
-* chat_unlock
+## 5. Nakh
 
-Allowed statuses:
+### NakhFlow
 
-* active
-* expired
-* revoked
+- `sender_user_id`
+- `receiver_user_id`
+- `created_at`
 
-Rules:
-
-* `expires_at` is the optional configured expiry timestamp for a FeatureUnlock.
-* `revoked_at` records explicit unlock revocation.
-* `liked_by_profile_unlock` expires according to its configured unlock duration.
-* `chat_unlock` is scoped to one Match.
-* One successful `chat_unlock` unlocks free-text chat for both users in that Match.
-* The other matched user does not need to pay again for the same Match.
-* `chat_unlock` may have a configured expiry.
-* Chat unlock access remains usable only while all of the following are true:
-  * The related FeatureUnlock has `status = active`.
-  * `expires_at` is null or has not been reached.
-  * The unlock has not been revoked.
-  * The related Match and ChatSession remain active.
-* Chat unlock access ends when the Match closes, the unlock is revoked, or configured expiry is reached.
-* Exact expiry durations must come from configuration and must not be hardcoded.
-* FeatureUnlock is not used for sent Nakh. Nakh is a paid action, not persistent feature access.
-* For `chat_unlock`, `match_id` must be set and `target_user_id` must be empty.
-* For `liked_by_profile_unlock`, `target_user_id` must be set and `match_id` must be empty.
-* `payer_user_id` is the user who paid for or triggered the unlock.
-* `payment_id` stores the direct Telegram Stars payment when the unlock was funded directly.
-* `credit_transaction_id` stores the credit spend transaction when the unlock was funded with existing credits.
-* ChatUnlock must not duplicate `payment_id`, `credit_transaction_id`, `status`, `expires_at`, or `revoked_at`.
-* Account deletion permanently removes normal FeatureUnlock product state according to account-deletion retention rules.
-* Previous FeatureUnlock records must never grant access to a user who returns after deletion.
-* A returning user must purchase/create any future unlock again through the normal paid flow.
-
-Ownership rules:
-
-* `payer_user_id` is always the user who paid for the unlock.
-* `payer_user_id` does not define who receives access.
-* Access scope is defined by `feature_type` plus the scoped target fields.
-* For `liked_by_profile_unlock`, access is scoped to one liked-by profile/pair through `target_user_id`.
-* For `chat_unlock`, access is scoped to one Match through `match_id`.
-* For `chat_unlock`, both users in the Match receive unlocked text-chat access, even though only one user paid.
-* Chat access checks must use `match_id` / ChatUnlock state, not `payer_user_id`.
-
-Liked By unlock rules:
-
-* A `liked_by_profile_unlock` is scoped to one receiver/liker pair.
-* `user_id` is the user who paid for or owns the unlock.
-* `target_user_id` is the liked-by profile user being unlocked.
-* `match_id` must be empty for `liked_by_profile_unlock`.
-* `expires_at` is required for `liked_by_profile_unlock`.
-* When the unlock expires, full profile access is removed.
-* If the original Like is still actionable, the Liked By card returns to locked state.
-* Expired Liked By unlocks remain as payment/audit history.
-* Liked By unlocks do not create Like, Match, or NotInterested records by themselves.
-
-## 6. Nakh Attributes
+Sender/receiver is unique during the current account lifetime.
 
 ### PendingNakh
 
-* id
-* sender_user_id
-* receiver_user_id
-* text
-* pending_payment_id
-* status
-* created_at
-* updated_at
-* expires_at
-* cancelled_at
-* cancel_resolution
-
-Allowed statuses:
-
-* pending_payment
-* paid_and_sent
-* cancelled
-* expired
-* abandoned
-
-Allowed cancel resolutions:
-
-* converted_to_like
-* converted_to_not_interested
-* abandoned
-
-Rules:
-
-* Pending Nakh is visible only to the sender.
-* Pending Nakh does not notify the receiver.
-* Pending Nakh does not create a normal Like.
-* Pending Nakh does not appear in Liked By.
-* Pending Nakh does not appear in the receiver’s Nakhes.
-* Pending Nakh does not create a Match.
-* Pending Nakh consumes the target profile.
-* Creating a Pending Nakh consumes the sender’s single allowed Nakh flow for that receiver.
-* A sender/receiver pair can have only one Nakh flow ever.
-* A Nakh flow may be represented first by PendingNakh and then by Nakh after successful payment.
-* If PendingNakh becomes expired, abandoned, cancelled, or payment failed/cancelled, the sender still cannot create another PendingNakh or Nakh for the same receiver.
-* Pending Nakh text can be edited before payment.
-* A sender may have at most 5 concurrent PendingNakh records with `status = pending_payment`.
-* Only `pending_payment` PendingNakhes count toward the concurrent unpaid limit.
-* If a sender already has 5 unpaid PendingNakhes, creation of a 6th must be rejected until at least one existing unpaid PendingNakh leaves `pending_payment`.
-* Unpaid PendingNakhes are ordered FIFO by `created_at`.
-* When credits are successfully added to the sender’s CreditAccount, eligible unpaid PendingNakhes must be auto-settled in ascending `created_at` order.
-* Auto-settlement continues until the unpaid queue is empty or the available balance is insufficient for the next PendingNakh.
-* Each successful auto-settlement deducts the required credits transactionally and converts the PendingNakh into a delivered Nakh.
-* Pending Nakh expires 14 days after creation if it remains unpaid.
-* `expires_at` must be set from the configured 14-day Pending Nakh expiry duration.
-* Pending Nakh expiry duration must come from SystemConfig and must not be hardcoded in handlers.
-* If cancelled before payment, the sender must choose whether to convert it to a normal Like or mark the target as Not Interested.
-* A visibility-off sender cannot create a new Pending Nakh.
-* A visibility-off sender may complete payment for a Pending Nakh created before sender visibility was turned off.
-* A visibility-off receiver may still receive a Sent Nakh if the Pending Nakh was created before receiver visibility was turned off.
-* Receiver visibility off blocks new discovery only. It does not block delivery of an already-created Pending Nakh after payment succeeds.
-* If the sender becomes restricted, banned, or deleted before payment succeeds, the Pending Nakh cannot be delivered.
-* If the receiver becomes restricted, banned, deleted, or profile-invalid before payment succeeds, the Pending Nakh cannot be delivered.
+- `nakh_flow_id` — unique
+- `text`
+- `status`
+- `pending_payment_id` — nullable
+- `auto_settle_authorized_at`
+- `created_at`
+- `expires_at`
+- `paid_at` — nullable
+- `cancelled_at` — nullable
+- `cancel_resolution` — nullable
+- `last_reminder_at` — nullable
 
 ### Nakh
 
-* id
-* sender_user_id
-* receiver_user_id
-* text
-* status
-* sent_at
-* seen_at
-* accepted_at
-* rejected_at
-* closed_at
-* expired_at
-* created_at
-
-Allowed statuses:
-
-* sent
-* seen
-* accepted
-* rejected
-* closed
-* expired
-
-Rules:
-
-* Nakh is created only after payment succeeds or credits are successfully spent.
-* Sent Nakh appears in receiver’s Nakhes.
-* Sent Nakh does not appear in receiver’s Liked By.
-* Only one Nakh flow is allowed per sender/receiver pair.
-* A Nakh record must not be created if the same sender/receiver pair already has any PendingNakh or Nakh flow.
-* A Nakh record may be created from an existing PendingNakh only when payment succeeds or credits are successfully spent.
-* Nakh text maximum length: 240 characters.
-* Nakh expires after 14 days.
-* Receiver rejection must set `status = rejected`.
-* Rejected Nakh is shown in UI as Closed.
-* `status = closed` is reserved for generic non-rejection closure cases, such as admin/moderation/system closure.
-* `rejected_at` is used only when the receiver rejects the Nakh.
-* `closed_at` is used only when the Nakh enters `status = closed`.
+- `nakh_flow_id` — unique
+- `text` — immutable delivered copy
+- `status`
+- `sent_at`
+- `seen_at` — nullable
+- `accepted_at` — nullable
+- `rejected_at` — nullable
+- `closed_at` — nullable
+- `expired_at` — nullable
 
 ### NakhStatusHistory
 
-* id
-* nakh_id
-* old_status
-* new_status
-* reason
-* changed_at
-
-Purpose:
-
-* Tracks Nakh status changes over time.
+- `nakh_id`
+- `previous_status`
+- `next_status`
+- `reason_code`
+- `changed_at`
 
 ### NakhReceiverAction
 
-* id
-* nakh_id
-* receiver_user_id
-* action_type
-* created_at
+- `nakh_id`
+- `receiver_user_id`
+- `action_type`
+- `created_at`
 
-Allowed action types:
+Idempotency constraints prevent duplicate terminal receiver actions.
 
-* view_profile
-* accept
-* reject
-* report
-
-Rules:
-
-* Viewing the profile can mark the Nakh as seen.
-* Accepting a sent Nakh can create a Match.
-* Rejecting sets `Nakh.status = rejected` and `Nakh.rejected_at`.
-* Rejecting does not set `Nakh.status = closed`.
-* Reporting starts the report flow.
-
-## 7. Match and Chat Attributes
+## 6. Match and chat
 
 ### Match
 
-* id
-* user_1_id
-* user_2_id
-* source
-* status
-* created_at
-* unmatched_at
-* closed_at
+- `user_low_id`
+- `user_high_id`
+- `source`
+- `source_like_ids` — set only for mutual Like
+- `source_nakh_id` — set only for Nakh acceptance
+- `status`
+- `created_at`
+- `closed_at` — nullable
 
-Allowed sources:
-
-* mutual_like
-* nakh_accept
-
-Allowed statuses:
-
-* active
-* unmatched
-* closed_by_admin
-
-Rules:
-
-* A Match connects exactly two users.
-* After Match, users cannot Like, send Nakh, mark Not Interested, or appear to each other in Explore again.
-* A Match creates one ChatSession.
+The normalized pair is unique during the current account lifetime.
 
 ### MatchParticipant
 
-* id
-* match_id
-* user_id
-* joined_at
-* left_at
+- `match_id`
+- `user_id`
+- `joined_at`
 
-Purpose:
-
-* Stores participant-level match data.
+Match/User is unique; every Match has exactly two participants.
 
 ### UnmatchRecord
 
-* id
-* match_id
-* unmatched_by_user_id
-* other_user_id
-* reason
-* created_at
-* report_window_expires_at
-
-Rules:
-
-* Unmatch closes the chat visually for both users.
-* Unmatch prevents future matching between the same pair.
-* Either user can report the other for 24 hours after unmatch.
+- `match_id` — unique
+- `unmatched_by_user_id`
+- `reason` — nullable
+- `unmatched_at`
+- `report_window_expires_at`
 
 ### ChatSession
 
-* id
-* match_id
-* status
-* mode
-* created_at
-* closed_at
-* closed_reason
-
-Allowed statuses:
-
-* active
-* closed
-
-Allowed modes:
-
-* predefined_only
-* unlocked_text
-
-Allowed closed reasons:
-
-* unmatch
-* account_deleted
-* admin_action
-* user_banned
-
-Rules:
-
-* Chat exists only after Match.
-* Free matched users start in predefined_only mode.
-* If one side unlocks chat, the chat mode becomes unlocked_text for both users.
+- `match_id` — unique
+- `status`
+- `created_at`
+- `closed_at` — nullable
+- `closed_reason` — nullable
 
 ### ChatParticipant
 
-* id
-* chat_session_id
-* user_id
-* last_read_at
-* muted_at
-* joined_at
+- `chat_session_id`
+- `user_id`
+- `last_read_at` — nullable
+- `muted_at` — nullable
+- `unlock_safety_warning_shown_at` — nullable
 
-Purpose:
-
-* Stores participant-level chat state.
+Chat/User is unique; every ChatSession has exactly two participants.
 
 ### ChatMessage
 
-* id
-* chat_session_id
-* sender_user_id
-* message_type
-* text
-* predefined_question_id
-* predefined_answer_id
-* created_at
-* deleted_at
+- `chat_session_id`
+- `sender_user_id` — nullable only for system messages
+- `message_type`
+- `text` — set only for text/system messages
+- `predefined_question_id` — nullable
+- `predefined_answer_id` — nullable
+- `created_at`
 
-Allowed message types:
-
-* predefined_question
-* predefined_answer
-* text
-* system
-
-Rules:
-
-* Before chat unlock, users can only send predefined questions and predefined answers.
-* After chat unlock, users can send text messages only.
-* Photos, stickers, media messages, and custom free text before unlock are not allowed.
-* Only the last 50 visible messages per chat should remain available in normal chat view.
-* Reported messages can be preserved separately through snapshots.
+Exactly the payload appropriate to message_type is set.
 
 ### ChatMessageSnapshot
 
-* id
-* report_id
-* chat_session_id
-* original_message_id
-* sender_user_id
-* message_type
-* text
-* created_at
-* snapshotted_at
-
-Purpose:
-
-* Stores frozen moderation evidence for reported chats or messages.
+- `report_id`
+- `chat_session_id`
+- `original_message_id`
+- `sender_user_id`
+- `message_type`
+- `content_snapshot`
+- `original_created_at`
+- `snapshotted_at`
 
 ### PredefinedQuestionSet
 
-* id
-* title
-* topic
-* is_active
-* display_order
-* created_at
-* updated_at
-
-Default topics:
-
-* relationship_intent
-* ideal_first_date
-* chat_frequency
-* introvert_extrovert
-* weekend_habits
-* calls_or_texting
-* important_values
-* meeting_in_person
-* relationship_pace
-* current_life_focus
+- `code`
+- `title_key`
+- `is_active`
+- `display_order`
 
 ### PredefinedQuestion
 
-* id
-* question_set_id
-* text_key
-* is_active
-* display_order
-* created_at
-* updated_at
-
-Note:
-
-* The actual question text should come from localization through `text_key`.
+- `question_set_id`
+- `text_key`
+- `is_active`
+- `display_order`
 
 ### PredefinedAnswer
 
-* id
-* question_id
-* text_key
-* is_active
-* display_order
-* created_at
-* updated_at
+- `question_id`
+- `text_key`
+- `is_active`
+- `display_order`
 
-Note:
+Required MVP question-set seed codes and English content:
 
-* The actual answer text should come from localization through `text_key`.
+| Code | Question | Answer choices |
+|---|---|---|
+| `relationship_intent` | What are you looking for here? | Serious relationship; Something casual; Friendship; Marriage; Still figuring it out |
+| `ideal_first_date` | What sounds like an ideal first date? | Coffee and conversation; A walk outdoors; Dinner; A fun activity; Surprise me |
+| `chat_frequency` | How often do you like to chat? | Throughout the day; A few times a day; One daily check-in; Whenever we are both free |
+| `social_energy` | How would you describe your social energy? | Introvert; Mostly introvert; A mix; Mostly extrovert; Extrovert |
+| `weekend_habits` | What does your ideal weekend look like? | Staying in; Friends or family; Exploring the city; Nature or adventure; Working on hobbies |
+| `calls_or_texting` | How do you prefer to communicate? | Mostly text; Mostly calls; A mix; Voice messages; It depends |
+| `important_values` | Which value matters most to you? | Honesty; Kindness; Ambition; Family; Humor |
+| `meeting_in_person` | When would you feel comfortable meeting? | After a few good conversations; Within a week; I prefer to take more time; Video call first |
+| `relationship_pace` | What relationship pace feels right? | Slow and steady; Let it happen naturally; Intentional and fast; It depends on the connection |
+| `current_life_focus` | What is your main focus right now? | Career or studies; Family; Health and growth; Fun and new experiences; Finding balance |
 
-### ChatUnlock
+The table defines seed meaning. Production text is stored through localization keys, not copied into chat handlers.
 
-* id
-* match_id
-* feature_unlock_id
-* unlocked_at
-* unlocked_by_user_id
-
-Rule:
-
-* One ChatUnlock is scoped to one Match.
-* One ChatUnlock belongs to one FeatureUnlock.
-* ChatUnlock is a chat-domain marker only.
-* ChatUnlock does not store payment, credit, status, expiry, or revocation fields.
-* FeatureUnlock is the source of truth for payment funding, unlock status, expiry, and revocation.
-* The user who paid for the unlock is stored on FeatureUnlock.user_id.
-* If one side unlocks chat, both users can send text in that Match.
-* The other matched user does not need to pay again for the same Match.
-* Chat unlock does not expire in MVP.
-* `unlocked_by_user_id` must be the same user as `FeatureUnlock.payer_user_id`.
-
-### ChatSafetyWarning
-
-* id
-* match_id
-* user_id
-* shown_at
-
-Rule:
-
-* Show the contact-sharing safety warning once when chat unlocks.
-
-## 8. Payment Attributes
+## 7. Credits and payments
 
 ### CreditAccount
 
-* id
-* user_id
-* balance
-* created_at
-* updated_at
-
-Rules:
-
-* One user has one credit account.
-* Any successful operation that increases the available credit balance must trigger PendingNakh FIFO auto-settlement for that user.
-* Auto-settlement must occur only after the credit increase is successfully committed.
+- `user_id` — unique
+- `balance` — non-negative integer
 
 ### CreditTransaction
 
-* id
-* credit_account_id
-* user_id
-* transaction_type
-* amount
-* balance_before
-* balance_after
-* related_payment_id
-* related_feature_unlock_id
-* related_nakh_id
-* created_at
-
-Allowed transaction types:
-
-* purchase
-* spend_nakh
-* spend_chat_unlock
-* spend_liked_by_unlock
-* refund
-* admin_adjustment
-
-Rules:
-
-* Every credit balance change must create a CreditTransaction.
-* Spending credits must be transactional with the paid action.
-* A wallet-funding credit transaction that increases the available balance must trigger PendingNakh FIFO auto-settlement.
-* Each PendingNakh settled from credits must create its own `spend_nakh` CreditTransaction.
-* FIFO ordering is based on `PendingNakh.created_at`.
+- `credit_account_id`
+- `user_id`
+- `transaction_type`
+- `amount` — signed integer
+- `balance_before`
+- `balance_after`
+- `payment_record_id` — nullable
+- `pending_payment_id` — nullable
+- `feature_unlock_id` — nullable
+- `nakh_id` — nullable
+- `idempotency_key` — unique
+- `created_at`
 
 ### CreditPackage
 
-* id
-* title
-* credit_amount
-* stars_price
-* discount_label
-* is_active
-* display_order
-* created_at
-* updated_at
-
-MVP package records:
-
-1. Starter
-   * `credit_amount = 10`
-   * `stars_price = 10`
-   * `discount_label = null`
-
-2. Plus
-   * `credit_amount = 25`
-   * `stars_price = 20`
-   * `discount_label = Popular`
-
-3. Best Value
-   * `credit_amount = 50`
-   * `stars_price = 35`
-   * `discount_label = Best Value`
-
-4. Ultimate
-   * `credit_amount = 100`
-   * `stars_price = 60`
-   * `discount_label = Best Value`
-
-Rules:
-
-* These four packages are the active MVP package set.
-* Package ordering should follow Starter, Plus, Best Value, Ultimate.
-* Package definitions must be loaded from configuration/data rather than hardcoded inside payment handlers.
-* `credit_amount` and `stars_price` must be positive integers.
-* `discount_label` is optional.
-* `stars_price` is the complete Telegram Stars purchase price for that CreditPackage.
-* Telegram Stars is the sole purchase currency for CreditPackage in MVP.
-* No separate package-price table is required.
-
-### PaymentRecord
-
-* id
-* user_id
-* payment_type
-* paid_action_reason
-* status
-* amount_credits
-* amount_stars
-* provider
-* provider_payment_id
-* created_at
-* paid_at
-* failed_at
-* cancelled_at
-* refunded_at
-
-Allowed payment types:
-
-* buy_credit_package
-* direct_paid_action
-* pay_pending_action
-
-Allowed paid action reasons:
-
-* send_nakh
-* unlock_chat
-* unlock_liked_by_profile
-
-Allowed statuses:
-
-* pending
-* paid
-* failed
-* cancelled
-* refunded
-* expired
-
-Allowed provider:
-
-* telegram_stars
-
-Rules:
-
-Rules:
-
-* `provider_payment_id` must be unique when present.
-* Duplicate provider callbacks must not double-process a payment.
-* Paid actions can be funded by existing internal credits or by direct Telegram Stars payment.
-* Both funding paths must result in the same final domain action.
-* Direct Telegram Stars payment must not create different product behavior from credit-based payment.
-* `payment_type` describes how the Telegram Stars payment is used.
-* `paid_action_reason` describes the one-off paid action, when the payment is for a paid action.
-* For `payment_type = buy_credit_package`, `paid_action_reason` must be empty/null.
-* For `payment_type = direct_paid_action`, `paid_action_reason` must be one of `send_nakh`, `unlock_chat`, or `unlock_liked_by_profile`.
-* For `payment_type = pay_pending_action`, the paid action is resolved from the related PendingPayment.
-* `amount_stars` stores the Telegram Stars amount charged.
-* `amount_credits` stores the number of internal credits purchased or spent, when applicable.
-* Direct paid actions may have `amount_stars` without adding credits to the user balance.
-
-### TelegramStarsPayment
-
-* id
-* payment_record_id
-* telegram_charge_id
-* telegram_payload
-* stars_amount
-* received_at
-* raw_data
-
-Purpose:
-
-* Stores Telegram Stars-specific payment data.
-
-### PaymentProviderEvent
-
-* id
-* provider
-* event_type
-* provider_event_id
-* payment_record_id
-* raw_payload
-* received_at
-* processed_at
-* processing_status
-
-Purpose:
-
-* Stores raw provider events.
-* Supports payment audit and idempotency.
+- `code` — unique
+- `title_key`
+- `credit_amount`
+- `stars_price`
+- `badge_key` — nullable
+- `is_active`
+- `display_order`
 
 ### PendingPayment
 
-* id
-* user_id
-* payment_reason
-* target_type
-* target_id
-* required_credits
-* status
-* created_at
-* expires_at
-* paid_at
-* cancelled_at
+- `user_id`
+- `reason`
+- `target_type`
+- `target_id`
+- `required_credits` — nullable
+- `required_stars` — nullable
+- `status`
+- `created_at`
+- `expires_at`
+- `resolved_at` — nullable
 
-Allowed payment reasons:
+### PaymentRecord
 
-* send_nakh
-* unlock_chat
-* unlock_liked_by_profile
-* buy_credit_package
+- `user_id`
+- `pending_payment_id` — nullable
+- `payment_type`
+- `paid_action_reason` — nullable for package purchase
+- `credit_package_id` — nullable
+- `status`
+- `stars_amount`
+- `provider`
+- `invoice_payload` — unique
+- `provider_payment_id` — nullable and unique
+- lifecycle timestamps: `created_at`, `paid_at`, `failed_at`, `cancelled_at`, `refunded_at`
 
-Allowed statuses:
+### TelegramStarsPayment
 
-* pending
-* paid
-* failed
-* cancelled
-* expired
+- `payment_record_id` — unique
+- `telegram_charge_id` — unique
+- `provider_charge_id` — nullable
+- `stars_amount`
+- `received_at`
+- `raw_data`
 
-Rules:
+### PaymentProviderEvent
 
-* Pending payments should expire.
-* A PendingNakh may reference a PendingPayment.
-* Pending payment completion must apply the related paid action exactly once.
-* PendingPayment is used when payment cannot be completed immediately or when a paid action is waiting for Telegram Stars confirmation.
-* PendingPayment may be used for `send_nakh`, `unlock_chat`, `unlock_liked_by_profile`, or `buy_credit_package`.
-* For `send_nakh`, successful PendingPayment completion delivers the related Nakh.
-* For a PendingPayment belonging to PendingNakh, `expires_at` must align with the related PendingNakh 14-day expiry.
-* Expiring the PendingPayment for an unpaid PendingNakh must also transition the related PendingNakh to `expired`.
-* A PendingNakh auto-settled from newly available credits must not later be completed again through its PendingPayment.
-* For `unlock_chat`, successful PendingPayment completion creates the chat unlock.
-* For `unlock_liked_by_profile`, successful PendingPayment completion creates the liked-by profile unlock.
-* For `buy_credit_package`, successful PendingPayment completion adds credits to the user credit balance.
+- `provider`
+- `provider_event_id` — unique
+- `event_type`
+- `payment_record_id` — nullable
+- `raw_payload`
+- `received_at`
+- `processed_at` — nullable
+- `processing_status`
+- `failure_detail` — nullable
 
 ### RefundRecord
 
-* id
-* payment_record_id
-* credit_transaction_id
-* user_id
-* reason
-* amount_credits
-* amount_stars
-* status
-* created_at
-* processed_at
+- `user_id`
+- `payment_record_id` — nullable
+- `credit_transaction_id` — nullable
+- `reason_code`
+- `stars_amount` — nullable
+- `credits_amount` — nullable
+- `status`
+- `idempotency_key` — unique
+- `created_at`
+- `processed_at` — nullable
 
-Purpose:
-
-* Tracks automatic system-fault refunds or payment/credit corrections.
-
-Rules:
-
-* MVP does not support user-initiated refund requests.
-* A RefundRecord may be created only for an automatic system-fault correction.
-* Normal expiry, Nakh rejection, unmatch, change of mind, or accidental purchase must not create a refund.
-* If a direct Telegram Stars payment succeeded but the corresponding action failed because of a system fault, `amount_stars` records the Stars refund amount.
-* Direct Stars refunds must be processed through Telegram's refund mechanism.
-* If internal credits must be restored, `amount_credits` records the credit correction and `credit_transaction_id` references the corresponding refund CreditTransaction.
-* Credit restoration must update CreditAccount transactionally.
-* A refund/correction must be idempotent and must not be applied twice.
-
-## 9. Notification Attributes
+## 8. Notifications
 
 ### Notification
 
-* id
-* user_id
-* notification_type
-* title_key
-* body_key
-* payload
-* status
-* created_at
-* read_at
-
-Allowed statuses:
-
-* unread
-* read
-
-Allowed notification types:
-
-* like_received
-* nakh_received
-* match_created
-* new_chat_message
-* chat_unlocked
-* liked_by_profile_unlocked
-* report_result
-* restriction_warning
-* ban_warning
-* payment_success
-* payment_failure
-* pending_nakh_payment_reminder
-* admin_notice
-* safety_notice
-
-Rules:
-
-* Normal Like creates a Liked By notification.
-* Sent Nakh creates a Nakhes notification.
-* Pending Nakh creates no receiver notification.
-* Match creates notifications for both users.
-* Payment, safety, admin, ban, and restriction notices cannot be muted.
-* `pending_nakh_payment_reminder` is sent only to the PendingNakh sender.
-* It is sent only while the related PendingNakh has `status = pending_payment`.
-* The MVP cadence is approximately once every 2 days during the 14-day unpaid lifetime.
-* No reminder is sent after the PendingNakh is paid, cancelled, expired, abandoned, converted to Like, or converted to Not Interested.
+- `user_id`
+- `notification_type`
+- `title_key`
+- `body_key`
+- `payload`
+- `status`
+- `created_at`
+- `read_at` — nullable
+- `deduplication_key` — nullable and unique when set
 
 ### NotificationDelivery
 
-* id
-* notification_id
-* user_id
-* channel
-* status
-* sent_at
-* failed_at
-* failure_reason
-* retry_count
-
-Allowed channels:
-
-* telegram
-* in_app
-
-Allowed statuses:
-
-* pending
-* sent
-* failed
-
-Purpose:
-
-* Tracks notification delivery attempts and failures.
+- `notification_id`
+- `channel`
+- `status`
+- `attempt_number`
+- `next_attempt_at` — nullable
+- `sent_at` — nullable
+- `failed_at` — nullable
+- `failure_code` — nullable
 
 ### NotificationPreference
 
-* id
-* user_id
-* normal_notifications_muted
-* chat_notifications_muted
-* like_notifications_muted
-* nakh_notifications_muted
-* match_notifications_muted
-* updated_at
+- `user_id` — unique
+- mute booleans for `chat`, `like`, `nakh`, and `match`
 
-Rules:
-
-* Normal notifications can be muted.
-* Safety notices cannot be muted.
-* Payment notices cannot be muted.
-* Admin notices cannot be muted.
-* Ban notices cannot be muted.
-* Restriction notices cannot be muted.
-
-## 10. Moderation, Admin, and Support Attributes
-
-### Report
-
-* id
-* reporter_user_id
-* target_user_id
-* reason_id
-* extra_text
-* status
-* created_at
-* reviewed_at
-* closed_at
-
-Allowed statuses:
-
-* submitted
-* pending_review
-* dismissed
-* actioned
-* closed
-
-Rules:
-
-* Reports are reviewed by admin/moderation.
-* One report alone does not automatically restrict or ban a user.
-* Automatic restriction is triggered when a target user receives reports from 5 or more unique reporters within the rolling report threshold window.
-* The MVP report threshold window is 30 days.
-* The threshold counts unique reporters, not total reports.
-* Multiple reports from the same reporter against the same target user count as 1 reporter.
-* Threshold counting is target-user-level, not evidence-type-level.
-* Profile, photo, chat/message, and unmatched-user reports all count toward the same target-user threshold.
-* Only unresolved reports count toward the automatic restriction threshold.
-* Unresolved report statuses are `submitted` and `pending_review`.
-* Reports with status `dismissed`, `closed`, or `actioned` do not count toward triggering a new automatic restriction.
-* If reports are dismissed by admin, they stop counting toward the automatic restriction threshold.
-* If reports are actioned by admin, they stop counting toward a new automatic restriction.
-* Automatic restriction does not automatically ban users.
-* Ban requires admin decision.
-* `extra_text` is optional.
-* `extra_text` maximum length is 1024 characters.
-* The maximum length must come from `report_extra_text_max_length`.
+## 9. Moderation, admin, support, and appeal
 
 ### ReportReason
 
-* id
-* code
-* label_key
-* is_active
-* display_order
+- `code` — unique
+- `label_key`
+- `is_active`
+- `display_order`
 
-Default reason codes:
+### Report
 
-* fake_profile
-* harassment
-* inappropriate_photo
-* spam_or_scam
-* under_18
-* offensive_behavior
-* other
+- `reporter_user_id`
+- `target_user_id`
+- `reason_id`
+- `extra_text` — nullable
+- `status`
+- lifecycle timestamps: `submitted_at`, `reviewed_at`, `closed_at`
 
 ### ReportEvidence
 
-* id
-* report_id
-* evidence_type
-* profile_id
-* photo_id
-* chat_session_id
-* chat_message_id
-* created_at
-* unmatch_record_id
-
-Allowed evidence types:
-
-* profile
-* photo
-* chat
-* message
-* unmatched_user
-
-Rules:
-
-* `unmatch_record_id` is required when `evidence_type = unmatched_user`.
-* `unmatch_record_id` must reference the exact UnmatchRecord that created the post-unmatch report window.
-* A report with `evidence_type = unmatched_user` is allowed only if the report is submitted before `UnmatchRecord.report_window_expires_at`.
-* The reporter and reported user must be the two users involved in the referenced UnmatchRecord.
+- `report_id`
+- `evidence_type`
+- exactly one appropriate reference among `profile_id`, `profile_photo_id`, `chat_session_id`, `chat_message_id`, and `unmatch_record_id`
 
 ### ReportSnapshot
 
-* id
-* report_id
-* snapshot_type
-* snapshot_data
-* created_at
-
-Purpose:
-
-* Stores frozen reported context at report time.
-* Prevents evidence loss after profile edits, photo changes, or chat cleanup.
+- `report_id`
+- `snapshot_type`
+- `snapshot_data`
+- `created_at`
+- `content_hash`
 
 ### ModerationReview
 
-* id
-* report_id
-* admin_user_id
-* status
-* decision_note
-* started_at
-* completed_at
-
-Allowed statuses:
-
-* pending
-* in_review
-* dismissed
-* actioned
+- `report_id` — unique
+- `admin_user_id` — nullable until assigned
+- `status`
+- `decision_note` — nullable
+- `started_at` — nullable
+- `completed_at` — nullable
 
 ### ModerationAction
 
-* id
-* admin_user_id
-* target_user_id
-* report_id
-* action_type
-* reason
-* created_at
+- `actor_type`
+- `admin_user_id` — nullable for system threshold action
+- `target_user_id`
+- `target_profile_photo_id` — nullable
+- `report_id` — nullable
+- `action_type`
+- `reason`
+- `created_at`
 
-Allowed action types:
+### AdminUser and authorization
 
-* restrict_user
-* unrestrict_user
-* ban_user
-* unban_user
-* hide_photo
-* restore_photo
-* delete_photo
-* dismiss_report
-* approve_change_request
-* reject_change_request
-
-### AdminUser
-
-* id
-* user_id
-* telegram_user_id
-* is_active
-* created_at
-* disabled_at
-
-### AdminRole
-
-* id
-* name
-* description
-* is_active
-
-Example roles:
-
-* super_admin
-* moderator
-* support
-
-### AdminPermission
-
-* id
-* code
-* description
-
-Example permissions:
-
-* view_reports
-* view_user_profile
-* restrict_user
-* unrestrict_user
-* ban_user
-* unban_user
-* hide_photo
-* restore_photo
-* delete_photo
-* dismiss_report
-* review_change_requests
-* review_support
-* review_appeals
-
-### AdminUserRole
-
-* id
-* admin_user_id
-* admin_role_id
-* created_at
-
-### AdminRolePermission
-
-* id
-* admin_role_id
-* admin_permission_id
-* created_at
+- AdminUser: `user_id`, `telegram_user_id`, `is_active`, `disabled_at`
+- AdminRole: `code`, `description`, `is_active`
+- AdminPermission: `code`, `description`
+- AdminUserRole and AdminRolePermission: unique parent pairs
 
 ### AdminActionLog
 
-* id
-* admin_user_id
-* action_type
-* target_user_id
-* target_entity_type
-* target_entity_id
-* metadata
-* created_at
+- `admin_user_id`
+- `command_code`
+- `target_type`
+- `target_id`
+- `result`
+- `metadata`
+- `created_at`
 
-Rule:
+### SupportThread and SupportMessage
 
-* Every admin action must be logged.
-
-### SupportThread
-
-* id
-* user_id
-* status
-* created_at
-* closed_at
-* last_message_at
-
-Allowed statuses:
-
-* open
-* reviewed
-* closed
-
-### SupportMessage
-
-* id
-* support_thread_id
-* sender_user_id
-* sender_admin_id
-* message_text
-* created_at
-
-Rules:
-
-* A user may have at most 2 unanswered support messages.
-* If the user already has 2 unanswered support messages, another user SupportMessage must be rejected until support/admin responds.
-* The limit must come from `support_unanswered_message_limit`.
+- SupportThread: `user_id`, `status`, `last_message_at`, `closed_at`
+- SupportMessage: `support_thread_id`, exactly one sender reference, `message_text`, `created_at`
 
 ### UserAppeal
 
-* id
-* user_id
-* ban_state_history_id
-* message_text
-* status
-* created_at
-* reviewed_at
-* reviewed_by_admin_id
-* admin_note
+- `user_id`
+- `ban_state_history_id` — unique
+- `message_text`
+- `status`
+- `reviewed_by_admin_id` — nullable
+- `admin_note` — nullable
+- `submitted_at`
+- `reviewed_at` — nullable
 
-Allowed statuses:
+## 10. Localization, jobs, audit, retention, and rate limits
 
-* submitted
-* reviewed
-* accepted
-* rejected
+### Locale and UIText
 
-Rules:
+- Locale: `code`, `name`, `is_active`, `is_default`
+- UIText: `locale_id`, `text_key`, `text_value`, `category`, `is_active`
 
-* UserAppeal is used only for banned-user ban appeals.
-* Banned users cannot create SupportThread or SupportMessage records.
-* One UserAppeal is allowed per ban event.
-* `ban_state_history_id` references the AccountStateHistory record that changed the user into `banned`.
-* A user cannot create a second UserAppeal for the same `ban_state_history_id`.
-* If the appeal is accepted, admin may unban the user.
-* If the appeal is rejected, the user remains banned and cannot submit another appeal for the same ban event.
+Locale/text key is unique.
 
-## 11. Localization, Jobs, Audit, and Config Attributes
+### ScheduledJob and JobRunLog
 
-### Locale
+- ScheduledJob: `job_type`, `is_active`, `schedule_config`, `last_run_at`, `next_run_at`
+- JobRunLog: `scheduled_job_id`, `status`, `started_at`, `finished_at`, `error_detail`, `metadata`
 
-* id
-* code
-* name
-* is_active
-* is_default
-* created_at
-* updated_at
+### Audit records
 
-MVP locale:
-
-* en
-
-Future locale:
-
-* fa
-
-### UIText
-
-* id
-* locale_id
-* text_key
-* text_value
-* category
-* is_active
-* created_at
-* updated_at
-
-Allowed categories:
-
-* button
-* message
-* error
-* admin
-* payment
-* notification
-* safety
-
-Rule:
-
-* User-facing bot text should not be hardcoded inside handlers.
-
-### ScheduledJob
-
-* id
-* job_name
-* job_type
-* is_active
-* schedule_config
-* last_run_at
-* next_run_at
-* created_at
-* updated_at
-
-Allowed job types:
-
-* expire_nakh
-* expire_pending_payment
-* send_pending_payment_reminder
-* cleanup_chat_messages
-* notification_retry
-* refresh_explore_shuffle_keys
-
-Rules:
-
-* For MVP, `send_pending_payment_reminder` handles unpaid PendingNakh reminders.
-* It must consider only PendingNakhes with `status = pending_payment`.
-* Pending Nakh reminders should be sent approximately every 2 days.
-* The schedule must come from `pending_nakh_reminder_schedule`.
-* The job must not send reminders for already resolved or expired PendingNakhes.
-
-### JobRunLog
-
-* id
-* scheduled_job_id
-* status
-* started_at
-* finished_at
-* error_message
-* metadata
-
-Allowed statuses:
-
-* started
-* success
-* failed
-* skipped
-
-### AuditLog
-
-* id
-* actor_user_id
-* actor_admin_id
-* event_type
-* entity_type
-* entity_id
-* metadata
-* created_at
-
-Purpose:
-
-* Tracks important system events.
-
-### PaymentAuditLog
-
-* id
-* user_id
-* payment_record_id
-* event_type
-* metadata
-* created_at
-
-Purpose:
-
-* Tracks payment-specific events.
-
-### SafetyAuditLog
-
-* id
-* user_id
-* related_report_id
-* event_type
-* metadata
-* created_at
-
-Purpose:
-
-* Tracks safety and moderation events.
+- AuditLog: actor, event type, entity reference, metadata, timestamp
+- PaymentAuditLog: User, PaymentRecord, event type, metadata, timestamp
+- SafetyAuditLog: User, optional Report, event type, metadata, timestamp
 
 ### DataRetentionRecord
 
-* id
-* user_id
-* deletion_record_id
-* retained_data_type
-* reason
-* created_at
-
-Purpose:
-
-* Tracks safety and abuse-prevention data retained after account deletion.
-* Must not be used to preserve ordinary product data for later restoration.
-
-Rules:
-
-* Retained data must be required for safety, abuse prevention, moderation, restriction, ban enforcement, or required safety evidence.
-* Profile, Match, chat, Like, Nakh, credit, payment, notification, and FeatureUnlock history must not be retained here merely for future account restoration.
+- `user_id`
+- `deletion_record_id`
+- `retained_data_type`
+- `legal_or_safety_reason`
+- `retention_expires_at` — nullable only when indefinite retention is justified
+- `deleted_at` — nullable
 
 ### RateLimitRecord
 
-* id
-* user_id
-* action_type
-* window_start_at
-* action_count
-* blocked_until
-
-Rate-limited actions:
-
-* support_message
-* report_submit
-* photo_upload
-* payment_attempt
-* admin_appeal
+- `user_id`
+- `action_type`
+- `window_started_at`
+- `action_count`
+- `blocked_until` — nullable
 
 ### SystemConfig
 
-* id
-* config_key
-* config_value
-* value_type
-* description
-* is_active
-* updated_at
-* updated_by_admin_id
-* accepted_photo_mime_types
-* max_photo_file_size_mb
-* min_photo_width_px
-* min_photo_height_px
-* required_photo_variants = [thumbnail]
-* allow_heic_uploads
-* duplicate_photo_detection_enabled
+- `config_key` — unique
+- `config_value`
+- `value_type`
+- `description`
+- `is_active`
+- `updated_by_admin_id` — nullable
+- `updated_at`
 
-Purpose:
+SystemConfig has no per-setting columns.
 
-* Stores tunable MVP product constants.
-* Prevents product values from being hardcoded inside handlers, payment code, background jobs, or feature services.
-* Does not replace enums.
-* Does not store user-facing text. User-facing text belongs to UIText.
-* Does not store seed data lists such as interests, provinces, cities, predefined questions, or predefined answers.
+## 11. Final MVP configuration defaults
 
-Required MVP config keys:
+| Key | Value |
+|---|---:|
+| `guest_preview_limit` | 10 |
+| `min_signup_age` | 18 |
+| `min_birth_year` | 1900 |
+| `name_max_length` | 32 characters |
+| `change_request_reason_max_length` | 1024 characters |
+| `job_title_max_length` | 64 characters |
+| `min_height_cm` | 100 |
+| `max_height_cm` | 250 |
+| `max_profile_languages` | 10 |
+| `max_personality_tags` | 5 |
+| `min_profile_photos` | 2 |
+| `max_profile_photos` | 6 |
+| `min_interests` | 5 |
+| `max_interests` | 20 |
+| `highlight_max_length` | 80 characters |
+| `bio_max_length` | 500 characters |
+| `explore_candidate_pool_limit` | 100 |
+| `explore_shuffle_key_refresh_hours` | 6 |
+| `nakh_text_max_length` | 240 characters |
+| `nakh_credit_cost` | 2 |
+| `nakh_direct_stars_price` | 2 |
+| `pending_nakh_expiry_days` | 14 |
+| `sent_nakh_expiry_days` | 14 |
+| `pending_nakh_reminder_interval_hours` | 48 |
+| `max_unpaid_pending_nakhes_per_sender` | 5 |
+| `liked_by_unlock_credit_cost` | 4 |
+| `liked_by_unlock_direct_stars_price` | 4 |
+| `liked_by_unlock_expiry` | none |
+| `chat_unlock_credit_cost` | 4 |
+| `chat_unlock_direct_stars_price` | 4 |
+| `chat_unlock_expiry` | none |
+| `chat_visible_message_limit` | 50 |
+| `chat_text_max_length` | 1000 characters |
+| `post_unmatch_report_window_hours` | 24 |
+| `report_threshold_unique_reporters` | 5 |
+| `report_threshold_window_days` | 30 |
+| `report_extra_text_max_length` | 1024 characters |
+| `support_unanswered_message_limit` | 2 |
+| `support_message_max_length` | 2000 characters |
+| `appeal_message_max_length` | 2000 characters |
+| `report_submit_limit_per_24_hours` | 10 |
+| `photo_upload_limit_per_24_hours` | 20 |
+| `payment_attempt_limit_per_10_minutes` | 10 |
+| `max_photo_file_size_mb` | 10 |
+| `min_photo_width_px` | 600 |
+| `min_photo_height_px` | 600 |
+| `allowed_photo_mime_types` | image/jpeg, image/png, image/webp |
+| `required_photo_variants` | thumbnail |
+| `media_storage_provider` | cloudflare_r2 |
+| `media_cdn_provider` | cloudflare |
 
-Access and signup:
+MVP CreditPackage seed rows:
 
-* guest_preview_limit
-* min_signup_age
-* name_max_length = 32
-* change_request_reason_max_length = 1024
+| Code | Credits | Stars | Badge | Order |
+|---|---:|---:|---|---:|
+| `starter` | 10 | 10 | none | 1 |
+| `plus` | 25 | 20 | Popular | 2 |
+| `best_value` | 50 | 35 | Best Value | 3 |
+| `ultimate` | 100 | 60 | Best Value | 4 |
 
-Profile completion:
-
-* min_profile_photos
-* max_profile_photos
-* min_interests
-* max_interests
-* highlight_max_length
-* bio_max_length
-
-Explore:
-
-* explore_candidate_pool_limit
-* explore_shuffle_key_refresh_schedule
-
-Nakh:
-
-* nakh_text_max_length
-* nakh_cost = 2
-* nakh_expiry_days
-* max_unpaid_pending_nakhes_per_sender = 5
-* pending_nakh_expiry_days = 14
-* pending_nakh_reminder_schedule = approximately_every_2_days
-
-Liked By:
-
-* liked_by_unlock_cost = 4
-* liked_by_unlock_expiry_hours
-
-Chat:
-
-* chat_unlock_cost = 4
-* chat_unlock_expiry_duration
-
-Payments and credits:
-
-* credit_package_options =
-  * Starter: 10 credits at 10 Stars
-  * Plus: 25 credits at 20 Stars
-  * Best Value: 50 credits at 35 Stars
-  * Ultimate: 100 credits at 60 Stars
-* telegram_stars_pricing = defined by CreditPackage.stars_price for package purchases
-* refund_policy = automatic system-fault refunds only; no user-initiated refunds
-
-Media:
-
-* media_storage_provider = cloudflare_r2
-* media_cdn_provider = cloudflare_images
-* max_photo_file_size_mb
-* allowed_photo_mime_types
-
-Admin bootstrap:
-
-* bootstrap_admin_telegram_ids
-* report_threshold_unique_reporter_count
-* report_threshold_window_days
-* report_extra_text_max_length = 1024
-* `support_unanswered_message_limit`: INT (default: 2) — Hard limit for unanswered support messages per user before rejecting additional messages.
-Rules:
-
-* Paid-action costs must be read from SystemConfig or code-level configuration.
-* Expiry durations must be read from SystemConfig or code-level configuration.
-* Background job schedules that are product-tunable must be read from SystemConfig or code-level configuration.
-* Payment/refund policy values must be read from SystemConfig or code-level configuration.
-* Handler code must not contain hardcoded product constants except for safe technical defaults.
-
-## 12. Notes
-
-* These are domain attributes, not final database columns.
-* Database-specific types, indexes, constraints, and foreign keys will be defined later.
-* Product constants should be stored in `SystemConfig` or code-level config, not scattered through handlers.
-* Notification settings belong to `NotificationPreference`, not `UserSettings`.
-* `UserPairState` is a summary record and does not replace source records.
-* `PendingNakh` and `Nakh` are separate because unpaid Nakh and paid sent Nakh have different product meanings.
-* `FeatureUnlock` handles scoped unlocks. There is no separate `LikedByUnlock` entity.
-
-
-
+Configuration is read by services and jobs, never copied into handlers. Secrets and bootstrap admin IDs belong to deployment secret configuration, not SystemConfig.

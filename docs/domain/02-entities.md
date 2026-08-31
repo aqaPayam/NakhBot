@@ -1,985 +1,319 @@
 # Domain Entities
 
-This file lists the domain entities used in the Telegram Dating Bot MVP.
+This catalog defines entity responsibilities and boundaries. It is a logical model, not a required one-table-per-entity database design.
 
-These are domain entities, not final database tables. Database schema design comes later.
+## 1. Identity, account, and signup
 
-## 1. Entity Categories
+### User
 
-Entities are grouped into these categories:
+Persistent internal identity and owner of account-level data. The User ID, not a Telegram username, is the internal reference used by the domain.
 
-* Core Entities
-* Supporting Entities
-* Profile Option Entities
-* Optional / Later Entities
-* Removed / Rejected Entities
+### TelegramIdentity
 
-## 2. Core Entities
+One-to-one Telegram identity for a User. It is the lookup point for every incoming Telegram update.
 
-Core entities are required for the MVP.
+### Account
 
-### 2.1 Identity and Account
+One-to-one access and lifecycle state for a User. It does not own dating-visible Profile fields.
 
-#### User
+### AccountStateHistory
 
-Main internal system identity for a Telegram person.
+Append-only history of every Account transition, including actor and reason. A ban event is identified by the history record that transitions into `banned`.
 
-#### TelegramIdentity
+### AccountDeletionRecord
 
-External Telegram identity attached to a user.
+One record per deletion event. It records purge completion and whether a later fresh signup is allowed; it cannot restore deleted product data.
 
-Stores Telegram-specific identity data.
+### GuestPreviewCounter
 
-#### Account
+One permanent counter per User for Guest and Incomplete preview consumption. It survives activation and deletion.
 
-User access and lifecycle state.
+### UserSettings
 
-Controls guest, incomplete, active, restricted, banned, and deleted states.
+One-to-one user-controlled settings: visibility and UI locale. Notification mute choices belong to NotificationPreference.
 
-#### AccountStateHistory
+### SignupProgress
 
-History of account state changes.
+The current signup step and completion timestamps.
 
-Used for restriction, ban, deletion, reactivation, and admin traceability.
+### SignupDraft
 
-#### AccountDeletionRecord
+Temporary, resumable answers collected before Profile confirmation. Draft values never affect Guest Preview.
 
-Separate record for account deletion.
+## 2. Profile options, Profile, and location
 
-Tracks deletion time, product-data deletion, chat closure, and whether the same Telegram identity may use the product again.
+### GenderOption
 
-Account deletion permanently removes previous non-safety product data.
+Data-driven gender catalog. MVP seeds `man`, `woman`, and `other`; future values do not require discovery-code changes.
 
-AccountDeletionRecord must not be used to restore old profile, payment, Match, chat, Nakh, Like, credit, or FeatureUnlock data.
+### GenderPreference
 
-Safety, abuse-prevention, restriction, ban, moderation, and required safety-evidence history remain linked to the persistent User/TelegramIdentity.
+Data-driven relationship-preference catalog such as `men`, `women`, and `everyone`.
 
-The permanent GuestPreviewCounter also remains and is not reset by account deletion.
+### GenderPreferenceMember
 
-If the user is later allowed to return, they start the dating profile/signup flow from zero.
+Mapping from a GenderPreference to one or more GenderOptions. This mapping is the source used by reciprocal compatibility.
 
-#### GuestPreviewCounter
+### Profile
 
-Permanent preview counter for guest and incomplete users.
+The User's current dating-visible identity and completion state. Approximate age is derived from Gregorian birth year.
 
-The counter is shared by Telegram identity/user and does not reset during incomplete signup.
+### ProfileOptionalDetails
 
-GuestPreviewCounter is created on first `/start` for a new Telegram user.
+One-to-one optional lifestyle and background fields for a Profile.
 
-It is tied to the persistent User/TelegramIdentity, not to a temporary session.
+### Interest and ProfileInterest
 
-It does not reset when the account moves from `guest` to `incomplete`.
+Interest is an active, ordered option. ProfileInterest is the many-to-many selection and enforces uniqueness per Profile/Interest.
 
-After account activation, the counter remains for audit/history but no longer controls normal Explore access.
+### Language and ProfileLanguage
 
-#### UserSettings
+Language is a spoken-language option. ProfileLanguage is the many-to-many Profile selection and is unrelated to UI locale.
 
-General user settings.
+### PersonalityTag and ProfilePersonalityTag
 
-Owns visibility (`visibility_enabled`) and language preference (`language_code`).
+PersonalityTag is an active, ordered option. ProfilePersonalityTag is the many-to-many Profile selection.
 
-Does not store temporary or permanent guest preview counters.
+### ProfileChangeRequest
 
-### 2.2 Signup
+A User request to change birth year or gender after signup.
 
-#### SignupProgress
+### ProfileChangeReview
 
-Tracks the user’s current signup step.
+The single admin decision for a ProfileChangeRequest.
 
-Used until profile completion.
+### Country, Province, and City
 
-#### SignupDraft
+Hierarchical location catalogs. Country owns Provinces; Province owns Cities. MVP Profile location must resolve to an active seeded Iranian City.
 
-Stores temporary signup answers before final profile completion.
+## 3. Media
 
-### 2.3 Profile
+### MediaAsset
 
-#### Profile
+The original validated upload's metadata, hashes, storage key, and lifecycle. Cloudflare R2/CDN details are accessed through provider abstractions.
 
-Dating-visible user information.
+### ProfilePhoto
 
-Owns profile data such as name, Gregorian birth year, gender, interested gender, relationship goal, location, highlight, bio, and completion status.
+The assignment of one MediaAsset to one Profile, including order, primary flag, and moderation status.
 
-Age is derived from Gregorian birth year and is not stored as a separate source-of-truth field.
+### PhotoVariant
 
-Profile completion status can be incomplete, complete, or invalid.
+A generated thumbnail or blurred preview belonging to a MediaAsset. Thumbnail and blurred-preview generation have different lifecycles.
 
-Gender values are controlled for MVP but must remain extensible because additional gender options may be added later.
+### PhotoModerationRecord
 
-Gender should not be treated as a permanently fixed database enum during implementation.
+Append-only history of admin hide, restore, and delete actions for a ProfilePhoto.
 
-Interested gender should also remain extensible.
+## 4. Discovery and interaction
 
-Implementation should treat interested gender as a configurable preference option that maps to one or more gender options.
+### ExploreFilter
 
-Explore gender compatibility must not be hardcoded only around Man/Woman.
+One User's saved current browsing filters: target gender subset, age range, City, and optional relationship goal. It never changes Profile relationship preference.
 
-Profile also carries a non-user-facing `random_shuffle_key` used for Explore candidate ordering.
+### ExploreConsumption
 
-The key is discovery infrastructure metadata, not dating-visible profile data.
+Directional record that a viewer was actually shown or acted on a target. A unique viewer/target pair prevents repeat discovery.
 
-It should be refreshed periodically to avoid stable ordering and repeated exposure bias.
+### Like
 
-#### ProfileOptionalDetails
+Directional free signal. Its lifecycle status supports the derived Liked By inbox and closure after Match or Unmatch.
 
-Optional profile information.
+### NotInterested
 
-Includes optional data such as height, job title, education level, smoking preference, pets preference, exercise frequency, religion importance, and children preference.
+Directional rejection created from Explore, Liked By, or Pending Nakh cancellation.
 
-#### Interest
+### UserPairState
 
-Selectable interest item.
+Symmetric current state for a normalized user pair. Only terminal or safety-significant states are stored: matched, unmatched, or blocked. Absence means no pair state.
 
-#### ProfileInterest
+### FeatureUnlock
 
-Connection between a profile and selected interests.
+Paid access scoped either to one received Like or to one Match. It records the payer and funding reference. It is the sole unlock source of truth; there are no separate LikedByUnlock or ChatUnlock entities.
 
-Interests belong to the dating profile, not directly to the user.
+## 5. Nakh
 
-#### ProfileChangeRequest
+### NakhFlow
 
-Request to change locked profile fields.
+Stable directional sender/receiver anchor with a unique pair constraint. A flow is created before either a PendingNakh or a directly funded Nakh and prevents a second directional attempt.
 
-Allowed locked fields are birth year and gender.
+### PendingNakh
 
-#### ProfileChangeReview
+Sender-only unpaid phase of a NakhFlow. It owns editable pre-payment text, expiry, cancellation resolution, and auto-settlement authorization.
 
-Admin review result for a profile change request.
+### Nakh
 
-#### Language
+Paid and delivered phase of a NakhFlow. It owns delivered text and receiver-visible lifecycle status.
 
-Selectable spoken language option for dating profiles.
+### NakhStatusHistory
 
-This represents languages a user can speak, not the bot UI language.
+Append-only history of delivered Nakh status changes.
 
-MVP should include English as an available spoken-language option.
+### NakhReceiverAction
 
-Additional spoken languages can be added later by adding new Language records.
+Append-only record of receiver actions: view Profile, accept, reject, or report.
 
-Profile spoken languages must not be hardcoded as free text.
+## 6. Match and chat
 
-#### ProfileLanguage
+### Match
 
-Connection between a profile and selected spoken languages.
+Unique normalized pair relationship created by mutual Likes or Nakh acceptance.
 
-Spoken languages belong to the dating profile, not directly to the user account.
+### MatchParticipant
 
-#### PersonalityTag
+Exactly two participant memberships for a Match.
 
-Selectable personality tag for dating profiles.
+### UnmatchRecord
 
-Personality tags are profile option records, not hardcoded strings inside bot logic.
+The single closure record identifying who unmatched and the deadline for either participant's post-unmatch Report.
 
-Additional personality tags can be added later by adding new PersonalityTag records.
+### ChatSession
 
-#### ProfilePersonalityTag
+One-to-one bot-relay chat for a Match. Text permission is derived from an effective Match-scoped FeatureUnlock.
 
-Connection between a profile and selected personality tags.
+### ChatParticipant
 
-Personality tags belong to the dating profile, not directly to the user account.
+Exactly two per ChatSession. Owns read state, mute state, and the one-time unlock safety-warning timestamp.
 
-### 2.4 Location
+### ChatMessage
 
-#### Country
+A predefined question, predefined answer, free text, or system message in a ChatSession.
 
-Top-level location entity.
+### ChatMessageSnapshot
 
-MVP supports Iran only.
+Immutable copy of reported message context. It remains independent of normal chat-retention cleanup.
 
-#### Province
+### PredefinedQuestionSet, PredefinedQuestion, and PredefinedAnswer
 
-Province/state under a country.
+Active, ordered, localized data for free chat. Message records reference the selected question or answer.
 
-#### City
+## 7. Payments and credits
 
-City under a province.
+### CreditAccount
 
-Cities are selected from a fixed list. There is no free-text city and no “Other” city option in MVP.
+One balance per User.
 
-### 2.5 Media
+### CreditTransaction
 
-#### MediaAsset
+Immutable ledger entry for every balance change. The ledger, not a recalculated payment total, explains the current CreditAccount balance.
 
-Stored uploaded file metadata.
+### CreditPackage
 
-Represents the original uploaded file stored in object storage and served through CDN.
+Active, ordered data describing a bundle of credits and its full Telegram Stars price.
 
-Cloudflare R2 is the MVP object storage provider.
+### PendingPayment
 
-Cloudflare Images/CDN is the MVP media delivery provider.
+The product-level action or package purchase awaiting funding. It links provider attempts to exactly one intended result.
 
-The domain model must not depend on Cloudflare-specific storage or delivery semantics.
+### PaymentRecord
 
-Storage access should remain behind an S3-compatible provider abstraction.
+One Telegram Stars invoice/payment attempt and its provider lifecycle.
 
-Media delivery should remain behind a CDN/provider abstraction so either provider can be replaced later without changing domain behavior.
+### TelegramStarsPayment
 
-#### ProfilePhoto
+Telegram-specific successful-charge details separated from the provider-independent PaymentRecord.
 
-Photo attached to a dating profile.
+### PaymentProviderEvent
 
-Controls primary photo status, display order, and photo visibility.
+Raw Telegram callback with a unique provider event ID. It is the idempotency boundary for callback processing.
 
-#### PhotoVariant
+### RefundRecord
 
-Generated version of a media asset.
+Idempotent automatic correction for a system-fault failure after successful funding.
 
-MVP variant types:
+## 8. Notifications
 
-* Thumbnail
-* Blurred preview
+### Notification
 
-Generation behavior differs by variant type:
+Durable in-app notification with read state, localization keys, and a typed payload.
 
-* Thumbnail is generated during upload processing before the ProfilePhoto becomes visible.
-* Blurred preview is generated on demand when needed for a locked Liked By card and then cached.
+### NotificationDelivery
 
-PhotoVariant therefore contains both upload-time generated variants and cached on-demand variants.
+One channel delivery attempt for a Notification, including retries and failure details.
 
-#### PhotoModerationRecord
+### NotificationPreference
 
-Record of moderation actions on a profile photo.
+One User's mute settings for mutable notification categories.
 
-Used when a photo is hidden, restored, or deleted.
+## 9. Moderation, admin, support, and appeal
 
-### 2.6 Explore
+### ReportReason
 
-#### ExploreFilter
+Active, ordered reason catalog used by Reports.
 
-Stored Explore filter values for a user.
+### Report
 
-Includes age range, location, and relationship goal.
+Complaint from one User about another, with review status and optional bounded text.
 
-Interested gender is stored on Profile, not here.
+### ReportEvidence
 
-#### ExploreConsumption
+Typed references to the Profile, photo, chat, message, or UnmatchRecord that the Report concerns.
 
-Permanent record that a viewer has already seen or acted on a target profile.
+### ReportSnapshot
 
-Connects `viewer_user_id` to `target_user_id` with a consumption reason.
+Immutable serialized context captured at Report creation.
 
-Consumed profiles must not be shown again.
+### ModerationReview
 
-### 2.7 Interaction
+The review workflow for a Report.
 
-#### Like
+### ModerationAction
 
-Free weak signal from one user to another.
+An append-only admin or system safety action against a User or photo.
 
-A normal Like appears in the receiver’s Liked By section.
+### AdminUser
 
-A normal Like is permanent in MVP and cannot be undone, cancelled, or withdrawn by the sender.
+An enabled Telegram-backed administrator identity.
 
-#### NotInterested
+### AdminRole, AdminPermission, AdminUserRole, and AdminRolePermission
 
-Permanent negative action from one user toward another.
+Role-based access control for Telegram admin commands.
 
-Used when a user rejects a profile from Explore, Liked By, cancelled Pending Nakh, or unmatch flow.
+### AdminActionLog
 
-#### UserPairState
+Append-only trace for every attempted state-changing admin command, including success or failure.
 
-Current symmetric summary state between two users.
+### SupportThread and SupportMessage
 
-Used to prevent invalid pair-level actions after match, unmatch, or internal safety block.
+Non-banned user support conversation and its messages.
 
-UserPairState must not store directional actions such as Like, Not Interested, Pending Nakh, or Sent Nakh.
+### UserAppeal
 
-Directional actions are stored in their own source entities.
+The one allowed ban appeal for one AccountStateHistory ban event.
 
-#### FeatureUnlock
+## 10. Configuration, localization, jobs, audit, and retention
 
-Paid unlock record for a scoped feature.
+### SystemConfig
 
-Used for:
+Typed key/value product configuration. It contains tunable values, not user-facing text, secrets, enums, or seed catalogs.
 
-* Liked By profile unlock
-* Chat unlock
+### Locale and UIText
 
-Feature unlocks can expire or be revoked depending on feature type and configuration.
+Locale identifies a UI language. UIText maps a stable localization key and category to text in that Locale.
 
-For MVP:
+### ScheduledJob and JobRunLog
 
-* Liked By profile unlock expires according to configured unlock duration.
-* Chat unlock is Match-scoped and remains usable until the Match closes, the unlock is revoked, or a configured expiry is reached.
-* Exact expiry durations remain configurable.
+Recurring/background job definition and append-only execution history.
 
-Deletion rule:
+### AuditLog, PaymentAuditLog, and SafetyAuditLog
 
-* FeatureUnlock is normal product/payment data and is not retained as restorable product state after account deletion.
-* Returning with the same Telegram identity must not reactivate or restore any previous FeatureUnlock.
+Append-only general, payment, and safety traces. Separate logs may share infrastructure but retain their access and retention policies.
 
-Nakh is not modeled as a FeatureUnlock. Nakh is a paid action, not persistent feature access.
+### DataRetentionRecord
 
-FeatureUnlock ownership:
+Explanation of data retained after account deletion for a permitted safety purpose. It is not a container for deleted product data.
 
-* FeatureUnlock records the payer of a paid unlock.
-* The payer is not always the only user who receives access.
-* For Liked By unlock, access is user-scoped.
-* For Chat unlock, access is Match-scoped.
-* If one matched user unlocks chat, both users in that Match can send text.
+### RateLimitRecord
 
-### 2.8 Nakh
+Windowed counter or block record for abuse-sensitive actions.
 
-#### PendingNakh
+## 11. Explicitly rejected entities
 
-Unpaid Nakh attempt.
-
-Visible only to the sender.
-
-Does not notify the receiver, does not create Like, does not appear in Liked By, and does not create Match.
-
-A sender may have at most 5 concurrent PendingNakh records with status `pending_payment`.
-
-PendingNakhes form a sender-level unpaid queue ordered by `created_at`.
-
-When credits are added to the sender’s CreditAccount, eligible unpaid PendingNakhes are automatically settled in FIFO order while sufficient credits remain.
-
-An unpaid PendingNakh expires after 14 days.
-
-#### Nakh
-
-Paid strong signal sent from one user to another.
-
-A sent Nakh appears in receiver’s Nakhes, not in Liked By.
-
-#### NakhStatusHistory
-
-History of Nakh status changes.
-
-#### NakhReceiverAction
-
-Receiver action on a sent Nakh.
-
-Examples:
-
-* View profile
-* Accept
-* Reject
-* Report
-
-### 2.9 Match
-
-#### Match
-
-Relationship state between two users.
-
-Created by mutual Like or accepted Nakh.
-
-#### MatchParticipant
-
-User membership inside a Match.
-
-Keeps participant-level data separate from the Match itself.
-
-#### UnmatchRecord
-
-Record of an unmatch action.
-
-Tracks who unmatched (`unmatched_by_user_id`), when it happened (`unmatched_at`), and the 24-hour post-unmatch report window (`report_window_expires_at`).
-
-Serves as the evidence anchor and validation record for post-unmatch user reports.
-
-### 2.10 Chat
-
-#### ChatSession
-
-Internal bot relay chat created from a Match.
-
-A ChatSession does not exist without a Match.
-
-#### ChatParticipant
-
-User membership inside a ChatSession.
-
-Stores participant-level chat data such as last read time and mute state.
-
-#### ChatMessage
-
-Message sent inside an internal bot relay chat.
-
-Only predefined messages are allowed before unlock. Only text messages are allowed after unlock.
-
-#### ChatMessageSnapshot
-
-Frozen copy of chat messages for moderation/report review.
-
-Used when a chat or message is reported.
-
-#### PredefinedQuestionSet
-
-Group or topic for predefined chat questions.
-
-#### PredefinedQuestion
-
-Data-driven question available in free predefined chat.
-
-#### PredefinedAnswer
-
-Data-driven answer option for a predefined question.
-
-#### ChatUnlock
-
-Chat-specific marker that a Match chat has been unlocked.
-
-One ChatUnlock belongs to one Match.
-
-One ChatUnlock belongs to one FeatureUnlock.
-
-ChatUnlock does not own payment, credit, expiry, revocation, or unlock status.
-
-FeatureUnlock is the source of truth for paid unlock state.
-
-If one side unlocks chat, both users can send text in that Match while the related chat FeatureUnlock remains effectively active and the Match remains active.
-
-The other matched user does not need to pay again for the same Match.
-
-Chat unlock may end because:
-
-* The Match closes
-* The FeatureUnlock is revoked
-* The configured FeatureUnlock expiry is reached
-
-ChatUnlock is the chat-specific state showing that one Match has unlocked text chat.
-
-The user who paid is stored as the unlock payer/unlocker, but the unlocked access applies to both users in the Match.
-
-### 2.11 Payment
-
-#### CreditAccount
-
-Stores the user’s current credit balance.
-
-#### CreditTransaction
-
-Records every credit balance change.
-
-Examples:
-
-* Purchase
-* Spend on Nakh
-* Spend on chat unlock
-* Spend on Liked By unlock
-* Refund
-* Admin adjustment
-
-Maintains audit linkage to related PaymentRecord, PendingPayment, FeatureUnlock, or Nakh records where applicable.
-
-#### CreditPackage
-
-Purchasable bundle of credits.
-
-MVP package records are:
-
-* Starter — 10 credits — 10 Stars
-* Plus — 25 credits — 20 Stars — Popular
-* Best Value — 50 credits — 35 Stars — Best Value
-* Ultimate — 100 credits — 60 Stars — Best Value
-
-Telegram Stars is the sole purchase currency for CreditPackage in MVP.
-
-The package's Stars price is stored in `CreditPackage.stars_price`; there is no separate package-pricing entity or second package-price table.
-
-CreditPackage is data/configuration, not a hardcoded payment-handler concept.
-
-Package records may later be changed or deactivated without changing the payment domain model.
-
-#### PaymentRecord
-
-Internal record of a payment attempt and result.
-
-#### TelegramStarsPayment
-
-Telegram Stars-specific payment data.
-
-Telegram Stars is the only external payment provider/currency used for MVP credit-package purchases and direct paid actions.
-
-#### PaymentProviderEvent
-
-Raw payment callback/event from Telegram.
-
-Used for audit and idempotency.
-
-#### PendingPayment
-
-Unpaid payment needed to complete a paid action.
-
-Examples:
-
-* Send Nakh
-* Unlock chat
-* Unlock Liked By profile
-* Buy credit package
-
-#### RefundRecord
-
-Automatic system-fault refund or payment/credit correction record.
-
-RefundRecord is used only when a successful payment or credit spend requires correction because the intended paid action was not delivered correctly.
-
-MVP does not include a user-initiated refund-request flow.
-
-RefundRecord may represent:
-
-* A direct Telegram Stars refund
-* An internal credit re-credit/correction
-
-Normal expiry, Nakh rejection, unmatch, change of mind, and accidental purchase are not refund reasons.
-
-### 2.12 Notification
-
-#### Notification
-
-Stored notification shown in notification history.
-
-#### NotificationDelivery
-
-Telegram or in-app delivery attempt for a notification.
-
-#### NotificationPreference
-
-User notification settings.
-
-Normal notifications can be muted. Safety, payment, admin, ban, and restriction notices cannot be muted.
-
-### 2.13 Moderation
-
-#### Report
-
-User-submitted complaint against another user, profile, photo, chat, message, or recently unmatched user.
-
-#### ReportReason
-
-Allowed reason for submitting a report.
-
-#### ReportEvidence
-
-Context attached to a report.
-
-Examples:
-
-* Profile
-* Photo
-* Chat
-* Message
-* Unmatched user (linked via `unmatch_record_id`)
-
-#### ReportSnapshot
-
-Frozen copy of reported context at report time.
-
-Used so evidence is not lost after edits or cleanup.
-
-#### ModerationReview
-
-Admin review process for reports or safety cases.
-
-#### ModerationAction
-
-Action taken by admin or moderation logic.
-
-Examples:
-
-* Restrict user
-* Unrestrict user
-* Ban user
-* Unban user
-* Hide photo
-* Restore photo
-* Delete photo
-* Dismiss report
-
-### 2.14 Admin
-
-#### AdminUser
-
-Telegram user allowed to use admin tools.
-
-#### AdminRole
-
-Role assigned to an admin user.
-
-Examples:
-
-* Super admin
-* Moderator
-* Support
-
-#### AdminPermission
-
-Specific permission available to admins.
-
-Examples:
-
-* View reports
-* Restrict user
-* Ban user
-* Hide photo
-* Restore photo
-* Delete photo
-* Review support
-
-#### AdminUserRole
-
-Connection between admin users and admin roles.
-
-#### AdminRolePermission
-
-Connection between admin roles and permissions.
-
-#### AdminActionLog
-
-Trace of admin actions.
-
-Every admin action must be logged.
-
-### 2.15 Support
-
-#### SupportThread
-
-Support conversation between a non-banned user and support/admin.
-
-Banned users cannot create SupportThread records.
-
-#### SupportMessage
-
-Individual message inside a support thread.
-
-A user may have at most 2 unanswered SupportMessages.
-
-A third unanswered user message must not be created until support/admin responds.
-
-#### UserAppeal
-
-Limited ban appeal available to banned users.
-
-UserAppeal is the canonical MVP mechanism for banned-user appeal.
-
-Banned users do not create `SupportThread` or `SupportMessage`.
-
-One UserAppeal is allowed per ban event.
-
-### 2.16 Config, Localization, Jobs, and Audit
-
-#### SystemConfig
-
-Configurable product constants.
-
-Examples:
-
-* Guest preview limit
-* Minimum allowed birth year
-* Birth year validation format
-* Minimum signup age
-* Photo limits
-* Interest limits
-* Text length limits
-* Paid feature costs
-* Nakh expiry duration
-* Report threshold unique reporter count
-* Report threshold window days
-* Explore candidate pool limit
-* Explore shuffle-key refresh schedule
-  
-#### Locale
-
-Supported language/locale.
-
-MVP uses English.
-
-#### UIText
-
-Configurable user-facing text.
-
-Used for button labels, messages, errors, admin texts, payment texts, notification texts, and safety texts.
-
-#### ScheduledJob
-
-Defined recurring or background job.
-
-Examples:
-
-* Expire Nakh
-* Expire pending payment
-* Send Pending Nakh payment reminders
-* Cleanup chat messages
-* Retry notification delivery
-
-#### JobRunLog
-
-Execution log for a scheduled/background job.
-
-#### AuditLog
-
-General trace of important system events.
-
-#### PaymentAuditLog
-
-Payment-specific audit trail.
-
-#### SafetyAuditLog
-
-Safety and moderation-specific audit trail.
-
-#### DataRetentionRecord
-
-Record of safety and abuse-prevention data retained after account deletion.
-
-It must not retain ordinary deleted product data for later restoration.
-
-#### RateLimitRecord
-
-Rate limit tracking for sensitive actions.
-
-Examples:
-
-* Support message
-* Report submit
-* Photo upload
-* Payment attempt
-* Appeal
-
-## 3. Supporting Entities
-
-Supporting entities are not always user-facing, but they are needed for correctness, auditability, moderation, or operational safety.
-
-Supporting entities include:
-
-* AccountStateHistory
-* AccountDeletionRecord
-* ProfileChangeRequest
-* ProfileChangeReview
-* PhotoModerationRecord
-* UserPairState
-* NakhStatusHistory
-* NakhReceiverAction
-* MatchParticipant
-* ChatParticipant
-* ChatMessageSnapshot
-* ChatUnlock
-* ChatSafetyWarning
-* PaymentProviderEvent
-* RefundRecord
-* NotificationDelivery
-* NotificationPreference
-* ModerationReview
-* ModerationAction
-* AdminRole
-* AdminPermission
-* AdminUserRole
-* AdminRolePermission
-* AdminActionLog
-* UserAppeal
-* AuditLog
-* PaymentAuditLog
-* SafetyAuditLog
-* DataRetentionRecord
-* ScheduledJob
-* JobRunLog
-* Locale
-* UIText
-* RateLimitRecord
-* MatchParticipant
-* UnmatchRecord
-* ChatParticipant
-
-## 4. Profile Option Entities
-
-Profile option entities are selectable profile values that should be data-driven.
-
-For MVP, the following profile option entities are included in the domain model:
-
-* Interest
-* Language
-* PersonalityTag
-
-Their profile connections are:
-
-* ProfileInterest
-* ProfileLanguage
-* ProfilePersonalityTag
-
-These should not be modeled as random free-text fields.
-
-These should not be confused with UI localization.
-
-UI localization is handled by `Locale`, `UIText`, and `UserSettings.language_code`.
-
-The following optional profile values are controlled enums for MVP:
-
-* EducationLevel
-* SmokingPreference
-* PetsPreference
-* ExerciseFrequency
-* ReligionImportance
-* ChildrenPreference
-
-They must not be stored as arbitrary free text.
-
-Education represents education level, not exact major.
-
-These values may later be migrated to admin-editable lookup records if product requirements change.
-
-
-## 5. Enum / Config Values
-
-These are not domain entities by default.
-
-They should be modeled as enums or config values unless product requirements later require admin-editable lookup tables.
-
-### Gender
-
-MVP values:
-
-* Man
-* Woman
-* Other
-* Prefer not to say
-
-Gender options must remain extensible.
-
-Future gender options should be addable through configuration or lookup data.
-
-### InterestedGender
-
-MVP values:
-
-* Men
-* Women
-* Everyone
-
-InterestedGender values must map to one or more Gender values.
-
-MVP mapping:
-
-* Men -> Man
-* Women -> Woman
-* Everyone -> all active visible Gender values
-
-Future interested-gender options should be addable through configuration or lookup data.
-
-### RelationshipGoal
-
-MVP values:
-
-* Serious relationship
-* Casual dating
-* Friendship
-* Marriage
-* Not sure yet
-
-### SmokingPreference
-
-Optional controlled enum for MVP.
-
-Exact enum values are not finalized yet.
-
-### PetsPreference
-
-Optional controlled enum for MVP.
-
-Exact enum values are not finalized yet.
-
-### ExerciseFrequency
-
-Optional controlled enum for MVP.
-
-Exact enum values are not finalized yet.
-
-### ReligionImportance
-
-Optional controlled enum for MVP.
-
-Exact enum values are not finalized yet.
-
-### ChildrenPreference
-
-Optional controlled enum for MVP.
-
-Exact enum values are not finalized yet.
-
-### EducationLevel
-
-Optional controlled enum for MVP.
-
-Represents education level, not exact major.
-
-Exact enum values are not finalized yet.
-
-## 6. Optional / Later Entities
-
-These are useful but not required for the first implementation.
-
-### ExploreSession
-
-Tracks an Explore browsing session.
-
-Useful for analytics, debugging, and abuse detection.
-
-Not required for MVP core functionality.
-
-### UserActivityLog
-
-Tracks lightweight user activity.
-
-Useful for debugging and abuse detection.
-
-Not required for MVP core functionality.
-
-## 7. Removed / Rejected Entities
-
-These entities should not be included in the MVP domain model.
-
-### RelationshipGoal Entity
-
-Rejected because relationship goal is currently an enum/config value.
-
-### LikedByUnlock
-
-Rejected because scoped paid unlocks are handled by FeatureUnlock.
-
-### ProfileViewEvent
-
-Rejected because ExploreConsumption already records profile preview and action consumption.
-
-### DeviceSession
-
-Rejected because TelegramIdentity is enough for MVP.
-
-The product does not manage normal device login sessions.
-
-### ReportMessageSnapshot
-
-Rejected because ReportSnapshot and ChatMessageSnapshot cover moderation evidence.
-
-### PendingAction
-
-Rejected because PendingPayment and PendingNakh cover the required pending flows.
-
-### UserBlock Entity
-
-A separate user-facing UserBlock entity is not required for MVP.
-
-Internal safety-only block state is represented by `UserPairState.state = blocked`.
-
-Normal users cannot create or view Block as a product action.
-
-Users are not notified when an internal block exists.
-
-A user-facing Block feature may be added later if product requirements change.
-
-## 8. Notes
-
-* User and Profile must stay separate.
-* Account and Profile must stay separate.
-* Like and Nakh must stay separate.
-* PendingNakh and Nakh must stay separate.
-* FeatureUnlock should handle scoped paid unlocks.
-* UserPairState is a summary entity, not a replacement for Like, Nakh, Match, or NotInterested.
-* ExploreConsumption is required for the no-repeat profile rule.
-* PaymentProviderEvent is required for payment idempotency.
-* ReportSnapshot is required so moderation evidence survives later edits or cleanup.
-* SystemConfig should hold product constants that may change later.
-
-
-
+- `LikedByCard`: Liked By is a derived view.
+- `LikedByUnlock` and `ChatUnlock`: FeatureUnlock owns both scopes.
+- `UserBlock`: MVP blocking is internal UserPairState.
+- `ProfileViewEvent`: ExploreConsumption owns no-repeat discovery.
+- `DeviceSession`: TelegramIdentity is sufficient for MVP.
+- `RelationshipGoal` table: a controlled enum is sufficient for MVP.
+- `Age`: derived from Profile.birth_year.
+- `Wallet`: CreditAccount exists, but Wallet is not an MVP main-menu surface.
 

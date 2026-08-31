@@ -1,42 +1,38 @@
-# Domain Documentation
+# NakhBot Domain Specification
 
-This folder contains the product domain model for the Telegram Dating Bot MVP.
+This folder is the canonical, implementation-ready product specification for the NakhBot MVP.
 
-The goal is to define the product concepts before database design and coding.
+## Documents and ownership
 
-## Folder Contents
+| Document | Owns |
+|---|---|
+| `01-glossary.md` | Stable product vocabulary |
+| `02-entities.md` | Domain boundaries and entity responsibilities |
+| `03-attributes.md` | Entity-owned data, seed requirements, and configurable defaults |
+| `04-relationships.md` | Cardinality, stateful workflows, and lifecycle effects |
+| `05-statuses-and-enums.md` | Controlled values and legal state transitions |
+| `06-business-rules-and-invariants.md` | Normative rules, permissions, transactions, concurrency, and acceptance criteria |
+| `07-decision-status.md` | Resolution record and non-product deployment inputs |
 
-* `01-glossary.md`
-  Defines core product terms and their meanings.
+Rules are intentionally owned by one document. Other documents may link to a rule but should not restate it in a way that can drift.
 
-* `02-entities.md`
-  Lists the domain entities used by the product.
+## Normative language
 
-* `03-attributes.md`
-  Lists the attributes owned by each entity.
+`MUST`, `MUST NOT`, `SHOULD`, `SHOULD NOT`, and `MAY` have their usual requirements meaning:
 
-* `04-relationships.md`
-  Defines how entities are connected.
+- `MUST` / `MUST NOT`: required for a correct MVP.
+- `SHOULD` / `SHOULD NOT`: expected unless a documented technical reason justifies an exception.
+- `MAY`: optional behavior that cannot change the defined product contract.
 
-* `05-statuses-and-enums.md`
-  Lists controlled status values and enums.
+User-facing labels are localized. Lowercase identifiers in these documents are stable internal codes and must never be shown directly to users.
 
-* `06-business-rules-and-invariants.md`
-  Defines product rules that must always hold.
+## Change discipline
 
-* `07-open-decisions.md`
-  Tracks decisions that are not finalized yet.
+Every product change must update:
 
-## Current Status
+1. The document that owns the affected rule.
+2. Any controlled value or transition affected by it.
+3. The acceptance criteria in `06-business-rules-and-invariants.md`.
+4. Tests and migrations once implementation begins.
 
-This is domain documentation, not final database schema.
-
-Database tables, indexes, constraints, and migrations will be designed after this domain model is stable.
-
-## Maintenance Rules
-
-* Keep product terms consistent across all files.
-* Do not add database-specific details here unless needed for domain clarity.
-* Do not duplicate business rules across many files.
-* Put cross-entity rules in `06-business-rules-and-invariants.md`.
-* Put unresolved questions in `07-open-decisions.md`.
+The documentation describes domain behavior, not a mandatory physical table layout. A database design may combine or split storage structures only if entity ownership, auditability, deletion behavior, and all invariants remain intact.

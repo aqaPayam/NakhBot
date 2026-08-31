@@ -1,635 +1,586 @@
-# Statuses and Enums
+# Statuses, Enums, and Transitions
 
-This file lists controlled values used in the Telegram Dating Bot MVP.
+This document is the canonical registry for stable internal codes and legal transitions. User-facing labels always come from localization.
 
-These values should not be random strings scattered across the codebase.
-
-## 1. Account, Signup, Profile, Media, Explore, and Interaction Enums
+## 1. Account and signup
 
 ### AccountState
 
-* guest
-* incomplete
-* active
-* restricted
-* banned
-* deleted
+- `guest`
+- `incomplete`
+- `active`
+- `restricted`
+- `banned`
+- `deleted`
+
+Legal transitions:
+
+| From | To | Trigger |
+|---|---|---|
+| none | guest | First known Telegram start |
+| guest | incomplete | Signup starts |
+| guest | restricted, banned, deleted | Safety/admin action or deletion |
+| incomplete | active | Profile confirmation succeeds |
+| incomplete | restricted, banned, deleted | Safety/admin action or deletion |
+| active | restricted, banned, deleted | Moderation/admin action or deletion |
+| restricted | guest, incomplete, active | Restriction removed to the latest valid pre-restriction state |
+| restricted | banned, deleted | Admin action or deletion |
+| banned | guest, incomplete, active, restricted | Admin accepts appeal or unbans to the latest valid pre-ban state |
+| banned | deleted | Account deletion handled under retained ban policy |
+| deleted | guest | Fresh return is explicitly allowed after safety resolution |
+
+No other transition is legal. Profile invalidity never changes Account state.
 
 ### SignupStep
 
-* age_confirmation
-* name
-* birth_year
-* gender
-* interested_gender
-* interests
-* location
-* relationship_goal
-* primary_photo
-* additional_photos
-* highlight
-* optional_details
-* confirm_profile
-* completed
+- `age_confirmation`
+- `name`
+- `birth_year`
+- `gender`
+- `relationship_gender_preference`
+- `interests`
+- `location`
+- `relationship_goal`
+- `primary_photo`
+- `additional_photos`
+- `highlight`
+- `optional_details`
+- `confirm_profile`
+- `completed`
 
-### Gender
+## 2. Profile catalogs and states
 
-MVP values:
+### GenderOption seed codes
 
-* man
-* woman
-* other
-* prefer_not_to_say
+- `man`
+- `woman`
+- `other`
 
-Notes:
+These are data rows, not a closed database enum.
 
-* These are MVP values only.
-* Gender handling must remain extensible.
-* Future gender values must be addable without rewriting Explore logic.
+### GenderPreference seed codes and members
 
-### InterestedGender
+| Preference | GenderOption members |
+|---|---|
+| `men` | man |
+| `women` | woman |
+| `everyone` | man, woman, other |
 
-* men
-* women
-* everyone
-
-Notes:
-
-* These are MVP values only.
-* InterestedGender values must map to one or more Gender values.
-* MVP mapping:
-  * men -> man
-  * women -> woman
-  * everyone -> all active visible gender values
-* Explore must use reciprocal gender compatibility.
-* Future interested-gender values must be addable without rewriting Explore logic.
-
+These are data rows and mappings, not hardcoded branching logic.
 
 ### RelationshipGoal
 
-* serious_relationship
-* casual_dating
-* friendship
-* marriage
-* not_sure_yet
-
-### EducationLevel
-
-Controlled optional profile enum for MVP.
-
-Represents level of education, not exact major.
-
-Exact MVP values are not finalized yet.
-
-### SmokingPreference
-
-Controlled optional profile enum for MVP.
-
-Exact MVP values are not finalized yet.
-
-### PetsPreference
-
-Controlled optional profile enum for MVP.
-
-Exact MVP values are not finalized yet.
-
-### ExerciseFrequency
-
-Controlled optional profile enum for MVP.
-
-Exact MVP values are not finalized yet.
-
-### ReligionImportance
-
-Controlled optional profile enum for MVP.
-
-Exact MVP values are not finalized yet.
-
-### ChildrenPreference
-
-Controlled optional profile enum for MVP.
-
-Exact MVP values are not finalized yet.
-
+- `serious_relationship`
+- `casual_dating`
+- `friendship`
+- `marriage`
+- `not_sure_yet`
 
 ### ProfileCompletionStatus
 
-* incomplete
-* complete
-* invalid
+- `incomplete`
+- `complete`
+- `invalid`
 
-Notes:
+Transitions:
 
-* `incomplete` means the profile has not completed all required signup/profile fields.
-* `complete` means the profile currently satisfies all required profile completion rules.
-* `invalid` means the profile was previously complete but no longer satisfies validity rules, for example because moderation hid photos and fewer than 2 visible photos remain.
-* Profile completion status is the source of truth for profile validity. A boolean `is_completed` should only be derived from this status if needed.
+- incomplete -> complete when confirmation satisfies every requirement.
+- complete -> invalid when a later change breaks a requirement.
+- invalid -> complete when all requirements are restored.
+- complete never returns to incomplete; `ever_completed` determines invalidation.
+
+### Optional Profile enums
+
+EducationLevel:
+
+- `high_school_or_less`
+- `vocational`
+- `associate`
+- `bachelor`
+- `master`
+- `doctorate`
+- `other`
+
+SmokingPreference:
+
+- `never`
+- `occasionally`
+- `regularly`
+- `trying_to_quit`
+
+PetsPreference:
+
+- `have_pets`
+- `want_pets`
+- `like_pets`
+- `no_pets`
+- `allergic`
+
+ExerciseFrequency:
+
+- `never`
+- `occasionally`
+- `weekly`
+- `frequently`
+- `daily`
+
+ReligionImportance:
+
+- `not_important`
+- `somewhat_important`
+- `very_important`
+
+ChildrenPreference:
+
+- `want_children`
+- `do_not_want_children`
+- `have_and_want_more`
+- `have_and_do_not_want_more`
+- `not_sure`
+
+All are nullable and do not affect Profile completion.
+
+## 3. Media
+
+### MediaValidationStatus
+
+- `pending`
+- `valid`
+- `rejected`
+- `failed`
+
+Terminal statuses are valid, rejected, and failed.
 
 ### PhotoStatus
 
-* visible
-* hidden
-* deleted
+- `visible`
+- `hidden`
+- `deleted`
 
-Notes:
+Transitions:
 
-* `visible` photos are shown on the profile and count toward profile completion.
-* `hidden` photos are not shown on the profile, do not count toward profile completion, but still count toward the 6-photo saved-photo limit.
-* `deleted` means the photo has been removed from the user-facing profile and its stored media object should be permanently deleted from object storage/CDN unless retention is required for moderation, safety, legal, audit, or report evidence.
-* `deleted` must not be used as a normal forever-retained user photo state.
+- Processing success creates visible.
+- Admin hide: visible -> hidden.
+- Admin restore: hidden -> visible.
+- User or admin delete: visible/hidden -> deleted.
+- Deleted is terminal.
+
+`hidden` is not user-selectable.
 
 ### PhotoVariantType
 
-* thumbnail
-* blurred_preview
-
-Notes:
-
-* `thumbnail` is generated during upload processing and is required before ProfilePhoto visibility.
-* `blurred_preview` is generated on demand and cached when needed.
-* `blurred_preview` is not an upload-time visibility requirement.
+- `thumbnail`
+- `blurred_preview`
 
 ### PhotoModerationActionType
 
-* hidden
-* restored
-* deleted
+- `hide`
+- `restore`
+- `delete`
+
+## 4. Explore and interactions
 
 ### ExploreConsumptionReason
 
-* preview
-* like
-* not_interested
-* pending_nakh
-* sent_nakh
-* match
+- `preview`
+- `like`
+- `not_interested`
+- `nakh_flow`
+- `match`
 
-### ExploreEmptyState
-
-* nobody_found
+One viewer/target record exists, and reason records the first event that consumed the target. It is immutable.
 
 ### LikeStatus
 
-* active
-* closed_by_match
-* closed_by_unmatch
+- `active`
+- `closed_by_match`
+- `closed_by_not_interested`
+- `closed_by_unmatch`
+- `cancelled_by_system`
 
-Notes:
-
-* Normal Likes are permanent in MVP.
-* Users cannot undo, cancel, or withdraw a normal Like.
-* `closed_by_match` is used when the Like is consumed by a Match.
-* `closed_by_unmatch` is used when an existing Match is later unmatched.
-* MVP does not include an Unlike flow.
-* `active` means the Like is still valid and may appear in Liked By if all Liked By eligibility rules pass.
-* `cancelled` is not user-facing in MVP.
-* Normal users cannot cancel or unlike in MVP.
-* `cancelled` is reserved only for admin/system correction if kept.
-* `closed_by_match` means the Like was closed because a Match was created.
-* `closed_by_unmatch` means the Like was closed because the pair unmatched.
-* Closed Likes do not appear in Liked By.
+Normal users cannot produce `cancelled_by_system`. All non-active statuses are terminal except that closed_by_match may become closed_by_unmatch when its Match is later unmatched.
 
 ### NotInterestedSource
 
-* explore
-* liked_by
-* cancelled_pending_nakh
-* unmatch
+- `explore`
+- `liked_by`
+- `cancelled_pending_nakh`
+
+Unmatch is not a NotInterested source.
 
 ### UserPairState
 
-* none
-* matched
-* unmatched
-* blocked
+- `matched`
+- `unmatched`
+- `blocked`
 
-Notes:
-
-* UserPairState is a symmetric pair-level summary.
-* It must not store directional actions.
-* Directional actions must be read from their source records.
-* `blocked` is internal/safety-only.
-* It is not exposed as a user-facing action or visible status.
-
-## 2. Nakh, Match, Chat, Payment, and Feature Unlock Enums
-
-### PendingNakhStatus
-
-* pending_payment
-* paid_and_sent
-* cancelled
-* expired
-* abandoned
-
-Notes:
-
-* `pending_payment` means the PendingNakh is unpaid and counts toward the sender’s maximum of 5 concurrent unpaid PendingNakhes.
-* `paid_and_sent`, `cancelled`, `expired`, and `abandoned` do not count toward the concurrent unpaid cap.
-* Auto-settlement from available credits moves the PendingNakh out of `pending_payment` after successful transactional Nakh delivery.
-* An unpaid PendingNakh becomes `expired` after 14 days.
-
-### PendingNakhCancelResolution
-
-* converted_to_like
-* converted_to_not_interested
-* abandoned
-
-### NakhStatus
-
-* `pending_payment`: Unpaid Nakh attempt (PendingNakh phase).
-* `sent`: Paid Nakh delivered to receiver.
-* `viewed`: Receiver has viewed the Nakh.
-* `accepted`: Receiver accepted the Nakh (creates a Match).
-* `rejected`: Receiver explicitly rejected the Nakh.
-* `expired`: Nakh expired without receiver action.
-* `closed`: Closed by system, admin, or moderation action (e.g., sender/receiver account restricted, banned, or deleted). Receiver rejection must use `rejected`, not `closed`.
-
-Notes:
-
-* Receiver rejection must be stored as `rejected`.
-* Rejected Nakh is shown in UI as Closed.
-* `closed` must not be used for receiver rejection.
-* `closed` is reserved for generic non-rejection closure cases, such as admin/moderation/system closure.
-
-### NakhReceiverActionType
-
-* view_profile
-* accept
-* reject
-* report
-
-### MatchSource
-
-* mutual_like
-* nakh_accept
-
-### MatchStatus
-
-* active
-* unmatched
-* closed_by_admin
-
-### ChatStatus
-
-* active
-* closed
-
-### ChatMode
-
-* predefined_only
-* unlocked_text
-
-### ChatMessageType
-
-* predefined_question
-* predefined_answer
-* text
-* system
-
-### ChatClosedReason
-
-* unmatch
-* account_deleted
-* admin_action
-* user_banned
-
-### PaymentStatus
-
-* pending
-* paid
-* failed
-* cancelled
-* refunded
-* expired
-
-Notes:
-
-* `refunded` is used when the external payment itself is refunded, such as an automatic direct Telegram Stars refund.
-* Internal credit re-crediting may instead be represented through RefundRecord and a `refund` CreditTransaction without requiring reversal of the original package purchase.
-* MVP refunds are system-fault-only and are not user initiated.
-
-### PaymentProvider
-
-* telegram_stars
-
-### PaymentType
-
-* buy_credit_package
-* direct_paid_action
-* pay_pending_action
-
-Notes:
-
-* `buy_credit_package` means the user pays Telegram Stars to receive internal app credits.
-* `direct_paid_action` means the user pays Telegram Stars directly for one paid action without first buying credits.
-* `pay_pending_action` means the user pays a previously created PendingPayment.
-* Do not use `direct_paid_action` for credit package purchases.
-* Do not use `buy_credit_package` for one-off paid actions.
-
-### PaidActionReason
-
-* send_nakh
-* unlock_chat
-* unlock_liked_by_profile
-
-Notes:
-
-* PaidActionReason describes what paid action the payment or credit spend is for.
-* `send_nakh` creates or delivers a Nakh.
-* `unlock_chat` creates a chat unlock for one Match.
-* `unlock_liked_by_profile` creates a liked-by profile unlock.
-* Nakh is a paid action, not a FeatureUnlock.
-
-### PendingPaymentStatus
-
-* pending
-* paid
-* failed
-* cancelled
-* expired
-
-### PendingPaymentReason
-
-* send_nakh
-* unlock_chat
-* unlock_liked_by_profile
-* buy_credit_package
-
-Notes:
-
-* PendingPaymentReason describes why a pending payment exists.
-* For pending one-off paid actions, use `send_nakh`, `unlock_chat`, or `unlock_liked_by_profile`.
-* For pending credit package purchases, use `buy_credit_package`.
-
-### CreditTransactionType
-
-* purchase
-* spend_nakh
-* spend_chat_unlock
-* spend_liked_by_unlock
-* refund
-* admin_adjustment
+Absence of a row means none. State transitions are matched -> unmatched, or any state/absence -> blocked. Blocked is terminal unless a specific admin safety reversal restores absence; it never automatically restores an old Match.
 
 ### FeatureUnlockType
 
-* liked_by_profile_unlock
-* chat_unlock
+- `liked_by_profile_unlock`
+- `chat_unlock`
 
 ### FeatureUnlockStatus
 
-* active
-* expired
-* revoked
+- `active`
+- `revoked`
+- `expired` — reserved for a future time-limited product; not produced by MVP
 
-Notes:
+MVP transition is active -> revoked. Effective access also ends when the scoped Like stops being actionable or the scoped Match closes.
 
-* `active` means the unlock has not expired or been revoked.
-* `expired` is used when configured `expires_at` is reached.
-* `revoked` is used when access is explicitly revoked.
-* Both `liked_by_profile_unlock` and `chat_unlock` may use configured expiry.
-* Chat access additionally requires the related Match and ChatSession to remain active.
-* Closing a Match ends effective chat-unlock access even though the FeatureUnlock record may remain for history.
+## 5. Nakh
 
-## 3. Notification Enums
+### PendingNakhStatus
+
+- `pending_payment`
+- `paid_and_sent`
+- `cancelled`
+- `expired`
+- `closed_by_system`
+
+Only pending_payment is non-terminal and counts toward the sender-wide limit.
+
+Legal transitions:
+
+- pending_payment -> paid_and_sent after one atomic delivery.
+- pending_payment -> cancelled after the sender chooses a resolution.
+- pending_payment -> expired at the deadline.
+- pending_payment -> closed_by_system when current non-visibility eligibility prevents delivery.
+
+### PendingNakhCancelResolution
+
+- `converted_to_like`
+- `converted_to_not_interested`
+
+The value is required only for status cancelled.
+
+### NakhStatus
+
+- `sent`
+- `seen`
+- `accepted`
+- `rejected`
+- `expired`
+- `closed`
+
+Legal transitions:
+
+- sent -> seen, accepted, rejected, expired, closed
+- seen -> accepted, rejected, expired, closed
+- accepted, rejected, expired, and closed are terminal
+
+`rejected` is a receiver decision and is displayed as “Closed.” `closed` is reserved for admin/system closure. Pending payment is never a NakhStatus.
+
+### NakhReceiverActionType
+
+- `view_profile`
+- `accept`
+- `reject`
+- `report`
+
+## 6. Match and chat
+
+### MatchSource
+
+- `mutual_like`
+- `nakh_accept`
+
+### MatchStatus
+
+- `active`
+- `unmatched`
+- `closed`
+
+Active -> unmatched is a user action. Active -> closed is a system/admin lifecycle action. Terminal Matches never reactivate.
+
+### ChatStatus
+
+- `active`
+- `closed`
+
+### ChatMessageType
+
+- `predefined_question`
+- `predefined_answer`
+- `text`
+- `system`
+
+### ChatClosedReason
+
+- `unmatch`
+- `account_deleted`
+- `user_banned`
+- `admin_action`
+- `internal_block`
+
+## 7. Payments and credits
+
+### PaymentProvider
+
+- `telegram_stars`
+
+### PaymentType
+
+- `buy_credit_package`
+- `direct_paid_action`
+- `pay_pending_action`
+
+### PaidActionReason
+
+- `send_nakh`
+- `unlock_chat`
+- `unlock_liked_by_profile`
+
+### PendingPaymentReason
+
+- `send_nakh`
+- `unlock_chat`
+- `unlock_liked_by_profile`
+- `buy_credit_package`
+
+### PendingPaymentStatus
+
+- `pending`
+- `paid`
+- `failed`
+- `cancelled`
+- `expired`
+
+Only pending is non-terminal. A new provider attempt may be attached after a failed PaymentRecord while the product-level PendingPayment remains pending.
+
+### PaymentStatus
+
+- `pending`
+- `paid`
+- `failed`
+- `cancelled`
+- `expired`
+- `refunded`
+
+Paid -> refunded is allowed only through an idempotent system-fault correction.
+
+### PaymentProviderEventProcessingStatus
+
+- `received`
+- `processed`
+- `ignored_duplicate`
+- `failed_retryable`
+- `failed_terminal`
+
+### CreditTransactionType
+
+- `purchase`
+- `spend_nakh`
+- `spend_chat_unlock`
+- `spend_liked_by_unlock`
+- `refund`
+- `admin_adjustment`
+
+### RefundStatus
+
+- `pending`
+- `processed`
+- `failed_retryable`
+- `failed_terminal`
+
+## 8. Notifications
 
 ### NotificationType
 
-* like_received
-* nakh_received
-* match_created
-* new_chat_message
-* chat_unlocked
-* liked_by_profile_unlocked
-* report_result
-* restriction_warning
-* ban_warning
-* payment_success
-* payment_failure
-* pending_nakh_payment_reminder
-* admin_notice
-* safety_notice
+- `like_received`
+- `nakh_received`
+- `match_created`
+- `new_chat_message`
+- `chat_unlocked`
+- `liked_by_profile_unlocked`
+- `report_result`
+- `restriction_warning`
+- `ban_warning`
+- `payment_success`
+- `payment_failure`
+- `pending_nakh_payment_reminder`
+- `admin_notice`
+- `safety_notice`
+- `chat_closed`
 
 ### NotificationStatus
 
-* unread
-* read
+- `unread`
+- `read`
 
 ### NotificationDeliveryChannel
 
-* telegram
-* in_app
+- `telegram`
+- `in_app`
 
 ### NotificationDeliveryStatus
 
-* pending
-* sent
-* failed
+- `pending`
+- `sent`
+- `failed_retryable`
+- `failed_terminal`
 
-### NotificationMuteCategory
+Mutable categories are chat, like, nakh, and match. Safety, payment, admin, ban, and restriction notifications cannot be muted.
 
-* normal
-* chat
-* like
-* nakh
-* match
-
-Non-mutable notification categories:
-
-* safety
-* payment
-* admin
-* ban
-* restriction
-
-## 4. Moderation, Admin, Support, and Appeal Enums
+## 9. Moderation, admin, support, and appeal
 
 ### ReportStatus
 
-* submitted
-* pending_review
-* dismissed
-* actioned
-* closed
+- `submitted`
+- `pending_review`
+- `dismissed`
+- `actioned`
+- `closed`
+
+Submitted and pending_review are unresolved.
 
 ### ReportReasonCode
 
-* fake_profile
-* harassment
-* inappropriate_photo
-* spam_or_scam
-* under_18
-* offensive_behavior
-* other
+- `fake_profile`
+- `harassment`
+- `inappropriate_photo`
+- `spam_or_scam`
+- `under_18`
+- `offensive_behavior`
+- `other`
 
 ### ReportEvidenceType
 
-* profile
-* photo
-* chat
-* message
-* unmatched_user
+- `profile`
+- `photo`
+- `chat`
+- `message`
+- `unmatched_user`
 
 ### ModerationReviewStatus
 
-* pending
-* in_review
-* dismissed
-* actioned
+- `pending`
+- `in_review`
+- `dismissed`
+- `actioned`
 
 ### ModerationActionType
 
-* restrict_user
-* unrestrict_user
-* ban_user
-* unban_user
-* hide_photo
-* restore_photo
-* delete_photo
-* dismiss_report
-* approve_change_request
-* reject_change_request
+- `restrict_user`
+- `unrestrict_user`
+- `ban_user`
+- `unban_user`
+- `hide_photo`
+- `restore_photo`
+- `delete_photo`
+- `dismiss_report`
+- `internal_block_pair`
+- `remove_internal_block`
+- `approve_change_request`
+- `reject_change_request`
 
-### AdminRoleCode
+### Admin role seed codes
 
-* super_admin
-* moderator
-* support
+- `super_admin`
+- `moderator`
+- `support`
 
-### AdminPermissionCode
+### Admin permission seed codes
 
-* view_reports
-* view_user_profile
-* restrict_user
-* unrestrict_user
-* ban_user
-* unban_user
-* hide_photo
-* restore_photo
-* delete_photo
-* dismiss_report
-* review_change_requests
-* review_support
-* review_appeals
-
-### UserAppealStatus
-
-Used exclusively for banned-user appeals via `UserAppeal`. Banned users cannot create `SupportThread` records.
-
-* `submitted`: Appeal submitted by banned user and awaiting admin review.
-* `reviewed`: Admin has opened/reviewed the appeal details.
-* `accepted`: Appeal accepted; ban removed.
-* `rejected`: Appeal rejected; ban maintained (terminal state).
-
-### SupportThreadStatus
-
-Used only for non-banned user support threads (`SupportThread`). Banned users use `UserAppealStatus` instead.
-
-* `open`: Waiting for support/admin response.
-* `reviewed`: Under active support review.
-* `closed`: Thread resolved or closed.
-
+- `view_reports`
+- `view_user_profile`
+- `restrict_user`
+- `unrestrict_user`
+- `ban_user`
+- `unban_user`
+- `hide_photo`
+- `restore_photo`
+- `delete_photo`
+- `dismiss_report`
+- `manage_internal_blocks`
+- `review_change_requests`
+- `review_support`
+- `review_appeals`
 
 ### ProfileChangeRequestStatus
 
-* pending
-* approved
-* rejected
-* cancelled
+- `pending`
+- `approved`
+- `rejected`
+- `cancelled`
 
-## 5. Jobs, Localization, and Audit Enums
+### ProfileChangeDecision
 
-### JobRunStatus
+- `approved`
+- `rejected`
 
-* started
-* success
-* failed
-* skipped
+### SupportThreadStatus
 
-### ScheduledJobType
+- `open`
+- `in_review`
+- `closed`
 
-* expire_nakh
-* expire_pending_payment
-* send_pending_payment_reminder
-* cleanup_chat_messages
-* notification_retry
-* refresh_explore_shuffle_keys
+### UserAppealStatus
 
-Notes:
+- `submitted`
+- `in_review`
+- `accepted`
+- `rejected`
 
-* `send_pending_payment_reminder` is used in MVP for unpaid PendingNakh reminders.
-* The reminder cadence is approximately every 2 days during the 14-day PendingNakh lifetime.
-* Reminder scheduling applies only while `PendingNakh.status = pending_payment`.
+## 10. Localization, jobs, rate limits, and audit
 
-### LocaleCode
+### Locale seed codes
 
-Initial supported value:
-
-* en
-
-Planned future value:
-
-* fa
-
-Notes:
-
-* MVP UI locale is `en`.
-* Persian UI support may be added later as `fa`.
-* Other UI locales may be added later if product requirements require them.
-* LocaleCode controls UI localization, not profile spoken languages.
-* Profile spoken languages are handled by `Language` and `ProfileLanguage`.
+- `en` — active default MVP locale
+- `fa` — reserved future locale
 
 ### UITextCategory
 
-* button
-* message
-* error
-* admin
-* payment
-* notification
-* safety
+- `button`
+- `message`
+- `error`
+- `admin`
+- `payment`
+- `notification`
+- `safety`
+
+### ScheduledJobType
+
+- `expire_pending_nakh`
+- `expire_sent_nakh`
+- `send_pending_nakh_reminder`
+- `cleanup_chat_messages`
+- `retry_notification_delivery`
+- `refresh_explore_shuffle_keys`
+- `cleanup_media`
+
+### JobRunStatus
+
+- `started`
+- `succeeded`
+- `failed`
+- `skipped`
+
+### RateLimitActionType
+
+- `support_message`
+- `report_submit`
+- `photo_upload`
+- `payment_attempt`
+- `ban_appeal`
 
 ### AuditActorType
 
-* user
-* admin
-* system
+- `user`
+- `admin`
+- `system`
 
-### AuditEventType
+### AdminActionResult
 
-* account_state_changed
-* profile_updated
-* profile_deleted
-* payment_created
-* payment_paid
-* payment_failed
-* credit_spent
-* feature_unlocked
-* report_submitted
-* user_restricted
-* user_banned
-* photo_hidden
-* photo_restored
-* photo_deleted
-* chat_closed
-* admin_action
+- `succeeded`
+- `rejected`
+- `failed`
 
-## 6. Notes
+## 11. Registry rules
 
-* Enum values should be stable and lowercase.
-* User-facing labels should come from localization, not enum names.
-* Product constants should go in `SystemConfig`, not enums.
-* Enums should not be expanded casually; each new value may affect permissions, transitions, filters, or reporting.
-* Pending Nakh and Sent Nakh use separate status groups because they have different product meaning.
-* Rejected Nakh must be stored internally as `rejected`, but the UI should show it as Closed.
-* `NakhStatus.closed` must not be used for receiver rejection.
-* `UserPairState` is a summary state and does not replace source records.
-
-
-
-
-
-
-
-
-
-
+- Codes are lowercase snake_case and stable after release.
+- Renaming a user-facing label never changes a code.
+- New GenderOptions or GenderPreferences are added through catalog data and mappings.
+- New enum values require permission, transition, analytics, localization, migration, and backward-compatibility review.
+- Product constants belong to SystemConfig/code configuration, not this registry.
