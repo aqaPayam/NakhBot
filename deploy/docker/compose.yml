@@ -1,0 +1,47 @@
+name: nakh-local
+
+services:
+  postgres:
+    image: postgres:17.11-alpine3.22
+    environment:
+      POSTGRES_DB: nakh
+      POSTGRES_USER: nakh
+      POSTGRES_PASSWORD: nakh_local
+    ports:
+      - '5432:5432'
+    volumes:
+      - nakh-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nakh -d nakh']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.5-alpine3.21
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    ports:
+      - '6379:6379'
+    volumes:
+      - nakh-redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.133.0
+    command: ['--config=/etc/otelcol-contrib/config.yaml']
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - '4318:4318'
+      - '8889:8889'
+    profiles: ['telemetry']
+
+volumes:
+  nakh-postgres:
+  nakh-redis:

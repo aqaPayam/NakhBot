@@ -2,7 +2,7 @@
 
 NakhBot is an English-first Telegram dating product for adults in Iran. The MVP is delivered entirely through a Telegram bot, but its domain model is designed so later clients can use the same application services and rules.
 
-This repository currently contains the product specification and the backend technical blueprint. Application code and database migrations come next.
+This repository contains the product specification, backend technical blueprint, and M0 engineering foundation. Product feature implementation begins with M1.
 
 ## Specification authority
 
@@ -44,4 +44,6 @@ The MVP does not include:
 
 ## Current status
 
-Product decisions required to begin implementation are closed, and the backend technical blueprint is complete. Application scaffolding and database migrations are the next phase. Deployment-specific values such as bot tokens, storage credentials, webhook secrets, and bootstrap admin Telegram IDs must be supplied through environment or secret configuration and are not product decisions.
+Product decisions and the backend technical blueprint are complete. The M0 foundation provides the strict TypeScript workspace, service bootstraps, PostgreSQL migration/reliability primitives, Redis queues, telemetry, tests, CI, containers, and staging IaC skeleton. M1 identity/signup/Profile work is next after the M0 checks pass. Deployment-specific values such as bot tokens, storage credentials, webhook secrets, and bootstrap admin Telegram IDs must be supplied through environment or secret configuration and are not product decisions.
+
+Local setup and required checks are documented in [`CONTRIBUTING.md`](CONTRIBUTING.md).

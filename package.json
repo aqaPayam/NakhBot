@@ -1,0 +1,45 @@
+{
+  "name": "nakh-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=11 <12"
+  },
+  "scripts": {
+    "build": "pnpm -r --workspace-concurrency=1 --if-present build",
+    "clean": "pnpm -r --workspace-concurrency=1 --if-present clean",
+    "dev:api": "pnpm --filter @nakh/api dev",
+    "dev:telegram": "pnpm --filter @nakh/telegram-gateway dev",
+    "dev:worker": "pnpm --filter @nakh/worker dev",
+    "dev:scheduler": "pnpm --filter @nakh/scheduler dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r --workspace-concurrency=1 --if-present typecheck",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "db:migrate": "tsx packages/persistence-postgres/src/cli/migrate.ts",
+    "db:verify": "tsx packages/persistence-postgres/src/cli/verify.ts",
+    "db:status": "tsx packages/persistence-postgres/src/cli/status.ts",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.3",
+    "@types/pg": "8.23.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "10.9.1",
+    "eslint-plugin-boundaries": "7.2.0",
+    "prettier": "3.9.6",
+    "testcontainers": "12.1.0",
+    "tsx": "4.23.13",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.69.0",
+    "vitest": "4.1.11"
+  }
+}

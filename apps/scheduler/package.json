@@ -1,0 +1,18 @@
+{
+  "name": "@nakh/scheduler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup src/main.ts --format esm --sourcemap --clean",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nakh/config": "workspace:*",
+    "@nakh/observability": "workspace:*",
+    "@nakh/persistence-postgres": "workspace:*",
+    "@nakh/queue-redis": "workspace:*"
+  }
+}

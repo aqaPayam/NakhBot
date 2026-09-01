@@ -1,0 +1,35 @@
+import { describe, expect, it } from 'vitest';
+
+import { parseConfig } from './index.js';
+
+const validEnvironment: NodeJS.ProcessEnv = {
+  NAKH_ENV: 'test',
+  NAKH_SERVICE_NAME: 'test',
+  NAKH_DATABASE_URL: 'postgresql://test',
+  NAKH_REDIS_URL: 'redis://test',
+  NAKH_TELEGRAM_BOT_TOKEN_REF: 'fake',
+  NAKH_TELEGRAM_WEBHOOK_SECRET: '12345678901234567890123456789012',
+  NAKH_R2_ENDPOINT: 'https://r2.invalid',
+  NAKH_R2_BUCKET: 'test',
+  NAKH_R2_ACCESS_KEY_REF: 'fake',
+  NAKH_R2_SECRET_KEY_REF: 'fake',
+  NAKH_MEDIA_CDN_HOST: 'media.invalid',
+  NAKH_MEDIA_SIGNING_KEY_REF: 'fake',
+};
+
+describe('configuration', () => {
+  it('parses, defaults, and freezes configuration', () => {
+    const config = parseConfig(validEnvironment);
+
+    expect(config.environment).toBe('test');
+    expect(config.http.port).toBe(3000);
+    expect(Object.isFrozen(config.database)).toBe(true);
+  });
+
+  it('fails startup when a secret-shaped required value is absent', () => {
+    const environment = { ...validEnvironment };
+    delete environment.NAKH_TELEGRAM_WEBHOOK_SECRET;
+
+    expect(() => parseConfig(environment)).toThrow('NAKH_TELEGRAM_WEBHOOK_SECRET');
+  });
+});

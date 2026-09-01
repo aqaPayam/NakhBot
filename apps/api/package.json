@@ -1,0 +1,30 @@
+{
+  "name": "@nakh/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup src/main.ts --format esm --sourcemap --clean",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nakh/application": "workspace:*",
+    "@nakh/config": "workspace:*",
+    "@nakh/contracts": "workspace:*",
+    "@nakh/domain": "workspace:*",
+    "@nakh/observability": "workspace:*",
+    "@nakh/persistence-postgres": "workspace:*",
+    "@nestjs/common": "catalog:",
+    "@nestjs/core": "catalog:",
+    "@nestjs/platform-fastify": "catalog:",
+    "ajv": "catalog:",
+    "ajv-formats": "catalog:",
+    "fastify": "catalog:",
+    "kysely": "catalog:",
+    "pino": "catalog:",
+    "reflect-metadata": "catalog:",
+    "rxjs": "catalog:"
+  }
+}
