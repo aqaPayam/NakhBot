@@ -2,7 +2,7 @@
 
 NakhBot is an English-first Telegram dating product for adults in Iran. The MVP is delivered entirely through a Telegram bot, but its domain model is designed so later clients can use the same application services and rules.
 
-This repository currently contains the implementation specification. Application code and database migrations come next.
+This repository currently contains the product specification and the backend technical blueprint. Application code and database migrations come next.
 
 ## Specification authority
 
@@ -18,6 +18,8 @@ When implementing the product:
 6. `01-glossary.md` is authoritative for terminology.
 
 If an implementation detail is not specified, choose the simplest design that preserves the invariants. Do not introduce new product behavior in a handler, migration, or background job without updating the canonical document that owns that behavior.
+
+The implementation architecture is specified in [`docs/technical`](docs/technical/README.md). Technical documents may choose how to implement a product rule, but may not change the behavior defined by the domain documents.
 
 ## MVP boundaries
 
@@ -42,4 +44,4 @@ The MVP does not include:
 
 ## Current status
 
-Product decisions required to begin implementation are closed. Deployment-specific values such as bot tokens, storage credentials, webhook secrets, and bootstrap admin Telegram IDs must be supplied through environment or secret configuration and are not product decisions.
+Product decisions required to begin implementation are closed, and the backend technical blueprint is complete. Application scaffolding and database migrations are the next phase. Deployment-specific values such as bot tokens, storage credentials, webhook secrets, and bootstrap admin Telegram IDs must be supplied through environment or secret configuration and are not product decisions.
