@@ -3,8 +3,10 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import type { ChangeVisibilityCommand } from '@nakh/contracts';
 import {
   RegisterTelegramIdentityHandler,
+  type ChangeSettingsWrite,
   type RegisterTelegramIdentityWrite,
 } from '@nakh/application';
 
@@ -52,6 +54,56 @@ function registrationWrite(
   };
 }
 
+function visibilityWrite(
+  userId: string,
+  index: number,
+  visibilityEnabled: boolean,
+  expectedSettingsVersion: number,
+): ChangeSettingsWrite & Readonly<{ command: ChangeVisibilityCommand }> {
+  const processedAt = new Date(`2026-09-04T10:00:${String(index).padStart(2, '0')}.000Z`);
+  return {
+    command: {
+      commandId: randomUUID(),
+      commandType: 'identity.change-visibility',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId },
+      requestId: randomUUID(),
+      idempotencyKey: `visibility:${userId}:${index}`,
+      occurredAt: processedAt.toISOString(),
+      locale: 'en',
+      data: { visibilityEnabled, expectedSettingsVersion },
+    },
+    auditId: randomUUID(),
+    eventId: randomUUID(),
+    processedAt,
+  };
+}
+
+function localeWrite(
+  userId: string,
+  index: number,
+  locale: string,
+  expectedSettingsVersion: number,
+): ChangeSettingsWrite {
+  const processedAt = new Date(`2026-09-04T10:01:${String(index).padStart(2, '0')}.000Z`);
+  return {
+    command: {
+      commandId: randomUUID(),
+      commandType: 'identity.change-locale',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId },
+      requestId: randomUUID(),
+      idempotencyKey: `locale:${userId}:${index}`,
+      occurredAt: processedAt.toISOString(),
+      locale: 'en',
+      data: { locale, expectedSettingsVersion },
+    },
+    auditId: randomUUID(),
+    eventId: randomUUID(),
+    processedAt,
+  };
+}
+
 describe.skipIf(databaseUrl === undefined)('M1 identity and localization persistence', () => {
   let database: NakhDatabase;
 
@@ -83,7 +135,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(25);
+    expect(Object.keys(english.messages)).toHaveLength(29);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(inactiveFallback).toMatchObject({ requestedLocale: 'fa', resolvedLocale: 'en' });
   });
@@ -245,6 +297,100 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         .execute(),
     ]);
     expect(aggregateCounts.map((rows) => rows.length)).toEqual([1, 1, 1, 1, 1, 1]);
+  });
+
+  it('authorizes and serializes idempotent locale/visibility changes', async () => {
+    const store = new PostgresIdentityStore(database);
+    const userId = randomUUID();
+    await store.registerTelegramIdentity(registrationWrite(telegramUserId(), 50, userId));
+    await database
+      .updateTable('identity.accounts')
+      .set({
+        state: 'active',
+        state_reason: 'settings_integration_fixture',
+        state_changed_at: new Date('2026-09-04T09:59:00.000Z'),
+        version: 2,
+      })
+      .where('user_id', '=', userId)
+      .executeTakeFirstOrThrow();
+
+    await expect(store.getByUserId(userId)).resolves.toMatchObject({
+      userId,
+      accountState: 'active',
+      settingsVersion: 1,
+    });
+
+    const first = visibilityWrite(userId, 1, false, 1);
+    await expect(store.changeSettings(first)).resolves.toMatchObject({
+      visibilityEnabled: false,
+      settingsVersion: 2,
+      changed: true,
+      replayed: false,
+    });
+    await expect(
+      store.changeSettings({
+        ...first,
+        auditId: randomUUID(),
+        eventId: randomUUID(),
+      }),
+    ).resolves.toMatchObject({ settingsVersion: 2, changed: true, replayed: true });
+    await expect(
+      store.changeSettings({
+        ...first,
+        command: {
+          ...first.command,
+          data: { visibilityEnabled: true, expectedSettingsVersion: 1 },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+    await expect(store.changeSettings(localeWrite(userId, 2, 'fa', 2))).rejects.toMatchObject({
+      code: 'invalid_request',
+      message: 'error.settings.locale_inactive',
+    });
+
+    await database
+      .updateTable('catalog.locales')
+      .set({ is_active: true, updated_at: new Date('2026-09-04T10:01:00.000Z') })
+      .where('code', '=', 'fa')
+      .executeTakeFirstOrThrow();
+    const concurrent = await Promise.allSettled([
+      store.changeSettings(visibilityWrite(userId, 3, true, 2)),
+      store.changeSettings(localeWrite(userId, 4, 'fa', 2)),
+    ]);
+    await database
+      .updateTable('catalog.locales')
+      .set({ is_active: false, updated_at: new Date('2026-09-04T10:02:00.000Z') })
+      .where('code', '=', 'fa')
+      .executeTakeFirstOrThrow();
+    expect(concurrent.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = concurrent.find((result) => result.status === 'rejected');
+    expect(rejected).toMatchObject({ reason: { code: 'version_conflict' } });
+
+    const current = await store.getByUserId(userId);
+    expect(current?.settingsVersion).toBe(3);
+    const noOp = visibilityWrite(userId, 5, current?.visibilityEnabled ?? false, 3);
+    await expect(store.changeSettings(noOp)).resolves.toMatchObject({
+      settingsVersion: 3,
+      changed: false,
+      replayed: false,
+    });
+
+    const [settingAudits, settingEvents] = await Promise.all([
+      database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('subject_id', '=', userId)
+        .where('subject_type', '=', 'user_settings')
+        .execute(),
+      database
+        .selectFrom('platform.outbox_events')
+        .select('id')
+        .where('aggregate_id', '=', userId)
+        .where('event_type', 'in', ['identity.locale-changed.v1', 'identity.visibility-changed.v1'])
+        .execute(),
+    ]);
+    expect(settingAudits).toHaveLength(2);
+    expect(settingEvents).toHaveLength(2);
   });
 
   it('enforces append-only history and the immutable Guest Preview limit snapshot', async () => {

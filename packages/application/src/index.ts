@@ -8,6 +8,8 @@ import type { Clock, IdGenerator } from '@nakh/domain';
 export * from './identity/store.js';
 export * from './identity/register-telegram-identity.js';
 export * from './identity/start-router.js';
+export * from './identity/change-settings.js';
+export * from './access/capability-authorizer.js';
 export * from './presentation.js';
 
 export type CreateSampleEffectWrite = Readonly<{

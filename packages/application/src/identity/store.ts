@@ -1,4 +1,7 @@
 import type {
+  ChangeLocaleCommand,
+  ChangeSettingsResult,
+  ChangeVisibilityCommand,
   RegisterTelegramIdentityCommand,
   RegisterTelegramIdentityResult,
 } from '@nakh/contracts';
@@ -29,11 +32,20 @@ export type RegisterTelegramIdentityWrite = Readonly<{
   defaultLocale: string;
 }>;
 
+export type ChangeSettingsWrite = Readonly<{
+  command: ChangeLocaleCommand | ChangeVisibilityCommand;
+  auditId: string;
+  eventId: string;
+  processedAt: Date;
+}>;
+
 export interface IdentityStore {
   registerTelegramIdentity(
     write: RegisterTelegramIdentityWrite,
   ): Promise<RegisterTelegramIdentityResult>;
   getByTelegramUserId(telegramUserId: string): Promise<IdentityContextSnapshot | undefined>;
+  getByUserId(userId: string): Promise<IdentityContextSnapshot | undefined>;
+  changeSettings(write: ChangeSettingsWrite): Promise<ChangeSettingsResult>;
 }
 
 export type LocalizationCatalog = Readonly<{

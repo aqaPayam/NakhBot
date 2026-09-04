@@ -51,6 +51,8 @@ describe('RegisterTelegramIdentityHandler', () => {
         return Promise.resolve(result);
       },
       getByTelegramUserId: () => Promise.resolve(undefined),
+      getByUserId: () => Promise.resolve(undefined),
+      changeSettings: () => Promise.reject(new Error('must not execute')),
     };
     const values = [
       result.context.userId,
@@ -76,6 +78,8 @@ describe('RegisterTelegramIdentityHandler', () => {
     const store: IdentityStore = {
       registerTelegramIdentity: () => Promise.reject(new Error('must not execute')),
       getByTelegramUserId: () => Promise.resolve(undefined),
+      getByUserId: () => Promise.resolve(undefined),
+      changeSettings: () => Promise.reject(new Error('must not execute')),
     };
     const handler = new RegisterTelegramIdentityHandler(
       store,

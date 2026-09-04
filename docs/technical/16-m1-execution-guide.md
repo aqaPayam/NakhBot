@@ -132,9 +132,10 @@ Create new forward-only migrations after the existing M0 migration. Use this ord
 
 1. `000002_m1_identity_localization.sql`
 2. `000003_m1_identity_start.sql`
-3. `000004_m1_profile_catalogs.sql`
-4. `000005_m1_signup_profile.sql`
-5. `000006_m1_profile_change_requests.sql`
+3. `000004_m1_settings.sql`
+4. `000005_m1_profile_catalogs.sql`
+5. `000006_m1_signup_profile.sql`
+6. `000007_m1_profile_change_requests.sql`
 
 Never edit an already-applied migration. Each migration must run on a new database and on a database at the immediately previous version. Each must provide verification queries in its header or companion test. Rollback is application rollback plus a forward repair migration; production data is never removed automatically.
 
@@ -160,9 +161,11 @@ The first-start transaction creates User, TelegramIdentity, Guest Account, UserS
 
 Migration `000003` creates the append-only `platform.audit_logs` stream and its subject, actor, event, and time indexes. It contains stable codes and safe bounded metadata only; Telegram identifiers and user-authored prose are prohibited.
 
+Migration `000004` adds the required localized settings and authorization errors. The settings table itself remains owned by migration `000002`.
+
 ### 7.3 Catalog tables
 
-Migration `000004` creates the normalized catalogs and hierarchy required by signup/Profile:
+Migration `000005` creates the normalized catalogs and hierarchy required by signup/Profile:
 
 - gender options;
 - relationship-gender preferences and their member mapping;
@@ -179,7 +182,7 @@ Seed at least the complete locked enum registry, Iran, and deterministic test lo
 
 ### 7.4 Signup and Profile tables
 
-Migration `000005` creates:
+Migration `000006` creates:
 
 - `identity.signup_progress`, at most one current progress row per User;
 - `identity.signup_drafts`, at most one draft per User, storing a versioned structured payload and last completed step;
@@ -196,7 +199,7 @@ Media IDs are not stored in the M1 Profile tables. M2 owns media records. M1 con
 
 ### 7.5 Protected changes
 
-Migration `000006` creates:
+Migration `000007` creates:
 
 - the minimal canonical `administration.admin_users` identity table needed by the review foreign key, with no roles, permissions, or production provisioning;
 - `profile.profile_change_requests`;
@@ -559,7 +562,7 @@ Implement M1 as these reviewable vertical changes. Do not begin a later item whi
 
 ### PR 5 — catalogs and durable signup
 
-- add migrations `000004` and `000005`, seed registry, signup progress/draft repositories, start/save handlers, validators, and resume UI;
+- add migrations `000005` and `000006`, seed registry, signup progress/draft repositories, start/save handlers, validators, and resume UI;
 - prove `ACC-007` and stale-version/idempotency behavior.
 
 ### PR 6 — Profile confirmation and editing
@@ -569,7 +572,7 @@ Implement M1 as these reviewable vertical changes. Do not begin a later item whi
 
 ### PR 7 — protected changes
 
-- add migration `000006`, request/review use cases, internal reviewer authorization port, audit/outbox, and concurrency tests;
+- add migration `000007`, request/review use cases, internal reviewer authorization port, audit/outbox, and concurrency tests;
 - do not expose production review administration.
 
 ### PR 8 — Guest Preview counter and M1 hardening

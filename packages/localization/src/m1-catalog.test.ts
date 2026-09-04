@@ -22,9 +22,11 @@ describe('M1 localization manifest', () => {
   it('keeps the database seed synchronized with the manifest', async () => {
     const migration = (
       await Promise.all(
-        ['000002_m1_identity_localization.sql', '000003_m1_identity_start.sql'].map((name) =>
-          readFile(resolve(process.cwd(), 'migrations', name), 'utf8'),
-        ),
+        [
+          '000002_m1_identity_localization.sql',
+          '000003_m1_identity_start.sql',
+          '000004_m1_settings.sql',
+        ].map((name) => readFile(resolve(process.cwd(), 'migrations', name), 'utf8')),
       )
     ).join('\n');
     for (const entry of M1_LOCALIZATION_MANIFEST) {
@@ -51,6 +53,27 @@ describe('M1 localization manifest', () => {
       for (const item of view.actions) {
         expect(catalog[item.label.key], item.label.key).toBeDefined();
       }
+    }
+  });
+
+  it('requires application error handlers to emit catalog keys instead of prose', async () => {
+    const catalog = englishCatalogFromManifest();
+    const sources = await Promise.all(
+      [
+        'packages/application/src/identity/change-settings.ts',
+        'packages/application/src/access/capability-authorizer.ts',
+      ].map((name) => readFile(resolve(process.cwd(), name), 'utf8')),
+    );
+    const keys = sources.flatMap((source) =>
+      [...source.matchAll(/new ApplicationError\(\s*'[^']+'\s*,\s*'([^']+)'/gu)].flatMap((match) =>
+        match[1] === undefined ? [] : [match[1]],
+      ),
+    );
+
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(key).toMatch(/^error\./u);
+      expect(catalog[key], key).toBeDefined();
     }
   });
 });

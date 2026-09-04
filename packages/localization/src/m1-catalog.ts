@@ -107,6 +107,26 @@ const M1_ENGLISH_ENTRIES = [
     category: 'error',
     english: 'This request is already being processed.',
   },
+  {
+    key: 'error.identity.user_context_invalid',
+    category: 'error',
+    english: 'This user request could not be authenticated.',
+  },
+  {
+    key: 'error.capability.denied',
+    category: 'error',
+    english: 'This action is not available for your account.',
+  },
+  {
+    key: 'error.settings.version_conflict',
+    category: 'error',
+    english: 'Your settings changed elsewhere. Refresh and try again.',
+  },
+  {
+    key: 'error.settings.locale_inactive',
+    category: 'error',
+    english: 'That language is not currently available.',
+  },
 ] as const satisfies ReadonlyArray<Omit<LocalizationManifestEntry, 'variables' | 'required'>>;
 
 export const M1_LOCALIZATION_MANIFEST: readonly LocalizationManifestEntry[] =

@@ -327,7 +327,13 @@ export type ConsumeGuestPreviewCommand = Static<typeof ConsumeGuestPreviewComman
 
 export const ChangeLocaleCommandSchema = commandSchema(
   'identity.change-locale',
-  Type.Object({ locale: localeSchema }, { additionalProperties: false }),
+  Type.Object(
+    {
+      locale: localeSchema,
+      expectedSettingsVersion: Type.Integer({ minimum: 1 }),
+    },
+    { additionalProperties: false },
+  ),
 );
 export type ChangeLocaleCommand = Static<typeof ChangeLocaleCommandSchema>;
 
@@ -342,6 +348,19 @@ export const ChangeVisibilityCommandSchema = commandSchema(
   ),
 );
 export type ChangeVisibilityCommand = Static<typeof ChangeVisibilityCommandSchema>;
+
+export const ChangeSettingsResultSchema = Type.Object(
+  {
+    userId: UuidSchema,
+    uiLocale: localeSchema,
+    visibilityEnabled: Type.Boolean(),
+    settingsVersion: Type.Integer({ minimum: 1 }),
+    changed: Type.Boolean(),
+    replayed: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type ChangeSettingsResult = Static<typeof ChangeSettingsResultSchema>;
 
 const editableProfilePatchSchema = Type.Object(
   {
