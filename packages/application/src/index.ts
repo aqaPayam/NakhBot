@@ -5,6 +5,8 @@ import type {
 } from '@nakh/contracts';
 import type { Clock, IdGenerator } from '@nakh/domain';
 
+export * from './identity/store.js';
+
 export type CreateSampleEffectWrite = Readonly<{
   command: CreateSampleEffectCommand;
   effectId: string;

@@ -1,0 +1,31 @@
+# Data Retention and Deletion Registry
+
+This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M7; new migrations must update this file immediately.
+
+| Resource | Classification | Product-deletion action | Retention reason / owner |
+|---|---|---|---|
+| `identity.users` | internal identifier | retain minimal row | Stable identity and deletion/return safety; Identity |
+| `identity.telegram_identities` | direct identifier | retain Telegram ID; clear mutable username when deletion completes | Prevent duplicate identity and enforce return policy; Identity |
+| `identity.accounts` | account/safety state | retain state and sanitized reason | Deletion/return and safety enforcement; Identity |
+| `identity.account_state_history` | immutable account/safety history | retain | Ban, restriction, deletion, appeal, and audit integrity; Identity/Moderation |
+| `identity.guest_preview_counters` | permanent product counter | retain unchanged | Canonical anti-reset exception; Identity |
+| `identity.user_settings` | product preference | purge | Recreated with defaults only if return is allowed; Identity |
+| `billing.credit_accounts` | financial foundation | M1 zero-balance row may be purged; M4 policy supersedes after any ledger activity | Billing |
+| `notification.notification_preferences` | product preference | purge | Recreated with defaults only if return is allowed; Notification |
+| `catalog.locales` | public reference data | retain | Not user-linked; Localization |
+| `catalog.ui_texts` | public reference data | retain | Not user-linked; Localization |
+| `platform.idempotency_records` | short-lived reliability metadata | expire by configured TTL; redact response payloads | Platform |
+| `platform.outbox_events` | reliability/audit transport | retain until published plus operational retention window | Platform |
+| `platform.inbox_messages` | deduplication metadata | retain for consumer replay window | Platform |
+| `platform.sample_effects` and `platform.sample_projections` | M0 test-only data | remove when M0 sample is retired | Platform |
+
+## Required deletion-test assertions for M1
+
+- UserSettings and NotificationPreference are absent after product-data purge.
+- A zero-balance, never-used CreditAccount may be absent after purge.
+- User, TelegramIdentity, Account, AccountStateHistory, and GuestPreviewCounter remain.
+- Mutable Telegram username is cleared.
+- Guest Preview count and immutable limit snapshot are unchanged.
+- A permitted return reuses the same User and TelegramIdentity and never creates a second counter.
+
+M7 must turn these rules into the automated deletion-registry test required by [`11-testing-strategy.md`](11-testing-strategy.md).

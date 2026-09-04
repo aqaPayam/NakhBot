@@ -1,9 +1,11 @@
 import { Kysely, PostgresDialect, type ColumnType, type Generated } from 'kysely';
+import type { AccountState } from '@nakh/domain';
 import pg from 'pg';
 
 const { Pool } = pg;
 
 type JsonObject = Readonly<Record<string, unknown>>;
+type JsonArray = readonly unknown[];
 
 export interface IdempotencyTable {
   id: string;
@@ -84,6 +86,99 @@ export interface JobRunLogTable {
   metadata: ColumnType<JsonObject, object, object>;
 }
 
+export interface LocaleTable {
+  code: string;
+  english_name: string;
+  native_name: string;
+  is_active: boolean;
+  is_default: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface UiTextTable {
+  id: string;
+  locale_code: string;
+  text_key: string;
+  value: string;
+  category: 'button' | 'message' | 'error' | 'admin' | 'payment' | 'notification' | 'safety';
+  variables: ColumnType<JsonArray, readonly unknown[], readonly unknown[]>;
+  is_active: Generated<boolean>;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface UserTable {
+  id: string;
+  last_activity_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface TelegramIdentityTable {
+  user_id: string;
+  telegram_user_id: string;
+  username: string | null;
+  first_seen_at: Date;
+  last_seen_at: Date;
+}
+
+export interface AccountTable {
+  user_id: string;
+  state: AccountState;
+  state_reason: string | null;
+  state_changed_at: Date;
+  version: Generated<number>;
+}
+
+export interface AccountStateHistoryTable {
+  id: string;
+  user_id: string;
+  previous_state: AccountState | null;
+  next_state: AccountState;
+  reason_code: string;
+  actor_type: 'user' | 'admin' | 'system';
+  actor_user_id: string | null;
+  actor_admin_id: string | null;
+  changed_at: Date;
+}
+
+export interface GuestPreviewCounterTable {
+  user_id: string;
+  preview_count: Generated<number>;
+  limit_count: number;
+  first_preview_at: Date | null;
+  last_preview_at: Date | null;
+}
+
+export interface UserSettingsTable {
+  user_id: string;
+  visibility_enabled: Generated<boolean>;
+  ui_locale_code: Generated<string>;
+  version: Generated<number>;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreditAccountTable {
+  user_id: string;
+  balance: Generated<string>;
+  version: Generated<number>;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface NotificationPreferenceTable {
+  user_id: string;
+  chat_enabled: Generated<boolean>;
+  like_enabled: Generated<boolean>;
+  nakh_enabled: Generated<boolean>;
+  match_enabled: Generated<boolean>;
+  version: Generated<number>;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface DatabaseSchema {
   'platform.idempotency_records': IdempotencyTable;
   'platform.sample_effects': SampleEffectTable;
@@ -92,6 +187,16 @@ export interface DatabaseSchema {
   'platform.sample_projections': SampleProjectionTable;
   'platform.scheduled_jobs': ScheduledJobTable;
   'platform.job_run_logs': JobRunLogTable;
+  'catalog.locales': LocaleTable;
+  'catalog.ui_texts': UiTextTable;
+  'identity.users': UserTable;
+  'identity.telegram_identities': TelegramIdentityTable;
+  'identity.accounts': AccountTable;
+  'identity.account_state_history': AccountStateHistoryTable;
+  'identity.guest_preview_counters': GuestPreviewCounterTable;
+  'identity.user_settings': UserSettingsTable;
+  'billing.credit_accounts': CreditAccountTable;
+  'notification.notification_preferences': NotificationPreferenceTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;

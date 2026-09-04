@@ -13,6 +13,7 @@ export {
   type ClaimedOutboxEvent,
   type InboxProcessingHooks,
 } from './foundation-store.js';
+export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 export {
   migrationStatus,
   runMigrations,
