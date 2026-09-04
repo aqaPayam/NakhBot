@@ -89,6 +89,8 @@ jobs:
       - name: Migration immutability replay
         run: pnpm db:migrate
       - name: Backup and restore smoke
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: bash deploy/scripts/restore-smoke.sh
 
   container-build:
