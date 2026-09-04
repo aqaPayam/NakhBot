@@ -6,6 +6,9 @@ import type {
 import type { Clock, IdGenerator } from '@nakh/domain';
 
 export * from './identity/store.js';
+export * from './identity/register-telegram-identity.js';
+export * from './identity/start-router.js';
+export * from './presentation.js';
 
 export type CreateSampleEffectWrite = Readonly<{
   command: CreateSampleEffectCommand;
@@ -57,9 +60,3 @@ export interface MediaStorePort {
   delete(input: Readonly<{ key: string }>): Promise<void>;
   exists(input: Readonly<{ key: string }>): Promise<boolean>;
 }
-
-export type LocalizedIntent = Readonly<{
-  key: string;
-  variables: Readonly<Record<string, string | number | boolean>>;
-  fallbackKey?: string;
-}>;

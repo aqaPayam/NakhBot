@@ -146,11 +146,12 @@ export class PostgresOutboxStore {
       now: Date;
       leaseMs: number;
       limit: number;
+      eventTypes?: readonly string[];
     }>,
   ): Promise<ClaimedOutboxEvent[]> {
     const leaseExpiry = new Date(input.now.getTime() + input.leaseMs);
     return this.database.transaction().execute(async (transaction) => {
-      const candidates = await transaction
+      let candidateQuery = transaction
         .selectFrom('platform.outbox_events')
         .select('id')
         .where('published_at', 'is', null)
@@ -163,10 +164,11 @@ export class PostgresOutboxStore {
         )
         .orderBy('available_at', 'asc')
         .orderBy('id', 'asc')
-        .limit(input.limit)
-        .forUpdate()
-        .skipLocked()
-        .execute();
+        .limit(input.limit);
+      if (input.eventTypes !== undefined && input.eventTypes.length > 0) {
+        candidateQuery = candidateQuery.where('event_type', 'in', input.eventTypes);
+      }
+      const candidates = await candidateQuery.forUpdate().skipLocked().execute();
       const ids = candidates.map(({ id }) => id);
       if (ids.length === 0) return [];
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { routeStart } from '@nakh/application';
+
 import {
   M1_LOCALIZATION_MANIFEST,
   englishCatalogFromManifest,
@@ -18,13 +20,37 @@ describe('M1 localization manifest', () => {
   });
 
   it('keeps the database seed synchronized with the manifest', async () => {
-    const migration = await readFile(
-      resolve(process.cwd(), 'migrations/000002_m1_identity_localization.sql'),
-      'utf8',
-    );
+    const migration = (
+      await Promise.all(
+        ['000002_m1_identity_localization.sql', '000003_m1_identity_start.sql'].map((name) =>
+          readFile(resolve(process.cwd(), 'migrations', name), 'utf8'),
+        ),
+      )
+    ).join('\n');
     for (const entry of M1_LOCALIZATION_MANIFEST) {
       expect(migration).toContain(`'${entry.key}'`);
       expect(migration).toContain(`'${entry.english.replaceAll("'", "''")}'`);
+    }
+  });
+
+  it('covers every localization key emitted by the start router', () => {
+    const catalog = englishCatalogFromManifest();
+    const routes = [
+      'guest',
+      'continue_signup',
+      'main',
+      'main_discovery_paused',
+      'fix_profile',
+      'restricted',
+      'ban_appeal',
+      'return_decision',
+    ] as const;
+    for (const route of routes) {
+      const view = routeStart(route);
+      expect(catalog[view.title.key], view.title.key).toBeDefined();
+      for (const item of view.actions) {
+        expect(catalog[item.label.key], item.label.key).toBeDefined();
+      }
     }
   });
 });

@@ -179,6 +179,23 @@ export interface NotificationPreferenceTable {
   updated_at: Date;
 }
 
+export interface AuditLogTable {
+  id: string;
+  category: 'product' | 'account' | 'security' | 'admin';
+  event_type: string;
+  actor_type: 'user' | 'admin' | 'system';
+  actor_user_id: string | null;
+  actor_admin_id: string | null;
+  subject_type: string;
+  subject_id: string;
+  result_code: string;
+  metadata_schema_version: number;
+  metadata: ColumnType<JsonObject, object, object>;
+  request_id: string;
+  command_id: string;
+  occurred_at: Date;
+}
+
 export interface DatabaseSchema {
   'platform.idempotency_records': IdempotencyTable;
   'platform.sample_effects': SampleEffectTable;
@@ -197,6 +214,7 @@ export interface DatabaseSchema {
   'identity.user_settings': UserSettingsTable;
   'billing.credit_accounts': CreditAccountTable;
   'notification.notification_preferences': NotificationPreferenceTable;
+  'platform.audit_logs': AuditLogTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;

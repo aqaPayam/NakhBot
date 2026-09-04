@@ -153,7 +153,8 @@ export const AccountContextSchema = Type.Object(
     guestPreviewCount: Type.Integer({ minimum: 0 }),
     guestPreviewLimit: Type.Integer({ minimum: 1 }),
     entryRoute: EntryRouteSchema,
-    version: Type.Integer({ minimum: 1 }),
+    accountVersion: Type.Integer({ minimum: 1 }),
+    settingsVersion: Type.Integer({ minimum: 1 }),
   },
   { additionalProperties: false },
 );
@@ -174,6 +175,7 @@ export type RegisterTelegramIdentityCommand = Static<typeof RegisterTelegramIden
 export const RegisterTelegramIdentityResultSchema = Type.Object(
   {
     context: AccountContextSchema,
+    created: Type.Boolean(),
     replayed: Type.Boolean(),
   },
   { additionalProperties: false },

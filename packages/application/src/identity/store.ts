@@ -1,3 +1,7 @@
+import type {
+  RegisterTelegramIdentityCommand,
+  RegisterTelegramIdentityResult,
+} from '@nakh/contracts';
 import type { AccountState, EntryRoute, ProfileCompletionStatus } from '@nakh/domain';
 
 export type IdentityContextSnapshot = Readonly<{
@@ -14,24 +18,21 @@ export type IdentityContextSnapshot = Readonly<{
 }>;
 
 export type RegisterTelegramIdentityWrite = Readonly<{
+  command: RegisterTelegramIdentityCommand;
   userId: string;
   accountHistoryId: string;
-  telegramUserId: string;
-  username: string | null;
-  occurredAt: Date;
+  auditId: string;
+  registrationEventId: string;
+  startRouteEventId: string;
+  processedAt: Date;
   guestPreviewLimit: number;
   defaultLocale: string;
 }>;
 
-export type RegisterTelegramIdentityStoreResult = Readonly<{
-  context: IdentityContextSnapshot;
-  created: boolean;
-}>;
-
 export interface IdentityStore {
-  registerOrResolveTelegramIdentity(
+  registerTelegramIdentity(
     write: RegisterTelegramIdentityWrite,
-  ): Promise<RegisterTelegramIdentityStoreResult>;
+  ): Promise<RegisterTelegramIdentityResult>;
   getByTelegramUserId(telegramUserId: string): Promise<IdentityContextSnapshot | undefined>;
 }
 

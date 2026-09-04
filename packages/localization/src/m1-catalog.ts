@@ -59,6 +59,14 @@ const M1_ENGLISH_ENTRIES = [
   },
   { key: 'common.button.settings', category: 'button', english: 'Settings' },
   { key: 'common.button.support', category: 'button', english: 'Support' },
+  { key: 'common.button.edit_profile', category: 'button', english: 'Edit profile' },
+  { key: 'common.button.appeal', category: 'button', english: 'Appeal' },
+  { key: 'common.button.delete_account', category: 'button', english: 'Delete account' },
+  {
+    key: 'common.button.return_status',
+    category: 'button',
+    english: 'Check return status',
+  },
   {
     key: 'error.account.invalid_transition',
     category: 'error',
@@ -83,6 +91,21 @@ const M1_ENGLISH_ENTRIES = [
     key: 'error.validation.length',
     category: 'error',
     english: 'This value has an invalid length.',
+  },
+  {
+    key: 'error.identity.telegram_context_invalid',
+    category: 'error',
+    english: 'This Telegram request could not be authenticated.',
+  },
+  {
+    key: 'error.command.idempotency_conflict',
+    category: 'error',
+    english: 'This request identifier was already used for different data.',
+  },
+  {
+    key: 'error.command.in_progress',
+    category: 'error',
+    english: 'This request is already being processed.',
   },
 ] as const satisfies ReadonlyArray<Omit<LocalizationManifestEntry, 'variables' | 'required'>>;
 

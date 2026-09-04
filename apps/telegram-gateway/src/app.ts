@@ -8,17 +8,26 @@ import {
   Post,
   UnauthorizedException,
   type DynamicModule,
+  type OnApplicationShutdown,
 } from '@nestjs/common';
 
 import type { AppConfig } from '@nakh/config';
-import { TelegramWebhookAuthenticator } from '@nakh/telegram';
+import {
+  createDatabase,
+  PostgresIdentityStore,
+  type NakhDatabase,
+} from '@nakh/persistence-postgres';
+import { TelegramStartAdapter, TelegramWebhookAuthenticator } from '@nakh/telegram';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
+const DATABASE = Symbol('DATABASE');
+const START_ADAPTER = Symbol('START_ADAPTER');
 
 @Controller()
 class TelegramGatewayController {
   public constructor(
     @Inject(AUTHENTICATOR) private readonly authenticator: TelegramWebhookAuthenticator,
+    @Inject(START_ADAPTER) private readonly startAdapter: TelegramStartAdapter,
   ) {}
 
   @Get('health/live')
@@ -27,19 +36,28 @@ class TelegramGatewayController {
   }
 
   @Post('v1/providers/telegram/webhook')
-  public webhook(
+  public async webhook(
     @Headers('x-telegram-bot-api-secret-token') secret: string | undefined,
     @Body() update: unknown,
-  ): Readonly<{ accepted: true }> {
+  ): Promise<Readonly<{ accepted: true }>> {
     if (!this.authenticator.verify(secret)) throw new UnauthorizedException();
-    void update;
+    await this.startAdapter.handle(update);
     return { accepted: true };
+  }
+}
+
+class DatabaseLifecycle implements OnApplicationShutdown {
+  public constructor(@Inject(DATABASE) private readonly database: NakhDatabase) {}
+
+  public async onApplicationShutdown(): Promise<void> {
+    await this.database.destroy();
   }
 }
 
 @Module({})
 export class TelegramGatewayModule {
   public static register(config: AppConfig): DynamicModule {
+    const database = createDatabase(config.database);
     return {
       module: TelegramGatewayModule,
       controllers: [TelegramGatewayController],
@@ -48,6 +66,12 @@ export class TelegramGatewayModule {
           provide: AUTHENTICATOR,
           useValue: new TelegramWebhookAuthenticator(config.telegram.webhookSecret),
         },
+        { provide: DATABASE, useValue: database },
+        {
+          provide: START_ADAPTER,
+          useValue: TelegramStartAdapter.withStore(new PostgresIdentityStore(database)),
+        },
+        DatabaseLifecycle,
       ],
     };
   }

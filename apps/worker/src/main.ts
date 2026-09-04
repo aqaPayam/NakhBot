@@ -51,7 +51,13 @@ const dispatch = async (): Promise<void> => {
   if (dispatching) return;
   dispatching = true;
   try {
-    const events = await outbox.claimBatch({ owner, now: new Date(), leaseMs: 30_000, limit: 50 });
+    const events = await outbox.claimBatch({
+      owner,
+      now: new Date(),
+      leaseMs: 30_000,
+      limit: 50,
+      eventTypes: ['platform.sample-effect-created.v1'],
+    });
     for (const event of events) {
       try {
         await publisher.publish(event);

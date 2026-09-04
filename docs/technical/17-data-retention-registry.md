@@ -17,6 +17,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `platform.idempotency_records` | short-lived reliability metadata | expire by configured TTL; redact response payloads | Platform |
 | `platform.outbox_events` | reliability/audit transport | retain until published plus operational retention window | Platform |
 | `platform.inbox_messages` | deduplication metadata | retain for consumer replay window | Platform |
+| `platform.audit_logs` | append-only safe audit metadata | retain by category policy; never store user prose or Telegram identifiers | Platform/Security |
 | `platform.sample_effects` and `platform.sample_projections` | M0 test-only data | remove when M0 sample is retired | Platform |
 
 ## Required deletion-test assertions for M1

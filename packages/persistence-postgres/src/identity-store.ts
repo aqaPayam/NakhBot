@@ -1,34 +1,68 @@
+import { createHash } from 'node:crypto';
+
 import type {
   IdentityContextSnapshot,
   IdentityStore,
   LocalizationCatalog,
   LocalizationStore,
-  RegisterTelegramIdentityStoreResult,
   RegisterTelegramIdentityWrite,
 } from '@nakh/application';
-import { entryRouteFor } from '@nakh/domain';
+import type { RegisterTelegramIdentityResult } from '@nakh/contracts';
+import { ApplicationError, entryRouteFor } from '@nakh/domain';
 import { sql } from 'kysely';
 
 import type { NakhDatabase } from './database.js';
 
-type PostgresError = Readonly<{ code?: unknown; constraint?: unknown }>;
+function registrationHash(write: RegisterTelegramIdentityWrite): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        commandType: write.command.commandType,
+        schemaVersion: write.command.schemaVersion,
+        actor: write.command.actor,
+        data: write.command.data,
+        channelContext: write.command.channelContext,
+      }),
+    )
+    .digest('hex');
+}
 
-function isTelegramIdentityConflict(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const postgresError = error as PostgresError;
-  return (
-    postgresError.code === '23505' &&
-    postgresError.constraint === 'telegram_identities_telegram_user_id_key'
-  );
+function parseStoredRegistration(
+  value: Readonly<Record<string, unknown>>,
+): RegisterTelegramIdentityResult {
+  const context = value.context;
+  if (typeof context !== 'object' || context === null)
+    throw new Error('Stored identity registration result is invalid.');
+  const stored = context as Readonly<Record<string, unknown>>;
+  return {
+    context: {
+      userId: String(stored.userId),
+      accountState: stored.accountState as IdentityContextSnapshot['accountState'],
+      profileCompletion:
+        stored.profileCompletion === null
+          ? null
+          : (stored.profileCompletion as IdentityContextSnapshot['profileCompletion']),
+      visibilityEnabled: Boolean(stored.visibilityEnabled),
+      uiLocale: String(stored.uiLocale),
+      guestPreviewCount: Number(stored.guestPreviewCount),
+      guestPreviewLimit: Number(stored.guestPreviewLimit),
+      entryRoute: stored.entryRoute as IdentityContextSnapshot['entryRoute'],
+      accountVersion: Number(stored.accountVersion),
+      settingsVersion: Number(stored.settingsVersion),
+    },
+    created: Boolean(value.created),
+    replayed: true,
+  };
 }
 
 export class PostgresIdentityStore implements IdentityStore {
   public constructor(private readonly database: NakhDatabase) {}
 
-  public async getByTelegramUserId(
+  private async getContext(
+    database: NakhDatabase,
     telegramUserId: string,
   ): Promise<IdentityContextSnapshot | undefined> {
-    const row = await this.database
+    const row = await database
       .selectFrom('identity.telegram_identities as telegram')
       .innerJoin('identity.accounts as account', 'account.user_id', 'telegram.user_id')
       .innerJoin('identity.user_settings as settings', 'settings.user_id', 'telegram.user_id')
@@ -70,146 +104,273 @@ export class PostgresIdentityStore implements IdentityStore {
     };
   }
 
-  private async touchKnownIdentity(write: RegisterTelegramIdentityWrite): Promise<void> {
-    await this.database.transaction().execute(async (transaction) => {
-      await transaction
-        .updateTable('identity.telegram_identities')
-        .set({
-          username: sql`CASE
-            WHEN last_seen_at <= ${write.occurredAt} THEN ${write.username}
-            ELSE username
-          END`,
-          last_seen_at: sql`GREATEST(last_seen_at, ${write.occurredAt})`,
-        })
-        .where('telegram_user_id', '=', write.telegramUserId)
-        .executeTakeFirstOrThrow();
-      await transaction
-        .updateTable('identity.users')
-        .set({
-          last_activity_at: sql`GREATEST(last_activity_at, ${write.occurredAt})`,
-          updated_at: sql`GREATEST(updated_at, ${write.occurredAt})`,
-        })
-        .where(
-          'id',
-          '=',
-          transaction
-            .selectFrom('identity.telegram_identities')
-            .select('user_id')
-            .where('telegram_user_id', '=', write.telegramUserId),
-        )
-        .executeTakeFirstOrThrow();
-    });
+  public getByTelegramUserId(telegramUserId: string): Promise<IdentityContextSnapshot | undefined> {
+    return this.getContext(this.database, telegramUserId);
   }
 
-  public async registerOrResolveTelegramIdentity(
+  private async touchKnownIdentity(
+    database: NakhDatabase,
     write: RegisterTelegramIdentityWrite,
-  ): Promise<RegisterTelegramIdentityStoreResult> {
-    const existing = await this.getByTelegramUserId(write.telegramUserId);
-    if (existing !== undefined) {
-      await this.touchKnownIdentity(write);
-      return { context: (await this.getByTelegramUserId(write.telegramUserId))!, created: false };
-    }
+  ): Promise<void> {
+    await database
+      .updateTable('identity.telegram_identities')
+      .set({
+        username: sql`CASE
+          WHEN last_seen_at <= ${write.processedAt} THEN ${write.command.data.username ?? null}
+          ELSE username
+        END`,
+        last_seen_at: sql`GREATEST(last_seen_at, ${write.processedAt})`,
+      })
+      .where('telegram_user_id', '=', write.command.data.telegramUserId)
+      .executeTakeFirstOrThrow();
+    await database
+      .updateTable('identity.users')
+      .set({
+        last_activity_at: sql`GREATEST(last_activity_at, ${write.processedAt})`,
+        updated_at: sql`GREATEST(updated_at, ${write.processedAt})`,
+      })
+      .where(
+        'id',
+        '=',
+        database
+          .selectFrom('identity.telegram_identities')
+          .select('user_id')
+          .where('telegram_user_id', '=', write.command.data.telegramUserId),
+      )
+      .executeTakeFirstOrThrow();
+  }
 
-    try {
-      await this.database.transaction().execute(async (transaction) => {
-        await transaction
-          .insertInto('identity.users')
-          .values({
-            id: write.userId,
-            last_activity_at: write.occurredAt,
-            created_at: write.occurredAt,
-            updated_at: write.occurredAt,
-          })
+  private async createFirstStartAggregate(
+    database: NakhDatabase,
+    write: RegisterTelegramIdentityWrite,
+  ): Promise<void> {
+    const username = write.command.data.username ?? null;
+    await database
+      .insertInto('identity.users')
+      .values({
+        id: write.userId,
+        last_activity_at: write.processedAt,
+        created_at: write.processedAt,
+        updated_at: write.processedAt,
+      })
+      .executeTakeFirstOrThrow();
+    await database
+      .insertInto('identity.telegram_identities')
+      .values({
+        user_id: write.userId,
+        telegram_user_id: write.command.data.telegramUserId,
+        username,
+        first_seen_at: write.processedAt,
+        last_seen_at: write.processedAt,
+      })
+      .executeTakeFirstOrThrow();
+    await database
+      .insertInto('identity.accounts')
+      .values({
+        user_id: write.userId,
+        state: 'guest',
+        state_reason: null,
+        state_changed_at: write.processedAt,
+        version: 1,
+      })
+      .executeTakeFirstOrThrow();
+    await database
+      .insertInto('identity.account_state_history')
+      .values({
+        id: write.accountHistoryId,
+        user_id: write.userId,
+        previous_state: null,
+        next_state: 'guest',
+        reason_code: 'first_start',
+        actor_type: 'system',
+        actor_user_id: null,
+        actor_admin_id: null,
+        changed_at: write.processedAt,
+      })
+      .executeTakeFirstOrThrow();
+    await database
+      .insertInto('identity.guest_preview_counters')
+      .values({
+        user_id: write.userId,
+        preview_count: 0,
+        limit_count: write.guestPreviewLimit,
+        first_preview_at: null,
+        last_preview_at: null,
+      })
+      .executeTakeFirstOrThrow();
+    await database
+      .insertInto('identity.user_settings')
+      .values({
+        user_id: write.userId,
+        visibility_enabled: true,
+        ui_locale_code: write.defaultLocale,
+        version: 1,
+        created_at: write.processedAt,
+        updated_at: write.processedAt,
+      })
+      .executeTakeFirstOrThrow();
+    await database
+      .insertInto('billing.credit_accounts')
+      .values({
+        user_id: write.userId,
+        balance: '0',
+        version: 1,
+        created_at: write.processedAt,
+        updated_at: write.processedAt,
+      })
+      .executeTakeFirstOrThrow();
+    await database
+      .insertInto('notification.notification_preferences')
+      .values({
+        user_id: write.userId,
+        chat_enabled: true,
+        like_enabled: true,
+        nakh_enabled: true,
+        match_enabled: true,
+        version: 1,
+        created_at: write.processedAt,
+        updated_at: write.processedAt,
+      })
+      .executeTakeFirstOrThrow();
+  }
+
+  public async registerTelegramIdentity(
+    write: RegisterTelegramIdentityWrite,
+  ): Promise<RegisterTelegramIdentityResult> {
+    const hash = registrationHash(write);
+    return this.database.transaction().execute(async (transaction) => {
+      const claimed = await transaction
+        .insertInto('platform.idempotency_records')
+        .values({
+          id: write.command.commandId,
+          actor_user_id: write.command.actor.userId,
+          scope: write.command.commandType,
+          idempotency_key: write.command.idempotencyKey,
+          request_hash: hash,
+          status: 'processing',
+          response_json: null,
+          expires_at: new Date(write.processedAt.getTime() + 24 * 60 * 60 * 1_000),
+          created_at: write.processedAt,
+          updated_at: write.processedAt,
+        })
+        .onConflict((conflict) =>
+          conflict.columns(['actor_user_id', 'scope', 'idempotency_key']).doNothing(),
+        )
+        .returning('id')
+        .executeTakeFirst();
+
+      if (claimed === undefined) {
+        const existing = await transaction
+          .selectFrom('platform.idempotency_records')
+          .select(['request_hash', 'status', 'response_json'])
+          .where('actor_user_id', '=', write.command.actor.userId)
+          .where('scope', '=', write.command.commandType)
+          .where('idempotency_key', '=', write.command.idempotencyKey)
           .executeTakeFirstOrThrow();
+        if (existing.request_hash !== hash) {
+          throw new ApplicationError(
+            'idempotency_conflict',
+            'error.command.idempotency_conflict',
+            409,
+          );
+        }
+        if (existing.status !== 'completed' || existing.response_json === null) {
+          throw new ApplicationError('conflict', 'error.command.in_progress', 409);
+        }
+        return parseStoredRegistration(existing.response_json);
+      }
+
+      await sql`SELECT pg_advisory_xact_lock(hashtextextended(${write.command.data.telegramUserId}, 0))`.execute(
+        transaction,
+      );
+      let context = await this.getContext(transaction, write.command.data.telegramUserId);
+      const created = context === undefined;
+      if (created) {
+        await this.createFirstStartAggregate(transaction, write);
+        context = await this.getContext(transaction, write.command.data.telegramUserId);
+      } else {
+        await this.touchKnownIdentity(transaction, write);
+        context = await this.getContext(transaction, write.command.data.telegramUserId);
+      }
+      if (context === undefined) throw new Error('Identity aggregate was not persisted.');
+
+      if (created) {
         await transaction
-          .insertInto('identity.telegram_identities')
+          .insertInto('platform.audit_logs')
           .values({
-            user_id: write.userId,
-            telegram_user_id: write.telegramUserId,
-            username: write.username,
-            first_seen_at: write.occurredAt,
-            last_seen_at: write.occurredAt,
-          })
-          .executeTakeFirstOrThrow();
-        await transaction
-          .insertInto('identity.accounts')
-          .values({
-            user_id: write.userId,
-            state: 'guest',
-            state_reason: null,
-            state_changed_at: write.occurredAt,
-            version: 1,
-          })
-          .executeTakeFirstOrThrow();
-        await transaction
-          .insertInto('identity.account_state_history')
-          .values({
-            id: write.accountHistoryId,
-            user_id: write.userId,
-            previous_state: null,
-            next_state: 'guest',
-            reason_code: 'first_start',
+            id: write.auditId,
+            category: 'account',
+            event_type: 'identity.telegram-identity-registered.v1',
             actor_type: 'system',
             actor_user_id: null,
             actor_admin_id: null,
-            changed_at: write.occurredAt,
+            subject_type: 'user',
+            subject_id: context.userId,
+            result_code: 'created',
+            metadata_schema_version: 1,
+            metadata: { channel: 'telegram' },
+            request_id: write.command.requestId,
+            command_id: write.command.commandId,
+            occurred_at: write.processedAt,
           })
           .executeTakeFirstOrThrow();
         await transaction
-          .insertInto('identity.guest_preview_counters')
+          .insertInto('platform.outbox_events')
           .values({
-            user_id: write.userId,
-            preview_count: 0,
-            limit_count: write.guestPreviewLimit,
-            first_preview_at: null,
-            last_preview_at: null,
+            id: write.registrationEventId,
+            aggregate_type: 'user',
+            aggregate_id: context.userId,
+            event_type: 'identity.telegram-identity-registered.v1',
+            schema_version: 1,
+            payload: { userId: context.userId, accountState: 'guest' },
+            occurred_at: write.processedAt,
+            available_at: write.processedAt,
+            published_at: null,
+            last_error_code: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            correlation_id: write.command.requestId,
+            causation_id: write.command.commandId,
           })
           .executeTakeFirstOrThrow();
-        await transaction
-          .insertInto('identity.user_settings')
-          .values({
-            user_id: write.userId,
-            visibility_enabled: true,
-            ui_locale_code: write.defaultLocale,
-            version: 1,
-            created_at: write.occurredAt,
-            updated_at: write.occurredAt,
-          })
-          .executeTakeFirstOrThrow();
-        await transaction
-          .insertInto('billing.credit_accounts')
-          .values({
-            user_id: write.userId,
-            balance: '0',
-            version: 1,
-            created_at: write.occurredAt,
-            updated_at: write.occurredAt,
-          })
-          .executeTakeFirstOrThrow();
-        await transaction
-          .insertInto('notification.notification_preferences')
-          .values({
-            user_id: write.userId,
-            chat_enabled: true,
-            like_enabled: true,
-            nakh_enabled: true,
-            match_enabled: true,
-            version: 1,
-            created_at: write.occurredAt,
-            updated_at: write.occurredAt,
-          })
-          .executeTakeFirstOrThrow();
-      });
-    } catch (error) {
-      if (!isTelegramIdentityConflict(error)) throw error;
-      await this.touchKnownIdentity(write);
-      return { context: (await this.getByTelegramUserId(write.telegramUserId))!, created: false };
-    }
+      }
 
-    return {
-      context: (await this.getByTelegramUserId(write.telegramUserId))!,
-      created: true,
-    };
+      await transaction
+        .insertInto('platform.outbox_events')
+        .values({
+          id: write.startRouteEventId,
+          aggregate_type: 'user',
+          aggregate_id: context.userId,
+          event_type: 'telegram.start-route-requested.v1',
+          schema_version: 1,
+          payload: {
+            userId: context.userId,
+            entryRoute: context.entryRoute,
+            uiLocale: context.uiLocale,
+          },
+          occurred_at: write.processedAt,
+          available_at: write.processedAt,
+          published_at: null,
+          last_error_code: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          correlation_id: write.command.requestId,
+          causation_id: write.command.commandId,
+        })
+        .executeTakeFirstOrThrow();
+
+      const result: RegisterTelegramIdentityResult = {
+        context,
+        created,
+        replayed: false,
+      };
+      await transaction
+        .updateTable('platform.idempotency_records')
+        .set({ status: 'completed', response_json: result, updated_at: write.processedAt })
+        .where('id', '=', write.command.commandId)
+        .executeTakeFirstOrThrow();
+      return result;
+    });
   }
 }
 
