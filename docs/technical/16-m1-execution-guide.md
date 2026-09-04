@@ -135,7 +135,8 @@ Create new forward-only migrations after the existing M0 migration. Use this ord
 3. `000004_m1_settings.sql`
 4. `000005_m1_profile_catalogs.sql`
 5. `000006_m1_signup_profile.sql`
-6. `000007_m1_profile_change_requests.sql`
+6. `000007_m1_profile_confirmation.sql`
+7. `000008_m1_profile_change_requests.sql`
 
 Never edit an already-applied migration. Each migration must run on a new database and on a database at the immediately previous version. Each must provide verification queries in its header or companion test. Rollback is application rollback plus a forward repair migration; production data is never removed automatically.
 
@@ -199,7 +200,7 @@ Media IDs are not stored in the M1 Profile tables. M2 owns media records. M1 con
 
 ### 7.5 Protected changes
 
-Migration `000007` creates:
+Migration `000008` creates:
 
 - the minimal canonical `administration.admin_users` identity table needed by the review foreign key, with no roles, permissions, or production provisioning;
 - `profile.profile_change_requests`;
@@ -582,9 +583,19 @@ PR 5 implementation record:
 - add `ProfileMediaEligibilityPort`, confirmation coordinator, Profile queries/edits, revalidation, Telegram/API adapters, and transaction/concurrency tests;
 - keep production confirmation disabled until the real M2 media adapter is wired.
 
+PR 6 implementation record:
+
+- [x] Media eligibility is obtained before database locks and rechecked against the exact locked draft photo IDs and proof expiry.
+- [x] Profile creation, optional details, selections, signup completion, Account activation/history, audit, outbox, and idempotent response share one transaction.
+- [x] Duplicate concurrent confirmation converges on one Profile and one Account transition.
+- [x] Own-Profile queries derive ownership only from the authenticated User actor.
+- [x] Editable fields use the shared normalization and active-catalog/location rules; protected birth-year and gender fields are absent from the edit contract.
+- [x] Selection replacement locks the Profile and Profile completion is synchronously invalidated/restored when catalog validity changes.
+- [x] Production Telegram/API confirmation remains unwired until M2 supplies the real media-eligibility adapter.
+
 ### PR 7 — protected changes
 
-- add migration `000007`, request/review use cases, internal reviewer authorization port, audit/outbox, and concurrency tests;
+- add migration `000008`, request/review use cases, internal reviewer authorization port, audit/outbox, and concurrency tests;
 - do not expose production review administration.
 
 ### PR 8 — Guest Preview counter and M1 hardening

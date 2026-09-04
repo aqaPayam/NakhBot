@@ -12,6 +12,7 @@ export * from './identity/change-settings.js';
 export * from './identity/signup.js';
 export * from './identity/signup-router.js';
 export * from './access/capability-authorizer.js';
+export * from './profile/profile.js';
 export * from './presentation.js';
 
 export type CreateSampleEffectWrite = Readonly<{

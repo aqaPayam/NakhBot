@@ -8,6 +8,7 @@ import {
   RegisterTelegramIdentityCommandSchema,
   RequestProtectedProfileChangeCommandSchema,
   SaveSignupStepCommandSchema,
+  UpdateProfileCommandSchema,
 } from './index.js';
 
 const addFormats = formatsModule.default as unknown as (
@@ -91,6 +92,17 @@ describe('M1 public contracts', () => {
           reason: 'because',
           expectedProfileVersion: 1,
         },
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects an empty editable Profile patch', () => {
+    const validate = validator(UpdateProfileCommandSchema);
+    expect(
+      validate({
+        ...envelope,
+        commandType: 'profile.update',
+        data: { expectedProfileVersion: 1, patch: {} },
       }),
     ).toBe(false);
   });

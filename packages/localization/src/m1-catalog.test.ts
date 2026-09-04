@@ -29,6 +29,7 @@ describe('M1 localization manifest', () => {
           '000004_m1_settings.sql',
           '000005_m1_profile_catalogs.sql',
           '000006_m1_signup_profile.sql',
+          '000007_m1_profile_confirmation.sql',
         ].map((name) => readFile(resolve(process.cwd(), 'migrations', name), 'utf8')),
       )
     ).join('\n');
@@ -99,6 +100,7 @@ describe('M1 localization manifest', () => {
         'packages/application/src/access/capability-authorizer.ts',
         'packages/application/src/identity/signup.ts',
         'packages/persistence-postgres/src/signup-store.ts',
+        'packages/persistence-postgres/src/profile-store.ts',
       ].map((name) => readFile(resolve(process.cwd(), name), 'utf8')),
     );
     const keys = sources.flatMap((source) =>

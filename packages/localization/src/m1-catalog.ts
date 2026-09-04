@@ -234,6 +234,16 @@ const CORE_M1_ENGLISH_ENTRIES = [
     category: 'error',
     english: 'One of the optional profile details is invalid.',
   },
+  {
+    key: 'error.profile.media_not_eligible',
+    category: 'error',
+    english: 'Your photos are not eligible for Profile confirmation.',
+  },
+  {
+    key: 'error.profile.version_conflict',
+    category: 'error',
+    english: 'Your Profile changed elsewhere. Refresh and try again.',
+  },
 ] as const satisfies ReadonlyArray<Omit<LocalizationManifestEntry, 'variables' | 'required'>>;
 
 const CATALOG_GROUPS = [

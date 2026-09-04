@@ -313,6 +313,38 @@ export const ConfirmSignupCommandSchema = commandSchema(
 );
 export type ConfirmSignupCommand = Static<typeof ConfirmSignupCommandSchema>;
 
+export const OwnProfileSchema = Type.Object(
+  {
+    profileId: UuidSchema,
+    userId: UuidSchema,
+    name: Type.String(),
+    birthYear: Type.Integer(),
+    genderCode: stableCodeSchema,
+    relationshipGenderPreferenceCode: stableCodeSchema,
+    interestCodes: Type.Array(stableCodeSchema),
+    countryCode: stableCodeSchema,
+    provinceCode: stableCodeSchema,
+    cityCode: stableCodeSchema,
+    relationshipGoalCode: stableCodeSchema,
+    highlight: Type.String(),
+    bio: Type.Optional(Type.String()),
+    completionStatus: ProfileCompletionStatusSchema,
+    version: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type OwnProfile = Static<typeof OwnProfileSchema>;
+
+export const ConfirmSignupResultSchema = Type.Object(
+  {
+    profile: OwnProfileSchema,
+    accountState: Type.Literal('active'),
+    replayed: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type ConfirmSignupResult = Static<typeof ConfirmSignupResultSchema>;
+
 export const ConsumeGuestPreviewCommandSchema = commandSchema(
   'identity.consume-guest-preview',
   Type.Object(
@@ -376,7 +408,7 @@ const editableProfilePatchSchema = Type.Object(
     highlight: Type.Optional(Type.String({ minLength: 1, maxLength: 320 })),
     optionalDetails: Type.Optional(optionalDetailsSchema),
   },
-  { additionalProperties: false },
+  { additionalProperties: false, minProperties: 1 },
 );
 
 export const UpdateProfileCommandSchema = commandSchema(

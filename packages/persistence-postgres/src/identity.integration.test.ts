@@ -7,15 +7,18 @@ import type { ChangeVisibilityCommand, SaveSignupStepCommand } from '@nakh/contr
 import {
   RegisterTelegramIdentityHandler,
   type ChangeSettingsWrite,
+  type ConfirmSignupWrite,
   type RegisterTelegramIdentityWrite,
   type SaveSignupStepWrite,
   type StartSignupWrite,
+  type UpdateProfileWrite,
 } from '@nakh/application';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 import { runMigrations } from './migrations.js';
 import { PostgresSignupStore } from './signup-store.js';
+import { PostgresProfileStore } from './profile-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -184,7 +187,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(153);
+    expect(Object.keys(english.messages)).toHaveLength(155);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(inactiveFallback).toMatchObject({ requestedLocale: 'fa', resolvedLocale: 'en' });
   });
@@ -677,6 +680,196 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
       code: 'internal_error',
       message: 'error.signup.draft_invalid',
     });
+  });
+
+  it('confirms Profile atomically, replays duplicate confirmation, and edits safely', async () => {
+    const identities = new PostgresIdentityStore(database);
+    const signup = new PostgresSignupStore(database);
+    const profiles = new PostgresProfileStore(database);
+    const userId = randomUUID();
+    await identities.registerTelegramIdentity(registrationWrite(telegramUserId(), 70, userId));
+    await signup.startSignup(startSignupWrite(userId, 20));
+    const primaryMediaAssetId = randomUUID();
+    const additionalMediaAssetId = randomUUID();
+    const values: Array<SaveSignupStepCommand['data']['value']> = [
+      { step: 'age_confirmation', accepted: true },
+      { step: 'name', value: 'Payam' },
+      { step: 'birth_year', value: '۲۰۰۰' },
+      { step: 'gender', code: 'man' },
+      { step: 'relationship_gender_preference', code: 'women' },
+      { step: 'interests', codes: ['music', 'books', 'travel', 'coffee', 'art'] },
+      { step: 'location', countryCode: 'iran', provinceCode: 'tehran', cityCode: 'tehran' },
+      { step: 'relationship_goal', code: 'marriage' },
+      { step: 'primary_photo', mediaAssetId: primaryMediaAssetId },
+      { step: 'additional_photos', mediaAssetIds: [additionalMediaAssetId] },
+      { step: 'highlight', value: 'Kind and curious' },
+      {
+        step: 'optional_details',
+        value: { languageCodes: ['persian'], personalityTagCodes: ['calm'] },
+      },
+    ];
+    for (const [offset, value] of values.entries())
+      await signup.saveSignupStep(saveSignupWrite(userId, 20 + offset, 1 + offset, value));
+
+    const commandId = randomUUID();
+    const command = {
+      commandId,
+      commandType: 'identity.confirm-signup' as const,
+      schemaVersion: 1 as const,
+      actor: { kind: 'user' as const, userId },
+      requestId: randomUUID(),
+      idempotencyKey: `confirm:${userId}`,
+      occurredAt: '2026-09-04T12:00:00.000Z',
+      locale: 'en',
+      data: { expectedDraftVersion: 13 },
+    };
+    const processedAt = new Date('2026-09-04T12:00:01.000Z');
+    const proof = {
+      proofId: randomUUID(),
+      userId,
+      primaryMediaAssetId,
+      acceptedMediaAssetIds: [primaryMediaAssetId, additionalMediaAssetId],
+      issuedAt: new Date('2026-09-04T11:59:00.000Z'),
+      expiresAt: new Date('2026-09-04T12:05:00.000Z'),
+    };
+    const makeWrite = (): ConfirmSignupWrite => ({
+      command,
+      proof,
+      profileId: randomUUID(),
+      accountHistoryId: randomUUID(),
+      auditId: randomUUID(),
+      profileEventId: randomUUID(),
+      accountEventId: randomUUID(),
+      processedAt,
+    });
+    await expect(
+      profiles.confirmSignup({
+        ...makeWrite(),
+        command: { ...command, commandId: randomUUID(), idempotencyKey: `invalid-proof:${userId}` },
+        proof: { ...proof, expiresAt: new Date('2026-09-04T11:00:00.000Z') },
+      }),
+    ).rejects.toMatchObject({ code: 'media_not_eligible' });
+    const confirmations = await Promise.all([
+      profiles.confirmSignup(makeWrite()),
+      profiles.confirmSignup(makeWrite()),
+    ]);
+    expect(confirmations.map((result) => result.profile.profileId)).toEqual([
+      confirmations[0].profile.profileId,
+      confirmations[0].profile.profileId,
+    ]);
+    expect(confirmations.filter((result) => result.replayed)).toHaveLength(1);
+
+    const updateCommand = {
+      commandId: randomUUID(),
+      commandType: 'profile.update' as const,
+      schemaVersion: 1 as const,
+      actor: { kind: 'user' as const, userId },
+      requestId: randomUUID(),
+      idempotencyKey: `profile-update:${userId}`,
+      occurredAt: '2026-09-04T12:01:00.000Z',
+      locale: 'en',
+      data: {
+        expectedProfileVersion: 1,
+        patch: {
+          name: '  Payám  ',
+          interestCodes: ['music', 'books', 'travel', 'coffee', 'science'],
+        },
+      },
+    };
+    const updateWrite: UpdateProfileWrite = {
+      command: updateCommand,
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      processedAt: new Date('2026-09-04T12:01:01.000Z'),
+    };
+    const updated = await profiles.updateOwnProfile(updateWrite);
+    await expect(
+      profiles.updateOwnProfile({ ...updateWrite, auditId: randomUUID(), eventId: randomUUID() }),
+    ).resolves.toEqual(updated);
+    expect(updated).toMatchObject({ name: 'Payám', completionStatus: 'complete', version: 2 });
+    expect(updated.interestCodes).toEqual(['travel', 'music', 'books', 'coffee', 'science']);
+
+    await database
+      .updateTable('catalog.interests')
+      .set({ is_active: false })
+      .where('code', '=', 'science')
+      .executeTakeFirstOrThrow();
+    const invalidateCommand = {
+      ...updateCommand,
+      commandId: randomUUID(),
+      idempotencyKey: `profile-invalidate:${userId}`,
+      data: { expectedProfileVersion: 2, patch: { name: 'Payam' } },
+    };
+    const invalid = await profiles.updateOwnProfile({
+      command: invalidateCommand,
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      processedAt: new Date('2026-09-04T12:02:00.000Z'),
+    });
+    expect(invalid.completionStatus).toBe('invalid');
+    await database
+      .updateTable('catalog.interests')
+      .set({ is_active: true })
+      .where('code', '=', 'science')
+      .executeTakeFirstOrThrow();
+    const restoreCommand = {
+      ...updateCommand,
+      commandId: randomUUID(),
+      idempotencyKey: `profile-restore:${userId}`,
+      data: { expectedProfileVersion: 3, patch: { name: 'Payam' } },
+    };
+    await expect(
+      profiles.updateOwnProfile({
+        command: restoreCommand,
+        auditId: randomUUID(),
+        eventId: randomUUID(),
+        processedAt: new Date('2026-09-04T12:03:00.000Z'),
+      }),
+    ).resolves.toMatchObject({ completionStatus: 'complete', version: 4 });
+
+    const [account, progress, profileRows, histories, confirmationAudits, confirmationEvents] =
+      await Promise.all([
+        database
+          .selectFrom('identity.accounts')
+          .select('state')
+          .where('user_id', '=', userId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('identity.signup_progress')
+          .select(['current_step', 'completed_at'])
+          .where('user_id', '=', userId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('profile.profiles')
+          .select('id')
+          .where('user_id', '=', userId)
+          .execute(),
+        database
+          .selectFrom('identity.account_state_history')
+          .select('id')
+          .where('user_id', '=', userId)
+          .where('next_state', '=', 'active')
+          .execute(),
+        database
+          .selectFrom('platform.audit_logs')
+          .select('id')
+          .where('subject_id', '=', confirmations[0].profile.profileId)
+          .where('event_type', '=', 'profile.confirmed.v1')
+          .execute(),
+        database
+          .selectFrom('platform.outbox_events')
+          .select('id')
+          .where('aggregate_id', '=', confirmations[0].profile.profileId)
+          .where('event_type', '=', 'profile.confirmed.v1')
+          .execute(),
+      ]);
+    expect(account.state).toBe('active');
+    expect(progress.current_step).toBe('completed');
+    expect(progress.completed_at).not.toBeNull();
+    expect(profileRows).toHaveLength(1);
+    expect(histories).toHaveLength(1);
+    expect(confirmationAudits).toHaveLength(1);
+    expect(confirmationEvents).toHaveLength(1);
   });
 
   it('enforces append-only history and the immutable Guest Preview limit snapshot', async () => {
