@@ -64,7 +64,7 @@ jobs:
       NAKH_REDIS_URL: redis://localhost:6379
       NAKH_TEST_REDIS_URL: redis://localhost:6379
       NAKH_TELEGRAM_BOT_TOKEN_REF: fake
-      NAKH_TELEGRAM_WEBHOOK_SECRET: 12345678901234567890123456789012
+      NAKH_TELEGRAM_WEBHOOK_SECRET: 'ci-webhook-secret-not-a-real-secret-0001'
       NAKH_R2_ENDPOINT: https://r2.invalid
       NAKH_R2_BUCKET: test
       NAKH_R2_ACCESS_KEY_REF: fake
