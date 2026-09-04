@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
 import type { DomainEvent } from '@nakh/contracts';
 
@@ -19,14 +19,6 @@ describe.skipIf(redisUrl === undefined)('Redis queue reliability', () => {
   const workerConnection = createRedisConnection(redisUrl ?? 'redis://invalid');
   const leaseConnection = createRedisConnection(redisUrl ?? 'redis://invalid');
   const publisher = new BullMqOutboxPublisher(publisherConnection, prefix);
-
-  beforeAll(async () => {
-    await Promise.all([
-      publisherConnection.connect(),
-      workerConnection.connect(),
-      leaseConnection.connect(),
-    ]);
-  });
 
   afterAll(async () => {
     await publisher.close();
