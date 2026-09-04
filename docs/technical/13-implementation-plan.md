@@ -44,7 +44,9 @@ Exit gate: duplicate sample command creates one effect/outbox; worker crash/repl
 
 Deliver User/Telegram identity, Account transitions/history, settings, guest preview counter, signup draft/progress, catalogs, Profile completion/edit/change requests, localization rendering, and start routing.
 
-Exit gate: `ACC-001..007`, access matrix, no prose outside localization, concurrency and protected-field review tests pass.
+Execution guide: [`16-m1-execution-guide.md`](16-m1-execution-guide.md).
+
+Exit gate: M1-owned evidence for `ACC-001..007`, access matrix, no prose outside localization, concurrency, and protected-field review tests pass. Cross-milestone scenarios remain open until their final owning module supplies end-to-end evidence, as defined by the M1 execution guide.
 
 ### M2 — media
 
