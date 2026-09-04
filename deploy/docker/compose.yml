@@ -2,7 +2,7 @@ name: nakh-local
 
 services:
   postgres:
-    image: postgres:17.11-alpine3.22
+    image: postgres:17.11-alpine3.23
     environment:
       POSTGRES_DB: nakh
       POSTGRES_USER: nakh

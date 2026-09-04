@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:17.11-alpine3.22
+        image: postgres:17.11-alpine3.23
         env:
           POSTGRES_DB: nakh
           POSTGRES_USER: nakh
