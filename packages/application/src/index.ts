@@ -9,6 +9,8 @@ export * from './identity/store.js';
 export * from './identity/register-telegram-identity.js';
 export * from './identity/start-router.js';
 export * from './identity/change-settings.js';
+export * from './identity/signup.js';
+export * from './identity/signup-router.js';
 export * from './access/capability-authorizer.js';
 export * from './presentation.js';
 

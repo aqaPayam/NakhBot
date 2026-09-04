@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { routeStart } from '@nakh/application';
+import { routeSignup, routeStart } from '@nakh/application';
 
 import {
+  M1_CATALOG_LOCALIZATION_ENTRIES,
   M1_LOCALIZATION_MANIFEST,
   englishCatalogFromManifest,
   validateLocalizationManifest,
@@ -26,12 +27,46 @@ describe('M1 localization manifest', () => {
           '000002_m1_identity_localization.sql',
           '000003_m1_identity_start.sql',
           '000004_m1_settings.sql',
+          '000005_m1_profile_catalogs.sql',
+          '000006_m1_signup_profile.sql',
         ].map((name) => readFile(resolve(process.cwd(), 'migrations', name), 'utf8')),
       )
     ).join('\n');
     for (const entry of M1_LOCALIZATION_MANIFEST) {
-      expect(migration).toContain(`'${entry.key}'`);
-      expect(migration).toContain(`'${entry.english.replaceAll("'", "''")}'`);
+      if (M1_CATALOG_LOCALIZATION_ENTRIES.includes(entry)) {
+        expect(migration).toContain(`'${entry.key.split('.').at(-1)}'`);
+      } else {
+        expect(migration).toContain(`'${entry.key}'`);
+        expect(migration).toContain(`'${entry.english.replaceAll("'", "''")}'`);
+      }
+    }
+  });
+
+  it('covers every durable signup resume prompt', () => {
+    const catalog = englishCatalogFromManifest();
+    const steps = [
+      'age_confirmation',
+      'name',
+      'birth_year',
+      'gender',
+      'relationship_gender_preference',
+      'interests',
+      'location',
+      'relationship_goal',
+      'primary_photo',
+      'additional_photos',
+      'highlight',
+      'optional_details',
+      'confirm_profile',
+      'completed',
+    ] as const;
+    for (const currentStep of steps) {
+      const view = routeSignup({
+        currentStep,
+        draftVersion: 1,
+        updatedAt: '2026-09-04T00:00:00.000Z',
+      });
+      expect(catalog[view.prompt.key], view.prompt.key).toBeDefined();
     }
   });
 
@@ -62,6 +97,8 @@ describe('M1 localization manifest', () => {
       [
         'packages/application/src/identity/change-settings.ts',
         'packages/application/src/access/capability-authorizer.ts',
+        'packages/application/src/identity/signup.ts',
+        'packages/persistence-postgres/src/signup-store.ts',
       ].map((name) => readFile(resolve(process.cwd(), name), 'utf8')),
     );
     const keys = sources.flatMap((source) =>

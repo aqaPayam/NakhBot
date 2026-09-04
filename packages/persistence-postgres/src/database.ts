@@ -108,6 +108,37 @@ export interface UiTextTable {
   updated_at: Date;
 }
 
+export interface CatalogOptionTable {
+  id: string;
+  code: string;
+  label_key: string;
+  is_active: Generated<boolean>;
+  display_order: number;
+}
+
+export interface GenderPreferenceMemberTable {
+  gender_preference_id: string;
+  gender_option_id: string;
+}
+
+export interface ProfileOptionValueTable extends CatalogOptionTable {
+  category:
+    | 'education_level'
+    | 'smoking_preference'
+    | 'pets_preference'
+    | 'exercise_frequency'
+    | 'religion_importance'
+    | 'children_preference';
+}
+
+export interface ProvinceTable extends CatalogOptionTable {
+  country_id: string;
+}
+
+export interface CityTable extends CatalogOptionTable {
+  province_id: string;
+}
+
 export interface UserTable {
   id: string;
   last_activity_at: Date;
@@ -160,6 +191,89 @@ export interface UserSettingsTable {
   updated_at: Date;
 }
 
+export interface SignupProgressTable {
+  user_id: string;
+  current_step:
+    | 'age_confirmation'
+    | 'name'
+    | 'birth_year'
+    | 'gender'
+    | 'relationship_gender_preference'
+    | 'interests'
+    | 'location'
+    | 'relationship_goal'
+    | 'primary_photo'
+    | 'additional_photos'
+    | 'highlight'
+    | 'optional_details'
+    | 'confirm_profile'
+    | 'completed';
+  started_at: Date;
+  completed_at: Date | null;
+  version: Generated<number>;
+  updated_at: Date;
+}
+
+export interface SignupDraftTable {
+  user_id: string;
+  draft_data: ColumnType<JsonObject, object, object>;
+  schema_version: number;
+  last_completed_step: SignupProgressTable['current_step'] | null;
+  expires_at: Date | null;
+  version: Generated<number>;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ProfileTable {
+  id: string;
+  user_id: string;
+  name: string;
+  birth_year: number;
+  gender_option_id: string;
+  gender_preference_id: string;
+  relationship_goal_id: string;
+  country_id: string;
+  province_id: string;
+  city_id: string;
+  highlight: string;
+  bio: string | null;
+  completion_status: 'incomplete' | 'complete' | 'invalid';
+  ever_completed: Generated<boolean>;
+  completed_at: Date | null;
+  random_shuffle_key: Generated<number>;
+  version: Generated<number>;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ProfileOptionalDetailsTable {
+  profile_id: string;
+  height_cm: number | null;
+  job_title: string | null;
+  education_level_code: string | null;
+  smoking_preference_code: string | null;
+  pets_preference_code: string | null;
+  exercise_frequency_code: string | null;
+  religion_importance_code: string | null;
+  children_preference_code: string | null;
+}
+
+export interface ProfileSelectionTable {
+  profile_id: string;
+  interest_id: string;
+}
+
+export interface ProfileLanguageTable {
+  profile_id: string;
+  language_id: string;
+}
+
+export interface ProfilePersonalityTagTable {
+  profile_id: string;
+  personality_tag_id: string;
+}
+
 export interface CreditAccountTable {
   user_id: string;
   balance: Generated<string>;
@@ -206,15 +320,33 @@ export interface DatabaseSchema {
   'platform.job_run_logs': JobRunLogTable;
   'catalog.locales': LocaleTable;
   'catalog.ui_texts': UiTextTable;
+  'catalog.gender_options': CatalogOptionTable;
+  'catalog.gender_preferences': CatalogOptionTable;
+  'catalog.gender_preference_members': GenderPreferenceMemberTable;
+  'catalog.relationship_goals': CatalogOptionTable;
+  'catalog.interests': CatalogOptionTable;
+  'catalog.languages': CatalogOptionTable;
+  'catalog.personality_tags': CatalogOptionTable;
+  'catalog.profile_option_values': ProfileOptionValueTable;
+  'catalog.countries': CatalogOptionTable;
+  'catalog.provinces': ProvinceTable;
+  'catalog.cities': CityTable;
   'identity.users': UserTable;
   'identity.telegram_identities': TelegramIdentityTable;
   'identity.accounts': AccountTable;
   'identity.account_state_history': AccountStateHistoryTable;
   'identity.guest_preview_counters': GuestPreviewCounterTable;
   'identity.user_settings': UserSettingsTable;
+  'identity.signup_progress': SignupProgressTable;
+  'identity.signup_drafts': SignupDraftTable;
   'billing.credit_accounts': CreditAccountTable;
   'notification.notification_preferences': NotificationPreferenceTable;
   'platform.audit_logs': AuditLogTable;
+  'profile.profiles': ProfileTable;
+  'profile.profile_optional_details': ProfileOptionalDetailsTable;
+  'profile.profile_interests': ProfileSelectionTable;
+  'profile.profile_languages': ProfileLanguageTable;
+  'profile.profile_personality_tags': ProfilePersonalityTagTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;

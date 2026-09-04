@@ -565,6 +565,18 @@ Implement M1 as these reviewable vertical changes. Do not begin a later item whi
 - add migrations `000005` and `000006`, seed registry, signup progress/draft repositories, start/save handlers, validators, and resume UI;
 - prove `ACC-007` and stale-version/idempotency behavior.
 
+PR 5 implementation record:
+
+- [x] Catalog rows use stable codes, normalized foreign-key hierarchy, active flags, deterministic ordering, and localized label keys.
+- [x] The complete locked gender, preference, relationship-goal, interest, language, personality-tag, and optional-detail registries are seeded.
+- [x] Iran plus deterministic test locations are seeded; the fixture is explicitly not production-complete.
+- [x] Signup progress and schema-versioned drafts are durable and one-per-User.
+- [x] Draft decoding rejects unknown schema versions, unknown steps, unexpected fields, and invalid stored shapes.
+- [x] Start Signup atomically transitions Guest to Incomplete without resetting Guest Preview usage.
+- [x] Save Signup Step enforces canonical order, active catalogs, exact location ancestry, normalization, optimistic versions, idempotency, audit, and outbox.
+- [x] Signup resumes from persisted state after process restart and stops at `confirm_profile` until PR 6 supplies media eligibility and atomic confirmation.
+- [x] `ACC-007/M1-E2E`, duplicate start/save, idempotency conflict, and competing stale-writer behavior have PostgreSQL evidence.
+
 ### PR 6 — Profile confirmation and editing
 
 - add `ProfileMediaEligibilityPort`, confirmation coordinator, Profile queries/edits, revalidation, Telegram/API adapters, and transaction/concurrency tests;

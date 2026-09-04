@@ -3,16 +3,19 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { ChangeVisibilityCommand } from '@nakh/contracts';
+import type { ChangeVisibilityCommand, SaveSignupStepCommand } from '@nakh/contracts';
 import {
   RegisterTelegramIdentityHandler,
   type ChangeSettingsWrite,
   type RegisterTelegramIdentityWrite,
+  type SaveSignupStepWrite,
+  type StartSignupWrite,
 } from '@nakh/application';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 import { runMigrations } from './migrations.js';
+import { PostgresSignupStore } from './signup-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -104,6 +107,52 @@ function localeWrite(
   };
 }
 
+function startSignupWrite(userId: string, index: number): StartSignupWrite {
+  const processedAt = new Date(`2026-09-04T11:00:${String(index).padStart(2, '0')}.000Z`);
+  return {
+    command: {
+      commandId: randomUUID(),
+      commandType: 'identity.start-signup',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId },
+      requestId: randomUUID(),
+      idempotencyKey: `start-signup:${userId}:${index}`,
+      occurredAt: processedAt.toISOString(),
+      locale: 'en',
+      data: { expectedAccountVersion: 1 },
+    },
+    accountHistoryId: randomUUID(),
+    auditId: randomUUID(),
+    eventId: randomUUID(),
+    processedAt,
+  };
+}
+
+function saveSignupWrite(
+  userId: string,
+  index: number,
+  expectedDraftVersion: number,
+  value: SaveSignupStepCommand['data']['value'],
+): SaveSignupStepWrite {
+  const processedAt = new Date(`2026-09-04T11:01:${String(index).padStart(2, '0')}.000Z`);
+  return {
+    command: {
+      commandId: randomUUID(),
+      commandType: 'identity.save-signup-step',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId },
+      requestId: randomUUID(),
+      idempotencyKey: `save-signup:${userId}:${index}`,
+      occurredAt: processedAt.toISOString(),
+      locale: 'en',
+      data: { expectedDraftVersion, value },
+    },
+    auditId: randomUUID(),
+    eventId: randomUUID(),
+    processedAt,
+  };
+}
+
 describe.skipIf(databaseUrl === undefined)('M1 identity and localization persistence', () => {
   let database: NakhDatabase;
 
@@ -135,9 +184,49 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(29);
+    expect(Object.keys(english.messages)).toHaveLength(153);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(inactiveFallback).toMatchObject({ requestedLocale: 'fa', resolvedLocale: 'en' });
+  });
+
+  it('installs canonical Profile catalogs with unique codes and valid hierarchy', async () => {
+    const counts = await Promise.all([
+      database
+        .selectFrom('catalog.gender_options')
+        .select('id')
+        .where('is_active', '=', true)
+        .execute(),
+      database
+        .selectFrom('catalog.gender_preferences')
+        .select('id')
+        .where('is_active', '=', true)
+        .execute(),
+      database
+        .selectFrom('catalog.relationship_goals')
+        .select('id')
+        .where('is_active', '=', true)
+        .execute(),
+      database.selectFrom('catalog.interests').select('id').where('is_active', '=', true).execute(),
+      database.selectFrom('catalog.languages').select('id').where('is_active', '=', true).execute(),
+      database
+        .selectFrom('catalog.personality_tags')
+        .select('id')
+        .where('is_active', '=', true)
+        .execute(),
+    ]);
+    expect(counts.map((rows) => rows.length)).toEqual([3, 3, 5, 30, 14, 12]);
+    await expect(
+      database
+        .insertInto('catalog.interests')
+        .values({
+          id: randomUUID(),
+          code: 'music',
+          label_key: 'catalog.interest.duplicate_music',
+          is_active: true,
+          display_order: 999,
+        })
+        .execute(),
+    ).rejects.toThrow();
   });
 
   it('creates the entire first-start aggregate atomically', async () => {
@@ -391,6 +480,203 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     ]);
     expect(settingAudits).toHaveLength(2);
     expect(settingEvents).toHaveLength(2);
+  });
+
+  it('resumes a normalized signup draft and rejects stale concurrent writers', async () => {
+    const identities = new PostgresIdentityStore(database);
+    const signup = new PostgresSignupStore(database);
+    const userId = randomUUID();
+    await identities.registerTelegramIdentity(registrationWrite(telegramUserId(), 60, userId));
+
+    const starts = await Promise.all([
+      signup.startSignup(startSignupWrite(userId, 1)),
+      signup.startSignup(startSignupWrite(userId, 2)),
+    ]);
+    expect(starts).toEqual([
+      expect.objectContaining({ currentStep: 'age_confirmation', draftVersion: 1 }),
+      expect.objectContaining({ currentStep: 'age_confirmation', draftVersion: 1 }),
+    ]);
+
+    const age = saveSignupWrite(userId, 1, 1, {
+      step: 'age_confirmation',
+      accepted: true,
+    });
+    const ageResult = await signup.saveSignupStep(age);
+    await expect(
+      signup.saveSignupStep({ ...age, auditId: randomUUID(), eventId: randomUUID() }),
+    ).resolves.toEqual(ageResult);
+    await expect(
+      signup.saveSignupStep({
+        ...age,
+        command: { ...age.command, data: { ...age.command.data, expectedDraftVersion: 99 } },
+      }),
+    ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+
+    const competingNames = await Promise.allSettled([
+      signup.saveSignupStep(saveSignupWrite(userId, 2, 2, { step: 'name', value: '  Payam  ' })),
+      signup.saveSignupStep(saveSignupWrite(userId, 3, 2, { step: 'name', value: 'Peyman' })),
+    ]);
+    expect(competingNames.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(competingNames.find((result) => result.status === 'rejected')).toMatchObject({
+      reason: {
+        code: 'stale_signup_version',
+        details: { currentStep: 'birth_year', currentVersion: '3' },
+      },
+    });
+
+    const birth = saveSignupWrite(userId, 4, 3, { step: 'birth_year', value: '۲۰۰۰' });
+    await signup.saveSignupStep(birth);
+    await expect(
+      signup.saveSignupStep(saveSignupWrite(userId, 5, 4, { step: 'gender', code: 'inactive' })),
+    ).rejects.toMatchObject({ code: 'inactive_catalog_selection' });
+
+    const remaining: Array<SaveSignupStepCommand['data']['value']> = [
+      { step: 'gender', code: 'man' },
+      { step: 'relationship_gender_preference', code: 'women' },
+      { step: 'interests', codes: ['music', 'books', 'travel', 'coffee', 'art'] },
+      { step: 'location', countryCode: 'iran', provinceCode: 'tehran', cityCode: 'tehran' },
+      { step: 'relationship_goal', code: 'marriage' },
+      { step: 'primary_photo', mediaAssetId: randomUUID() },
+      { step: 'additional_photos', mediaAssetIds: [randomUUID()] },
+      { step: 'highlight', value: '  Kind and curious  ' },
+      {
+        step: 'optional_details',
+        value: {
+          heightCm: 180,
+          educationLevelCode: 'bachelor',
+          languageCodes: ['persian', 'english'],
+          personalityTagCodes: ['calm'],
+        },
+      },
+    ];
+    let version = 4;
+    let index = 6;
+    for (const value of remaining) {
+      await signup.saveSignupStep(saveSignupWrite(userId, index, version, value));
+      version += 1;
+      index += 1;
+    }
+
+    const restartedStore = new PostgresSignupStore(database);
+    await expect(restartedStore.getSignupState(userId)).resolves.toMatchObject({
+      currentStep: 'confirm_profile',
+      draftVersion: 13,
+    });
+    await expect(
+      restartedStore.saveSignupStep(
+        saveSignupWrite(userId, 15, 13, { step: 'confirm_profile', confirmed: true }),
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_signup_step' });
+
+    const [account, draft, progress, startAudits, savedAudits, profiles] = await Promise.all([
+      database
+        .selectFrom('identity.accounts')
+        .select('state')
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('identity.signup_drafts')
+        .select(['draft_data', 'version'])
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('identity.signup_progress')
+        .select('current_step')
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('subject_id', '=', userId)
+        .where('event_type', '=', 'identity.signup-started.v1')
+        .execute(),
+      database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('subject_id', '=', userId)
+        .where('event_type', '=', 'identity.signup-step-saved.v1')
+        .execute(),
+      database.selectFrom('profile.profiles').select('id').where('user_id', '=', userId).execute(),
+    ]);
+    expect(account.state).toBe('incomplete');
+    expect(progress.current_step).toBe('confirm_profile');
+    expect(draft.version).toBe(13);
+    expect(draft.draft_data).toMatchObject({
+      birth_year: { step: 'birth_year', value: 2000 },
+      highlight: { step: 'highlight', value: 'Kind and curious' },
+    });
+    expect(startAudits).toHaveLength(1);
+    expect(savedAudits).toHaveLength(12);
+    expect(profiles).toHaveLength(0);
+
+    const [gender, preference, goal, country, province, wrongCity] = await Promise.all([
+      database
+        .selectFrom('catalog.gender_options')
+        .select('id')
+        .where('code', '=', 'man')
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('catalog.gender_preferences')
+        .select('id')
+        .where('code', '=', 'women')
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('catalog.relationship_goals')
+        .select('id')
+        .where('code', '=', 'marriage')
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('catalog.countries')
+        .select('id')
+        .where('code', '=', 'iran')
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('catalog.provinces')
+        .select('id')
+        .where('code', '=', 'tehran')
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('catalog.cities')
+        .select('id')
+        .where('code', '=', 'isfahan')
+        .executeTakeFirstOrThrow(),
+    ]);
+    await expect(
+      database
+        .insertInto('profile.profiles')
+        .values({
+          id: randomUUID(),
+          user_id: userId,
+          name: 'Payam',
+          birth_year: 2000,
+          gender_option_id: gender.id,
+          gender_preference_id: preference.id,
+          relationship_goal_id: goal.id,
+          country_id: country.id,
+          province_id: province.id,
+          city_id: wrongCity.id,
+          highlight: 'Hello',
+          bio: null,
+          completion_status: 'incomplete',
+          ever_completed: false,
+          completed_at: null,
+          random_shuffle_key: 0.5,
+          version: 1,
+          created_at: new Date(),
+          updated_at: new Date(),
+        })
+        .execute(),
+    ).rejects.toThrow(/invalid profile location hierarchy/u);
+
+    await database
+      .updateTable('identity.signup_drafts')
+      .set({ draft_data: { unknown_future_step: { step: 'unknown_future_step' } } })
+      .where('user_id', '=', userId)
+      .executeTakeFirstOrThrow();
+    await expect(restartedStore.getSignupState(userId)).rejects.toMatchObject({
+      code: 'internal_error',
+      message: 'error.signup.draft_invalid',
+    });
   });
 
   it('enforces append-only history and the immutable Guest Preview limit snapshot', async () => {

@@ -9,7 +9,7 @@ export type LocalizationManifestEntry = Readonly<{
   required: boolean;
 }>;
 
-const M1_ENGLISH_ENTRIES = [
+const CORE_M1_ENGLISH_ENTRIES = [
   { key: 'start.guest.title', category: 'message', english: 'Welcome to Nakh' },
   {
     key: 'start.incomplete.title',
@@ -127,10 +127,258 @@ const M1_ENGLISH_ENTRIES = [
     category: 'error',
     english: 'That language is not currently available.',
   },
+  {
+    key: 'signup.age_confirmation.prompt',
+    category: 'message',
+    english: 'Confirm that you are at least 18 years old.',
+  },
+  {
+    key: 'signup.name.prompt',
+    category: 'message',
+    english: 'What name should appear on your profile?',
+  },
+  {
+    key: 'signup.birth_year.prompt',
+    category: 'message',
+    english: 'What is your Gregorian birth year?',
+  },
+  { key: 'signup.gender.prompt', category: 'message', english: 'Select your gender.' },
+  {
+    key: 'signup.relationship_gender_preference.prompt',
+    category: 'message',
+    english: 'Who would you like to meet?',
+  },
+  {
+    key: 'signup.interests.prompt',
+    category: 'message',
+    english: 'Choose between 5 and 20 interests.',
+  },
+  {
+    key: 'signup.location.prompt',
+    category: 'message',
+    english: 'Select your country, province, and city.',
+  },
+  {
+    key: 'signup.relationship_goal.prompt',
+    category: 'message',
+    english: 'What kind of relationship are you looking for?',
+  },
+  {
+    key: 'signup.primary_photo.prompt',
+    category: 'message',
+    english: 'Choose your primary photo.',
+  },
+  {
+    key: 'signup.additional_photos.prompt',
+    category: 'message',
+    english: 'Add at least one more photo.',
+  },
+  {
+    key: 'signup.highlight.prompt',
+    category: 'message',
+    english: 'Write a short profile highlight.',
+  },
+  {
+    key: 'signup.optional_details.prompt',
+    category: 'message',
+    english: 'Add optional details or continue.',
+  },
+  {
+    key: 'signup.confirm_profile.prompt',
+    category: 'message',
+    english: 'Review and confirm your profile.',
+  },
+  { key: 'signup.completed.prompt', category: 'message', english: 'Your profile is complete.' },
+  {
+    key: 'error.signup.step.invalid',
+    category: 'error',
+    english: 'This signup step cannot be saved now.',
+  },
+  {
+    key: 'error.signup.version_conflict',
+    category: 'error',
+    english: 'Your signup changed elsewhere. Resume from the current step.',
+  },
+  {
+    key: 'error.signup.catalog_inactive',
+    category: 'error',
+    english: 'One of the selected options is no longer available.',
+  },
+  {
+    key: 'error.signup.location_invalid',
+    category: 'error',
+    english: 'Select a valid active country, province, and city.',
+  },
+  {
+    key: 'error.signup.draft_invalid',
+    category: 'error',
+    english: 'Your saved signup data cannot be read safely.',
+  },
+  {
+    key: 'error.profile.interests.invalid',
+    category: 'error',
+    english: 'Choose between 5 and 20 distinct interests.',
+  },
+  {
+    key: 'error.profile.languages.invalid',
+    category: 'error',
+    english: 'Choose at most 10 distinct languages.',
+  },
+  {
+    key: 'error.profile.personality_tags.invalid',
+    category: 'error',
+    english: 'Choose at most 5 distinct personality tags.',
+  },
+  {
+    key: 'error.signup.optional_details.invalid',
+    category: 'error',
+    english: 'One of the optional profile details is invalid.',
+  },
 ] as const satisfies ReadonlyArray<Omit<LocalizationManifestEntry, 'variables' | 'required'>>;
 
-export const M1_LOCALIZATION_MANIFEST: readonly LocalizationManifestEntry[] =
-  M1_ENGLISH_ENTRIES.map((entry) => ({ ...entry, variables: [], required: true }));
+const CATALOG_GROUPS = [
+  { namespace: 'gender', codes: ['man', 'woman', 'other'] },
+  { namespace: 'gender_preference', codes: ['men', 'women', 'everyone'] },
+  {
+    namespace: 'relationship_goal',
+    codes: ['serious_relationship', 'casual_dating', 'friendship', 'marriage', 'not_sure_yet'],
+  },
+  {
+    namespace: 'interest',
+    codes: [
+      'travel',
+      'music',
+      'movies',
+      'books',
+      'fitness',
+      'hiking',
+      'cooking',
+      'coffee',
+      'photography',
+      'art',
+      'gaming',
+      'technology',
+      'animals',
+      'nature',
+      'dancing',
+      'fashion',
+      'football',
+      'volleyball',
+      'basketball',
+      'running',
+      'cycling',
+      'swimming',
+      'yoga',
+      'languages',
+      'history',
+      'science',
+      'entrepreneurship',
+      'volunteering',
+      'food',
+      'cars',
+    ],
+  },
+  {
+    namespace: 'language',
+    codes: [
+      'persian',
+      'english',
+      'azerbaijani_turkish',
+      'kurdish',
+      'luri',
+      'gilaki',
+      'mazandarani',
+      'arabic',
+      'armenian',
+      'turkmen',
+      'balochi',
+      'turkish',
+      'french',
+      'german',
+    ],
+  },
+  {
+    namespace: 'personality_tag',
+    codes: [
+      'adventurous',
+      'ambitious',
+      'calm',
+      'creative',
+      'curious',
+      'family_oriented',
+      'funny',
+      'kind',
+      'outgoing',
+      'romantic',
+      'thoughtful',
+      'independent',
+    ],
+  },
+  {
+    namespace: 'education_level',
+    codes: [
+      'high_school_or_less',
+      'vocational',
+      'associate',
+      'bachelor',
+      'master',
+      'doctorate',
+      'other',
+    ],
+  },
+  {
+    namespace: 'smoking_preference',
+    codes: ['never', 'occasionally', 'regularly', 'trying_to_quit'],
+  },
+  {
+    namespace: 'pets_preference',
+    codes: ['have_pets', 'want_pets', 'like_pets', 'no_pets', 'allergic'],
+  },
+  {
+    namespace: 'exercise_frequency',
+    codes: ['never', 'occasionally', 'weekly', 'frequently', 'daily'],
+  },
+  {
+    namespace: 'religion_importance',
+    codes: ['not_important', 'somewhat_important', 'very_important'],
+  },
+  {
+    namespace: 'children_preference',
+    codes: [
+      'want_children',
+      'do_not_want_children',
+      'have_and_want_more',
+      'have_and_do_not_want_more',
+      'not_sure',
+    ],
+  },
+  { namespace: 'country', codes: ['iran'] },
+  { namespace: 'province', codes: ['tehran', 'isfahan'] },
+  { namespace: 'city', codes: ['tehran', 'isfahan'] },
+] as const;
+
+function englishCatalogLabel(code: string): string {
+  return code
+    .split('_')
+    .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
+    .join(' ');
+}
+
+export const M1_CATALOG_LOCALIZATION_ENTRIES: readonly LocalizationManifestEntry[] =
+  CATALOG_GROUPS.flatMap((group) =>
+    group.codes.map((code) => ({
+      key: `catalog.${group.namespace}.${code}`,
+      category: 'message' as const,
+      english: englishCatalogLabel(code),
+      variables: [],
+      required: true,
+    })),
+  );
+
+export const M1_LOCALIZATION_MANIFEST: readonly LocalizationManifestEntry[] = [
+  ...CORE_M1_ENGLISH_ENTRIES.map((entry) => ({ ...entry, variables: [], required: true })),
+  ...M1_CATALOG_LOCALIZATION_ENTRIES,
+];
 
 export function englishCatalogFromManifest(): Readonly<Record<string, string>> {
   return Object.fromEntries(M1_LOCALIZATION_MANIFEST.map((entry) => [entry.key, entry.english]));

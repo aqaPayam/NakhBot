@@ -8,6 +8,7 @@ import {
   entryRouteFor,
   evaluateCapability,
   normalizeHumanText,
+  normalizeSignupStep,
   parseGregorianBirthYear,
   validateProfileSelections,
   type AccountState,
@@ -193,5 +194,36 @@ describe('M1 Profile validation', () => {
         personalityTagCodes: [],
       }),
     ).toContainEqual({ path: 'interestCodes', code: 'error.profile.interests.invalid' });
+  });
+
+  it('normalizes signup values against active catalogs and exact location ancestry', () => {
+    const catalogs = {
+      genderCodes: ['man'],
+      genderPreferenceCodes: ['women'],
+      relationshipGoalCodes: ['marriage'],
+      interestCodes: ['music', 'books', 'travel', 'coffee', 'art'],
+      languageCodes: ['persian'],
+      personalityTagCodes: ['calm'],
+      optionCodes: { education_level: ['bachelor'] },
+      locations: [{ countryCode: 'iran', provinceCode: 'tehran', cityCode: 'tehran' }],
+    };
+
+    expect(normalizeSignupStep({ step: 'birth_year', value: '۲۰۰۰' }, catalogs, clock)).toEqual({
+      step: 'birth_year',
+      value: 2000,
+    });
+    expect(normalizeSignupStep({ step: 'name', value: '  Cafe\u0301  ' }, catalogs, clock)).toEqual(
+      { step: 'name', value: 'Café' },
+    );
+    expect(() =>
+      normalizeSignupStep(
+        { step: 'location', countryCode: 'iran', provinceCode: 'tehran', cityCode: 'isfahan' },
+        catalogs,
+        clock,
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'invalid_location' }));
+    expect(() =>
+      normalizeSignupStep({ step: 'gender', code: 'inactive' }, catalogs, clock),
+    ).toThrowError(expect.objectContaining({ code: 'inactive_catalog_selection' }));
   });
 });
