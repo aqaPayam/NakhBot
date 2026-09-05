@@ -317,9 +317,7 @@ export class PostgresIdentityStore implements IdentityStore {
           created_at: write.processedAt,
           updated_at: write.processedAt,
         })
-        .onConflict((conflict) =>
-          conflict.columns(['actor_user_id', 'scope', 'idempotency_key']).doNothing(),
-        )
+        .onConflict((conflict) => conflict.doNothing())
         .returning('id')
         .executeTakeFirst();
 
@@ -459,9 +457,7 @@ export class PostgresIdentityStore implements IdentityStore {
           created_at: write.processedAt,
           updated_at: write.processedAt,
         })
-        .onConflict((conflict) =>
-          conflict.columns(['actor_user_id', 'scope', 'idempotency_key']).doNothing(),
-        )
+        .onConflict((conflict) => conflict.doNothing())
         .returning('id')
         .executeTakeFirst();
 

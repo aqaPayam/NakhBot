@@ -142,9 +142,7 @@ export class PostgresProfileStore implements ProfileStore {
         created_at: write.processedAt,
         updated_at: write.processedAt,
       })
-      .onConflict((conflict) =>
-        conflict.columns(['actor_user_id', 'scope', 'idempotency_key']).doNothing(),
-      )
+      .onConflict((conflict) => conflict.doNothing())
       .returning('id')
       .executeTakeFirst();
     if (claimed !== undefined) return undefined;
@@ -184,9 +182,7 @@ export class PostgresProfileStore implements ProfileStore {
         created_at: write.processedAt,
         updated_at: write.processedAt,
       })
-      .onConflict((conflict) =>
-        conflict.columns(['actor_user_id', 'scope', 'idempotency_key']).doNothing(),
-      )
+      .onConflict((conflict) => conflict.doNothing())
       .returning('id')
       .executeTakeFirst();
     if (claimed !== undefined) return undefined;
