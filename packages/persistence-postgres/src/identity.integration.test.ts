@@ -3,12 +3,19 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { ChangeVisibilityCommand, SaveSignupStepCommand } from '@nakh/contracts';
+import type {
+  ChangeVisibilityCommand,
+  RequestProtectedProfileChangeCommand,
+  ResolveProtectedProfileChangeCommand,
+  SaveSignupStepCommand,
+} from '@nakh/contracts';
 import {
   RegisterTelegramIdentityHandler,
   type ChangeSettingsWrite,
   type ConfirmSignupWrite,
   type RegisterTelegramIdentityWrite,
+  type RequestProtectedProfileChangeWrite,
+  type ResolveProtectedProfileChangeWrite,
   type SaveSignupStepWrite,
   type StartSignupWrite,
   type UpdateProfileWrite,
@@ -19,6 +26,7 @@ import { PostgresIdentityStore, PostgresLocalizationStore } from './identity-sto
 import { runMigrations } from './migrations.js';
 import { PostgresSignupStore } from './signup-store.js';
 import { PostgresProfileStore } from './profile-store.js';
+import { PostgresProfileChangeStore } from './profile-change-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -187,7 +195,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(155);
+    expect(Object.keys(english.messages)).toHaveLength(159);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(inactiveFallback).toMatchObject({ requestedLocale: 'fa', resolvedLocale: 'en' });
   });
@@ -870,6 +878,188 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     expect(histories).toHaveLength(1);
     expect(confirmationAudits).toHaveLength(1);
     expect(confirmationEvents).toHaveLength(1);
+
+    const protectedChanges = new PostgresProfileChangeStore(database);
+    const changeCommand: RequestProtectedProfileChangeCommand = {
+      commandId: randomUUID(),
+      commandType: 'profile.request-protected-change',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId },
+      requestId: randomUUID(),
+      idempotencyKey: `profile-change-gender:${userId}`,
+      occurredAt: '2026-09-04T12:04:00.000Z',
+      locale: 'en',
+      data: {
+        field: 'gender',
+        requestedValue: 'woman',
+        reason: 'Correction',
+        expectedProfileVersion: 4,
+      },
+    };
+    const makeChangeWrite = (): RequestProtectedProfileChangeWrite => ({
+      command: changeCommand,
+      normalized: { field: 'gender', requestedValue: 'woman', reason: 'Correction' },
+      profileChangeRequestId: randomUUID(),
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      processedAt: new Date('2026-09-04T12:04:01.000Z'),
+    });
+    const submitted = await Promise.all([
+      protectedChanges.requestProtectedChange(makeChangeWrite()),
+      protectedChanges.requestProtectedChange(makeChangeWrite()),
+    ]);
+    expect(submitted.filter((result) => result.replayed)).toHaveLength(1);
+    expect(submitted[0].request.requestId).toBe(submitted[1].request.requestId);
+    await expect(
+      protectedChanges.requestProtectedChange({
+        ...makeChangeWrite(),
+        command: {
+          ...changeCommand,
+          commandId: randomUUID(),
+          idempotencyKey: `profile-change-gender-competing:${userId}`,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'pending_profile_change_exists' });
+
+    const reviewerUserId = randomUUID();
+    const reviewerTelegramId = telegramUserId();
+    await identities.registerTelegramIdentity(
+      registrationWrite(reviewerTelegramId, 71, reviewerUserId),
+    );
+    const adminUserId = randomUUID();
+    await database
+      .insertInto('administration.admin_users')
+      .values({
+        id: adminUserId,
+        user_id: reviewerUserId,
+        telegram_user_id: reviewerTelegramId,
+        is_active: true,
+        disabled_at: null,
+        created_at: new Date('2026-09-04T12:04:30.000Z'),
+        updated_at: new Date('2026-09-04T12:04:30.000Z'),
+      })
+      .executeTakeFirstOrThrow();
+    const resolveCommand: ResolveProtectedProfileChangeCommand = {
+      commandId: randomUUID(),
+      commandType: 'profile.resolve-protected-change',
+      schemaVersion: 1,
+      actor: { kind: 'admin', userId: reviewerUserId },
+      requestId: randomUUID(),
+      idempotencyKey: `profile-change-resolve:${submitted[0].request.requestId}`,
+      occurredAt: '2026-09-04T12:05:00.000Z',
+      locale: 'en',
+      channelContext: { channel: 'internal' },
+      data: {
+        profileChangeRequestId: submitted[0].request.requestId,
+        decision: 'approved',
+        note: 'Verified correction',
+      },
+    };
+    const makeResolveWrite = (): ResolveProtectedProfileChangeWrite => ({
+      command: resolveCommand,
+      authorization: { adminUserId, reviewerUserId },
+      normalizedNote: 'Verified correction',
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      processedAt: new Date('2026-09-04T12:05:01.000Z'),
+    });
+    const resolved = await Promise.all([
+      protectedChanges.resolveProtectedChange(makeResolveWrite()),
+      protectedChanges.resolveProtectedChange(makeResolveWrite()),
+    ]);
+    expect(resolved.filter((result) => result.replayed)).toHaveLength(1);
+    expect(resolved[0]).toMatchObject({ decision: 'approved', profileVersion: 5 });
+    await expect(
+      protectedChanges.resolveProtectedChange({
+        ...makeResolveWrite(),
+        command: {
+          ...resolveCommand,
+          commandId: randomUUID(),
+          idempotencyKey: `profile-change-reverse:${submitted[0].request.requestId}`,
+          data: { ...resolveCommand.data, decision: 'rejected' },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'profile_change_invalid' });
+
+    const birthCommand: RequestProtectedProfileChangeCommand = {
+      ...changeCommand,
+      commandId: randomUUID(),
+      idempotencyKey: `profile-change-birth:${userId}`,
+      data: {
+        field: 'birth_year',
+        requestedValue: 1999,
+        reason: 'Correction',
+        expectedProfileVersion: 5,
+      },
+    };
+    const birthRequest = await protectedChanges.requestProtectedChange({
+      command: birthCommand,
+      normalized: { field: 'birth_year', requestedValue: 1999, reason: 'Correction' },
+      profileChangeRequestId: randomUUID(),
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      processedAt: new Date('2026-09-04T12:06:00.000Z'),
+    });
+    const competingDecisions = await Promise.allSettled(
+      (['approved', 'rejected'] as const).map((decision, index) =>
+        protectedChanges.resolveProtectedChange({
+          command: {
+            ...resolveCommand,
+            commandId: randomUUID(),
+            idempotencyKey: `profile-change-birth-decision:${index}:${birthRequest.request.requestId}`,
+            data: { profileChangeRequestId: birthRequest.request.requestId, decision },
+          },
+          authorization: { adminUserId, reviewerUserId },
+          normalizedNote: undefined,
+          auditId: randomUUID(),
+          eventId: randomUUID(),
+          processedAt: new Date(`2026-09-04T12:06:0${index + 1}.000Z`),
+        }),
+      ),
+    );
+    expect(competingDecisions.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(competingDecisions.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    const finalBirthRequest = await protectedChanges.getProtectedChangeRequest(
+      userId,
+      birthRequest.request.requestId,
+    );
+    expect(finalBirthRequest?.status).toMatch(/^(approved|rejected)$/u);
+    await expect(
+      protectedChanges.getProtectedChangeRequest(reviewerUserId, birthRequest.request.requestId),
+    ).resolves.toBeUndefined();
+    const [protectedProfile, reviews, requestAudits, requestEvents] = await Promise.all([
+      profiles.getOwnProfile(userId),
+      database
+        .selectFrom('profile.profile_change_reviews')
+        .select('request_id')
+        .where('request_id', 'in', [submitted[0].request.requestId, birthRequest.request.requestId])
+        .execute(),
+      database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('subject_id', '=', submitted[0].request.requestId)
+        .execute(),
+      database
+        .selectFrom('platform.outbox_events')
+        .select('id')
+        .where('aggregate_id', '=', submitted[0].request.requestId)
+        .execute(),
+    ]);
+    expect(protectedProfile?.genderCode).toBe('woman');
+    expect(protectedProfile?.birthYear).toBe(
+      finalBirthRequest?.status === 'approved' ? 1999 : 2000,
+    );
+    expect(protectedProfile?.version).toBe(finalBirthRequest?.status === 'approved' ? 6 : 5);
+    expect(reviews).toHaveLength(2);
+    expect(requestAudits).toHaveLength(2);
+    expect(requestEvents).toHaveLength(2);
+    await expect(
+      database
+        .updateTable('profile.profile_change_reviews')
+        .set({ admin_note: 'mutated' })
+        .where('request_id', '=', submitted[0].request.requestId)
+        .execute(),
+    ).rejects.toThrow(/append-only/u);
   });
 
   it('enforces append-only history and the immutable Guest Preview limit snapshot', async () => {

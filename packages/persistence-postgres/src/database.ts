@@ -1,5 +1,10 @@
 import { Kysely, PostgresDialect, type ColumnType, type Generated } from 'kysely';
-import type { AccountState } from '@nakh/domain';
+import type {
+  AccountState,
+  ProfileChangeDecision,
+  ProfileChangeStatus,
+  ProtectedProfileField,
+} from '@nakh/domain';
 import pg from 'pg';
 
 const { Pool } = pg;
@@ -274,6 +279,37 @@ export interface ProfilePersonalityTagTable {
   personality_tag_id: string;
 }
 
+export interface AdminUserTable {
+  id: string;
+  user_id: string;
+  telegram_user_id: string;
+  is_active: Generated<boolean>;
+  disabled_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ProfileChangeRequestTable {
+  id: string;
+  user_id: string;
+  field_name: ProtectedProfileField;
+  old_value_snapshot: ColumnType<number | string, number | string, number | string>;
+  requested_value: ColumnType<number | string, number | string, number | string>;
+  value_schema_version: number;
+  reason: string;
+  status: ProfileChangeStatus;
+  submitted_at: Date;
+  resolved_at: Date | null;
+}
+
+export interface ProfileChangeReviewTable {
+  request_id: string;
+  admin_user_id: string;
+  decision: ProfileChangeDecision;
+  admin_note: string | null;
+  reviewed_at: Date;
+}
+
 export interface CreditAccountTable {
   user_id: string;
   balance: Generated<string>;
@@ -347,6 +383,9 @@ export interface DatabaseSchema {
   'profile.profile_interests': ProfileSelectionTable;
   'profile.profile_languages': ProfileLanguageTable;
   'profile.profile_personality_tags': ProfilePersonalityTagTable;
+  'profile.profile_change_requests': ProfileChangeRequestTable;
+  'profile.profile_change_reviews': ProfileChangeReviewTable;
+  'administration.admin_users': AdminUserTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;

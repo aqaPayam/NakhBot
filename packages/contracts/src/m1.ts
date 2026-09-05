@@ -430,7 +430,7 @@ export const RequestProtectedProfileChangeCommandSchema = commandSchema(
       {
         field: Type.Literal('birth_year'),
         requestedValue: Type.Integer(),
-        reason: Type.String({ minLength: 1, maxLength: 4096 }),
+        reason: Type.String({ minLength: 1, maxLength: 1024 }),
         expectedProfileVersion: Type.Integer({ minimum: 1 }),
       },
       { additionalProperties: false },
@@ -439,7 +439,7 @@ export const RequestProtectedProfileChangeCommandSchema = commandSchema(
       {
         field: Type.Literal('gender'),
         requestedValue: stableCodeSchema,
-        reason: Type.String({ minLength: 1, maxLength: 4096 }),
+        reason: Type.String({ minLength: 1, maxLength: 1024 }),
         expectedProfileVersion: Type.Integer({ minimum: 1 }),
       },
       { additionalProperties: false },
@@ -448,6 +448,52 @@ export const RequestProtectedProfileChangeCommandSchema = commandSchema(
 );
 export type RequestProtectedProfileChangeCommand = Static<
   typeof RequestProtectedProfileChangeCommandSchema
+>;
+
+const profileChangeStatusSchema = Type.Union([
+  Type.Literal('pending'),
+  Type.Literal('approved'),
+  Type.Literal('rejected'),
+  Type.Literal('cancelled'),
+]);
+
+export const ProfileChangeRequestSchema = Type.Union([
+  Type.Object(
+    {
+      requestId: UuidSchema,
+      field: Type.Literal('birth_year'),
+      oldValue: Type.Integer(),
+      requestedValue: Type.Integer(),
+      status: profileChangeStatusSchema,
+      submittedAt: UtcTimestampSchema,
+      resolvedAt: Type.Optional(UtcTimestampSchema),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      requestId: UuidSchema,
+      field: Type.Literal('gender'),
+      oldValue: stableCodeSchema,
+      requestedValue: stableCodeSchema,
+      status: profileChangeStatusSchema,
+      submittedAt: UtcTimestampSchema,
+      resolvedAt: Type.Optional(UtcTimestampSchema),
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type ProfileChangeRequest = Static<typeof ProfileChangeRequestSchema>;
+
+export const RequestProtectedProfileChangeResultSchema = Type.Object(
+  {
+    request: ProfileChangeRequestSchema,
+    replayed: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type RequestProtectedProfileChangeResult = Static<
+  typeof RequestProtectedProfileChangeResultSchema
 >;
 
 export const ResolveProtectedProfileChangeCommandSchema = commandSchema(
@@ -463,4 +509,17 @@ export const ResolveProtectedProfileChangeCommandSchema = commandSchema(
 );
 export type ResolveProtectedProfileChangeCommand = Static<
   typeof ResolveProtectedProfileChangeCommandSchema
+>;
+
+export const ResolveProtectedProfileChangeResultSchema = Type.Object(
+  {
+    request: ProfileChangeRequestSchema,
+    decision: Type.Union([Type.Literal('approved'), Type.Literal('rejected')]),
+    profileVersion: Type.Integer({ minimum: 1 }),
+    replayed: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type ResolveProtectedProfileChangeResult = Static<
+  typeof ResolveProtectedProfileChangeResultSchema
 >;

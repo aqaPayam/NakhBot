@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ChangeVisibilityCommandSchema,
+  ProfileChangeRequestSchema,
   RegisterTelegramIdentityCommandSchema,
   RequestProtectedProfileChangeCommandSchema,
   SaveSignupStepCommandSchema,
@@ -92,6 +93,36 @@ describe('M1 public contracts', () => {
           reason: 'because',
           expectedProfileVersion: 1,
         },
+      }),
+    ).toBe(false);
+  });
+
+  it('enforces the canonical protected-change reason limit', () => {
+    const validate = validator(RequestProtectedProfileChangeCommandSchema);
+    expect(
+      validate({
+        ...envelope,
+        commandType: 'profile.request-protected-change',
+        data: {
+          field: 'birth_year',
+          requestedValue: 2000,
+          reason: 'x'.repeat(1025),
+          expectedProfileVersion: 1,
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('couples each protected field to its persisted scalar type', () => {
+    const validate = validator(ProfileChangeRequestSchema);
+    expect(
+      validate({
+        requestId: envelope.commandId,
+        field: 'gender',
+        oldValue: 2000,
+        requestedValue: 1999,
+        status: 'pending',
+        submittedAt: envelope.occurredAt,
       }),
     ).toBe(false);
   });

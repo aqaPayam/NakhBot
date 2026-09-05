@@ -598,6 +598,18 @@ PR 6 implementation record:
 - add migration `000008`, request/review use cases, internal reviewer authorization port, audit/outbox, and concurrency tests;
 - do not expose production review administration.
 
+PR 7 implementation record:
+
+- [x] The canonical 1–1024 code-point reason limit is shared by contract, Domain normalization, and database constraints.
+- [x] A partial unique index and User/Profile locks permit only one pending request per User and protected field under concurrency.
+- [x] Requests store typed versioned birth-year or gender snapshots without exposing protected values in audit metadata or event payloads.
+- [x] Reviewer authorization is an explicit application port and the transaction rechecks the active AdminUser binding.
+- [x] Resolution locks Account, Profile, request, and review state; approved values are revalidated using signup rules.
+- [x] Profile mutation, immutable review, request closure, completion revalidation, audit, outbox, and idempotent response commit atomically.
+- [x] Same-command replay converges and a competing decision against a resolved request conflicts.
+- [x] Own-request queries derive ownership from the authenticated User; cross-User reads return no result.
+- [x] No production review transport or AdminUser provisioning path is exposed before M7 RBAC.
+
 ### PR 8 — Guest Preview counter and M1 hardening
 
 - add the conditional counter operation and `ACC-002/M1-COUNTER` test;

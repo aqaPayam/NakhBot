@@ -244,6 +244,26 @@ const CORE_M1_ENGLISH_ENTRIES = [
     category: 'error',
     english: 'Your Profile changed elsewhere. Refresh and try again.',
   },
+  {
+    key: 'error.profile.change.pending',
+    category: 'error',
+    english: 'A change request for this field is already pending.',
+  },
+  {
+    key: 'error.profile.change.invalid',
+    category: 'error',
+    english: 'This protected profile change is no longer valid.',
+  },
+  {
+    key: 'error.profile.change.reviewer_unauthorized',
+    category: 'error',
+    english: 'This reviewer is not authorized.',
+  },
+  {
+    key: 'error.profile.change.not_found',
+    category: 'error',
+    english: 'This profile change request was not found.',
+  },
 ] as const satisfies ReadonlyArray<Omit<LocalizationManifestEntry, 'variables' | 'required'>>;
 
 const CATALOG_GROUPS = [
