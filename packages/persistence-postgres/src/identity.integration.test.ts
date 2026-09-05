@@ -13,6 +13,7 @@ import {
   RegisterTelegramIdentityHandler,
   type ChangeSettingsWrite,
   type ConfirmSignupWrite,
+  type ConsumeGuestPreviewWrite,
   type RegisterTelegramIdentityWrite,
   type RequestProtectedProfileChangeWrite,
   type ResolveProtectedProfileChangeWrite,
@@ -27,6 +28,7 @@ import { runMigrations } from './migrations.js';
 import { PostgresSignupStore } from './signup-store.js';
 import { PostgresProfileStore } from './profile-store.js';
 import { PostgresProfileChangeStore } from './profile-change-store.js';
+import { PostgresGuestPreviewStore } from './guest-preview-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -195,7 +197,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(159);
+    expect(Object.keys(english.messages)).toHaveLength(161);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(inactiveFallback).toMatchObject({ requestedLocale: 'fa', resolvedLocale: 'en' });
   });
@@ -1060,6 +1062,84 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         .where('request_id', '=', submitted[0].request.requestId)
         .execute(),
     ).rejects.toThrow(/append-only/u);
+  });
+
+  it('ACC-002 permits only one concurrent Guest Preview at the final slot', async () => {
+    const identities = new PostgresIdentityStore(database);
+    const previews = new PostgresGuestPreviewStore(database);
+    const userId = randomUUID();
+    await identities.registerTelegramIdentity(registrationWrite(telegramUserId(), 80, userId));
+    const seededAt = new Date('2026-09-05T08:00:00.000Z');
+    await database
+      .updateTable('identity.guest_preview_counters')
+      .set({ preview_count: 9, first_preview_at: seededAt, last_preview_at: seededAt })
+      .where('user_id', '=', userId)
+      .executeTakeFirstOrThrow();
+
+    const writes: ConsumeGuestPreviewWrite[] = [0, 1].map((index) => {
+      const processedAt = new Date(`2026-09-05T08:00:0${index + 1}.000Z`);
+      return {
+        command: {
+          commandId: randomUUID(),
+          commandType: 'identity.consume-guest-preview',
+          schemaVersion: 1,
+          actor: { kind: 'user', userId },
+          requestId: randomUUID(),
+          idempotencyKey: `guest-preview-final-slot:${userId}:${index}`,
+          occurredAt: processedAt.toISOString(),
+          locale: 'en',
+          data: {
+            candidateUserId: randomUUID(),
+            deliveryReceiptId: `test-delivery-${index}`,
+          },
+        },
+        auditId: randomUUID(),
+        eventId: randomUUID(),
+        processedAt,
+      };
+    });
+    const outcomes = await Promise.allSettled(
+      writes.map((write) => previews.consumeGuestPreview(write)),
+    );
+    const successfulIndex = outcomes.findIndex((outcome) => outcome.status === 'fulfilled');
+    expect(successfulIndex).toBeGreaterThanOrEqual(0);
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+    const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+    expect(failure?.status === 'rejected' ? failure.reason : undefined).toMatchObject({
+      code: 'guest_preview_limit_reached',
+    });
+    const winningWrite = writes[successfulIndex];
+    if (winningWrite === undefined) throw new Error('Expected one successful final-slot write.');
+    await expect(previews.consumeGuestPreview(winningWrite)).resolves.toMatchObject({
+      count: 10,
+      limit: 10,
+      remaining: 0,
+      replayed: true,
+    });
+
+    const [counter, audits, events] = await Promise.all([
+      database
+        .selectFrom('identity.guest_preview_counters')
+        .select(['preview_count', 'limit_count'])
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('subject_id', '=', userId)
+        .where('event_type', '=', 'identity.guest-preview-consumed.v1')
+        .execute(),
+      database
+        .selectFrom('platform.outbox_events')
+        .select('id')
+        .where('aggregate_id', '=', userId)
+        .where('event_type', '=', 'identity.guest-preview-consumed.v1')
+        .execute(),
+    ]);
+    expect(counter).toEqual({ preview_count: 10, limit_count: 10 });
+    expect(audits).toHaveLength(1);
+    expect(events).toHaveLength(1);
   });
 
   it('enforces append-only history and the immutable Guest Preview limit snapshot', async () => {

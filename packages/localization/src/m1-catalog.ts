@@ -264,6 +264,16 @@ const CORE_M1_ENGLISH_ENTRIES = [
     category: 'error',
     english: 'This profile change request was not found.',
   },
+  {
+    key: 'error.guest_preview.limit_reached',
+    category: 'error',
+    english: 'You have used all available guest previews.',
+  },
+  {
+    key: 'error.rate_limit.exceeded',
+    category: 'error',
+    english: 'Too many requests. Try again later.',
+  },
 ] as const satisfies ReadonlyArray<Omit<LocalizationManifestEntry, 'variables' | 'required'>>;
 
 const CATALOG_GROUPS = [

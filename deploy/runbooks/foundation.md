@@ -27,3 +27,24 @@
 2. Decide application rollback only if schema remains backward-compatible; otherwise use the reviewed forward fix.
 3. Never modify an applied migration file.
 4. Run migration verification, synthetic command/replay, and restore smoke before resuming rollout.
+
+## M1 Guest Preview counter anomaly
+
+1. Stop Guest Preview delivery if any counter exceeds its immutable snapshot or successful deliveries outnumber committed counter events.
+2. Compare `identity.guest_preview_counters`, `identity.guest-preview-consumed.v1` audit rows, and unpublished outbox events using only internal IDs in protected tooling.
+3. Do not decrement, reset, or recreate a counter. Repair through a reviewed forward operation that preserves the permanent anti-reset rule.
+4. Re-run `ACC-002/M1-COUNTER` and the concurrency load smoke before restoring delivery. Candidate delivery remains disabled until M3 provides the same-transaction `ExploreConsumption` proof.
+
+## M1 signup or Profile incident
+
+1. Disable the affected write route while preserving signup drafts, idempotency records, audit rows, and outbox evidence.
+2. Classify the failure by stable error code; never copy names, birth years, Profile text, photos, draft bodies, or protected requested values into logs or tickets.
+3. Verify Account, signup progress/draft, Profile version/completion, audit, and outbox state as one transaction boundary.
+4. Roll back application code only when the schema remains backward compatible. Fix applied migrations with a new forward migration.
+
+## M1 protected-change review anomaly
+
+1. Keep the production review transport disabled and revoke the affected AdminUser binding if authorization is uncertain.
+2. Verify the single immutable review, request closure, Profile version, audit record, and outbox event.
+3. Never update or delete a review row. Correct an erroneous approved Profile value through a new reviewed request.
+4. Escalate any authorization bypass as a security incident; M7 owns RBAC, operator provisioning, and the production administration route.

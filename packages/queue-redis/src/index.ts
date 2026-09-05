@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
+
 import { Queue, Worker, type JobsOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 
-import type { OutboxPublisher } from '@nakh/application';
+import type { OutboxPublisher, RateLimiterPort, RateLimitRequest } from '@nakh/application';
 import type { DomainEvent } from '@nakh/contracts';
 
 export const DOMAIN_EVENT_QUEUE = 'domain-events';
@@ -65,5 +67,37 @@ export class RedisLease {
       return 0
     `;
     return (await this.redis.eval(script, 1, key, owner)) === 1;
+  }
+}
+
+export class RedisRateLimiter implements RateLimiterPort {
+  public constructor(
+    private readonly redis: Redis,
+    private readonly prefix: string,
+  ) {}
+
+  public async consume(request: RateLimitRequest): Promise<{
+    allowed: boolean;
+    remaining: number;
+    retryAfterSeconds: number;
+  }> {
+    const subjectHash = createHash('sha256').update(request.subject).digest('hex');
+    const key = `${this.prefix}:rate:${request.scope}:${subjectHash}`;
+    const script = `
+      local current = redis.call('INCR', KEYS[1])
+      if current == 1 then
+        redis.call('EXPIRE', KEYS[1], ARGV[1])
+      end
+      local ttl = redis.call('TTL', KEYS[1])
+      return {current, ttl}
+    `;
+    const raw = await this.redis.eval(script, 1, key, request.windowSeconds);
+    if (!Array.isArray(raw) || typeof raw[0] !== 'number' || typeof raw[1] !== 'number')
+      throw new Error('Redis rate-limit script returned an invalid result.');
+    return {
+      allowed: raw[0] <= request.limit,
+      remaining: Math.max(0, request.limit - raw[0]),
+      retryAfterSeconds: Math.max(0, raw[1]),
+    };
   }
 }

@@ -357,6 +357,18 @@ export const ConsumeGuestPreviewCommandSchema = commandSchema(
 );
 export type ConsumeGuestPreviewCommand = Static<typeof ConsumeGuestPreviewCommandSchema>;
 
+export const ConsumeGuestPreviewResultSchema = Type.Object(
+  {
+    userId: UuidSchema,
+    count: Type.Integer({ minimum: 1 }),
+    limit: Type.Integer({ minimum: 1 }),
+    remaining: Type.Integer({ minimum: 0 }),
+    replayed: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type ConsumeGuestPreviewResult = Static<typeof ConsumeGuestPreviewResultSchema>;
+
 export const ChangeLocaleCommandSchema = commandSchema(
   'identity.change-locale',
   Type.Object(

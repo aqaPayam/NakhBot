@@ -9,6 +9,7 @@ import {
   createDomainEventWorker,
   createRedisConnection,
   RedisLease,
+  RedisRateLimiter,
 } from './index.js';
 
 const redisUrl = process.env['NAKH_TEST_REDIS_URL'];
@@ -74,5 +75,24 @@ describe.skipIf(redisUrl === undefined)('Redis queue reliability', () => {
     await expect(lease.release(key, 'owner-a')).resolves.toBe(true);
     await expect(lease.acquire(key, 'owner-b', 5_000)).resolves.toBe(true);
     await expect(lease.release(key, 'owner-b')).resolves.toBe(true);
+  });
+
+  it('enforces a shared atomic rate limit without storing the raw subject', async () => {
+    const limiter = new RedisRateLimiter(leaseConnection, prefix);
+    const decisions = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        limiter.consume({
+          scope: 'telegram_start',
+          subject: 'private-telegram-id',
+          limit: 3,
+          windowSeconds: 60,
+        }),
+      ),
+    );
+    expect(decisions.filter((decision) => decision.allowed)).toHaveLength(3);
+    expect(decisions.filter((decision) => !decision.allowed)).toHaveLength(3);
+    const keys = await leaseConnection.keys(`${prefix}:rate:telegram_start:*`);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).not.toContain('private-telegram-id');
   });
 });

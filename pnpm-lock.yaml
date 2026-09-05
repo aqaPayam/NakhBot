@@ -192,12 +192,18 @@ importers:
       '@nakh/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@nakh/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@nakh/observability':
         specifier: workspace:*
         version: link:../../packages/observability
       '@nakh/persistence-postgres':
         specifier: workspace:*
         version: link:../../packages/persistence-postgres
+      '@nakh/queue-redis':
+        specifier: workspace:*
+        version: link:../../packages/queue-redis
       '@nakh/telegram':
         specifier: workspace:*
         version: link:../../packages/telegram
@@ -353,6 +359,9 @@ importers:
       '@nakh/application':
         specifier: workspace:*
         version: link:../application
+      '@nakh/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/testkit:
     dependencies:

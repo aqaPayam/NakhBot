@@ -71,4 +71,22 @@ describe('TelegramStartAdapter', () => {
       adapter.handle({ update_id: 1, message: { text: 'hello', from: { id: 2 } } }),
     ).resolves.toEqual({ handled: false });
   });
+
+  it('rate-limits authenticated start traffic before the use case', async () => {
+    const useCase: RegisterTelegramIdentityUseCase = {
+      execute: () => Promise.reject(new Error('must not execute')),
+    };
+    const adapter = new TelegramStartAdapter(
+      useCase,
+      '00000000-0000-4000-8000-000000000001',
+      () => '20000000-0000-4000-8000-000000000000',
+      () => new Date('2026-09-05T10:00:00.000Z'),
+      {
+        consume: () => Promise.resolve({ allowed: false, remaining: 0, retryAfterSeconds: 30 }),
+      },
+    );
+    await expect(
+      adapter.handle({ update_id: 9, message: { text: '/start', from: { id: 123456789 } } }),
+    ).rejects.toMatchObject({ code: 'rate_limited', status: 429 });
+  });
 });

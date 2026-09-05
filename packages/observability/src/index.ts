@@ -6,7 +6,9 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
-import pino, { type Logger } from 'pino';
+import pino, { type DestinationStream, type Logger } from 'pino';
+
+export * from './m1-metrics.js';
 
 export type TelemetryConfig = Readonly<{
   enabled: boolean;
@@ -16,32 +18,57 @@ export type TelemetryConfig = Readonly<{
   environment: string;
 }>;
 
-const redactPaths = [
+export const LOG_REDACT_PATHS = [
   'req.headers.authorization',
   'req.headers.x-telegram-bot-api-secret-token',
+  'req.body',
+  'request.body',
+  'command.data',
   'telegramBotToken',
   'webhookSecret',
+  'telegramUserId',
+  'username',
+  'userId',
+  'name',
+  'bio',
+  'highlight',
+  'draftData',
+  'requestedValue',
+  'reason',
   'invoicePayload',
   'chargeId',
   'storageKey',
   'signedUrl',
   '*.telegramBotToken',
   '*.webhookSecret',
+  '*.telegramUserId',
+  '*.username',
+  '*.userId',
+  '*.name',
+  '*.bio',
+  '*.highlight',
+  '*.draftData',
+  '*.requestedValue',
+  '*.reason',
   '*.invoicePayload',
   '*.chargeId',
   '*.storageKey',
   '*.signedUrl',
 ];
 
-export function createLogger(bindings: Readonly<Record<string, string>>): Logger {
-  return pino({
+export function createLogger(
+  bindings: Readonly<Record<string, string>>,
+  destination?: DestinationStream,
+): Logger {
+  const options = {
     level: process.env.NAKH_LOG_LEVEL ?? 'info',
     base: bindings,
-    redact: { paths: redactPaths, censor: '[REDACTED]' },
+    redact: { paths: LOG_REDACT_PATHS, censor: '[REDACTED]' },
     serializers: {
       err: pino.stdSerializers.err,
     },
-  });
+  };
+  return destination === undefined ? pino(options) : pino(options, destination);
 }
 
 export function startTelemetry(config: TelemetryConfig): Promise<NodeSDK | undefined> {

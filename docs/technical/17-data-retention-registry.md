@@ -10,6 +10,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `identity.account_state_history` | immutable account/safety history | retain | Ban, restriction, deletion, appeal, and audit integrity; Identity/Moderation |
 | `identity.guest_preview_counters` | permanent product counter | retain unchanged | Canonical anti-reset exception; Identity |
 | `identity.user_settings` | product preference | purge | Recreated with defaults only if return is allowed; Identity |
+| `identity.signup_progress` and `identity.signup_drafts` | sensitive signup state | purge | Ordinary product data; Identity/Profile |
 | `billing.credit_accounts` | financial foundation | M1 zero-balance row may be purged; M4 policy supersedes after any ledger activity | Billing |
 | `notification.notification_preferences` | product preference | purge | Recreated with defaults only if return is allowed; Notification |
 | `catalog.locales` | public reference data | retain | Not user-linked; Localization |
@@ -18,6 +19,10 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `platform.outbox_events` | reliability/audit transport | retain until published plus operational retention window | Platform |
 | `platform.inbox_messages` | deduplication metadata | retain for consumer replay window | Platform |
 | `platform.audit_logs` | append-only safe audit metadata | retain by category policy; never store user prose or Telegram identifiers | Platform/Security |
+| `profile.profiles`, optional details, and selection joins | sensitive dating Profile | purge | Ordinary product data; Profile |
+| `profile.profile_change_requests` | sensitive correction request | purge after the approved compliance window | Contains protected value snapshots and User reason; Profile/Privacy |
+| `profile.profile_change_reviews` | administrative decision | retain only with the corresponding permitted audit window, then purge with request | Administration/Privacy |
+| `administration.admin_users` | workforce identity | not part of User product-data deletion | M7 administration lifecycle and audit continuity |
 | `platform.sample_effects` and `platform.sample_projections` | M0 test-only data | remove when M0 sample is retired | Platform |
 
 ## Required deletion-test assertions for M1

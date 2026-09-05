@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@nakh/config": "workspace:*",
+    "@nakh/domain": "workspace:*",
     "@nakh/observability": "workspace:*",
     "@nakh/persistence-postgres": "workspace:*",
+    "@nakh/queue-redis": "workspace:*",
     "@nakh/telegram": "workspace:*",
     "@nestjs/common": "catalog:",
     "@nestjs/core": "catalog:",

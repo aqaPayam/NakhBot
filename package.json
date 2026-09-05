@@ -22,6 +22,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:integration": "pnpm build && vitest run --config vitest.integration.config.ts",
+    "test:m1-load-smoke": "tsx scripts/m1-load-smoke.ts",
     "audit:security": "tsx scripts/audit-production.ts",
     "db:migrate": "tsx packages/persistence-postgres/src/cli/migrate.ts",
     "db:verify": "tsx packages/persistence-postgres/src/cli/verify.ts",

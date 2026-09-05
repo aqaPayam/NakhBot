@@ -137,6 +137,7 @@ Create new forward-only migrations after the existing M0 migration. Use this ord
 5. `000006_m1_signup_profile.sql`
 6. `000007_m1_profile_confirmation.sql`
 7. `000008_m1_profile_change_requests.sql`
+8. `000009_m1_hardening.sql`
 
 Never edit an already-applied migration. Each migration must run on a new database and on a database at the immediately previous version. Each must provide verification queries in its header or companion test. Rollback is application rollback plus a forward repair migration; production data is never removed automatically.
 
@@ -615,6 +616,18 @@ PR 7 implementation record:
 - add the conditional counter operation and `ACC-002/M1-COUNTER` test;
 - complete telemetry, security tests, traceability, runbooks, load smoke, and staging evidence;
 - keep production candidate delivery disabled until M3.
+
+PR 8 implementation record:
+
+- [x] Guest Preview consumption is a reusable PostgreSQL transaction primitive with capability enforcement, idempotency, audit, and outbox writes.
+- [x] A conditional atomic update prevents the permanent counter from exceeding 10; the final-slot race and 50-way load smoke assert the final counter, audit, and outbox state.
+- [x] Redis-backed rate limiting uses bounded scopes and hashed subjects; the exposed Telegram start path is protected and later signup/Profile/protected-change transports must use the same port when they are enabled.
+- [x] Structured logging centrally redacts Telegram identity, Profile, signup-draft, protected-change, and secret fields.
+- [x] M1 metric instruments and label registries are finite; dashboards and alert thresholds avoid User, Telegram, command, and request identifiers.
+- [x] Migration `000009` adds the Guest Preview limit and rate-limit localization keys and is covered by localization completeness checks.
+- [x] The M1 retention registry, acceptance ledger, traceability matrix, incident runbooks, and staging checklist are versioned with the code.
+- [x] Candidate delivery remains absent from production composition; M3 must call `consumeGuestPreviewWithin` in the delivery transaction after Telegram acceptance.
+- [ ] The default-branch CI run and manual staging checklist must be attached to the release evidence before M1 is declared accepted.
 
 Each PR must be independently deployable or protected by a default-off feature flag. Database expand changes deploy before readers/writers; destructive cleanup is deferred to a later verified release.
 

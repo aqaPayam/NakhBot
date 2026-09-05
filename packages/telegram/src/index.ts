@@ -5,9 +5,11 @@ import {
   routeStart,
   type IdentityStore,
   type RegisterTelegramIdentityUseCase,
+  type RateLimiterPort,
   type StartViewModel,
   type TelegramClientPort,
 } from '@nakh/application';
+import { ApplicationError } from '@nakh/domain';
 
 function safeEqual(left: string, right: string): boolean {
   const leftBuffer = Buffer.from(left);
@@ -75,17 +77,37 @@ export class TelegramStartAdapter {
     private readonly systemActorId = '00000000-0000-4000-8000-000000000001',
     private readonly uuid: () => string = randomUUID,
     private readonly now: () => Date = () => new Date(),
+    private readonly rateLimiter?: RateLimiterPort,
   ) {}
 
-  public static withStore(store: IdentityStore): TelegramStartAdapter {
+  public static withStore(
+    store: IdentityStore,
+    rateLimiter?: RateLimiterPort,
+  ): TelegramStartAdapter {
     const ids = { uuid: randomUUID };
     const clock = { now: (): Date => new Date() };
-    return new TelegramStartAdapter(new RegisterTelegramIdentityHandler(store, ids, clock));
+    return new TelegramStartAdapter(
+      new RegisterTelegramIdentityHandler(store, ids, clock),
+      '00000000-0000-4000-8000-000000000001',
+      randomUUID,
+      () => new Date(),
+      rateLimiter,
+    );
   }
 
   public async handle(update: unknown): Promise<TelegramStartResult> {
     const parsed = parseStartUpdate(update);
     if (parsed === undefined) return { handled: false };
+    const rate = await this.rateLimiter?.consume({
+      scope: 'telegram_start',
+      subject: parsed.telegramUserId,
+      limit: 20,
+      windowSeconds: 60,
+    });
+    if (rate !== undefined && !rate.allowed)
+      throw new ApplicationError('rate_limited', 'error.rate_limit.exceeded', 429, {
+        retryAfterSeconds: String(rate.retryAfterSeconds),
+      });
     const result = await this.useCase.execute({
       commandId: this.uuid(),
       commandType: 'identity.register-telegram-identity',
