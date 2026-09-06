@@ -3,6 +3,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import { ActorSchema, ChannelContextSchema, UtcTimestampSchema, UuidSchema } from './shared.js';
 
 export * from './m1.js';
+export * from './m2.js';
 export * from './shared.js';
 
 export const CreateSampleEffectDataSchema = Type.Object(

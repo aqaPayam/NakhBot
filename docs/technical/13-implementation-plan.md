@@ -52,6 +52,8 @@ Exit gate: M1-owned evidence for `ACC-001..007`, access matrix, no prose outside
 
 Deliver Telegram ingestion, quarantine/validation, thumbnails/on-demand blur, photo order/primary, moderation hide/restore/delete, signed delivery grants, cleanup.
 
+Execution guide: [`19-m2-execution-guide.md`](19-m2-execution-guide.md).
+
 Exit gate: `ACC-008..013`, malicious-image corpus, R2 failure/retry, object authorization and deletion verification pass.
 
 ### M3 — discovery and free interactions

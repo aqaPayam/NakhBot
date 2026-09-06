@@ -52,6 +52,8 @@ Any product behavior change requires a domain-document update first. Any persist
 | [`15-official-references.md`](15-official-references.md) | Primary implementation references and version checks |
 | [`16-m1-execution-guide.md`](16-m1-execution-guide.md) | Exact M1 scope, sequencing, contracts, tests, and release gates |
 | [`17-data-retention-registry.md`](17-data-retention-registry.md) | User-data classification and product-deletion behavior |
+| [`18-m1-acceptance-evidence.md`](18-m1-acceptance-evidence.md) | M1 automated and staging evidence ledger |
+| [`19-m2-execution-guide.md`](19-m2-execution-guide.md) | Exact M2 media sequencing, safety boundaries, PR gates, and evidence |
 
 ## Locked baseline
 
