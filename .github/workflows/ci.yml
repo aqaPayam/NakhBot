@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -85,7 +85,7 @@ jobs:
       PGDATABASE: nakh
       PGPASSWORD: nakh_test
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -111,7 +111,7 @@ jobs:
       matrix:
         app: [api, telegram-gateway, worker, scheduler]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Build ${{ matrix.app }} image
         run: docker build --file deploy/docker/Dockerfile --build-arg APP=${{ matrix.app }} --tag nakh-${{ matrix.app }}:${{ github.sha }} .
       - name: Verify non-root runtime image
