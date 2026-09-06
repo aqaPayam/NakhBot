@@ -34,3 +34,5 @@ This ledger distinguishes implemented M1 evidence from scenarios whose final own
 ## Release evidence
 
 Record the default-branch commit and CI run URL after PR 8 passes. Then execute [`deploy/runbooks/m1-staging-acceptance.md`](../../deploy/runbooks/m1-staging-acceptance.md). M1 must not be declared complete until every required staging item has evidence, an owner, and a timestamp.
+
+Cloud purchase is not required for preparation: AWS bootstrap/staging IaC, the guarded manual deployment workflow, and the local production-image rehearsal are versioned and CI-validated. They are readiness evidence only. Real AWS deployment and the manual observations remain mandatory for final M1 acceptance.

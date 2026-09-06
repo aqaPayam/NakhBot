@@ -2,6 +2,8 @@
 
 Complete this record against the exact default-branch commit that passed CI. Attach protected log/query screenshots or run links; never paste secrets or User/Profile content.
 
+The free local rehearsal prepares this procedure but cannot close any cloud observation. Billable application infrastructure remains absent until the guarded manual deployment workflow is explicitly run.
+
 ## Release identity
 
 - Commit: _pending_
@@ -28,3 +30,12 @@ Complete this record against the exact default-branch commit that passed CI. Att
 - Critical/High defects: _must be zero_
 - Medium defects, owner, and release decision: _pending_
 - Final M1 acceptance: _pending_
+
+## Pre-deployment readiness
+
+- [ ] `deploy/terraform/bootstrap` and `deploy/terraform/staging` pass formatting and validation in CI.
+- [ ] The local staging rehearsal passes on the exact release commit.
+- [ ] A dedicated, MFA-protected staging AWS account exists.
+- [ ] GitHub Actions repository variables/secrets, the main-branch-restricted OIDC role, remote state bucket, DNS zone, alert email, and webhook secret are configured.
+- [ ] The monthly budget was reviewed before entering `DEPLOY-STAGING`.
+- [ ] The rollback workflow was inspected, a known-good immutable image tag was recorded, and its compatibility with the current forward-only schema was confirmed.

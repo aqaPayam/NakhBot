@@ -52,10 +52,23 @@ class TelegramGatewayController {
     @Inject(AUTHENTICATOR) private readonly authenticator: TelegramWebhookAuthenticator,
     @Inject(START_ADAPTER) private readonly startAdapter: TelegramStartAdapter,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
+    @Inject(DATABASE) private readonly database: NakhDatabase,
+    @Inject(REDIS) private readonly redis: ReturnType<typeof createRedisConnection>,
   ) {}
 
   @Get('health/live')
   public live(): Readonly<{ status: 'ok' }> {
+    return { status: 'ok' };
+  }
+
+  @Get('health/ready')
+  public async ready(): Promise<Readonly<{ status: 'ok' }>> {
+    await Promise.all([
+      this.database
+        .selectNoFrom((expression) => expression.val(1).as('ready'))
+        .executeTakeFirstOrThrow(),
+      this.redis.ping(),
+    ]);
     return { status: 'ok' };
   }
 

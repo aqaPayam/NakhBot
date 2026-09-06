@@ -1,0 +1,14 @@
+# Non-secret example only. Copy to a gitignored terraform.tfvars after AWS exists.
+aws_region       = "replace-with-selected-region"
+public_hostname  = "staging.example.com"
+route53_zone_id  = "replace-with-route53-zone-id"
+alert_email      = "operator@example.com"
+monthly_budget_usd = 250
+
+# Bootstrap creates ECR and task definitions with zero running tasks.
+image_tag        = "bootstrap"
+activate_services = false
+
+# Never place the real webhook secret in this file. Supply it temporarily as:
+# TF_VAR_telegram_webhook_secret=<secret>
+# TF_VAR_telegram_bot_token=<staging-bot-token>

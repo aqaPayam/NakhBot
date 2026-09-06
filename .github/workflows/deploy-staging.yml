@@ -1,0 +1,154 @@
+name: Deploy staging (creates billable AWS resources)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DEPLOY-STAGING to confirm AWS charges and deployment
+        required: true
+        type: string
+      image_tag:
+        description: Immutable release tag; defaults to the selected commit SHA
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+      TF_IN_AUTOMATION: 'true'
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_public_hostname: ${{ vars.STAGING_HOSTNAME }}
+      TF_VAR_route53_zone_id: ${{ vars.STAGING_ROUTE53_ZONE_ID }}
+      TF_VAR_alert_email: ${{ vars.STAGING_ALERT_EMAIL }}
+      TF_VAR_telegram_bot_token: ${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}
+      TF_VAR_telegram_webhook_secret: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_SECRET }}
+      WEBHOOK_SECRET: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_SECRET }}
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+    steps:
+      - name: Require explicit confirmation and configuration
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$DEPLOY_CONFIRMATION" = "DEPLOY-STAGING"
+          test -n "$TF_VAR_aws_region"
+          test -n "$TF_VAR_public_hostname"
+          test -n "$TF_VAR_route53_zone_id"
+          test -n "$TF_VAR_alert_email"
+          test "${#TF_VAR_telegram_bot_token}" -ge 20
+          test "${#TF_VAR_telegram_webhook_secret}" -ge 32
+          test "$IMAGE_TAG" != "latest"
+
+      - uses: actions/checkout@v6
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.9
+
+      - name: Initialize protected remote state
+        run: |
+          terraform -chdir=deploy/terraform/staging init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+
+      - name: Prepare first deployment without interrupting an existing release
+        run: |
+          cluster=$(terraform -chdir=deploy/terraform/staging output -raw ecs_cluster_name 2>/dev/null || true)
+          desired_count=0
+          if [ -n "$cluster" ]; then
+            desired_count=$(aws ecs describe-services \
+              --cluster "$cluster" \
+              --services api \
+              --query 'services[0].desiredCount' \
+              --output text 2>/dev/null || echo 0)
+          fi
+          if [ "$desired_count" != "None" ] && [ "$desired_count" -gt 0 ] 2>/dev/null; then
+            echo "An active release exists; leaving it online while the new release is prepared."
+          else
+            terraform -chdir=deploy/terraform/staging apply \
+              -auto-approve \
+              -var="image_tag=bootstrap" \
+              -var="activate_services=false"
+          fi
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push one immutable release
+        run: |
+          repositories=$(terraform -chdir=deploy/terraform/staging output -json ecr_repository_urls)
+          for app in api telegram-gateway worker scheduler; do
+            repository=$(jq -r --arg app "$app" '.[$app]' <<<"$repositories")
+            repository_name=${repository#*/}
+            if aws ecr describe-images --repository-name "$repository_name" --image-ids "imageTag=$IMAGE_TAG" >/dev/null 2>&1; then
+              echo "Using existing immutable $app image for $IMAGE_TAG."
+            else
+              docker build --file deploy/docker/Dockerfile --build-arg "APP=$app" --tag "$repository:$IMAGE_TAG" .
+              docker push "$repository:$IMAGE_TAG"
+            fi
+          done
+
+      - name: Register the new migration task without changing live services
+        run: |
+          terraform -chdir=deploy/terraform/staging apply \
+            -auto-approve \
+            -target='aws_ecs_task_definition.migration' \
+            -var="image_tag=$IMAGE_TAG" \
+            -var="activate_services=false"
+
+      - name: Run the one-off migration task before activation
+        run: |
+          cluster=$(terraform -chdir=deploy/terraform/staging output -raw ecs_cluster_name)
+          task_definition=$(terraform -chdir=deploy/terraform/staging output -raw migration_task_definition_arn)
+          subnets=$(terraform -chdir=deploy/terraform/staging output -json private_subnet_ids | jq -r 'join(",")')
+          security_group=$(terraform -chdir=deploy/terraform/staging output -raw service_security_group_id)
+          task_arn=$(aws ecs run-task \
+            --cluster "$cluster" \
+            --task-definition "$task_definition" \
+            --launch-type FARGATE \
+            --platform-version 1.4.0 \
+            --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$security_group],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+          test "$task_arn" != "None"
+          aws ecs wait tasks-stopped --cluster "$cluster" --tasks "$task_arn"
+          exit_code=$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0].containers[?name==`migration`].exitCode | [0]' --output text)
+          test "$exit_code" = "0"
+
+      - name: Activate the verified release
+        run: terraform -chdir=deploy/terraform/staging apply -auto-approve -var="image_tag=$IMAGE_TAG" -var="activate_services=true"
+
+      - name: Run safe deployment smoke checks
+        run: |
+          public_url=$(terraform -chdir=deploy/terraform/staging output -raw public_url)
+          curl --fail --retry 30 --retry-all-errors --retry-delay 10 "$public_url/health/ready"
+          invalid_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --header 'x-telegram-bot-api-secret-token: invalid' \
+            --data '{"update_id":990000001,"message":{"text":"/start","from":{"id":990000001}}}' \
+            "$public_url/v1/providers/telegram/webhook")
+          test "$invalid_status" = "401"
+          valid_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --header "x-telegram-bot-api-secret-token: $WEBHOOK_SECRET" \
+            --data '{"update_id":990000001,"message":{"text":"/start","from":{"id":990000001}}}' \
+            "$public_url/v1/providers/telegram/webhook")
+          test "$valid_status" = "201"

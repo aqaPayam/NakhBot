@@ -1,0 +1,160 @@
+name: nakh-staging-rehearsal
+
+x-runtime-environment: &runtime-environment
+  NODE_ENV: production
+  NAKH_ENV: staging
+  NAKH_RELEASE: local-rehearsal
+  NAKH_HTTP_HOST: 0.0.0.0
+  NAKH_DATABASE_URL: postgresql://nakh:nakh_local@postgres:5432/nakh
+  NAKH_DATABASE_POOL_MAX: 10
+  NAKH_DATABASE_STATEMENT_TIMEOUT_MS: 5000
+  NAKH_DATABASE_LOCK_TIMEOUT_MS: 1000
+  NAKH_REDIS_URL: redis://redis:6379
+  NAKH_QUEUE_PREFIX: nakh-staging-rehearsal
+  NAKH_TELEGRAM_BOT_TOKEN_REF: disabled-local-rehearsal
+  NAKH_TELEGRAM_WEBHOOK_SECRET: local-rehearsal-webhook-secret-000001
+  NAKH_R2_ENDPOINT: https://disabled-until-m2.invalid
+  NAKH_R2_BUCKET: disabled-until-m2
+  NAKH_R2_ACCESS_KEY_REF: disabled-until-m2
+  NAKH_R2_SECRET_KEY_REF: disabled-until-m2
+  NAKH_MEDIA_CDN_HOST: disabled-until-m2.invalid
+  NAKH_MEDIA_SIGNING_KEY_REF: disabled-until-m2
+  NAKH_OTEL_ENABLED: 'true'
+  NAKH_OTEL_EXPORTER_ENDPOINT: http://otel-collector:4318
+
+x-service-security: &service-security
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+services:
+  migrate:
+    image: nakh-api:staging-local
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        APP: api
+    environment:
+      <<: *runtime-environment
+      NAKH_SERVICE_NAME: migration
+      NAKH_HTTP_PORT: 3000
+    command: ['node', 'node_modules/@nakh/persistence-postgres/dist/cli/migrate.js']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: 'no'
+
+  api:
+    <<: *service-security
+    image: nakh-api:staging-local
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        APP: api
+    environment:
+      <<: *runtime-environment
+      NAKH_SERVICE_NAME: api
+      NAKH_HTTP_PORT: 3000
+    ports:
+      - '3000:3000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  telegram-gateway:
+    <<: *service-security
+    image: nakh-telegram-gateway:staging-local
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        APP: telegram-gateway
+    environment:
+      <<: *runtime-environment
+      NAKH_SERVICE_NAME: telegram-gateway
+      NAKH_HTTP_PORT: 3001
+    ports:
+      - '3001:3001'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    <<: *service-security
+    image: nakh-worker:staging-local
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        APP: worker
+    environment:
+      <<: *runtime-environment
+      NAKH_SERVICE_NAME: worker
+      NAKH_HTTP_PORT: 3002
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
+  scheduler:
+    <<: *service-security
+    image: nakh-scheduler:staging-local
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        APP: scheduler
+    environment:
+      <<: *runtime-environment
+      NAKH_SERVICE_NAME: scheduler
+      NAKH_HTTP_PORT: 3003
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started

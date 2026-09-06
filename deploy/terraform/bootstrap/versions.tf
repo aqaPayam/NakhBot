@@ -6,16 +6,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "6.61.0"
     }
-    random = {
-      source  = "hashicorp/random"
-      version = "3.9.0"
-    }
-  }
-
-  # Supply bucket, key, and region through -backend-config after bootstrap.
-  backend "s3" {
-    encrypt      = true
-    use_lockfile = true
   }
 }
 
@@ -25,9 +15,9 @@ provider "aws" {
   default_tags {
     tags = {
       Project     = var.project_name
-      Environment = var.environment
+      Environment = "staging-bootstrap"
       ManagedBy   = "terraform"
-      Repository  = "aqaPayam/NakhBot"
+      Repository  = var.github_repository
     }
   }
 }

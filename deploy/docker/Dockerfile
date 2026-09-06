@@ -14,5 +14,6 @@ ENV NODE_ENV=production
 WORKDIR /app
 RUN groupadd --system --gid 10001 nakh && useradd --system --uid 10001 --gid nakh nakh
 COPY --from=build --chown=nakh:nakh /out/ ./
+COPY --from=build --chown=nakh:nakh /workspace/migrations ./migrations
 USER nakh
 CMD ["node", "dist/main.js"]

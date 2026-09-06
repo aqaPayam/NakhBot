@@ -44,6 +44,6 @@ The MVP does not include:
 
 ## Current status
 
-Product decisions and the backend technical blueprint are complete. The M0 foundation provides the strict TypeScript workspace, service bootstraps, PostgreSQL migration/reliability primitives, Redis queues, telemetry, tests, CI, containers, and staging IaC skeleton. M1 identity/signup/Profile work is next after the M0 checks pass. Deployment-specific values such as bot tokens, storage credentials, webhook secrets, and bootstrap admin Telegram IDs must be supplied through environment or secret configuration and are not product decisions.
+Product decisions and the backend technical blueprint are complete. The M0 foundation and M1 identity/signup/Profile implementation are complete, including PostgreSQL/Redis reliability, security hardening, telemetry contracts, containers, and CI. Final M1 acceptance is waiting only for deployment to a real staging environment and the recorded manual staging checklist. The AWS staging package is default-off and can be validated before an account is purchased. Deployment-specific values such as bot tokens, storage credentials, webhook secrets, and bootstrap admin Telegram IDs must be supplied through environment or secret configuration and are not product decisions.
 
 Local setup and required checks are documented in [`CONTRIBUTING.md`](CONTRIBUTING.md).

@@ -1,0 +1,96 @@
+name: Roll back staging (uses existing AWS resources)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type ROLLBACK-STAGING to confirm the rollback
+        required: true
+        type: string
+      image_tag:
+        description: Existing immutable release tag to restore
+        required: true
+        type: string
+      schema_compatible:
+        description: I verified this release works with the current forward-migrated database schema
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ROLLBACK_CONFIRMATION: ${{ inputs.confirmation }}
+      SCHEMA_COMPATIBLE: ${{ inputs.schema_compatible }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      TF_IN_AUTOMATION: 'true'
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_public_hostname: ${{ vars.STAGING_HOSTNAME }}
+      TF_VAR_route53_zone_id: ${{ vars.STAGING_ROUTE53_ZONE_ID }}
+      TF_VAR_alert_email: ${{ vars.STAGING_ALERT_EMAIL }}
+      TF_VAR_telegram_bot_token: ${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}
+      TF_VAR_telegram_webhook_secret: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_SECRET }}
+    steps:
+      - name: Require explicit schema-aware confirmation
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$ROLLBACK_CONFIRMATION" = "ROLLBACK-STAGING"
+          test "$SCHEMA_COMPATIBLE" = "true"
+          test -n "$IMAGE_TAG"
+          test "$IMAGE_TAG" != "latest"
+          test "${#TF_VAR_telegram_bot_token}" -ge 20
+          test "${#TF_VAR_telegram_webhook_secret}" -ge 32
+
+      - uses: actions/checkout@v6
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.9
+
+      - name: Initialize protected remote state
+        run: |
+          terraform -chdir=deploy/terraform/staging init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+
+      - name: Verify the complete immutable release still exists
+        run: |
+          repositories=$(terraform -chdir=deploy/terraform/staging output -json ecr_repository_urls)
+          for app in api telegram-gateway worker scheduler; do
+            repository=$(jq -r --arg app "$app" '.[$app]' <<<"$repositories")
+            repository_name=${repository#*/}
+            aws ecr describe-images \
+              --repository-name "$repository_name" \
+              --image-ids "imageTag=$IMAGE_TAG" \
+              >/dev/null
+          done
+
+      - name: Restore the previous release and wait until it is healthy
+        run: |
+          terraform -chdir=deploy/terraform/staging apply \
+            -auto-approve \
+            -var="image_tag=$IMAGE_TAG" \
+            -var="activate_services=true"
+
+      - name: Verify public readiness
+        run: |
+          public_url=$(terraform -chdir=deploy/terraform/staging output -raw public_url)
+          curl --fail --retry 30 --retry-all-errors --retry-delay 10 "$public_url/health/ready"
