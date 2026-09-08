@@ -10,6 +10,7 @@ import type {
   SaveSignupStepCommand,
 } from '@nakh/contracts';
 import {
+  ConfirmSignupHandler,
   RegisterTelegramIdentityHandler,
   type ChangeSettingsWrite,
   type ConfirmSignupWrite,
@@ -29,6 +30,9 @@ import { PostgresSignupStore } from './signup-store.js';
 import { PostgresProfileStore } from './profile-store.js';
 import { PostgresProfileChangeStore } from './profile-change-store.js';
 import { PostgresGuestPreviewStore } from './guest-preview-store.js';
+import { seedValidMedia } from './media-fixtures.js';
+import { PostgresProfileMediaEligibility } from './media-eligibility.js';
+import { SystemIdGenerator } from './foundation-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -739,8 +743,8 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
       userId,
       primaryMediaAssetId,
       acceptedMediaAssetIds: [primaryMediaAssetId, additionalMediaAssetId],
-      issuedAt: new Date('2026-09-04T11:59:00.000Z'),
-      expiresAt: new Date('2026-09-04T12:05:00.000Z'),
+      issuedAt: new Date(),
+      expiresAt: new Date(Date.now() + 60000),
     };
     const makeWrite = (): ConfirmSignupWrite => ({
       command,
@@ -759,6 +763,39 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         proof: { ...proof, expiresAt: new Date('2026-09-04T11:00:00.000Z') },
       }),
     ).rejects.toMatchObject({ code: 'media_not_eligible' });
+    // An apparently valid proof with nonexistent assets must never activate an account.
+    await expect(profiles.confirmSignup(makeWrite())).rejects.toMatchObject({
+      code: 'media_not_eligible',
+    });
+    await seedValidMedia(database, userId, primaryMediaAssetId);
+    await seedValidMedia(database, userId, additionalMediaAssetId);
+    const eligibility = new PostgresProfileMediaEligibility(database, new SystemIdGenerator());
+    const authoritativeProof = await eligibility.issueProof(userId, {
+      primaryMediaAssetId,
+      additionalMediaAssetIds: [additionalMediaAssetId],
+    });
+    // A deletion after the precheck invalidates confirmation and rolls the whole write back.
+    await database
+      .updateTable('media.photo_variants')
+      .set({ deleted_at: new Date() })
+      .where('asset_id', '=', additionalMediaAssetId)
+      .execute();
+    await expect(
+      profiles.confirmSignup({ ...makeWrite(), proof: authoritativeProof }),
+    ).rejects.toMatchObject({ code: 'media_not_eligible' });
+    expect(
+      await database
+        .selectFrom('profile.profiles')
+        .select('id')
+        .where('user_id', '=', userId)
+        .execute(),
+    ).toHaveLength(0);
+    // Fixture repair only; no restoration API is exposed.
+    await database
+      .updateTable('media.photo_variants')
+      .set({ deleted_at: null })
+      .where('asset_id', '=', additionalMediaAssetId)
+      .execute();
     const confirmations = await Promise.all([
       profiles.confirmSignup(makeWrite()),
       profiles.confirmSignup(makeWrite()),
@@ -768,6 +805,23 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
       confirmations[0].profile.profileId,
     ]);
     expect(confirmations.filter((result) => result.replayed)).toHaveLength(1);
+    const photos = await database
+      .selectFrom('media.profile_photos')
+      .selectAll()
+      .where('profile_id', '=', confirmations[0].profile.profileId)
+      .orderBy('display_order')
+      .execute();
+    expect(photos.map((photo) => [photo.asset_id, photo.is_primary])).toEqual([
+      [primaryMediaAssetId, true],
+      [additionalMediaAssetId, false],
+    ]);
+    const handler = new ConfirmSignupHandler(profiles, eligibility, new SystemIdGenerator(), {
+      now: () => new Date(),
+    });
+    await expect(handler.execute(command)).resolves.toMatchObject({
+      replayed: true,
+      profile: { profileId: confirmations[0].profile.profileId },
+    });
 
     const updateCommand = {
       commandId: randomUUID(),
@@ -965,12 +1019,21 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
       eventId: randomUUID(),
       processedAt: new Date('2026-09-04T12:05:01.000Z'),
     });
+    // A protected-field approval must not restore completion when a photo is hidden.
+    await database
+      .updateTable('media.profile_photos')
+      .set({ status: 'hidden', hidden_at: new Date() })
+      .where('asset_id', '=', additionalMediaAssetId)
+      .execute();
     const resolved = await Promise.all([
       protectedChanges.resolveProtectedChange(makeResolveWrite()),
       protectedChanges.resolveProtectedChange(makeResolveWrite()),
     ]);
     expect(resolved.filter((result) => result.replayed)).toHaveLength(1);
     expect(resolved[0]).toMatchObject({ decision: 'approved', profileVersion: 5 });
+    await expect(profiles.getOwnProfile(userId)).resolves.toMatchObject({
+      completionStatus: 'invalid',
+    });
     await expect(
       protectedChanges.resolveProtectedChange({
         ...makeResolveWrite(),
@@ -1055,6 +1118,20 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     expect(reviews).toHaveLength(2);
     expect(requestAudits).toHaveLength(2);
     expect(requestEvents).toHaveLength(2);
+    // An unrelated user edit also cannot restore completion without eligible photos.
+    const editedWithHiddenPhoto = await profiles.updateOwnProfile({
+      ...updateWrite,
+      command: {
+        ...updateCommand,
+        commandId: randomUUID(),
+        idempotencyKey: `photo-invalid-edit:${userId}`,
+        data: { expectedProfileVersion: protectedProfile!.version, patch: { name: 'Payam' } },
+      },
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      processedAt: new Date(),
+    });
+    expect(editedWithHiddenPhoto.completionStatus).toBe('invalid');
     await expect(
       database
         .updateTable('profile.profile_change_reviews')

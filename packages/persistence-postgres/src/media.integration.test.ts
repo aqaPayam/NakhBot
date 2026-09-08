@@ -1,0 +1,369 @@
+import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { BeginMediaIngestionWrite } from '@nakh/application';
+import { createDatabase, type NakhDatabase } from './database.js';
+import { runMigrations } from './migrations.js';
+import { PostgresMediaStore } from './media-store.js';
+import { PostgresProfileMediaEligibility, profilePhotosAreEligible } from './media-eligibility.js';
+import { seedValidMedia } from './media-fixtures.js';
+import { SystemIdGenerator } from './foundation-store.js';
+
+const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
+
+function write(userId: string): BeginMediaIngestionWrite {
+  return {
+    assetId: randomUUID(),
+    auditId: randomUUID(),
+    eventId: randomUUID(),
+    transportMetadataCiphertext: Buffer.from('synthetic-encrypted-fixture'),
+    command: {
+      commandId: randomUUID(),
+      commandType: 'media.begin-telegram-photo-ingestion',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId },
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      occurredAt: '2020-01-01T00:00:00.000Z',
+      locale: 'en',
+      data: {
+        telegramFileId: 'synthetic-file',
+        telegramFileUniqueId: 'synthetic-unique',
+        declaredSizeBytes: 1024,
+        declaredMediaType: 'image/jpeg',
+      },
+    },
+  };
+}
+
+describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', () => {
+  let database: NakhDatabase;
+  let store: PostgresMediaStore;
+  beforeAll(async () => {
+    await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
+    database = createDatabase({
+      url: databaseUrl!,
+      poolMax: 25,
+      statementTimeoutMs: 15000,
+      lockTimeoutMs: 10000,
+    });
+    store = new PostgresMediaStore(database, 'test');
+  });
+  afterAll(async () => {
+    await database?.destroy();
+  });
+
+  async function user(): Promise<string> {
+    const id = randomUUID();
+    const now = new Date();
+    await database
+      .insertInto('identity.users')
+      .values({ id, last_activity_at: now, created_at: now, updated_at: now })
+      .execute();
+    await database
+      .insertInto('identity.accounts')
+      .values({ user_id: id, state: 'incomplete', state_reason: null, state_changed_at: now })
+      .execute();
+    return id;
+  }
+
+  async function profile(userId: string): Promise<string> {
+    const gender = await database
+      .selectFrom('catalog.gender_options')
+      .select('id')
+      .where('code', '=', 'man')
+      .executeTakeFirstOrThrow();
+    const preference = await database
+      .selectFrom('catalog.gender_preferences')
+      .select('id')
+      .where('code', '=', 'women')
+      .executeTakeFirstOrThrow();
+    const goal = await database
+      .selectFrom('catalog.relationship_goals')
+      .select('id')
+      .where('code', '=', 'marriage')
+      .executeTakeFirstOrThrow();
+    const location = await database
+      .selectFrom('catalog.cities as city')
+      .innerJoin('catalog.provinces as province', 'province.id', 'city.province_id')
+      .select(['city.id', 'province.id as province', 'province.country_id'])
+      .where('city.code', '=', 'tehran')
+      .executeTakeFirstOrThrow();
+    const id = randomUUID();
+    const now = new Date();
+    await database
+      .insertInto('profile.profiles')
+      .values({
+        id,
+        user_id: userId,
+        name: 'Fixture',
+        birth_year: 2000,
+        gender_option_id: gender.id,
+        gender_preference_id: preference.id,
+        relationship_goal_id: goal.id,
+        country_id: location.country_id,
+        province_id: location.province,
+        city_id: location.id,
+        highlight: 'Fixture',
+        bio: null,
+        completion_status: 'incomplete',
+        completed_at: null,
+        created_at: now,
+        updated_at: now,
+      })
+      .execute();
+    return id;
+  }
+
+  async function assign(
+    profileId: string,
+    assetId: string,
+    order: number,
+    primary = false,
+  ): Promise<void> {
+    const now = new Date();
+    await database
+      .insertInto('media.profile_photos')
+      .values({
+        id: randomUUID(),
+        profile_id: profileId,
+        asset_id: assetId,
+        status: 'visible',
+        is_primary: primary,
+        display_order: order,
+        created_at: now,
+        updated_at: now,
+        hidden_at: null,
+        deleted_at: null,
+      })
+      .execute();
+  }
+
+  it('admits only 20 concurrent attempts using server time, including coarse rejections', async () => {
+    const userId = await user();
+    const rejected = write(userId);
+    rejected.command.data.declaredSizeBytes = 10485761;
+    await expect(store.beginTelegramIngestion(rejected)).resolves.toMatchObject({
+      validationState: 'rejected',
+      errorCode: 'media_too_large',
+    });
+    const results = await Promise.allSettled(
+      Array.from({ length: 24 }, () => store.beginTelegramIngestion(write(userId))),
+    );
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(19);
+    for (const result of results)
+      if (result.status === 'rejected')
+        expect(result.reason).toMatchObject({ code: 'photo_upload_limit_reached' });
+    const attempts = await database
+      .selectFrom('media.media_assets')
+      .selectAll()
+      .where('owner_user_id', '=', userId)
+      .execute();
+    expect(attempts).toHaveLength(20);
+    expect(attempts.every((asset) => asset.attempted_at.getFullYear() > 2020)).toBe(true);
+    const replay = await store.beginTelegramIngestion({ ...rejected, assetId: randomUUID() });
+    expect(replay).toMatchObject({
+      assetId: rejected.assetId,
+      replayed: true,
+      validationState: 'rejected',
+    });
+  });
+
+  it('releases attempt capacity after 24 hours without trusting client time', async () => {
+    const id = await user();
+    const expired = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await Promise.all(
+      Array.from({ length: 20 }, () => seedValidMedia(database, id, randomUUID(), false, expired)),
+    );
+    await expect(store.beginTelegramIngestion(write(id))).resolves.toMatchObject({
+      validationState: 'pending',
+    });
+  });
+
+  it('replays concurrently without additional assets, audit rows, or outbox events', async () => {
+    const input = write(await user());
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => store.beginTelegramIngestion(input)),
+    );
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(new Set(results.map((result) => result.assetId)).size).toBe(1);
+    expect(
+      await database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('command_id', '=', input.command.commandId)
+        .execute(),
+    ).toHaveLength(1);
+    const events = await database
+      .selectFrom('platform.outbox_events')
+      .select('payload')
+      .where('causation_id', '=', input.command.commandId)
+      .execute();
+    expect(events).toEqual([{ payload: { assetId: input.assetId, validationState: 'pending' } }]);
+    await expect(
+      store.beginTelegramIngestion({
+        ...input,
+        command: { ...input.command, data: { ...input.command.data, telegramFileId: 'changed' } },
+      }),
+    ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+  });
+
+  it('rolls back the attempt and idempotency response if outbox insertion fails', async () => {
+    const initial = write(await user());
+    await store.beginTelegramIngestion(initial);
+    const input = { ...write(initial.command.actor.userId), eventId: initial.eventId };
+    await expect(store.beginTelegramIngestion(input)).rejects.toBeDefined();
+    expect(
+      await database
+        .selectFrom('media.media_assets')
+        .select('id')
+        .where('id', '=', input.assetId)
+        .execute(),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .selectFrom('platform.idempotency_records')
+        .select('id')
+        .where('id', '=', input.command.commandId)
+        .execute(),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('id', '=', input.auditId)
+        .execute(),
+    ).toHaveLength(0);
+  });
+
+  it('does not accept uploads for guests, banned accounts, or forged system actors', async () => {
+    const id = await user();
+    for (const state of ['guest', 'banned', 'deleted'] as const) {
+      await database
+        .updateTable('identity.accounts')
+        .set({ state })
+        .where('user_id', '=', id)
+        .execute();
+      await expect(store.beginTelegramIngestion(write(id))).rejects.toMatchObject({
+        code: 'capability_denied',
+      });
+    }
+    const input = write(id);
+    await expect(
+      store.beginTelegramIngestion({
+        ...input,
+        command: { ...input.command, actor: { kind: 'system', userId: id } },
+      }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+
+  it('allows restricted users to upload replacement photos as permitted by edit_profile', async () => {
+    const id = await user();
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'restricted' })
+      .where('user_id', '=', id)
+      .execute();
+    await expect(store.beginTelegramIngestion(write(id))).resolves.toMatchObject({
+      validationState: 'pending',
+    });
+  });
+
+  it('requires owned, distinct, valid assets with a verified thumbnail', async () => {
+    const id = await user();
+    const first = await seedValidMedia(database, id);
+    const second = await seedValidMedia(database, id);
+    const port = new PostgresProfileMediaEligibility(database, new SystemIdGenerator());
+    await expect(
+      port.issueProof(id, { primaryMediaAssetId: first, additionalMediaAssetIds: [second] }),
+    ).resolves.toMatchObject({ userId: id, acceptedMediaAssetIds: [first, second] });
+    const missingThumbnail = await seedValidMedia(database, id, randomUUID(), false);
+    const foreign = await seedValidMedia(database, await user());
+    const pending = write(id);
+    await store.beginTelegramIngestion(pending);
+    for (const other of [first, missingThumbnail, foreign, pending.assetId, randomUUID()]) {
+      await expect(
+        port.issueProof(id, { primaryMediaAssetId: first, additionalMediaAssetIds: [other] }),
+      ).rejects.toMatchObject({ code: 'media_not_eligible' });
+    }
+    await database
+      .updateTable('media.media_assets')
+      .set({ deleted_at: new Date() })
+      .where('id', '=', second)
+      .execute();
+    await expect(
+      port.issueProof(id, { primaryMediaAssetId: first, additionalMediaAssetIds: [second] }),
+    ).rejects.toMatchObject({ code: 'media_not_eligible' });
+  });
+
+  it('serializes seven assignment inserts to six saved slots', async () => {
+    const id = await user();
+    const profileId = await profile(id);
+    const assets = await Promise.all(Array.from({ length: 7 }, () => seedValidMedia(database, id)));
+    const results = await Promise.allSettled(
+      assets.map((asset, order) => assign(profileId, asset, order)),
+    );
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(6);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('media.profile_photos')
+        .select('id')
+        .where('profile_id', '=', profileId)
+        .execute(),
+    ).toHaveLength(6);
+  });
+
+  it('protects primary uniqueness, ownership, thumbnail readiness, and completion checks', async () => {
+    const id = await user();
+    const profileId = await profile(id);
+    const first = await seedValidMedia(database, id);
+    const second = await seedValidMedia(database, id);
+    await assign(profileId, first, 0, true);
+    await expect(assign(profileId, second, 1, true)).rejects.toMatchObject({ code: '23505' });
+    await assign(profileId, second, 1);
+    expect(await profilePhotosAreEligible(database, profileId)).toBe(true);
+    const foreign = await seedValidMedia(database, await user());
+    await expect(assign(profileId, foreign, 2)).rejects.toMatchObject({ code: '23514' });
+    const noThumbnail = await seedValidMedia(database, id, randomUUID(), false);
+    await expect(assign(profileId, noThumbnail, 2)).rejects.toMatchObject({ code: '23514' });
+    await database
+      .updateTable('media.profile_photos')
+      .set({ status: 'hidden', hidden_at: new Date() })
+      .where('asset_id', '=', second)
+      .execute();
+    expect(await profilePhotosAreEligible(database, profileId)).toBe(false);
+  });
+
+  it('rejects terminal-state rewrites, owner changes, and active normalized duplicates', async () => {
+    const id = await user();
+    const first = await seedValidMedia(database, id);
+    const second = await seedValidMedia(database, id);
+    const asset = await database
+      .selectFrom('media.media_assets')
+      .selectAll()
+      .where('id', '=', first)
+      .executeTakeFirstOrThrow();
+    await expect(
+      database
+        .updateTable('media.media_assets')
+        .set({ owner_user_id: await user() })
+        .where('id', '=', first)
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      database
+        .updateTable('media.media_assets')
+        .set({ validation_state: 'pending', terminal_at: null })
+        .where('id', '=', first)
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      database
+        .updateTable('media.media_assets')
+        .set({ normalized_sha256: asset.normalized_sha256 })
+        .where('id', '=', second)
+        .execute(),
+    ).rejects.toMatchObject({ code: '23505' });
+  });
+});

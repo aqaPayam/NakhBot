@@ -6,6 +6,12 @@ import type {
   ProtectedProfileField,
 } from '@nakh/domain';
 import pg from 'pg';
+import type {
+  MediaAssetTable,
+  PhotoVariantTable,
+  ProfilePhotoTable,
+  PhotoModerationTable,
+} from './media-tables.js';
 
 const { Pool } = pg;
 
@@ -347,6 +353,10 @@ export interface AuditLogTable {
 }
 
 export interface DatabaseSchema {
+  'media.media_assets': MediaAssetTable;
+  'media.photo_variants': PhotoVariantTable;
+  'media.profile_photos': ProfilePhotoTable;
+  'media.photo_moderation_records': PhotoModerationTable;
   'platform.idempotency_records': IdempotencyTable;
   'platform.sample_effects': SampleEffectTable;
   'platform.outbox_events': OutboxEventTable;

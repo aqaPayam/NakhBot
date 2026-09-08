@@ -29,6 +29,7 @@ describe('ConfirmSignupHandler', () => {
       additionalMediaAssetIds: ['40000000-0000-4000-8000-000000000002'],
     };
     const store = {
+      getConfirmationReplay: () => Promise.resolve(undefined),
       getConfirmationMedia: (userId: string) => {
         calls.push(`selection:${userId}`);
         return Promise.resolve(selection);

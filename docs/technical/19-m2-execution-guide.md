@@ -195,15 +195,17 @@ Provider errors are mapped to stable retry classes. Unknown results are retried/
 
 ### 8.1 Begin upload
 
-1. authenticate User and capability;
-2. claim command idempotency;
-3. lock User;
-4. count attempts in `[now-24h, now)` and reject at 20;
-5. insert pending MediaAsset with a random key derived only from asset ID;
-6. append audit/outbox `media.ingestion-requested.v1`;
-7. persist response and commit.
+1. authenticate User;
+2. lock User and return a matching completed command replay if present;
+3. lock Account and evaluate capability (`continue_signup` for incomplete accounts, otherwise `edit_profile`);
+4. read database `clock_timestamp()` after obtaining the User lock; count all attempts at or after `now-24h` (including equal/future timestamps) and reject at 20;
+5. insert pending MediaAsset with a random key derived only from asset ID, or a rejected asset for a coarse size/type failure; the rejected result must commit, not throw and roll back its attempt;
+6. append audit/outbox `media.ingestion-requested.v1` or `media.ingestion-rejected.v1`;
+7. persist the unique command response in the same transaction and commit.
 
 Download begins only after commit. Replays return the same asset and do not consume another attempt.
+
+The 21st request is denied before an ingestion intent exists; it does not create an unbounded rejection table. All admitted attempts, including coarse rejections and later processing failures, count for the full window. PR3 adds transport-level request throttling. Client `occurredAt` never controls this clock. Raw Telegram IDs and filenames are not stored in audit/outbox/asset text fields; PR3 supplies authenticated-encrypted, size-bounded transport metadata and clears it after ingestion.
 
 ### 8.2 Download and quarantine
 
@@ -340,7 +342,7 @@ M2 is complete only when all seven PR outcomes are green and:
 
 ## 13. First implementation action
 
-Begin only PR 1. Its traceability checklist is:
+PR 1 is complete and its CI was confirmed green. Its traceability checklist is:
 
 - [x] statuses and transitions map to Domain Statuses §3;
 - [x] size/type/dimension/frame/attempt limits map to Business Rules §3;
@@ -350,4 +352,30 @@ Begin only PR 1. Its traceability checklist is:
 - [x] contracts never return object keys and reject additional properties;
 - [x] delivery requests bind actor, photo, purpose, and allowed rendition;
 - [x] provider-specific code and live routes remain outside PR 1;
-- [ ] formatting, lint, type checks, all tests, and all builds pass before the PR 1 commit.
+- [x] formatting, lint, type checks, unit tests, and builds passed; user confirmed PR 1 CI green.
+
+## 14. PR 2 implementation and evidence boundary
+
+Scope: PostgreSQL assets/assignments/variants/moderation tables, immutable terminal-state/owner checks, six-slot and primary constraints, versioned variant uniqueness, serialized rolling attempt accounting, idempotent ingestion intent with atomic audit/outbox, and authoritative signup assignment. No decoder, object access, live upload route, delivery grant, or moderation endpoint is added.
+
+The PostgreSQL eligibility adapter is exercised with the real confirmation handler. The confirmation transaction independently locks selected assets and thumbnail records; a precheck cannot replace this check. Confirmation retries first read their completed command result, so a completed signup does not fail because its draft advanced or its photos later changed. Both ordinary and approved protected Profile edits include media eligibility before restoring completion.
+
+The M1 **runtime transport** media placeholder is still open: the existing gateway does not yet compose the full photo/signup confirmation path. PR3/4 must wire the adapter when uploads and verified publication are available. Tests seed synthetic validated rows explicitly; they are not evidence that real objects were scanned or verified.
+
+Verification checklist:
+
+- [x] empty and previous-schema migration/verification/replay checks;
+- [x] 20-attempt concurrency limit, coarse-rejection accounting, replay and transaction rollback;
+- [x] missing, foreign-owned, pending, duplicate-selected, deleted, or thumbnail-less assets denied;
+- [x] stale precheck rejected without Profile/account partial writes;
+- [x] ordered signup assignment and confirmation handler replay;
+- [x] seven concurrent assignment inserts leave at most six saved rows;
+- [x] primary uniqueness, terminal validation and active normalized-hash constraints;
+- [x] formatting, lint, type checks, unit tests, production audit, and build;
+- [ ] GitHub PostgreSQL/Redis integration, container builds, and restore smoke green.
+
+`ACC-008..012` currently have pure-policy coverage plus selected database checks, not complete worker/lifecycle acceptance. `ACC-009..011` publication/failure evidence remains PR4, moderation/promotion remains PR5, and verified object deletion (`ACC-013`) remains PR7. Real M1/M2 staging remains blocked on the future infrastructure purchase.
+
+Local evidence (2026-09-08): 22 PostgreSQL integration tests passed on an isolated PostgreSQL 17.11 server. This includes concurrent empty-database bootstrap, upgrade from all nine M1 migrations, verification SQL, migration replay, expired attempt capacity, and both ordinary/protected edits with a hidden photo. Migration bootstrap now acquires its advisory lock before creating the schema tracker. Integration suites share a service database and execute one file at a time because legacy fixtures reset shared tables; explicit concurrency inside individual tests is preserved. The migration-upgrade test requires `CREATEDB` on the disposable test server and deletes only its own randomly named test database.
+
+`pnpm check` passed (83 unit tests at that run, all package/app builds). Subsequent test additions and the suite-isolation change passed targeted lint/type/format checks; the media contract suite passed all seven tests, bringing the unit-test inventory to 84. The production dependency audit reported no known vulnerabilities. Redis integration, Docker builds, and restore smoke remain GitHub CI evidence pending this push; no real R2/CDN acceptance is claimed.

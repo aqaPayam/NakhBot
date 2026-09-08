@@ -20,6 +20,7 @@ import {
 } from '@nakh/domain';
 
 import type { NakhDatabase, ProfileChangeRequestTable } from './database.js';
+import { profilePhotosAreEligible } from './media-eligibility.js';
 
 type ProtectedWrite = RequestProtectedProfileChangeWrite | ResolveProtectedProfileChangeWrite;
 
@@ -100,10 +101,7 @@ async function claim(
   return existing.response_json;
 }
 
-async function m1ProfileFieldsAreValid(
-  database: NakhDatabase,
-  profileId: string,
-): Promise<boolean> {
+async function profileFieldsAreValid(database: NakhDatabase, profileId: string): Promise<boolean> {
   const validity = await database
     .selectFrom('profile.profiles as profile')
     .innerJoin('catalog.gender_options as gender', 'gender.id', 'profile.gender_option_id')
@@ -136,6 +134,7 @@ async function m1ProfileFieldsAreValid(
     .where('selection.profile_id', '=', profileId)
     .executeTakeFirstOrThrow();
   return (
+    (await profilePhotosAreEligible(database, profileId)) &&
     Object.values(validity).every(Boolean) &&
     Number(interests.total) >= PROFILE_LIMITS.minimumInterests &&
     Number(interests.total) <= PROFILE_LIMITS.maximumInterests &&
@@ -428,7 +427,7 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
             .executeTakeFirstOrThrow();
         }
         profileVersion += 1;
-        const valid = await m1ProfileFieldsAreValid(transaction, profile.id);
+        const valid = await profileFieldsAreValid(transaction, profile.id);
         const completionStatus = valid ? 'complete' : 'invalid';
         if (completionStatus !== profile.completion_status)
           await transaction

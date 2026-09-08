@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { sql } from 'kysely';
 
 import type {
   ConfirmSignupWrite,
@@ -6,7 +7,7 @@ import type {
   ProfileStore,
   UpdateProfileWrite,
 } from '@nakh/application';
-import type { ConfirmSignupResult, OwnProfile } from '@nakh/contracts';
+import type { ConfirmSignupCommand, ConfirmSignupResult, OwnProfile } from '@nakh/contracts';
 import {
   ApplicationError,
   assertAccountTransition,
@@ -16,6 +17,8 @@ import {
 } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { lockEligibleMedia, profilePhotosAreEligible } from './media-eligibility.js';
+import { SystemIdGenerator } from './foundation-store.js';
 
 type Json = Readonly<Record<string, unknown>>;
 type CompleteDraft = Readonly<{
@@ -88,7 +91,7 @@ function completeDraft(value: Json, schemaVersion: number): CompleteDraft {
   };
 }
 
-function hash(write: ConfirmSignupWrite | UpdateProfileWrite): string {
+function hash(write: Pick<ConfirmSignupWrite | UpdateProfileWrite, 'command'>): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -103,6 +106,25 @@ function hash(write: ConfirmSignupWrite | UpdateProfileWrite): string {
 
 export class PostgresProfileStore implements ProfileStore {
   public constructor(private readonly database: NakhDatabase) {}
+
+  public async getConfirmationReplay(
+    command: ConfirmSignupCommand,
+  ): Promise<ConfirmSignupResult | undefined> {
+    if (command.actor.kind !== 'user')
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    const existing = await this.database
+      .selectFrom('platform.idempotency_records')
+      .select(['request_hash', 'status', 'response_json'])
+      .where('actor_user_id', '=', command.actor.userId)
+      .where('scope', '=', command.commandType)
+      .where('idempotency_key', '=', command.idempotencyKey)
+      .executeTakeFirst();
+    if (existing === undefined) return undefined;
+    if (existing.request_hash !== hash({ command }))
+      throw new ApplicationError('idempotency_conflict', 'error.command.idempotency_conflict', 409);
+    if (existing.status !== 'completed' || existing.response_json === null) return undefined;
+    return { ...(existing.response_json as unknown as ConfirmSignupResult), replayed: true };
+  }
 
   public async getConfirmationMedia(userId: string): Promise<ConfirmationMediaSelection> {
     const row = await this.database
@@ -200,14 +222,14 @@ export class PostgresProfileStore implements ProfileStore {
     return existing.response_json as unknown as OwnProfile;
   }
 
-  private verifyProof(write: ConfirmSignupWrite, draft: CompleteDraft): void {
+  private verifyProof(write: ConfirmSignupWrite, draft: CompleteDraft, now: Date): void {
     const proof = write.proof;
     const selected = [draft.primaryMediaAssetId, ...draft.additionalMediaAssetIds];
     if (
       proof.userId !== write.command.actor.userId ||
       proof.primaryMediaAssetId !== draft.primaryMediaAssetId ||
-      proof.issuedAt > write.processedAt ||
-      proof.expiresAt < write.processedAt ||
+      proof.issuedAt > now ||
+      proof.expiresAt <= now ||
       selected.length < PROFILE_LIMITS.minimumPhotos ||
       selected.length > PROFILE_LIMITS.maximumPhotos ||
       new Set(selected).size !== selected.length ||
@@ -288,7 +310,12 @@ export class PostgresProfileStore implements ProfileStore {
           currentStep: progress.current_step,
         });
       const draft = completeDraft(draftRow.draft_data, draftRow.schema_version);
-      this.verifyProof(write, draft);
+      const time = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);
+      this.verifyProof(write, draft, time.rows[0]!.now);
+      const mediaIds = await lockEligibleMedia(transaction, userId, {
+        primaryMediaAssetId: draft.primaryMediaAssetId,
+        additionalMediaAssetIds: draft.additionalMediaAssetIds,
+      });
       const [genderId, preferenceId, goalId] = await Promise.all([
         this.activeId(transaction, 'catalog.gender_options', draft.genderCode),
         this.activeId(transaction, 'catalog.gender_preferences', draft.preferenceCode),
@@ -387,6 +414,23 @@ export class PostgresProfileStore implements ProfileStore {
           updated_at: write.processedAt,
         })
         .executeTakeFirstOrThrow();
+      await transaction
+        .insertInto('media.profile_photos')
+        .values(
+          mediaIds.map((assetId, order) => ({
+            id: new SystemIdGenerator().uuid(),
+            profile_id: write.profileId,
+            asset_id: assetId,
+            status: 'visible' as const,
+            is_primary: order === 0,
+            display_order: order,
+            created_at: write.processedAt,
+            updated_at: write.processedAt,
+            hidden_at: null,
+            deleted_at: null,
+          })),
+        )
+        .execute();
       await transaction
         .insertInto('profile.profile_optional_details')
         .values({
@@ -883,6 +927,7 @@ export class PostgresProfileStore implements ProfileStore {
         .where('selection.profile_id', '=', current.id)
         .executeTakeFirstOrThrow();
       const complete =
+        (await profilePhotosAreEligible(transaction, current.id)) &&
         Object.values(validity).every(Boolean) &&
         Number(interestCount.total) >= PROFILE_LIMITS.minimumInterests &&
         Number(interestCount.total) <= PROFILE_LIMITS.maximumInterests &&

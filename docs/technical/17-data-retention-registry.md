@@ -1,6 +1,6 @@
 # Data Retention and Deletion Registry
 
-This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M7; new migrations must update this file immediately.
+This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M8, with M7 owning moderation/evidence decisions; new migrations must update this file immediately.
 
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|
@@ -24,6 +24,14 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `profile.profile_change_reviews` | administrative decision | retain only with the corresponding permitted audit window, then purge with request | Administration/Privacy |
 | `administration.admin_users` | workforce identity | not part of User product-data deletion | M7 administration lifecycle and audit continuity |
 | `platform.sample_effects` and `platform.sample_projections` | M0 test-only data | remove when M0 sample is retired | Platform |
+| `media.media_assets` | sensitive photo metadata, hashes, encrypted temporary transport references | clear transport ciphertext after ingestion ends; soft-delete ordinary assets immediately, verify object purge, then purge metadata after the replay/24-hour attempt window | Media; deletion must not reset upload limits |
+| `media.profile_photos` | sensitive Profile/photo association | remove from delivery immediately; purge after object cleanup and permitted safety-reference handling | Media/Profile |
+| `media.photo_variants` | private rendition metadata | revoke delivery, verify object deletion, then purge metadata | Media |
+| `media.photo_moderation_records` | append-only safety decision history | retain only for the approved safety/audit window; M8 must implement controlled reference release/purge, not ordinary DELETE against the append-only trigger | Moderation/Privacy; optional report link is disabled until M7 |
+| `quarantine/{environment}/{assetId}/` | untrusted private upload | purge on rejection, abandonment, successful publication, or product deletion; verify absence | Media |
+| `validated/{environment}/{assetId}/` | private normalized original | purge on ordinary photo/product deletion; retain only under an explicit evidence decision | Media/Moderation |
+| `variants/{environment}/{assetId}/` | private served renditions | revoke grants and purge objects on ordinary photo/product deletion | Media |
+| `report-evidence/{environment}/{reportId}/` | restricted safety evidence (future M7) | retain/purge only under explicit evidence policy, independently of ordinary photo cleanup | Moderation/Privacy |
 
 ## Required deletion-test assertions for M1
 
@@ -34,4 +42,4 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 - Guest Preview count and immutable limit snapshot are unchanged.
 - A permitted return reuses the same User and TelegramIdentity and never creates a second counter.
 
-M7 must turn these rules into the automated deletion-registry test required by [`11-testing-strategy.md`](11-testing-strategy.md).
+M8 must turn these rules into the automated deletion-registry test required by [`11-testing-strategy.md`](11-testing-strategy.md). M2 introduces the media records, but does not yet implement account deletion or retention-window scheduling.

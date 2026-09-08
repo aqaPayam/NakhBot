@@ -87,15 +87,30 @@ export type BeginTelegramPhotoIngestionCommand = Static<
   typeof BeginTelegramPhotoIngestionCommandSchema
 >;
 
-export const BeginPhotoIngestionResultSchema = Type.Object(
-  {
-    assetId: UuidSchema,
-    validationState: Type.Literal('pending'),
-    acceptedAt: UtcTimestampSchema,
-    replayed: Type.Boolean(),
-  },
-  { additionalProperties: false },
-);
+export const BeginPhotoIngestionResultSchema = Type.Union([
+  Type.Object(
+    {
+      assetId: UuidSchema,
+      validationState: Type.Literal('pending'),
+      acceptedAt: UtcTimestampSchema,
+      replayed: Type.Boolean(),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      assetId: UuidSchema,
+      validationState: Type.Literal('rejected'),
+      errorCode: Type.Union([
+        Type.Literal('media_too_large'),
+        Type.Literal('unsupported_media_type'),
+      ]),
+      acceptedAt: UtcTimestampSchema,
+      replayed: Type.Boolean(),
+    },
+    { additionalProperties: false },
+  ),
+]);
 export type BeginPhotoIngestionResult = Static<typeof BeginPhotoIngestionResultSchema>;
 
 export const MediaValidationJobSchema = Type.Object(

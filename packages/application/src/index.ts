@@ -15,6 +15,7 @@ export * from './identity/guest-preview.js';
 export * from './access/capability-authorizer.js';
 export * from './security/rate-limit.js';
 export * from './profile/profile.js';
+export * from './media/ingestion.js';
 export * from './profile/protected-change.js';
 export * from './presentation.js';
 

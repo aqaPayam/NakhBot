@@ -46,6 +46,7 @@ export type UpdateProfileWrite = Readonly<{
 }>;
 
 export interface ProfileStore {
+  getConfirmationReplay(command: ConfirmSignupCommand): Promise<ConfirmSignupResult | undefined>;
   getConfirmationMedia(userId: string): Promise<ConfirmationMediaSelection>;
   confirmSignup(write: ConfirmSignupWrite): Promise<ConfirmSignupResult>;
   updateOwnProfile(write: UpdateProfileWrite): Promise<OwnProfile>;
@@ -68,18 +69,27 @@ export class ConfirmSignupHandler {
 
   public async execute(command: ConfirmSignupCommand): Promise<ConfirmSignupResult> {
     const userId = requireUser(command.actor);
-    const selection = await this.store.getConfirmationMedia(userId);
-    const proof = await this.media.issueProof(userId, selection);
-    return this.store.confirmSignup({
-      command,
-      proof,
-      profileId: this.ids.uuid(),
-      accountHistoryId: this.ids.uuid(),
-      auditId: this.ids.uuid(),
-      profileEventId: this.ids.uuid(),
-      accountEventId: this.ids.uuid(),
-      processedAt: this.clock.now(),
-    });
+    const replay = await this.store.getConfirmationReplay(command);
+    if (replay !== undefined) return replay;
+    try {
+      const selection = await this.store.getConfirmationMedia(userId);
+      const proof = await this.media.issueProof(userId, selection);
+      return await this.store.confirmSignup({
+        command,
+        proof,
+        profileId: this.ids.uuid(),
+        accountHistoryId: this.ids.uuid(),
+        auditId: this.ids.uuid(),
+        profileEventId: this.ids.uuid(),
+        accountEventId: this.ids.uuid(),
+        processedAt: this.clock.now(),
+      });
+    } catch (error) {
+      // Another copy can finish between the first replay check and the media precheck.
+      const completed = await this.store.getConfirmationReplay(command);
+      if (completed !== undefined) return completed;
+      throw error;
+    }
   }
 }
 

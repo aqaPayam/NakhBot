@@ -23,6 +23,9 @@ export async function runMigrations(
   const applied: string[] = [];
   const existing: string[] = [];
   try {
+    // Serialize bootstrap DDL too: IF NOT EXISTS does not prevent concurrent
+    // CREATE TABLE transactions from racing on PostgreSQL's type catalog.
+    await client.query(`SELECT pg_advisory_lock(hashtext('nakh-schema-migrations'))`);
     await client.query(`CREATE SCHEMA IF NOT EXISTS platform`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS platform.schema_migrations (
@@ -31,7 +34,6 @@ export async function runMigrations(
         applied_at timestamptz NOT NULL DEFAULT now()
       )
     `);
-    await client.query(`SELECT pg_advisory_lock(hashtext('nakh-schema-migrations'))`);
     for (const name of await migrationFiles(directory)) {
       const sql = await readFile(join(directory, name), 'utf8');
       const sha256 = createHash('sha256').update(sql).digest('hex');

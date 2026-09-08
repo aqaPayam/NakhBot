@@ -4,6 +4,7 @@ import * as formatsModule from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
 
 import {
+  BeginPhotoIngestionResultSchema,
   BeginTelegramPhotoIngestionCommandSchema,
   MediaDeliveryGrantSchema,
   MediaValidationJobSchema,
@@ -32,6 +33,20 @@ const envelope = {
 };
 
 describe('M2 media contracts', () => {
+  it('returns a durable coarse rejection with a stable reason and no transport metadata', () => {
+    const validate = validator(BeginPhotoIngestionResultSchema);
+    const result = {
+      assetId: envelope.commandId,
+      validationState: 'rejected',
+      errorCode: 'media_too_large',
+      acceptedAt: envelope.occurredAt,
+      replayed: false,
+    };
+    expect(validate(result)).toBe(true);
+    expect(validate({ ...result, validationState: 'pending' })).toBe(false);
+    expect(validate({ ...result, errorCode: 'arbitrary-provider-detail' })).toBe(false);
+    expect(validate({ ...result, telegramFileId: 'private-reference' })).toBe(false);
+  });
   it('accepts bounded Telegram transport metadata without making it authoritative', () => {
     const validate = validator(BeginTelegramPhotoIngestionCommandSchema);
     expect(
