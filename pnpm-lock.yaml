@@ -50,14 +50,14 @@ catalogs:
       specifier: 3.0.1
       version: 3.0.1
     bullmq:
-      specifier: 6.3.3
-      version: 6.3.3
+      specifier: 6.3.4
+      version: 6.3.4
     dotenv:
       specifier: 17.4.2
       version: 17.4.2
     fastify:
-      specifier: 5.12.1
-      version: 5.12.1
+      specifier: 5.12.3
+      version: 5.12.3
     ioredis:
       specifier: 6.0.0
       version: 6.0.0
@@ -158,7 +158,7 @@ importers:
         version: 3.0.1(ajv@8.20.0)
       fastify:
         specifier: 'catalog:'
-        version: 5.12.1
+        version: 5.12.3
       kysely:
         specifier: 'catalog:'
         version: 0.29.5
@@ -218,7 +218,7 @@ importers:
         version: 12.0.1(@nestjs/common@12.0.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(reflect-metadata@0.2.2)(rxjs@7.8.2))
       fastify:
         specifier: 'catalog:'
-        version: 5.12.1
+        version: 5.12.3
       reflect-metadata:
         specifier: 'catalog:'
         version: 0.2.2
@@ -349,7 +349,7 @@ importers:
         version: link:../contracts
       bullmq:
         specifier: 'catalog:'
-        version: 6.3.3(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.0)
+        version: 6.3.4(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.0)
       ioredis:
         specifier: 'catalog:'
         version: 6.0.0(supports-color@7.2.0)
@@ -2019,8 +2019,8 @@ packages:
     resolution: {integrity: sha512-lHblz4ahamxpTmnsk+MNTRWsjYKv965MwOrSJyeD588rR3Jcu7swE+0wN5F+PbL5cjgu/9ObkhfzEPuofEMwLA==}
     engines: {node: '>=10.0.0'}
 
-  bullmq@6.3.3:
-    resolution: {integrity: sha512-ie2/80FlcAF2pZM6NU90adIPPpvuqlPSqbRRW3t5ktgJMTrXRJ7D0e8gjTXgST4skpJeTitM0GKNUBEgrmBq3A==}
+  bullmq@6.3.4:
+    resolution: {integrity: sha512-DpilB5sayCB8huCp4YuzVhJjxB4ieHidzu+GPgbcjPi3kQv0gdLoLnk+I+mMACDQ88rTbSiT+B4crmhWFGL9GA==}
     engines: {node: '>=14.17.0'}
     peerDependencies:
       bullmq-otel: '>=2.0.0'
@@ -2347,6 +2347,9 @@ packages:
 
   fastify@5.12.1:
     resolution: {integrity: sha512-FWi+tQvwxR/PeRX7Z2mhfEF5ozJ3jn9asiiclzKXNSzJRHAYcU924aIOKAdHFJ+YIKieh3cqr1IwCOvTr41B3Q==}
+
+  fastify@5.12.3:
+    resolution: {integrity: sha512-reZ8wce5VNCcufIt9AVtzZa3L4u1j8esikn7OEgHWLVpRpL5R7Y2+Xzj70OUkv5zDfzUAxXZT6cu4Rt0zr3EKA==}
 
   fastq@1.20.3:
     resolution: {integrity: sha512-XKv5nnLs6nLF71NgiKJLIZFLkPyIEuOselLG7ujZnGrRfQK8HpvY+WqKhAJUAdLomwVHErVS4LfxFlPq0/FTAw==}
@@ -5133,7 +5136,7 @@ snapshots:
   buildcheck@0.0.7:
     optional: true
 
-  bullmq@6.3.3(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.0):
+  bullmq@6.3.4(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.0):
     dependencies:
       cron-parser: 5.10.0
       msgpackr: 2.1.0
@@ -5496,6 +5499,24 @@ snapshots:
   fastify-plugin@6.0.0: {}
 
   fastify@5.12.1:
+    dependencies:
+      '@fastify/ajv-compiler': 4.0.6
+      '@fastify/error': 4.2.0
+      '@fastify/fast-json-stringify-compiler': 5.1.0
+      '@fastify/proxy-addr': 5.1.0
+      abstract-logging: 2.0.1
+      avvio: 9.3.0
+      fast-json-stringify: 7.0.1
+      find-my-way: 9.9.0
+      light-my-request: 6.6.0
+      pino: 10.3.1
+      process-warning: 5.1.0
+      rfdc: 1.4.1
+      secure-json-parse: 4.1.0
+      semver: 7.8.5
+      toad-cache: 3.7.4
+
+  fastify@5.12.3:
     dependencies:
       '@fastify/ajv-compiler': 4.0.6
       '@fastify/error': 4.2.0
