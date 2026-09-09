@@ -363,6 +363,19 @@ PR5 continuation checklist:
 - implement viewer/purpose/rendition policy, HMAC key rotation, Cloudflare Worker verifier, private R2 fetch, blur deduplication, cache purge, and tamper/expiry/cross-user tests;
 - do not expose raw keys or direct originals.
 
+Current implementation: the provider-neutral grant handler separates authoritative authorization from signing, enforces user/admin purpose boundaries, limits grants to 10–300 seconds, and returns only the documented HTTPS URL, expiry, rendition, and cache policy. The delivery-token adapter signs a canonical versioned payload with HMAC-SHA256, binds it to exact delivery path, audience, purpose, rendition, issued time, and expiry, compares signatures in constant time, rejects non-canonical encoding, copies key material defensively, and supports one current plus bounded previous verification keys. Tamper, expiry, cross-user/path replay, invalid purpose/rendition, TTL, origin, and key-rotation tests are present.
+
+PR6 continuation checklist:
+
+- [x] provider-neutral authorization and signer ports;
+- [x] short-lived canonical HMAC token with path/audience/purpose/rendition binding;
+- [x] bounded current/previous key rotation and constant-time verification;
+- [x] tamper, expiry, cross-user/path replay, combination, and rotation tests;
+- [ ] PostgreSQL authorization adapter for owner/card/detail purposes;
+- [ ] on-demand blurred-preview generation and concurrent deduplication;
+- [ ] Cloudflare Worker private-R2 fetch and authenticated audience binding;
+- [ ] cache purge/revocation retry and real CDN/R2 staging evidence.
+
 ### PR 7 — Cleanup, hardening, and staging evidence
 
 - implement verified object cleanup/orphan reconciliation and the M2 portion of `ACC-013`;
