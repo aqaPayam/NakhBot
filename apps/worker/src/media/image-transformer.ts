@@ -1,21 +1,10 @@
 import { createHash } from 'node:crypto';
 
-import { assertDecodedImage, MEDIA_LIMITS, type AcceptedMediaType } from '@nakh/domain';
+import type { PhotoRenditions, PhotoTransformerPort } from '@nakh/application';
+import { assertDecodedImage, MEDIA_LIMITS } from '@nakh/domain';
 import sharp from 'sharp';
 
-export type ValidatedPhotoRenditions = Readonly<{
-  detectedMediaType: AcceptedMediaType;
-  width: number;
-  height: number;
-  frameCount: 1;
-  originalBytes: number;
-  originalSha256: string;
-  normalizedSha256: string;
-  normalized: Uint8Array;
-  thumbnail: Uint8Array;
-}>;
-
-const formatTypes: Readonly<Record<string, AcceptedMediaType | undefined>> = {
+const formatTypes: Readonly<Record<string, PhotoRenditions['detectedMediaType'] | undefined>> = {
   jpeg: 'image/jpeg',
   png: 'image/png',
   webp: 'image/webp',
@@ -27,8 +16,8 @@ function digest(bytes: Uint8Array): string {
 
 /** The worker-only decoder boundary. Sharp/libvips enforces the pixel limit before
  * full decode; every accepted output is freshly oriented and encoded without metadata. */
-export class SharpPhotoTransformer {
-  public async transform(input: Uint8Array): Promise<ValidatedPhotoRenditions> {
+export class SharpPhotoTransformer implements PhotoTransformerPort {
+  public async transform(input: Uint8Array): Promise<PhotoRenditions> {
     if (input.byteLength <= 0 || input.byteLength > MEDIA_LIMITS.maximumUploadBytes)
       throw new Error('media_input_size_invalid');
     const metadataOptions = {
