@@ -343,6 +343,21 @@ PR4 continuation checklist:
 - recompute Profile completion atomically and prove `ACC-008`/`ACC-012` plus lifecycle races;
 - keep the admin transport disabled until M7.
 
+Current implementation: application handlers enforce user/admin actor separation and stable moderation reason codes. The PostgreSQL adapter locks Admin (when applicable), User, Profile, and photo rows in a consistent order; uses Profile version as the optimistic concurrency boundary; performs collision-free reorder updates; prevents owner deletion of the current primary; promotes the lowest-order visible replacement after moderation; and rechecks authoritative asset/thumbnail eligibility before committing Profile completion. Owner and moderator mutations atomically write their photo state, Profile state, append-only moderation record where applicable, audit record, and photo/Profile outbox events. Responses expose logical photo IDs and state only, never storage keys.
+
+PR5 continuation checklist:
+
+- [x] provider-neutral owner list/reorder/select-primary/delete handlers;
+- [x] admin-only hide/restore/delete handler with validated reason code;
+- [x] PostgreSQL lock ordering, optimistic Profile version, and collision-free reorder;
+- [x] primary-delete denial and moderation replacement-primary promotion;
+- [x] authoritative completion invalidation/restoration in the same transaction;
+- [x] append-only moderation history plus atomic audit/outbox;
+- [x] concurrent primary-selection and lifecycle integration coverage prepared for CI;
+- [ ] authenticated owner HTTP/Telegram transport composition (requires the M1 runtime auth path);
+- [ ] report-linked moderation orchestration (deferred to M7; `report_id` remains locked null);
+- [ ] verified external object cleanup for deleted photos (PR7).
+
 ### PR 6 — Delivery grants and on-demand blur
 
 - implement viewer/purpose/rendition policy, HMAC key rotation, Cloudflare Worker verifier, private R2 fetch, blur deduplication, cache purge, and tamper/expiry/cross-user tests;

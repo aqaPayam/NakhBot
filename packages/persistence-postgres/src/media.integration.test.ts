@@ -6,6 +6,7 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresMediaStore } from './media-store.js';
 import { PostgresMediaValidationStore } from './media-validation-store.js';
+import { PostgresPhotoManagementStore } from './photo-management-store.js';
 import { PostgresProfileMediaEligibility, profilePhotosAreEligible } from './media-eligibility.js';
 import { seedValidMedia } from './media-fixtures.js';
 import { SystemIdGenerator } from './foundation-store.js';
@@ -41,6 +42,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
   let database: NakhDatabase;
   let store: PostgresMediaStore;
   let validation: PostgresMediaValidationStore;
+  let photoManagement: PostgresPhotoManagementStore;
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
@@ -53,6 +55,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
       decrypt: () => Promise.resolve({ telegramFileId: 'synthetic-file' }),
     });
     validation = new PostgresMediaValidationStore(database, 'test');
+    photoManagement = new PostgresPhotoManagementStore(database);
   });
   afterAll(async () => {
     await database?.destroy();
@@ -549,6 +552,152 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
       .where('asset_id', '=', second)
       .execute();
     expect(await profilePhotosAreEligible(database, profileId)).toBe(false);
+  });
+
+  it('serializes owner ordering/primary/deletion and moderator visibility changes', async () => {
+    const userId = await user();
+    const profileId = await profile(userId);
+    const assets = await Promise.all(
+      Array.from({ length: 3 }, () => seedValidMedia(database, userId)),
+    );
+    for (const [order, assetId] of assets.entries())
+      await assign(profileId, assetId, order, order === 0);
+    const completedAt = new Date();
+    await database
+      .updateTable('profile.profiles')
+      .set({
+        completion_status: 'complete',
+        ever_completed: true,
+        completed_at: completedAt,
+        updated_at: completedAt,
+      })
+      .where('id', '=', profileId)
+      .execute();
+    const initial = await photoManagement.listOwn(userId);
+    const photoIds = initial.photos.map((photo) => photo.id);
+    const mutate = (
+      expectedProfileVersion: number,
+      action: Parameters<PostgresPhotoManagementStore['mutateOwn']>[0]['action'],
+    ): ReturnType<PostgresPhotoManagementStore['mutateOwn']> =>
+      photoManagement.mutateOwn({
+        userId,
+        expectedProfileVersion,
+        action,
+        auditId: randomUUID(),
+        eventId: randomUUID(),
+        profileEventId: randomUUID(),
+        occurredAt: new Date(),
+      });
+    const reordered = await mutate(initial.profileVersion, {
+      type: 'reorder',
+      orderedPhotoIds: [...photoIds].reverse(),
+    });
+    expect(reordered.photos.map((photo) => photo.id)).toEqual([...photoIds].reverse());
+    const selected = await mutate(reordered.profileVersion, {
+      type: 'select_primary',
+      photoId: photoIds[1]!,
+    });
+    expect(selected.photos.filter((photo) => photo.isPrimary).map((photo) => photo.id)).toEqual([
+      photoIds[1],
+    ]);
+    await expect(
+      mutate(selected.profileVersion, { type: 'delete', photoId: photoIds[1]! }),
+    ).rejects.toMatchObject({ code: 'photo_primary_delete_denied' });
+    await expect(
+      mutate(initial.profileVersion, {
+        type: 'delete',
+        photoId: photoIds[0]!,
+      }),
+    ).rejects.toMatchObject({ code: 'version_conflict' });
+    const afterDelete = await mutate(selected.profileVersion, {
+      type: 'delete',
+      photoId: photoIds[0]!,
+    });
+    expect(afterDelete.photos).toHaveLength(2);
+
+    const adminUserId = await user();
+    const adminId = randomUUID();
+    await database
+      .insertInto('administration.admin_users')
+      .values({
+        id: adminId,
+        user_id: adminUserId,
+        telegram_user_id: String(Date.now()),
+        disabled_at: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      })
+      .execute();
+    const moderate = (
+      action: 'hide' | 'restore' | 'delete',
+    ): ReturnType<PostgresPhotoManagementStore['moderate']> =>
+      photoManagement.moderate({
+        adminUserId,
+        photoId: photoIds[1]!,
+        action,
+        reasonCode: 'confirmed_violation',
+        moderationId: randomUUID(),
+        auditId: randomUUID(),
+        eventId: randomUUID(),
+        profileEventId: randomUUID(),
+        occurredAt: new Date(),
+      });
+    await moderate('hide');
+    const hidden = await photoManagement.listOwn(userId);
+    expect(hidden.photos.find((photo) => photo.id === photoIds[1])).toMatchObject({
+      status: 'hidden',
+      isPrimary: false,
+    });
+    expect(hidden.photos.filter((photo) => photo.isPrimary)).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('profile.profiles')
+        .select('completion_status')
+        .where('id', '=', profileId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({ completion_status: 'invalid' });
+    await moderate('restore');
+    expect(
+      await database
+        .selectFrom('profile.profiles')
+        .select('completion_status')
+        .where('id', '=', profileId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({ completion_status: 'complete' });
+    expect(
+      await database
+        .selectFrom('media.photo_moderation_records')
+        .select('id')
+        .where('photo_id', '=', photoIds[1]!)
+        .execute(),
+    ).toHaveLength(2);
+  });
+
+  it('serializes competing primary selections through the Profile version', async () => {
+    const userId = await user();
+    const profileId = await profile(userId);
+    const assets = await Promise.all(
+      Array.from({ length: 2 }, () => seedValidMedia(database, userId)),
+    );
+    await assign(profileId, assets[0]!, 0, true);
+    await assign(profileId, assets[1]!, 1);
+    const collection = await photoManagement.listOwn(userId);
+    const writes = collection.photos.map((photo) =>
+      photoManagement.mutateOwn({
+        userId,
+        expectedProfileVersion: collection.profileVersion,
+        action: { type: 'select_primary', photoId: photo.id },
+        auditId: randomUUID(),
+        eventId: randomUUID(),
+        profileEventId: randomUUID(),
+        occurredAt: new Date(),
+      }),
+    );
+    const results = await Promise.allSettled(writes);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    const final = await photoManagement.listOwn(userId);
+    expect(final.photos.filter((photo) => photo.isPrimary)).toHaveLength(1);
   });
 
   it('rejects terminal-state rewrites, owner changes, and active normalized duplicates', async () => {

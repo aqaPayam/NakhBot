@@ -18,6 +18,7 @@ export * from './profile/profile.js';
 export * from './media/ingestion.js';
 export * from './media/quarantine.js';
 export * from './media/validation.js';
+export * from './media/photo-management.js';
 export * from './profile/protected-change.js';
 export * from './presentation.js';
 
