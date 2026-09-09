@@ -8,11 +8,16 @@ import { Readable, Transform } from 'node:stream';
 
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
-import type { MediaStorePort, QuarantineObjectPort } from '@nakh/application';
+import type {
+  MediaStorePort,
+  MediaValidationObjectPort,
+  QuarantineObjectPort,
+} from '@nakh/application';
 
 export type R2Location = Readonly<{
   endpoint: string;
@@ -34,6 +39,7 @@ export class UnconfiguredR2MediaStore implements MediaStorePort {
 }
 
 export interface R2ObjectClient {
+  getObject(key: string, signal?: AbortSignal): Promise<AsyncIterable<Uint8Array>>;
   putObject(
     input: Readonly<{
       key: string;
@@ -60,7 +66,7 @@ export type AwsR2ClientConfig = Readonly<{
 
 interface S3CommandSender {
   send(
-    command: PutObjectCommand | HeadObjectCommand | DeleteObjectCommand,
+    command: PutObjectCommand | HeadObjectCommand | DeleteObjectCommand | GetObjectCommand,
     options?: Readonly<{ abortSignal?: AbortSignal }>,
   ): Promise<unknown>;
 }
@@ -167,6 +173,23 @@ export class AwsR2ObjectClient implements R2ObjectClient {
     }
   }
 
+  public async getObject(key: string, signal?: AbortSignal): Promise<AsyncIterable<Uint8Array>> {
+    const output = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      requestOptions(signal),
+    );
+    if (
+      typeof output !== 'object' ||
+      output === null ||
+      !('Body' in output) ||
+      typeof output.Body !== 'object' ||
+      output.Body === null ||
+      !(Symbol.asyncIterator in output.Body)
+    )
+      throw new Error('media_storage_body_invalid');
+    return output.Body as AsyncIterable<Uint8Array>;
+  }
+
   public async deleteObject(key: string, signal?: AbortSignal): Promise<void> {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
@@ -208,7 +231,7 @@ export class AwsR2ObjectClient implements R2ObjectClient {
 /** Maps the application quarantine port to an S3-compatible R2 client. Signing,
  * credentials, and HTTP transport live behind R2ObjectClient so they cannot leak
  * into domain/application code. */
-export class R2QuarantineObjectStore implements QuarantineObjectPort {
+export class R2QuarantineObjectStore implements QuarantineObjectPort, MediaValidationObjectPort {
   public constructor(private readonly client: R2ObjectClient) {}
 
   public async put(
@@ -243,6 +266,10 @@ export class R2QuarantineObjectStore implements QuarantineObjectPort {
     } finally {
       await body.return();
     }
+  }
+
+  public get(key: string, signal?: AbortSignal): Promise<AsyncIterable<Uint8Array>> {
+    return this.client.getObject(key, signal);
   }
 
   public delete(key: string, signal?: AbortSignal): Promise<void> {

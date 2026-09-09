@@ -1,9 +1,13 @@
-import type { DownloadTelegramPhotoToQuarantine } from '@nakh/application';
+import type {
+  DownloadTelegramPhotoToQuarantine,
+  ValidateQuarantinedPhoto,
+} from '@nakh/application';
 import type { DomainEvent } from '@nakh/contracts';
 import type { M2Metrics } from '@nakh/observability';
 import type { PostgresInboxStore } from '@nakh/persistence-postgres';
 
 type MediaHandler = Pick<DownloadTelegramPhotoToQuarantine, 'execute'>;
+type ValidationHandler = Pick<ValidateQuarantinedPhoto, 'execute'>;
 type MediaMetrics = Pick<M2Metrics, 'recordIngestion' | 'recordQuarantineBytes'>;
 
 function mediaAssetId(event: DomainEvent): string {
@@ -17,6 +21,18 @@ function mediaAssetId(event: DomainEvent): string {
   return event.aggregateId;
 }
 
+function validationAssetId(event: DomainEvent): string {
+  if (
+    event.aggregateType !== 'media_asset' ||
+    Object.keys(event.payload).sort().join(',') !== 'assetId,bytes' ||
+    event.payload.assetId !== event.aggregateId ||
+    !Number.isSafeInteger(event.payload.bytes) ||
+    (event.payload.bytes as number) <= 0
+  )
+    throw new Error('invalid_media_validation_event');
+  return event.aggregateId;
+}
+
 export class WorkerEventProcessor {
   public constructor(
     private readonly inbox: Pick<PostgresInboxStore, 'processSampleEvent'>,
@@ -24,11 +40,19 @@ export class WorkerEventProcessor {
     private readonly media?: MediaHandler,
     private readonly metrics?: MediaMetrics,
     private readonly now: () => number = Date.now,
+    private readonly validation?: ValidationHandler,
   ) {}
 
   public async process(event: DomainEvent): Promise<void> {
     if (event.eventType === 'platform.sample-effect-created.v1') {
       await this.inbox.processSampleEvent(event);
+      return;
+    }
+    if (event.eventType === 'media.quarantine-uploaded.v1' && this.validation !== undefined) {
+      await this.validation.execute(
+        validationAssetId(event),
+        `${this.owner}:validation:${event.id}`,
+      );
       return;
     }
     if (event.eventType !== 'media.ingestion-requested.v1' || this.media === undefined)

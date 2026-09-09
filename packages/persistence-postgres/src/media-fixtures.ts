@@ -40,6 +40,8 @@ export async function seedValidMedia(
       malware_scanner_version: 'synthetic-test-scanner',
       malware_signature_version: 'synthetic-test-signatures',
       malware_scanned_at: now,
+      validation_lease_owner: null,
+      validation_lease_expires_at: null,
       attempted_at: attemptedAt,
       uploaded_at: now,
       validated_at: now,

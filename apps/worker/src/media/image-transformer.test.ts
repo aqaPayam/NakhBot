@@ -53,11 +53,11 @@ describe('SharpPhotoTransformer', () => {
 
   it('rejects empty and oversized encoded inputs before decoding', async () => {
     const transformer = new SharpPhotoTransformer();
-    await expect(transformer.transform(new Uint8Array())).rejects.toThrow(
-      'media_input_size_invalid',
-    );
-    await expect(transformer.transform(new Uint8Array(10 * 1024 * 1024 + 1))).rejects.toThrow(
-      'media_input_size_invalid',
+    await expect(transformer.transform(new Uint8Array())).rejects.toMatchObject({
+      code: 'media_too_large',
+    });
+    await expect(transformer.transform(new Uint8Array(10 * 1024 * 1024 + 1))).rejects.toMatchObject(
+      { code: 'media_too_large' },
     );
   });
 });

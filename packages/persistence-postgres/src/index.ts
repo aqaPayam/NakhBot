@@ -17,6 +17,7 @@ export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-sto
 export { PostgresSignupStore } from './signup-store.js';
 export { PostgresProfileStore } from './profile-store.js';
 export { PostgresMediaStore } from './media-store.js';
+export { PostgresMediaValidationStore } from './media-validation-store.js';
 export { PostgresProfileMediaEligibility } from './media-eligibility.js';
 export { PostgresProfileChangeStore } from './profile-change-store.js';
 export { PostgresGuestPreviewStore } from './guest-preview-store.js';

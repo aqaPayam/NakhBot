@@ -5,6 +5,7 @@ import type { BeginMediaIngestionWrite } from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresMediaStore } from './media-store.js';
+import { PostgresMediaValidationStore } from './media-validation-store.js';
 import { PostgresProfileMediaEligibility, profilePhotosAreEligible } from './media-eligibility.js';
 import { seedValidMedia } from './media-fixtures.js';
 import { SystemIdGenerator } from './foundation-store.js';
@@ -39,6 +40,7 @@ function write(userId: string): BeginMediaIngestionWrite {
 describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', () => {
   let database: NakhDatabase;
   let store: PostgresMediaStore;
+  let validation: PostgresMediaValidationStore;
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
@@ -50,6 +52,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     store = new PostgresMediaStore(database, 'test', {
       decrypt: () => Promise.resolve({ telegramFileId: 'synthetic-file' }),
     });
+    validation = new PostgresMediaValidationStore(database, 'test');
   });
   afterAll(async () => {
     await database?.destroy();
@@ -282,6 +285,101 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     await expect(
       store.claimPendingQuarantine({ assetId: input.assetId, owner: winner, leaseMs: 60_000 }),
     ).resolves.toMatchObject({ assetId: input.assetId });
+  });
+
+  it('publishes verified renditions atomically and rejects a normalized duplicate', async () => {
+    const userId = await user();
+    const originalSha256 = 'a'.repeat(64);
+    const normalizedSha256 = 'b'.repeat(64);
+    const createQuarantined = async (): Promise<string> => {
+      const input = write(userId);
+      await store.beginTelegramIngestion(input);
+      await store.claimPendingQuarantine({
+        assetId: input.assetId,
+        owner: 'ingestion',
+        leaseMs: 60_000,
+      });
+      await store.markQuarantineUploaded({
+        assetId: input.assetId,
+        owner: 'ingestion',
+        bytes: 3,
+        sha256: originalSha256,
+        uploadedAt: new Date(),
+        scannerVersion: 'scanner-1',
+        signatureVersion: 'signatures-1',
+        scannedAt: new Date(),
+      });
+      return input.assetId;
+    };
+    const first = await createQuarantined();
+    const claims = await Promise.all([
+      validation.claim({ assetId: first, owner: 'validator-a', leaseMs: 60_000 }),
+      validation.claim({ assetId: first, owner: 'validator-b', leaseMs: 60_000 }),
+    ]);
+    expect(claims.filter((claim) => claim !== undefined)).toHaveLength(1);
+    const asset = await database
+      .selectFrom('media.media_assets')
+      .select('validation_lease_owner')
+      .where('id', '=', first)
+      .executeTakeFirstOrThrow();
+    const owner = asset.validation_lease_owner!;
+    const complete = (
+      assetId: string,
+      claimOwner: string,
+    ): Promise<'valid' | 'duplicate_media' | 'photo_limit_reached'> =>
+      validation.complete({
+        assetId,
+        owner: claimOwner,
+        detectedMediaType: 'image/jpeg',
+        sizeBytes: 3,
+        width: 800,
+        height: 700,
+        originalSha256,
+        normalizedSha256,
+        validatedKey: `validated/test/${assetId}/original`,
+        thumbnailKey: `variants/test/${assetId}/thumbnail-v1.webp`,
+        thumbnailBytes: 2,
+        thumbnailSha256: 'c'.repeat(64),
+        completedAt: new Date(),
+      });
+    await expect(complete(first, owner)).resolves.toBe('valid');
+    const firstFacts = await database
+      .selectFrom('media.media_assets')
+      .selectAll()
+      .where('id', '=', first)
+      .executeTakeFirstOrThrow();
+    expect(firstFacts).toMatchObject({
+      validation_state: 'valid',
+      validated_key: `validated/test/${first}/original`,
+    });
+    expect(
+      await database
+        .selectFrom('media.photo_variants')
+        .select('id')
+        .where('asset_id', '=', first)
+        .execute(),
+    ).toHaveLength(1);
+
+    const second = await createQuarantined();
+    await validation.claim({ assetId: second, owner: 'validator-c', leaseMs: 60_000 });
+    await expect(complete(second, 'validator-c')).resolves.toBe('duplicate_media');
+    expect(
+      await database
+        .selectFrom('media.media_assets')
+        .select(['validation_state', 'error_code'])
+        .where('id', '=', second)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({
+      validation_state: 'rejected',
+      error_code: 'duplicate_media',
+    });
+    expect(
+      await database
+        .selectFrom('media.photo_variants')
+        .select('id')
+        .where('asset_id', '=', second)
+        .execute(),
+    ).toHaveLength(0);
   });
 
   it('rejects partial quarantine facts and deleted-asset completion', async () => {

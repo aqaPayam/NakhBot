@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { DownloadTelegramPhotoToQuarantine } from '@nakh/application';
+import { DownloadTelegramPhotoToQuarantine, ValidateQuarantinedPhoto } from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { ClamdMalwareScanner } from '@nakh/media-clamav';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
@@ -9,6 +9,7 @@ import {
   createDatabase,
   PostgresInboxStore,
   PostgresMediaStore,
+  PostgresMediaValidationStore,
   PostgresOutboxStore,
   SystemIdGenerator,
 } from '@nakh/persistence-postgres';
@@ -20,6 +21,7 @@ import {
 import { TelegramMediaTransportCipher, TelegramPhotoDownloadAdapter } from '@nakh/telegram';
 
 import { WorkerEventProcessor } from './event-processor.js';
+import { SharpPhotoTransformer } from './media/image-transformer.js';
 
 function transportKey(reference: string): Uint8Array {
   const encoded = resolveSecretReference(reference);
@@ -63,31 +65,45 @@ const mediaCipher = config.media.ingestionEnabled
       new Map([[config.media.transportKeyId, transportKey(config.media.transportKeyRef)]]),
     )
   : undefined;
-const mediaHandler =
+const mediaObjects =
   mediaCipher === undefined
+    ? undefined
+    : new R2QuarantineObjectStore(
+        new AwsR2ObjectClient({
+          endpoint: config.media.r2Endpoint,
+          bucket: config.media.bucket,
+          accessKeyId: resolveSecretReference(config.media.accessKeyRef),
+          secretAccessKey: resolveSecretReference(config.media.secretKeyRef),
+        }),
+      );
+const mediaHandler =
+  mediaCipher === undefined || mediaObjects === undefined
     ? undefined
     : new DownloadTelegramPhotoToQuarantine(
         new PostgresMediaStore(database, mediaEnvironment, mediaCipher),
         new TelegramPhotoDownloadAdapter(resolveSecretReference(config.telegram.botTokenRef)),
-        new R2QuarantineObjectStore(
-          new AwsR2ObjectClient({
-            endpoint: config.media.r2Endpoint,
-            bucket: config.media.bucket,
-            accessKeyId: resolveSecretReference(config.media.accessKeyRef),
-            secretAccessKey: resolveSecretReference(config.media.secretKeyRef),
-          }),
-        ),
+        mediaObjects,
         new ClamdMalwareScanner({
           host: config.media.clamavHost,
           port: config.media.clamavPort,
           timeoutMs: config.media.clamavTimeoutMs,
         }),
       );
+const validationHandler =
+  mediaObjects === undefined
+    ? undefined
+    : new ValidateQuarantinedPhoto(
+        new PostgresMediaValidationStore(database, mediaEnvironment),
+        mediaObjects,
+        new SharpPhotoTransformer(),
+      );
 const eventProcessor = new WorkerEventProcessor(
   inbox,
   mediaOwner,
   mediaHandler,
   mediaHandler === undefined ? undefined : new M2Metrics(),
+  Date.now,
+  validationHandler,
 );
 const eventWorker = createDomainEventWorker(workerConnection, config.redis.queuePrefix, (event) =>
   eventProcessor.process(event),
@@ -104,7 +120,11 @@ const dispatch = async (): Promise<void> => {
       leaseMs: 30_000,
       limit: 50,
       eventTypes: config.media.ingestionEnabled
-        ? ['platform.sample-effect-created.v1', 'media.ingestion-requested.v1']
+        ? [
+            'platform.sample-effect-created.v1',
+            'media.ingestion-requested.v1',
+            'media.quarantine-uploaded.v1',
+          ]
         : ['platform.sample-effect-created.v1'],
     });
     for (const event of events) {

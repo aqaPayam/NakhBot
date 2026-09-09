@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3';
 import { describe, expect, it } from 'vitest';
 import { AwsR2ObjectClient, R2QuarantineObjectStore, type R2ObjectClient } from './index.js';
 
@@ -8,6 +13,7 @@ describe('R2QuarantineObjectStore', () => {
     'refuses unverified storage facts %#',
     async (facts) => {
       const store = new R2QuarantineObjectStore({
+        getObject: () => Promise.reject(new Error('not used')),
         putObject: async ({ body }) => {
           for await (const chunk of body) void chunk;
           return { bytes: 2, sha256: 'a'.repeat(64) };
@@ -35,6 +41,7 @@ describe('R2QuarantineObjectStore', () => {
       .digest('hex');
     let headCalls = 0;
     const client: R2ObjectClient = {
+      getObject: () => Promise.reject(new Error('not used')),
       putObject: async (input) => {
         calls.push(input.key);
         expect(input.ifNoneMatch).toBe('*');
@@ -75,6 +82,7 @@ describe('R2QuarantineObjectStore', () => {
       .digest('hex');
     let puts = 0;
     const store = new R2QuarantineObjectStore({
+      getObject: () => Promise.reject(new Error('not used')),
       putObject: () => {
         puts += 1;
         return Promise.reject(new Error('must not overwrite'));
@@ -97,6 +105,7 @@ describe('R2QuarantineObjectStore', () => {
 
   it('fails closed when deletion cannot be verified', async () => {
     const store = new R2QuarantineObjectStore({
+      getObject: () => Promise.reject(new Error('not used')),
       putObject: () => Promise.reject(new Error('not used')),
       deleteObject: () => Promise.resolve(),
       headObject: () => Promise.resolve({ bytes: 1, sha256: 'a'.repeat(64) }),
@@ -151,6 +160,23 @@ describe('AwsR2ObjectClient', () => {
       }),
     ).resolves.toEqual({ bytes: 3, sha256: digest });
     expect(calls).toEqual(['quarantine/staging/asset/original']);
+  });
+
+  it('returns the provider download stream without buffering it', async () => {
+    const stream = (async function* () {
+      await Promise.resolve();
+      yield new Uint8Array([1, 2]);
+    })();
+    const client = new AwsR2ObjectClient(config, {
+      send: (command) => {
+        expect(command).toBeInstanceOf(GetObjectCommand);
+        return Promise.resolve({ Body: stream });
+      },
+    });
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of await client.getObject('quarantine/test/asset/original'))
+      chunks.push(chunk);
+    expect(chunks).toEqual([new Uint8Array([1, 2])]);
   });
 
   it('maps only a definite not-found HEAD response to absence', async () => {

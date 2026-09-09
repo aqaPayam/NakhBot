@@ -30,6 +30,7 @@ export type ApplicationErrorCode =
   | 'unsupported_media_type'
   | 'media_too_large'
   | 'media_dimensions_invalid'
+  | 'media_invalid'
   | 'duplicate_media'
   | 'media_invalid_state'
   | 'photo_limit_reached'

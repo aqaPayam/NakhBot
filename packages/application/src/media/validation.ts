@@ -1,4 +1,4 @@
-import { MEDIA_LIMITS, type AcceptedMediaType } from '@nakh/domain';
+import { ApplicationError, MEDIA_LIMITS, type AcceptedMediaType } from '@nakh/domain';
 
 import { boundedMediaStream } from './ingestion.js';
 
@@ -57,6 +57,15 @@ export interface MediaValidationStore {
       thumbnailBytes: number;
       thumbnailSha256: string;
       completedAt: Date;
+    }>,
+  ): Promise<'valid' | 'duplicate_media' | 'photo_limit_reached'>;
+  reject(
+    input: Readonly<{
+      assetId: string;
+      owner: string;
+      errorCode:
+        'media_too_large' | 'unsupported_media_type' | 'media_dimensions_invalid' | 'media_invalid';
+      rejectedAt: Date;
     }>,
   ): Promise<void>;
   release(assetId: string, owner: string): Promise<void>;
@@ -120,7 +129,7 @@ export class ValidateQuarantinedPhoto {
         ...(signal === undefined ? {} : { signal }),
       });
       thumbnailWritten = true;
-      await this.store.complete({
+      const completion = await this.store.complete({
         assetId,
         owner,
         detectedMediaType: result.detectedMediaType,
@@ -135,9 +144,30 @@ export class ValidateQuarantinedPhoto {
         thumbnailSha256: thumbnail.sha256,
         completedAt: this.now(),
       });
+      if (completion !== 'valid') {
+        await this.objects.delete(claim.thumbnailKey, signal);
+        thumbnailWritten = false;
+        await this.objects.delete(claim.validatedKey, signal);
+        normalizedWritten = false;
+      }
     } catch (error) {
       if (thumbnailWritten) await this.objects.delete(claim.thumbnailKey, signal);
       if (normalizedWritten) await this.objects.delete(claim.validatedKey, signal);
+      if (
+        error instanceof ApplicationError &&
+        (error.code === 'media_too_large' ||
+          error.code === 'unsupported_media_type' ||
+          error.code === 'media_dimensions_invalid' ||
+          error.code === 'media_invalid')
+      ) {
+        await this.store.reject({
+          assetId,
+          owner,
+          errorCode: error.code,
+          rejectedAt: this.now(),
+        });
+        return;
+      }
       await this.store.release(assetId, owner);
       throw error;
     }

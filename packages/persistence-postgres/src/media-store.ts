@@ -199,6 +199,8 @@ export class PostgresMediaStore implements MediaIngestionStore, QuarantineAssetS
           malware_scanner_version: null,
           malware_signature_version: null,
           malware_scanned_at: null,
+          validation_lease_owner: null,
+          validation_lease_expires_at: null,
         })
         .where('id', '=', input.assetId)
         .where('validation_state', '=', 'pending')

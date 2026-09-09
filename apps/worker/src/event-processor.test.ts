@@ -19,6 +19,28 @@ const event: DomainEvent = {
 };
 
 describe('WorkerEventProcessor', () => {
+  it('routes a quarantine completion into isolated validation', async () => {
+    const validate = vi.fn().mockResolvedValue(undefined);
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      () => 10,
+      { execute: validate },
+    );
+    const uploaded = {
+      ...event,
+      eventType: 'media.quarantine-uploaded.v1',
+      payload: { assetId: event.aggregateId, bytes: 3 },
+    };
+    await processor.process(uploaded);
+    expect(validate).toHaveBeenCalledWith(
+      event.aggregateId,
+      `worker-instance:validation:${event.id}`,
+    );
+  });
+
   it('routes a valid media event with a unique stable delivery owner', async () => {
     const execute = vi
       .fn()

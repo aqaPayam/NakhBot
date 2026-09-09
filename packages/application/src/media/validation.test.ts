@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { ApplicationError } from '@nakh/domain';
+
 import { ValidateQuarantinedPhoto } from './validation.js';
 
 function body(value: number[]): AsyncIterable<Uint8Array> {
@@ -11,7 +13,7 @@ function body(value: number[]): AsyncIterable<Uint8Array> {
 
 describe('ValidateQuarantinedPhoto', () => {
   it('publishes both verified renditions before completing database state', async () => {
-    const complete = vi.fn().mockResolvedValue(undefined);
+    const complete = vi.fn().mockResolvedValue('valid');
     const put = vi.fn().mockImplementation((input: Readonly<{ key: string }>) =>
       Promise.resolve({
         bytes: 3,
@@ -28,6 +30,7 @@ describe('ValidateQuarantinedPhoto', () => {
             thumbnailKey: 'variants/test/asset/thumbnail-v1.webp',
           }),
         complete,
+        reject: () => Promise.resolve(),
         release: () => Promise.resolve(),
       },
       { get: () => Promise.resolve(body([1, 2, 3])), put, delete: () => Promise.resolve() },
@@ -72,6 +75,7 @@ describe('ValidateQuarantinedPhoto', () => {
             thumbnailKey: 'thumbnail',
           }),
         complete: () => Promise.reject(new Error('database unavailable')),
+        reject: () => Promise.resolve(),
         release: released,
       },
       {
@@ -104,5 +108,35 @@ describe('ValidateQuarantinedPhoto', () => {
     await expect(handler.execute('asset', 'worker')).rejects.toThrow('database unavailable');
     expect(deleted).toEqual(['thumbnail', 'validated']);
     expect(released).toHaveBeenCalledWith('asset', 'worker');
+  });
+
+  it('records a permanent decoder rejection without retrying the message', async () => {
+    const reject = vi.fn().mockResolvedValue(undefined);
+    const release = vi.fn().mockResolvedValue(undefined);
+    const handler = new ValidateQuarantinedPhoto(
+      {
+        claim: () =>
+          Promise.resolve({
+            assetId: 'asset',
+            quarantineKey: 'q',
+            validatedKey: 'v',
+            thumbnailKey: 't',
+          }),
+        complete: () => Promise.resolve('valid'),
+        reject,
+        release,
+      },
+      { get: () => Promise.resolve(body([1])), put: vi.fn(), delete: vi.fn() },
+      { transform: () => Promise.reject(new ApplicationError('media_invalid', 'bad image', 400)) },
+      () => new Date('2026-09-09T00:00:00.000Z'),
+    );
+    await expect(handler.execute('asset', 'worker')).resolves.toBeUndefined();
+    expect(reject).toHaveBeenCalledWith({
+      assetId: 'asset',
+      owner: 'worker',
+      errorCode: 'media_invalid',
+      rejectedAt: new Date('2026-09-09T00:00:00.000Z'),
+    });
+    expect(release).not.toHaveBeenCalled();
   });
 });
