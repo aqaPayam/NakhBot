@@ -321,6 +321,8 @@ Current component guarantees: network metadata is capped at 64 KiB, downloads ha
 - add the isolated decoder/transformer adapter, normalized storage, thumbnail v1, duplicate protection, and malicious-image corpus;
 - prove `ACC-009..011` with real PostgreSQL and failure injection.
 
+Current implementation: the worker-only Sharp/libvips boundary performs actual format sniffing, enforces the encoded-byte and 40-megapixel decode limits, rejects unsupported formats, animation, and unsafe dimensions, applies orientation and sRGB normalization, strips input metadata through fresh WebP encoding, and produces thumbnail v1. Database claim/publication, validated R2 object writes, duplicate-race handling, and the malicious-image corpus remain open.
+
 ### PR 5 — Photo management and moderation lifecycle
 
 - implement owner list/reorder/primary/delete and internal hide/restore/delete;
