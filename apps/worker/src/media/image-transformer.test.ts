@@ -60,4 +60,37 @@ describe('SharpPhotoTransformer', () => {
       { code: 'media_too_large' },
     );
   });
+
+  it.each([
+    ['random bytes', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])],
+    ['polyglot-like HTML', new TextEncoder().encode('<script>alert(1)</script>')],
+  ])('fails closed for hostile %s input', async (_name, input) => {
+    await expect(new SharpPhotoTransformer().transform(input)).rejects.toMatchObject({
+      code: 'media_invalid',
+    });
+  });
+
+  it('fails closed for a truncated otherwise-valid JPEG', async () => {
+    const valid = await sharp({
+      create: { width: 800, height: 800, channels: 3, background: '#884422' },
+    })
+      .jpeg()
+      .toBuffer();
+    const truncated = valid.subarray(0, Math.floor(valid.byteLength / 2));
+    await expect(new SharpPhotoTransformer().transform(truncated)).rejects.toMatchObject({
+      code: 'media_invalid',
+    });
+  });
+
+  it('rejects a compressed image whose decoded pixel count exceeds the limit', async () => {
+    const compressed = await sharp({
+      create: { width: 6_500, height: 6_500, channels: 3, background: '#000000' },
+    })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    expect(compressed.byteLength).toBeLessThan(10 * 1024 * 1024);
+    await expect(new SharpPhotoTransformer().transform(compressed)).rejects.toMatchObject({
+      code: 'media_dimensions_invalid',
+    });
+  });
 });

@@ -179,6 +179,15 @@ describe('AwsR2ObjectClient', () => {
     expect(chunks).toEqual([new Uint8Array([1, 2])]);
   });
 
+  it('fails closed when the provider omits a streaming response body', async () => {
+    const client = new AwsR2ObjectClient(config, {
+      send: () => Promise.resolve({ Body: new Uint8Array([1, 2]) }),
+    });
+    await expect(client.getObject('quarantine/test/asset/original')).rejects.toThrow(
+      'media_storage_body_invalid',
+    );
+  });
+
   it('maps only a definite not-found HEAD response to absence', async () => {
     const notFound = Object.assign(new Error('missing'), {
       name: 'NotFound',

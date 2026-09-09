@@ -321,7 +321,7 @@ Current component guarantees: network metadata is capped at 64 KiB, downloads ha
 - add the isolated decoder/transformer adapter, normalized storage, thumbnail v1, duplicate protection, and malicious-image corpus;
 - prove `ACC-009..011` with real PostgreSQL and failure injection.
 
-Current implementation: the worker-only Sharp/libvips boundary performs actual format sniffing, enforces the encoded-byte and 40-megapixel decode limits, rejects corrupt/unsupported/animated/unsafe images, applies orientation and sRGB normalization, strips input metadata through fresh WebP encoding, and produces thumbnail v1. The worker now consumes clean-quarantine events, reads the private object, writes and verifies normalized and thumbnail objects, and only then atomically publishes PostgreSQL state. PostgreSQL validation leases fence workers; server-derived keys, sizes, and hashes are rechecked; per-user duplicate races and six-photo limits serialize on the user/Profile lock; accepted or rejected outcomes commit with audit/outbox records. A rejected duplicate/limit result removes its unpublished renditions. The expanded malicious-image corpus and injected provider/database crash matrix remain open before PR4 is complete.
+Current implementation: the worker-only Sharp/libvips boundary performs actual format sniffing, enforces the encoded-byte and 40-megapixel decode limits, rejects corrupt/unsupported/animated/unsafe images, applies orientation and sRGB normalization, strips input metadata through fresh WebP encoding, and produces thumbnail v1. The worker consumes clean-quarantine events, reads the private object, writes and verifies normalized and thumbnail objects, and only then atomically publishes PostgreSQL state. PostgreSQL validation leases fence workers; server-derived keys, sizes, and hashes are rechecked; per-user duplicate races and six-photo limits serialize on the user/Profile lock; accepted or rejected outcomes commit with audit/outbox records. A rejected duplicate/limit result removes its unpublished renditions. The automated hostile corpus covers malformed signatures, HTML/polyglot-like input, truncated JPEG, unsupported format, unsafe dimensions, metadata stripping, encoded-size limits, and a compressed image above the decoded-pixel ceiling. Failure injection covers each object-write boundary, verification mismatch, database completion failure, cleanup, claim release, invalid provider bodies, and concurrent duplicate publication.
 
 PR4 continuation checklist:
 
@@ -332,9 +332,9 @@ PR4 continuation checklist:
 - [x] serialized normalized-duplicate and six-photo decisions;
 - [x] permanent decoder rejection versus retryable infrastructure failure routing;
 - [x] worker event composition, strict payload validation, and off-by-default provider wiring;
-- [x] formatting, lint, type checks, 135 unit tests, all builds, and production audit locally;
-- [ ] GitHub PostgreSQL integration and container jobs green for migration 000014;
-- [ ] malicious/truncated/decompression-bomb corpus and crash-point fault injection;
+- [x] formatting, lint, type checks, unit tests, all builds, and production audit locally;
+- [x] GitHub PostgreSQL integration and container jobs green for migration 000014;
+- [x] malicious/truncated/decompression-bomb corpus and crash-point fault injection;
 - [ ] real private R2 staging evidence (deferred until infrastructure is purchased).
 
 ### PR 5 — Photo management and moderation lifecycle

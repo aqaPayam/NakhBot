@@ -22,7 +22,9 @@ export class SharpPhotoTransformer implements PhotoTransformerPort {
       throw new ApplicationError('media_too_large', 'error.media.size', 400);
     const metadataOptions = {
       animated: true,
-      limitInputPixels: MEDIA_LIMITS.maximumPixels,
+      // Header inspection does not decode pixel data. The domain validates dimensions
+      // before the two decode operations below enforce the same hard pixel ceiling.
+      limitInputPixels: false,
       failOn: 'warning' as const,
     };
     let metadata;

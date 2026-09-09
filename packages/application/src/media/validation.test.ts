@@ -139,4 +139,104 @@ describe('ValidateQuarantinedPhoto', () => {
     });
     expect(release).not.toHaveBeenCalled();
   });
+
+  it('removes unpublished renditions after a duplicate decision', async () => {
+    const deleted: string[] = [];
+    const handler = new ValidateQuarantinedPhoto(
+      {
+        claim: () =>
+          Promise.resolve({
+            assetId: 'asset',
+            quarantineKey: 'q',
+            validatedKey: 'v',
+            thumbnailKey: 't',
+          }),
+        complete: () => Promise.resolve('duplicate_media'),
+        reject: () => Promise.resolve(),
+        release: () => Promise.resolve(),
+      },
+      {
+        get: () => Promise.resolve(body([1])),
+        put: ({ key }) =>
+          Promise.resolve({
+            bytes: 1,
+            sha256: key === 'v' ? 'b'.repeat(64) : 'c'.repeat(64),
+          }),
+        delete: (key) => {
+          deleted.push(key);
+          return Promise.resolve();
+        },
+      },
+      {
+        transform: () =>
+          Promise.resolve({
+            detectedMediaType: 'image/jpeg',
+            width: 800,
+            height: 800,
+            frameCount: 1,
+            originalBytes: 1,
+            originalSha256: 'a'.repeat(64),
+            normalizedSha256: 'b'.repeat(64),
+            normalized: new Uint8Array([2]),
+            thumbnail: new Uint8Array([3]),
+          }),
+      },
+    );
+    await handler.execute('asset', 'worker');
+    expect(deleted).toEqual(['t', 'v']);
+  });
+
+  it('cleans only completed writes and releases its claim at each storage failure point', async () => {
+    for (const failingPut of [1, 2]) {
+      const deleted: string[] = [];
+      const release = vi.fn().mockResolvedValue(undefined);
+      let puts = 0;
+      const handler = new ValidateQuarantinedPhoto(
+        {
+          claim: () =>
+            Promise.resolve({
+              assetId: 'asset',
+              quarantineKey: 'q',
+              validatedKey: 'v',
+              thumbnailKey: 't',
+            }),
+          complete: vi.fn(),
+          reject: vi.fn(),
+          release,
+        },
+        {
+          get: () => Promise.resolve(body([1])),
+          put: ({ key }) => {
+            puts += 1;
+            if (puts === failingPut) return Promise.reject(new Error('storage unavailable'));
+            return Promise.resolve({
+              bytes: 1,
+              sha256: key === 'v' ? 'b'.repeat(64) : 'c'.repeat(64),
+            });
+          },
+          delete: (key) => {
+            deleted.push(key);
+            return Promise.resolve();
+          },
+        },
+        {
+          transform: () =>
+            Promise.resolve({
+              detectedMediaType: 'image/jpeg',
+              width: 800,
+              height: 800,
+              frameCount: 1,
+              originalBytes: 1,
+              originalSha256: 'a'.repeat(64),
+              normalizedSha256: 'b'.repeat(64),
+              normalized: new Uint8Array([2]),
+              thumbnail: new Uint8Array([3]),
+            }),
+        },
+      );
+      await expect(handler.execute('asset', 'worker')).rejects.toThrow('storage unavailable');
+      expect(deleted).toEqual(failingPut === 1 ? [] : ['v']);
+      expect(release).toHaveBeenCalledWith('asset', 'worker');
+    }
+  });
 });

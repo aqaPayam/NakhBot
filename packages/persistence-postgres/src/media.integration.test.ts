@@ -342,44 +342,24 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
         thumbnailSha256: 'c'.repeat(64),
         completedAt: new Date(),
       });
-    await expect(complete(first, owner)).resolves.toBe('valid');
-    const firstFacts = await database
-      .selectFrom('media.media_assets')
-      .selectAll()
-      .where('id', '=', first)
-      .executeTakeFirstOrThrow();
-    expect(firstFacts).toMatchObject({
-      validation_state: 'valid',
-      validated_key: `validated/test/${first}/original`,
-    });
-    expect(
-      await database
-        .selectFrom('media.photo_variants')
-        .select('id')
-        .where('asset_id', '=', first)
-        .execute(),
-    ).toHaveLength(1);
-
     const second = await createQuarantined();
     await validation.claim({ assetId: second, owner: 'validator-c', leaseMs: 60_000 });
-    await expect(complete(second, 'validator-c')).resolves.toBe('duplicate_media');
-    expect(
-      await database
-        .selectFrom('media.media_assets')
-        .select(['validation_state', 'error_code'])
-        .where('id', '=', second)
-        .executeTakeFirstOrThrow(),
-    ).toMatchObject({
-      validation_state: 'rejected',
-      error_code: 'duplicate_media',
-    });
+    const outcomes = await Promise.all([complete(first, owner), complete(second, 'validator-c')]);
+    expect(outcomes.sort()).toEqual(['duplicate_media', 'valid']);
+    const facts = await database
+      .selectFrom('media.media_assets')
+      .select(['id', 'validation_state', 'error_code', 'validated_key'])
+      .where('id', 'in', [first, second])
+      .execute();
+    expect(facts.filter((fact) => fact.validation_state === 'valid')).toHaveLength(1);
+    expect(facts.filter((fact) => fact.error_code === 'duplicate_media')).toHaveLength(1);
     expect(
       await database
         .selectFrom('media.photo_variants')
         .select('id')
-        .where('asset_id', '=', second)
+        .where('asset_id', 'in', [first, second])
         .execute(),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
   });
 
   it('rejects partial quarantine facts and deleted-asset completion', async () => {
