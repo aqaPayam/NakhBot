@@ -42,6 +42,16 @@ services:
       - '8889:8889'
     profiles: ['telemetry']
 
+  clamav:
+    image: clamav/clamav-debian:1.5.4
+    ports:
+      - '3310:3310'
+    volumes:
+      - nakh-clamav-signatures:/var/lib/clamav
+    mem_limit: 4g
+    restart: unless-stopped
+
 volumes:
   nakh-postgres:
   nakh-redis:
+  nakh-clamav-signatures:

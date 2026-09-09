@@ -9,6 +9,7 @@ import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic
 import pino, { type DestinationStream, type Logger } from 'pino';
 
 export * from './m1-metrics.js';
+export * from './m2-metrics.js';
 
 export type TelemetryConfig = Readonly<{
   enabled: boolean;

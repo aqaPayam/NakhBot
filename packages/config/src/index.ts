@@ -39,6 +39,9 @@ const ConfigSchema = Type.Object(
       secretKeyRef: Type.String({ minLength: 1 }),
       cdnHost: Type.String({ minLength: 1 }),
       signingKeyRef: Type.String({ minLength: 1 }),
+      clamavHost: Type.String({ pattern: '^[A-Za-z0-9.-]{1,253}$' }),
+      clamavPort: Type.Integer({ minimum: 1, maximum: 65_535 }),
+      clamavTimeoutMs: Type.Integer({ minimum: 100, maximum: 120_000 }),
     }),
     telemetry: Type.Object({
       enabled: Type.Boolean(),
@@ -115,6 +118,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       secretKeyRef: required(env, 'NAKH_R2_SECRET_KEY_REF'),
       cdnHost: required(env, 'NAKH_MEDIA_CDN_HOST'),
       signingKeyRef: required(env, 'NAKH_MEDIA_SIGNING_KEY_REF'),
+      clamavHost: required(env, 'NAKH_CLAMAV_HOST', 'clamav'),
+      clamavPort: integer(env.NAKH_CLAMAV_PORT, 3310),
+      clamavTimeoutMs: integer(env.NAKH_CLAMAV_TIMEOUT_MS, 60_000),
     },
     telemetry: {
       enabled: boolean(env.NAKH_OTEL_ENABLED, false),

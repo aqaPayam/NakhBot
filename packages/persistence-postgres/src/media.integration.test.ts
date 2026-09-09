@@ -47,7 +47,9 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
       statementTimeoutMs: 15000,
       lockTimeoutMs: 10000,
     });
-    store = new PostgresMediaStore(database, 'test');
+    store = new PostgresMediaStore(database, 'test', {
+      decrypt: () => Promise.resolve({ telegramFileId: 'synthetic-file' }),
+    });
   });
   afterAll(async () => {
     await database?.destroy();
@@ -178,6 +180,142 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     await expect(store.beginTelegramIngestion(write(id))).resolves.toMatchObject({
       validationState: 'pending',
     });
+  });
+
+  it('records quarantine once, replays matching facts, and rejects later corruption or rejection', async () => {
+    const input = write(await user());
+    await store.beginTelegramIngestion(input);
+    const completion = {
+      assetId: input.assetId,
+      bytes: 3,
+      sha256: 'a'.repeat(64),
+      uploadedAt: new Date(),
+      owner: 'worker-a',
+      scannerVersion: 'scanner-1',
+      signatureVersion: 'signatures-1',
+      scannedAt: new Date(),
+    };
+    await store.claimPendingQuarantine({
+      assetId: input.assetId,
+      owner: 'worker-a',
+      leaseMs: 60_000,
+    });
+    await store.markQuarantineUploaded(completion);
+    await expect(
+      store.claimPendingQuarantine({ assetId: input.assetId, owner: 'worker-b', leaseMs: 60_000 }),
+    ).resolves.toMatchObject({
+      completed: { bytes: 3, sha256: 'a'.repeat(64) },
+    });
+    const cleared = await database
+      .selectFrom('media.media_assets')
+      .select('transport_metadata_ciphertext')
+      .where('id', '=', input.assetId)
+      .executeTakeFirstOrThrow();
+    expect(cleared.transport_metadata_ciphertext).toBeNull();
+    expect(
+      await database
+        .selectFrom('platform.outbox_events')
+        .select('id')
+        .where('aggregate_id', '=', input.assetId)
+        .where('event_type', '=', 'media.quarantine-uploaded.v1')
+        .execute(),
+    ).toHaveLength(1);
+    await store.markQuarantineUploaded({ ...completion, uploadedAt: new Date(Date.now() + 1000) });
+    await expect(store.markQuarantineUploaded({ ...completion, bytes: 4 })).rejects.toMatchObject({
+      code: 'media_invalid_state',
+    });
+    await expect(
+      store.markDownloadRejected({
+        assetId: input.assetId,
+        errorCode: 'media_download_invalid',
+        failedAt: new Date(),
+        owner: 'worker-b',
+      }),
+    ).rejects.toMatchObject({ code: 'media_invalid_state' });
+    for (const change of [
+      { quarantine_size_bytes: 4 },
+      { quarantine_sha256: Buffer.alloc(32, 2) },
+      { quarantine_key: 'quarantine/test/changed/original' },
+      { quarantine_uploaded_at: null },
+    ]) {
+      await expect(
+        database
+          .updateTable('media.media_assets')
+          .set(change)
+          .where('id', '=', input.assetId)
+          .execute(),
+      ).rejects.toMatchObject({ code: '23514' });
+    }
+  });
+
+  it('fences concurrent quarantine workers and permits release or expired-lease recovery', async () => {
+    const input = write(await user());
+    await store.beginTelegramIngestion(input);
+    const claims = await Promise.all([
+      store.claimPendingQuarantine({ assetId: input.assetId, owner: 'worker-a', leaseMs: 60_000 }),
+      store.claimPendingQuarantine({ assetId: input.assetId, owner: 'worker-b', leaseMs: 60_000 }),
+    ]);
+    expect(claims.filter((claim) => claim !== undefined)).toHaveLength(1);
+    const winner = claims[0] === undefined ? 'worker-b' : 'worker-a';
+    const loser = winner === 'worker-a' ? 'worker-b' : 'worker-a';
+    await expect(
+      store.markQuarantineUploaded({
+        assetId: input.assetId,
+        bytes: 3,
+        sha256: 'a'.repeat(64),
+        uploadedAt: new Date(),
+        owner: loser,
+        scannerVersion: 'scanner-1',
+        signatureVersion: 'signatures-1',
+        scannedAt: new Date(),
+      }),
+    ).rejects.toMatchObject({ code: 'media_invalid_state' });
+    await store.releaseQuarantineClaim(input.assetId, winner);
+    await expect(
+      store.claimPendingQuarantine({ assetId: input.assetId, owner: loser, leaseMs: 60_000 }),
+    ).resolves.toMatchObject({ assetId: input.assetId });
+    await database
+      .updateTable('media.media_assets')
+      .set({ ingestion_lease_expires_at: new Date(Date.now() - 1_000) })
+      .where('id', '=', input.assetId)
+      .execute();
+    await expect(
+      store.claimPendingQuarantine({ assetId: input.assetId, owner: winner, leaseMs: 60_000 }),
+    ).resolves.toMatchObject({ assetId: input.assetId });
+  });
+
+  it('rejects partial quarantine facts and deleted-asset completion', async () => {
+    const input = write(await user());
+    await store.beginTelegramIngestion(input);
+    await expect(
+      database
+        .updateTable('media.media_assets')
+        .set({ quarantine_size_bytes: 3 })
+        .where('id', '=', input.assetId)
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    await database
+      .updateTable('media.media_assets')
+      .set({ deleted_at: new Date() })
+      .where('id', '=', input.assetId)
+      .execute();
+    await store.claimPendingQuarantine({
+      assetId: input.assetId,
+      owner: 'worker-a',
+      leaseMs: 60_000,
+    });
+    await expect(
+      store.markQuarantineUploaded({
+        assetId: input.assetId,
+        bytes: 3,
+        sha256: 'a'.repeat(64),
+        uploadedAt: new Date(),
+        owner: 'worker-a',
+        scannerVersion: 'scanner-1',
+        signatureVersion: 'signatures-1',
+        scannedAt: new Date(),
+      }),
+    ).rejects.toMatchObject({ code: 'media_invalid_state' });
   });
 
   it('replays concurrently without additional assets, audit rows, or outbox events', async () => {

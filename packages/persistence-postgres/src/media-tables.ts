@@ -19,6 +19,15 @@ export interface MediaAssetTable {
   storage_provider: 'r2';
   quarantine_key: string;
   validated_key: string | null;
+  quarantine_size_bytes: number | null;
+  quarantine_sha256: Buffer | null;
+  quarantine_uploaded_at: Date | null;
+  ingestion_lease_owner: string | null;
+  ingestion_lease_expires_at: Date | null;
+  malware_scan_result: 'clean' | null;
+  malware_scanner_version: string | null;
+  malware_signature_version: string | null;
+  malware_scanned_at: Date | null;
   attempted_at: Date;
   uploaded_at: Date | null;
   validated_at: Date | null;

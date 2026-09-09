@@ -122,7 +122,8 @@ Create new forward-only migrations after `000009_m1_hardening.sql`:
 
 1. `000010_m2_media_assets.sql` — media schema, assets, upload-attempt indexes, and validation state.
 2. `000011_m2_profile_photos.sql` — assignments, variants, moderation records, constraints, and indexes.
-3. `000012_m2_media_jobs.sql` — cleanup/delivery-revocation state only if it cannot use existing outbox/job tables cleanly.
+3. `000012_m2_media_quarantine.sql` — verified quarantine completion facts and immutable completion guard.
+4. `000013_m2_media_jobs.sql` — durable ingestion-worker leases and versioned clean-scan evidence; later cleanup/delivery-revocation state uses existing outbox/job tables where possible.
 
 Never edit an applied migration. Each migration must run from empty and immediately previous schema, be replay-safe through the migration runner, and add verification SQL.
 
@@ -209,7 +210,7 @@ The 21st request is denied before an ingestion intent exists; it does not create
 
 ### 8.2 Download and quarantine
 
-The worker fetches only through the Telegram port, streams through a byte counter and SHA-256, aborts at 10 MiB, scans, writes one quarantine key, then HEAD-verifies length/checksum. If R2 succeeds and the DB update fails, the same job reconciles by HEAD and completes; an orphan scan later removes unreferenced quarantine objects. If DB intent exists and R2 fails, state remains retryable and never visible.
+The worker fetches only through the Telegram port, streams through a byte counter and SHA-256, aborts at 10 MiB, scans, writes one quarantine key, then HEAD-verifies length/checksum. The database records verified quarantine size and SHA-256 once; a retry with the same facts is idempotent. If R2 succeeds and the DB update fails, the same job reconciles by HEAD and completes; an orphan scan later removes unreferenced quarantine objects. If DB intent exists and R2 fails, state remains retryable and never visible.
 
 ### 8.3 Validate, transform, and publish
 
@@ -300,6 +301,20 @@ No skipped media, security, concurrency, or acceptance test may be merged. M2 is
 
 - add generic ingestion handlers/ports and thin Telegram metadata/download adapter;
 - implement bounded stream hashing, scanner port, quarantine writes/verification, retry/reconciliation, rate limit, audit/outbox/metrics, and provider failure tests.
+
+Current implementation: the provider-neutral ingestion handler and request throttle, bounded stream, Telegram `getFile`/download adapter, quarantine/scanner coordinator, AES-256-GCM transport envelope, storage SHA-256/HEAD reconciliation adapter, durable PostgreSQL worker leases, immutable clean-scan/quarantine facts, atomic completion/rejection audit and outbox, and bounded metric definitions are implemented. Live S3-compatible transport, maintained scanner adapter, metrics composition, queue wiring, and production gateway route remain open for the remainder of PR3. The R2 and scanner ports require injected provider clients; they are not yet deployable integrations.
+
+### PR3 continuation checklist
+
+1. Preserve the current fail-closed boundary: there is no live upload route until scanning, storage, and worker composition are complete.
+2. Implement a maintained S3-compatible client with bounded streaming, independently verified checksum/length, conditional creation, and verified deletion. Treat unknown HEAD outcomes as retryable, never absent. Reconcile write-success/database-failure without overwriting a completed object.
+3. Compose the implemented durable download claim in the worker. Each execution uses a unique owner token; the 60-second network deadline stays below the 120-second lease. Implement retry/backoff and terminal-job reconciliation.
+4. Supply a maintained streaming malware-scanner adapter and record its engine/signature versions through the implemented clean-scan evidence seam. A clean result permits quarantine completion but never implies decoded/valid/published.
+5. Route the implemented atomic completion/rejection outbox events to validation/reconciliation exactly once at the consumer boundary.
+6. Compose authenticated Telegram ownership, strict contract validation, the required rate limiter, encryption key ring, queue, and metrics. Keys come from secrets configuration; old decryption keys remain until outstanding intents expire. Raw identifiers cannot enter logs or events.
+7. Exercise provider faults, concurrent workers, write-success/database-failure, audit rollback, key rotation, and startup configuration before marking PR3 complete. Then proceed to PR4 decoding/publication. Real private R2/CDN staging evidence remains required for M2 acceptance.
+
+Current component guarantees: network metadata is capped at 64 KiB, downloads have a 60-second deadline, redirects are rejected, and early stream exits cancel the response. The 10 MiB cap and declared length are checked while streaming. AES-GCM ciphertext is bound to environment, asset ID, key ID, and envelope version. Conditional object creation and HEAD comparison prevent silent overwrite; a prior object is re-downloaded, rescanned, hashed, and matched before database reconciliation. Worker claims fence concurrent processing and expire for recovery. Completed storage and clean-scan facts are immutable; matching replays return recorded facts without downloading again. Successful completion or terminal rejection clears transport ciphertext and atomically records audit/outbox. Rejection cleanup failures remain retryable. No photo visibility or image-validation guarantee is claimed by these components.
 
 ### PR 4 — Validation, thumbnail, and publish pipeline
 

@@ -282,6 +282,12 @@ importers:
         specifier: workspace:*
         version: link:../application
 
+  packages/media-clamav:
+    dependencies:
+      '@nakh/application':
+        specifier: workspace:*
+        version: link:../application
+
   packages/media-r2:
     dependencies:
       '@nakh/application':

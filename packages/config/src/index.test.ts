@@ -23,7 +23,18 @@ describe('configuration', () => {
 
     expect(config.environment).toBe('test');
     expect(config.http.port).toBe(3000);
+    expect(config.media).toMatchObject({
+      clamavHost: 'clamav',
+      clamavPort: 3310,
+      clamavTimeoutMs: 60_000,
+    });
     expect(Object.isFrozen(config.database)).toBe(true);
+  });
+
+  it('rejects an invalid scanner endpoint before startup', () => {
+    expect(() => parseConfig({ ...validEnvironment, NAKH_CLAMAV_PORT: '0' })).toThrow(
+      '/media/clamavPort',
+    );
   });
 
   it('fails startup when a secret-shaped required value is absent', () => {

@@ -35,6 +35,8 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Required deletion-test assertions for M1
 
+M2 quarantine completion stores byte length, SHA-256, and completion time on `media.media_assets`; these follow that row's purge policy. Temporary Telegram transport ciphertext uses a versioned AES-GCM envelope bound to the environment and asset, and is cleared on quarantine completion or terminal download rejection. Key rotation retains old decrypt-only keys only for outstanding intents; expiry/abandonment cleanup must clear unresolved ciphertext before a key is retired.
+
 - UserSettings and NotificationPreference are absent after product-data purge.
 - A zero-balance, never-used CreditAccount may be absent after purge.
 - User, TelegramIdentity, Account, AccountStateHistory, and GuestPreviewCounter remain.

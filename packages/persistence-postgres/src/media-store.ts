@@ -1,6 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import type { BeginMediaIngestionWrite, MediaIngestionStore } from '@nakh/application';
+import type {
+  BeginMediaIngestionWrite,
+  MediaIngestionStore,
+  MediaTransportCipher,
+  PendingQuarantineAsset,
+  QuarantineAssetStore,
+} from '@nakh/application';
 import type { BeginPhotoIngestionResult } from '@nakh/contracts';
 import {
   ApplicationError,
@@ -12,11 +18,275 @@ import {
 import type { NakhDatabase } from './database.js';
 
 /** Persists intent only: no network I/O, no decoder, and no ability to mark an asset valid. */
-export class PostgresMediaStore implements MediaIngestionStore {
+export class PostgresMediaStore implements MediaIngestionStore, QuarantineAssetStore {
   public constructor(
     private readonly database: NakhDatabase,
     private readonly environment: 'development' | 'test' | 'staging' | 'production',
+    private readonly transportCipher?: MediaTransportCipher,
   ) {}
+
+  public async claimPendingQuarantine(
+    input: Readonly<{ assetId: string; owner: string; leaseMs: number }>,
+  ): Promise<PendingQuarantineAsset | undefined> {
+    if (
+      !/^[\x20-\x7e]{1,128}$/u.test(input.owner) ||
+      !Number.isSafeInteger(input.leaseMs) ||
+      input.leaseMs < 1_000 ||
+      input.leaseMs > 900_000
+    )
+      throw new ApplicationError('invalid_request', 'error.media.lease.invalid', 400);
+    const completed = await this.database
+      .selectFrom('media.media_assets')
+      .select([
+        'id',
+        'quarantine_key',
+        'transport_metadata_ciphertext',
+        'quarantine_size_bytes',
+        'quarantine_sha256',
+        'quarantine_uploaded_at',
+      ])
+      .where('id', '=', input.assetId)
+      .where('validation_state', '=', 'pending')
+      .where('deleted_at', 'is', null)
+      .executeTakeFirst();
+    if (completed === undefined) return undefined;
+    if (
+      completed.quarantine_uploaded_at !== null &&
+      completed.quarantine_size_bytes !== null &&
+      completed.quarantine_sha256 !== null
+    )
+      return {
+        assetId: completed.id,
+        quarantineKey: completed.quarantine_key,
+        completed: {
+          bytes: completed.quarantine_size_bytes,
+          sha256: completed.quarantine_sha256.toString('hex'),
+        },
+      };
+    const row = await this.database
+      .updateTable('media.media_assets')
+      .set({
+        ingestion_lease_owner: input.owner,
+        ingestion_lease_expires_at: sql<Date>`clock_timestamp() + (${input.leaseMs} * interval '1 millisecond')`,
+      })
+      .where('id', '=', input.assetId)
+      .where('validation_state', '=', 'pending')
+      .where('quarantine_uploaded_at', 'is', null)
+      .where('deleted_at', 'is', null)
+      .where((expression) =>
+        expression.or([
+          expression('ingestion_lease_expires_at', 'is', null),
+          expression('ingestion_lease_expires_at', '<', sql<Date>`clock_timestamp()`),
+        ]),
+      )
+      .returning(['id', 'quarantine_key', 'transport_metadata_ciphertext'])
+      .executeTakeFirst();
+    if (row === undefined) return undefined;
+    if (row.transport_metadata_ciphertext === null || this.transportCipher === undefined) {
+      await this.releaseQuarantineClaim(row.id, input.owner);
+      throw new ApplicationError(
+        'dependency_unavailable',
+        'error.media.transport_unavailable',
+        503,
+      );
+    }
+    let transport: Readonly<{ telegramFileId: string }>;
+    try {
+      transport = await this.transportCipher.decrypt(row.transport_metadata_ciphertext, row.id);
+    } catch {
+      await this.releaseQuarantineClaim(row.id, input.owner);
+      throw new ApplicationError('invalid_request', 'error.media.transport_invalid', 400);
+    }
+    return {
+      assetId: row.id,
+      quarantineKey: row.quarantine_key,
+      telegramFileId: transport.telegramFileId,
+    };
+  }
+
+  public async markQuarantineUploaded(
+    input: Readonly<{
+      assetId: string;
+      bytes: number;
+      sha256: string;
+      uploadedAt: Date;
+      owner: string;
+      scannerVersion: string;
+      signatureVersion: string;
+      scannedAt: Date;
+    }>,
+  ): Promise<void> {
+    if (
+      !Number.isSafeInteger(input.bytes) ||
+      input.bytes <= 0 ||
+      input.bytes > MEDIA_LIMITS.maximumUploadBytes ||
+      !/^[a-f0-9]{64}$/u.test(input.sha256)
+    )
+      throw new ApplicationError('invalid_request', 'error.media.download.invalid', 400);
+    if (
+      !/^[\x20-\x7e]{1,128}$/u.test(input.scannerVersion) ||
+      !/^[\x20-\x7e]{1,128}$/u.test(input.signatureVersion)
+    )
+      throw new ApplicationError('invalid_request', 'error.media.scan.invalid', 400);
+    const digest = Buffer.from(input.sha256, 'hex');
+    await this.database.transaction().execute(async (transaction) => {
+      const updated = await transaction
+        .updateTable('media.media_assets')
+        .set({
+          uploaded_at: input.uploadedAt,
+          quarantine_uploaded_at: input.uploadedAt,
+          quarantine_size_bytes: input.bytes,
+          quarantine_sha256: digest,
+          transport_metadata_ciphertext: null,
+          ingestion_lease_owner: null,
+          ingestion_lease_expires_at: null,
+          malware_scan_result: 'clean',
+          malware_scanner_version: input.scannerVersion,
+          malware_signature_version: input.signatureVersion,
+          malware_scanned_at: input.scannedAt,
+          updated_at: input.uploadedAt,
+        })
+        .where('id', '=', input.assetId)
+        .where('validation_state', '=', 'pending')
+        .where('quarantine_uploaded_at', 'is', null)
+        .where('deleted_at', 'is', null)
+        .where('ingestion_lease_owner', '=', input.owner)
+        .returning('id')
+        .executeTakeFirst();
+      if (updated !== undefined) {
+        await this.recordQuarantineOutcome(transaction, {
+          assetId: input.assetId,
+          eventType: 'media.quarantine-uploaded.v1',
+          resultCode: 'uploaded',
+          occurredAt: input.uploadedAt,
+          payload: { assetId: input.assetId, bytes: input.bytes },
+        });
+        return;
+      }
+      const existing = await transaction
+        .selectFrom('media.media_assets')
+        .select(['quarantine_size_bytes', 'quarantine_sha256'])
+        .where('id', '=', input.assetId)
+        .executeTakeFirst();
+      if (
+        existing?.quarantine_size_bytes !== input.bytes ||
+        existing.quarantine_sha256?.toString('hex') !== input.sha256
+      )
+        throw new ApplicationError('media_invalid_state', 'error.media.state', 409);
+    });
+  }
+
+  public async markDownloadRejected(
+    input: Readonly<{
+      assetId: string;
+      errorCode: 'media_too_large' | 'media_download_invalid' | 'malware_detected';
+      failedAt: Date;
+      owner: string;
+    }>,
+  ): Promise<void> {
+    await this.database.transaction().execute(async (transaction) => {
+      const updated = await transaction
+        .updateTable('media.media_assets')
+        .set({
+          validation_state: 'rejected',
+          error_code: input.errorCode,
+          terminal_at: input.failedAt,
+          updated_at: input.failedAt,
+          transport_metadata_ciphertext: null,
+          ingestion_lease_owner: null,
+          ingestion_lease_expires_at: null,
+          malware_scan_result: null,
+          malware_scanner_version: null,
+          malware_signature_version: null,
+          malware_scanned_at: null,
+        })
+        .where('id', '=', input.assetId)
+        .where('validation_state', '=', 'pending')
+        .where('quarantine_uploaded_at', 'is', null)
+        .where('deleted_at', 'is', null)
+        .where('ingestion_lease_owner', '=', input.owner)
+        .returning('id')
+        .executeTakeFirst();
+      if (updated !== undefined) {
+        await this.recordQuarantineOutcome(transaction, {
+          assetId: input.assetId,
+          eventType: 'media.ingestion-rejected.v1',
+          resultCode: input.errorCode,
+          occurredAt: input.failedAt,
+          payload: { assetId: input.assetId, errorCode: input.errorCode },
+        });
+        return;
+      }
+      const existing = await transaction
+        .selectFrom('media.media_assets')
+        .select('error_code')
+        .where('id', '=', input.assetId)
+        .executeTakeFirst();
+      if (existing?.error_code !== input.errorCode)
+        throw new ApplicationError('media_invalid_state', 'error.media.state', 409);
+    });
+  }
+
+  public async releaseQuarantineClaim(assetId: string, owner: string): Promise<void> {
+    await this.database
+      .updateTable('media.media_assets')
+      .set({ ingestion_lease_owner: null, ingestion_lease_expires_at: null })
+      .where('id', '=', assetId)
+      .where('ingestion_lease_owner', '=', owner)
+      .where('quarantine_uploaded_at', 'is', null)
+      .execute();
+  }
+
+  private async recordQuarantineOutcome(
+    transaction: NakhDatabase,
+    input: Readonly<{
+      assetId: string;
+      eventType: string;
+      resultCode: string;
+      occurredAt: Date;
+      payload: Readonly<Record<string, unknown>>;
+    }>,
+  ): Promise<void> {
+    const operationId = randomUUID();
+    await transaction
+      .insertInto('platform.audit_logs')
+      .values({
+        id: randomUUID(),
+        category: 'product',
+        event_type: input.eventType,
+        actor_type: 'system',
+        actor_user_id: null,
+        actor_admin_id: null,
+        subject_type: 'media_asset',
+        subject_id: input.assetId,
+        result_code: input.resultCode,
+        metadata_schema_version: 1,
+        metadata: {},
+        request_id: operationId,
+        command_id: operationId,
+        occurred_at: input.occurredAt,
+      })
+      .execute();
+    await transaction
+      .insertInto('platform.outbox_events')
+      .values({
+        id: randomUUID(),
+        aggregate_type: 'media_asset',
+        aggregate_id: input.assetId,
+        event_type: input.eventType,
+        schema_version: 1,
+        payload: input.payload,
+        occurred_at: input.occurredAt,
+        available_at: input.occurredAt,
+        published_at: null,
+        last_error_code: null,
+        lease_owner: null,
+        lease_expires_at: null,
+        correlation_id: operationId,
+        causation_id: operationId,
+      })
+      .execute();
+  }
 
   public async beginTelegramIngestion(
     write: BeginMediaIngestionWrite,
@@ -175,6 +445,15 @@ export class PostgresMediaStore implements MediaIngestionStore {
           storage_provider: 'r2',
           quarantine_key: `quarantine/${this.environment}/${write.assetId}/original`,
           validated_key: null,
+          quarantine_size_bytes: null,
+          quarantine_sha256: null,
+          quarantine_uploaded_at: null,
+          ingestion_lease_owner: null,
+          ingestion_lease_expires_at: null,
+          malware_scan_result: null,
+          malware_scanner_version: null,
+          malware_signature_version: null,
+          malware_scanned_at: null,
           attempted_at: now,
           uploaded_at: null,
           validated_at: null,
