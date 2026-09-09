@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseConfig } from './index.js';
+import { parseConfig, resolveSecretReference } from './index.js';
 
 const validEnvironment: NodeJS.ProcessEnv = {
   NAKH_ENV: 'test',
@@ -24,6 +24,9 @@ describe('configuration', () => {
     expect(config.environment).toBe('test');
     expect(config.http.port).toBe(3000);
     expect(config.media).toMatchObject({
+      ingestionEnabled: false,
+      transportKeyId: 'active-v1',
+      transportKeyRef: 'NAKH_MEDIA_TRANSPORT_KEY',
       clamavHost: 'clamav',
       clamavPort: 3310,
       clamavTimeoutMs: 60_000,
@@ -42,5 +45,13 @@ describe('configuration', () => {
     delete environment.NAKH_TELEGRAM_WEBHOOK_SECRET;
 
     expect(() => parseConfig(environment)).toThrow('NAKH_TELEGRAM_WEBHOOK_SECRET');
+  });
+
+  it('resolves secret references without accepting literal values', () => {
+    expect(resolveSecretReference('NAKH_SECRET', { NAKH_SECRET: 'value' })).toBe('value');
+    expect(() => resolveSecretReference('literal-secret', {})).toThrow('Invalid secret reference');
+    expect(() => resolveSecretReference('NAKH_MISSING', {})).toThrow(
+      'Required secret is unavailable',
+    );
   });
 });

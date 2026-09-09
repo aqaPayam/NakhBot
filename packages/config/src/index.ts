@@ -33,12 +33,15 @@ const ConfigSchema = Type.Object(
       webhookSecret: Type.String({ minLength: 32 }),
     }),
     media: Type.Object({
+      ingestionEnabled: Type.Boolean(),
       r2Endpoint: Type.String({ minLength: 1 }),
       bucket: Type.String({ minLength: 1 }),
       accessKeyRef: Type.String({ minLength: 1 }),
       secretKeyRef: Type.String({ minLength: 1 }),
       cdnHost: Type.String({ minLength: 1 }),
       signingKeyRef: Type.String({ minLength: 1 }),
+      transportKeyId: Type.String({ pattern: '^[A-Za-z0-9_-]{1,32}$' }),
+      transportKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       clamavHost: Type.String({ pattern: '^[A-Za-z0-9.-]{1,253}$' }),
       clamavPort: Type.Integer({ minimum: 1, maximum: 65_535 }),
       clamavTimeoutMs: Type.Integer({ minimum: 100, maximum: 120_000 }),
@@ -112,12 +115,15 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       webhookSecret: required(env, 'NAKH_TELEGRAM_WEBHOOK_SECRET'),
     },
     media: {
+      ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),
       r2Endpoint: required(env, 'NAKH_R2_ENDPOINT'),
       bucket: required(env, 'NAKH_R2_BUCKET'),
       accessKeyRef: required(env, 'NAKH_R2_ACCESS_KEY_REF'),
       secretKeyRef: required(env, 'NAKH_R2_SECRET_KEY_REF'),
       cdnHost: required(env, 'NAKH_MEDIA_CDN_HOST'),
       signingKeyRef: required(env, 'NAKH_MEDIA_SIGNING_KEY_REF'),
+      transportKeyId: required(env, 'NAKH_MEDIA_TRANSPORT_KEY_ID', 'active-v1'),
+      transportKeyRef: required(env, 'NAKH_MEDIA_TRANSPORT_KEY_REF', 'NAKH_MEDIA_TRANSPORT_KEY'),
       clamavHost: required(env, 'NAKH_CLAMAV_HOST', 'clamav'),
       clamavPort: integer(env.NAKH_CLAMAV_PORT, 3310),
       clamavTimeoutMs: integer(env.NAKH_CLAMAV_TIMEOUT_MS, 60_000),
@@ -140,4 +146,15 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   loadDotEnv({ quiet: true });
   return parseConfig(env);
+}
+
+/** Resolves an environment-variable reference without copying secret values into config. */
+export function resolveSecretReference(
+  reference: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (!/^[A-Z][A-Z0-9_]{1,127}$/u.test(reference)) throw new Error('Invalid secret reference.');
+  const value = env[reference];
+  if (value === undefined || value.length === 0) throw new Error('Required secret is unavailable.');
+  return value;
 }

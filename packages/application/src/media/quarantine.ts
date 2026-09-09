@@ -50,7 +50,13 @@ export class DownloadTelegramPhotoToQuarantine {
       await this.assets.releaseQuarantineClaim(assetId, owner);
       throw new Error('media transport unavailable');
     }
-    const download = await this.telegram.download(asset.telegramFileId, operationSignal);
+    let download;
+    try {
+      download = await this.telegram.download(asset.telegramFileId, operationSignal);
+    } catch (error) {
+      await this.assets.releaseQuarantineClaim(assetId, owner);
+      throw error;
+    }
     if (
       download.contentLength !== undefined &&
       (!Number.isSafeInteger(download.contentLength) ||

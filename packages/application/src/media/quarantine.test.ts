@@ -143,6 +143,27 @@ describe('DownloadTelegramPhotoToQuarantine', () => {
     ]);
   });
 
+  it('releases the durable claim when Telegram cannot start the download', async () => {
+    const released: string[] = [];
+    const handler = new DownloadTelegramPhotoToQuarantine(
+      {
+        claimPendingQuarantine: () =>
+          Promise.resolve({ assetId: 'asset-2b', quarantineKey: 'key', telegramFileId: 'file' }),
+        markQuarantineUploaded: () => Promise.reject(new Error('must not upload')),
+        markDownloadRejected: () => Promise.reject(new Error('must not reject')),
+        releaseQuarantineClaim: (assetId, owner) => {
+          released.push(`${assetId}:${owner}`);
+          return Promise.resolve();
+        },
+      },
+      { download: () => Promise.reject(new Error('telegram unavailable')) },
+      { put: () => Promise.reject(new Error('must not put')), delete: () => Promise.resolve() },
+      cleanScanner(),
+    );
+    await expect(handler.execute('asset-2b', 'worker')).rejects.toThrow('telegram unavailable');
+    expect(released).toEqual(['asset-2b:worker']);
+  });
+
   it('deletes a partial object and records a bounded-stream overflow', async () => {
     const deleted: string[] = [];
     const rejected: unknown[] = [];
