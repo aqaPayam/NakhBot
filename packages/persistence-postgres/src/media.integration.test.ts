@@ -7,6 +7,7 @@ import { runMigrations } from './migrations.js';
 import { PostgresMediaStore } from './media-store.js';
 import { PostgresMediaValidationStore } from './media-validation-store.js';
 import { PostgresMediaDeliveryAuthorization } from './media-delivery-authorization.js';
+import { PostgresBlurGenerationStore } from './blur-generation-store.js';
 import { PostgresPhotoManagementStore } from './photo-management-store.js';
 import { PostgresProfileMediaEligibility, profilePhotosAreEligible } from './media-eligibility.js';
 import { seedValidMedia } from './media-fixtures.js';
@@ -45,6 +46,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
   let validation: PostgresMediaValidationStore;
   let photoManagement: PostgresPhotoManagementStore;
   let delivery: PostgresMediaDeliveryAuthorization;
+  let blur: PostgresBlurGenerationStore;
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
@@ -59,6 +61,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     validation = new PostgresMediaValidationStore(database, 'test');
     photoManagement = new PostgresPhotoManagementStore(database);
     delivery = new PostgresMediaDeliveryAuthorization(database);
+    blur = new PostgresBlurGenerationStore(database, 'test');
   });
   afterAll(async () => {
     await database?.destroy();
@@ -745,6 +748,87 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
         requestedVariant: 'thumbnail',
       }),
     ).rejects.toMatchObject({ code: 'media_delivery_denied' });
+  });
+
+  it('publishes one deterministic blur under concurrency and denies a non-primary asset', async () => {
+    const userId = await user();
+    const profileId = await profile(userId);
+    const assets = await Promise.all(
+      Array.from({ length: 2 }, () => seedValidMedia(database, userId)),
+    );
+    await assign(profileId, assets[0]!, 0, true);
+    await assign(profileId, assets[1]!, 1);
+    const prepared = await blur.prepare(assets[0]!);
+    expect(prepared).toMatchObject({
+      status: 'pending',
+      generation: {
+        sourceKey: `validated/test/${assets[0]!}/original`,
+        blurredKey: `variants/test/${assets[0]!}/blurred-preview-v1.webp`,
+      },
+    });
+    const completion = {
+      assetId: assets[0]!,
+      blurredKey: `variants/test/${assets[0]!}/blurred-preview-v1.webp`,
+      bytes: 123,
+      sha256: 'a'.repeat(64),
+      completedAt: new Date(),
+    };
+    await expect(
+      Promise.all([blur.complete(completion), blur.complete(completion)]),
+    ).resolves.toEqual([
+      `/media/${assets[0]!}/blurred-preview-v1.webp`,
+      `/media/${assets[0]!}/blurred-preview-v1.webp`,
+    ]);
+    expect(
+      await database
+        .selectFrom('media.photo_variants')
+        .select('id')
+        .where('asset_id', '=', assets[0]!)
+        .where('variant_type', '=', 'blurred_preview')
+        .execute(),
+    ).toHaveLength(1);
+    await expect(blur.prepare(assets[1]!)).rejects.toMatchObject({
+      code: 'media_delivery_denied',
+    });
+  });
+
+  it('refuses blur publication after the prepared asset stops being primary', async () => {
+    const userId = await user();
+    const profileId = await profile(userId);
+    const assets = await Promise.all(
+      Array.from({ length: 2 }, () => seedValidMedia(database, userId)),
+    );
+    await assign(profileId, assets[0]!, 0, true);
+    await assign(profileId, assets[1]!, 1);
+    await expect(blur.prepare(assets[0]!)).resolves.toMatchObject({ status: 'pending' });
+    const collection = await photoManagement.listOwn(userId);
+    const replacement = collection.photos.find((photo) => !photo.isPrimary)!;
+    await photoManagement.mutateOwn({
+      userId,
+      expectedProfileVersion: collection.profileVersion,
+      action: { type: 'select_primary', photoId: replacement.id },
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      profileEventId: randomUUID(),
+      occurredAt: new Date(),
+    });
+    await expect(
+      blur.complete({
+        assetId: assets[0]!,
+        blurredKey: `variants/test/${assets[0]!}/blurred-preview-v1.webp`,
+        bytes: 123,
+        sha256: 'b'.repeat(64),
+        completedAt: new Date(),
+      }),
+    ).rejects.toMatchObject({ code: 'media_delivery_denied' });
+    expect(
+      await database
+        .selectFrom('media.photo_variants')
+        .select('id')
+        .where('asset_id', '=', assets[0]!)
+        .where('variant_type', '=', 'blurred_preview')
+        .execute(),
+    ).toHaveLength(0);
   });
 
   it('rejects terminal-state rewrites, owner changes, and active normalized duplicates', async () => {

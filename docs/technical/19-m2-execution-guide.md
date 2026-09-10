@@ -363,7 +363,7 @@ PR5 continuation checklist:
 - implement viewer/purpose/rendition policy, HMAC key rotation, Cloudflare Worker verifier, private R2 fetch, blur deduplication, cache purge, and tamper/expiry/cross-user tests;
 - do not expose raw keys or direct originals.
 
-Current implementation: the provider-neutral grant handler separates authoritative authorization from signing, enforces user/admin purpose boundaries, limits grants to 10–300 seconds, and returns only the documented HTTPS URL, expiry, rendition, and cache policy. The delivery-token adapter signs a canonical versioned payload with HMAC-SHA256, binds it to exact delivery path, audience, purpose, rendition, issued time, and expiry, compares signatures in constant time, rejects non-canonical encoding, copies key material defensively, and supports one current plus bounded previous verification keys. Tamper, expiry, cross-user/path replay, invalid purpose/rendition, TTL, origin, and key-rotation tests are present.
+Current implementation: the provider-neutral grant handler separates authoritative authorization from signing, enforces user/admin purpose boundaries, limits grants to 10–300 seconds, and returns only the documented HTTPS URL, expiry, rendition, and cache policy. The delivery-token adapter signs a canonical versioned payload with HMAC-SHA256, binds it to exact delivery path, audience, purpose, rendition, issued time, and expiry, compares signatures in constant time, rejects non-canonical encoding, copies key material defensively, and supports one current plus bounded previous verification keys. Tamper, expiry, cross-user/path replay, invalid purpose/rendition, TTL, origin, and key-rotation tests are present. On-demand blur generation reads only validated current-primary media, creates a metadata-free 96×96 WebP under a deterministic private key, trusts only object-provider write verification, and publishes one versioned database rendition under concurrency. Publication repeats User/Profile/asset/photo lock ordering and rechecks visible-primary state, so a concurrent lifecycle change cannot publish a stale rendition; a write-before-database-failure remains a private deterministic orphan for PR7 reconciliation.
 
 PR6 continuation checklist:
 
@@ -373,7 +373,7 @@ PR6 continuation checklist:
 - [x] tamper, expiry, cross-user/path replay, combination, and rotation tests;
 - [x] fail-closed PostgreSQL authorization for owner preview and active administrators;
 - [ ] PostgreSQL card/detail authorization after pair/interaction state exists;
-- [ ] on-demand blurred-preview generation and concurrent deduplication;
+- [x] on-demand blurred-preview generation and concurrent deduplication;
 - [ ] Cloudflare Worker private-R2 fetch and authenticated audience binding;
 - [ ] cache purge/revocation retry and real CDN/R2 staging evidence.
 
