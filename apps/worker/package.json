@@ -15,6 +15,7 @@
     "@nakh/contracts": "workspace:*",
     "@nakh/domain": "workspace:*",
     "@nakh/media-clamav": "workspace:*",
+    "@nakh/media-delivery": "workspace:*",
     "@nakh/media-r2": "workspace:*",
     "@nakh/observability": "workspace:*",
     "@nakh/persistence-postgres": "workspace:*",

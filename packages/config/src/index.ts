@@ -34,12 +34,15 @@ const ConfigSchema = Type.Object(
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
+      cachePurgeEnabled: Type.Boolean(),
       r2Endpoint: Type.String({ minLength: 1 }),
       bucket: Type.String({ minLength: 1 }),
       accessKeyRef: Type.String({ minLength: 1 }),
       secretKeyRef: Type.String({ minLength: 1 }),
       cdnHost: Type.String({ minLength: 1 }),
       signingKeyRef: Type.String({ minLength: 1 }),
+      cloudflareZoneId: Type.String({ minLength: 1, maxLength: 64 }),
+      cloudflareApiTokenRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       transportKeyId: Type.String({ pattern: '^[A-Za-z0-9_-]{1,32}$' }),
       transportKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       clamavHost: Type.String({ pattern: '^[A-Za-z0-9.-]{1,253}$' }),
@@ -116,12 +119,19 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),
+      cachePurgeEnabled: boolean(env.NAKH_MEDIA_CACHE_PURGE_ENABLED, false),
       r2Endpoint: required(env, 'NAKH_R2_ENDPOINT'),
       bucket: required(env, 'NAKH_R2_BUCKET'),
       accessKeyRef: required(env, 'NAKH_R2_ACCESS_KEY_REF'),
       secretKeyRef: required(env, 'NAKH_R2_SECRET_KEY_REF'),
       cdnHost: required(env, 'NAKH_MEDIA_CDN_HOST'),
       signingKeyRef: required(env, 'NAKH_MEDIA_SIGNING_KEY_REF'),
+      cloudflareZoneId: required(env, 'NAKH_CLOUDFLARE_ZONE_ID', 'disabled'),
+      cloudflareApiTokenRef: required(
+        env,
+        'NAKH_CLOUDFLARE_API_TOKEN_REF',
+        'NAKH_CLOUDFLARE_API_TOKEN',
+      ),
       transportKeyId: required(env, 'NAKH_MEDIA_TRANSPORT_KEY_ID', 'active-v1'),
       transportKeyRef: required(env, 'NAKH_MEDIA_TRANSPORT_KEY_REF', 'NAKH_MEDIA_TRANSPORT_KEY'),
       clamavHost: required(env, 'NAKH_CLAMAV_HOST', 'clamav'),
@@ -139,6 +149,11 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   if (!validate(candidate)) {
     throw new Error(`Invalid configuration: ${describeErrors(validate.errors)}`);
   }
+  if (
+    candidate.media.cachePurgeEnabled &&
+    !/^[a-f0-9]{32}$/u.test(candidate.media.cloudflareZoneId)
+  )
+    throw new Error('Invalid configuration: /media/cloudflareZoneId must be a 32-character ID');
 
   return deepFreeze(candidate) as AppConfig;
 }

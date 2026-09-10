@@ -1,5 +1,6 @@
 import type {
   DownloadTelegramPhotoToQuarantine,
+  RevokePhotoDeliveryCache,
   ValidateQuarantinedPhoto,
 } from '@nakh/application';
 import type { DomainEvent } from '@nakh/contracts';
@@ -8,6 +9,7 @@ import type { PostgresInboxStore } from '@nakh/persistence-postgres';
 
 type MediaHandler = Pick<DownloadTelegramPhotoToQuarantine, 'execute'>;
 type ValidationHandler = Pick<ValidateQuarantinedPhoto, 'execute'>;
+type CacheRevocationHandler = Pick<RevokePhotoDeliveryCache, 'execute'>;
 type MediaMetrics = Pick<M2Metrics, 'recordIngestion' | 'recordQuarantineBytes'>;
 
 function mediaAssetId(event: DomainEvent): string {
@@ -33,6 +35,22 @@ function validationAssetId(event: DomainEvent): string {
   return event.aggregateId;
 }
 
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+function lifecyclePhotoId(event: DomainEvent): string {
+  if (
+    event.aggregateType !== 'profile_photo' ||
+    Object.keys(event.payload).sort().join(',') !== 'photoId,profileId' ||
+    event.payload.photoId !== event.aggregateId ||
+    typeof event.payload.photoId !== 'string' ||
+    typeof event.payload.profileId !== 'string' ||
+    !uuid.test(event.payload.photoId) ||
+    !uuid.test(event.payload.profileId)
+  )
+    throw new Error('invalid_media_cache_revocation_event');
+  return event.payload.photoId;
+}
+
 export class WorkerEventProcessor {
   public constructor(
     private readonly inbox: Pick<PostgresInboxStore, 'processSampleEvent'>,
@@ -41,6 +59,7 @@ export class WorkerEventProcessor {
     private readonly metrics?: MediaMetrics,
     private readonly now: () => number = Date.now,
     private readonly validation?: ValidationHandler,
+    private readonly cacheRevocation?: CacheRevocationHandler,
   ) {}
 
   public async process(event: DomainEvent): Promise<void> {
@@ -53,6 +72,14 @@ export class WorkerEventProcessor {
         validationAssetId(event),
         `${this.owner}:validation:${event.id}`,
       );
+      return;
+    }
+    if (
+      (event.eventType === 'media.photo-hidden.v1' ||
+        event.eventType === 'media.photo-deleted.v1') &&
+      this.cacheRevocation !== undefined
+    ) {
+      await this.cacheRevocation.execute(lifecyclePhotoId(event));
       return;
     }
     if (event.eventType !== 'media.ingestion-requested.v1' || this.media === undefined)

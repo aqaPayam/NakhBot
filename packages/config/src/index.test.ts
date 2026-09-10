@@ -25,6 +25,7 @@ describe('configuration', () => {
     expect(config.http.port).toBe(3000);
     expect(config.media).toMatchObject({
       ingestionEnabled: false,
+      cachePurgeEnabled: false,
       transportKeyId: 'active-v1',
       transportKeyRef: 'NAKH_MEDIA_TRANSPORT_KEY',
       clamavHost: 'clamav',
@@ -32,6 +33,23 @@ describe('configuration', () => {
       clamavTimeoutMs: 60_000,
     });
     expect(Object.isFrozen(config.database)).toBe(true);
+  });
+
+  it('requires an exact Cloudflare zone ID only when cache purge is enabled', () => {
+    expect(() =>
+      parseConfig({
+        ...validEnvironment,
+        NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+        NAKH_CLOUDFLARE_ZONE_ID: 'disabled',
+      }),
+    ).toThrow('/media/cloudflareZoneId');
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+        NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
+      }).media.cachePurgeEnabled,
+    ).toBe(true);
   });
 
   it('rejects an invalid scanner endpoint before startup', () => {

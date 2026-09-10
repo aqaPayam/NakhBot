@@ -35,6 +35,7 @@
       "@nakh/telegram": ["./packages/telegram/src/index.ts"],
       "@nakh/media-r2": ["./packages/media-r2/src/index.ts"],
       "@nakh/media-clamav": ["./packages/media-clamav/src/index.ts"],
+      "@nakh/media-delivery": ["./packages/media-delivery/src/index.ts"],
       "@nakh/localization": ["./packages/localization/src/index.ts"],
       "@nakh/testkit": ["./packages/testkit/src/index.ts"]
     }

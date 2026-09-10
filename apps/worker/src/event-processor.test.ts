@@ -75,4 +75,53 @@ describe('WorkerEventProcessor', () => {
     const processor = new WorkerEventProcessor({ processSampleEvent: vi.fn() }, 'worker-instance');
     await expect(processor.process(event)).rejects.toThrow('unsupported_worker_event');
   });
+
+  it('routes hidden and deleted photo facts to retry-safe cache revocation', async () => {
+    const execute = vi.fn().mockResolvedValue(undefined);
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      Date.now,
+      undefined,
+      { execute },
+    );
+    const lifecycle: DomainEvent = {
+      ...event,
+      aggregateType: 'profile_photo',
+      aggregateId: '50000000-0000-4000-8000-000000000050',
+      eventType: 'media.photo-hidden.v1',
+      payload: {
+        profileId: '60000000-0000-4000-8000-000000000060',
+        photoId: '50000000-0000-4000-8000-000000000050',
+      },
+    };
+    await processor.process(lifecycle);
+    await processor.process({ ...lifecycle, eventType: 'media.photo-deleted.v1' });
+    expect(execute).toHaveBeenNthCalledWith(1, lifecycle.aggregateId);
+    expect(execute).toHaveBeenNthCalledWith(2, lifecycle.aggregateId);
+  });
+
+  it('rejects forged cache revocation facts before invoking the provider', async () => {
+    const execute = vi.fn();
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      Date.now,
+      undefined,
+      { execute },
+    );
+    await expect(
+      processor.process({
+        ...event,
+        aggregateType: 'profile_photo',
+        eventType: 'media.photo-deleted.v1',
+        payload: { profileId: event.id, photoId: event.id, unexpected: true },
+      }),
+    ).rejects.toThrow('invalid_media_cache_revocation_event');
+    expect(execute).not.toHaveBeenCalled();
+  });
 });

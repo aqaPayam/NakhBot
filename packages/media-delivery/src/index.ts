@@ -10,6 +10,7 @@ import {
 } from './claims.js';
 
 export type { DeliveryPurpose, DeliveryVariant, MediaDeliveryClaims } from './claims.js';
+export { CloudflareMediaCachePurger, type CloudflareCachePurgeConfig } from './purge.js';
 
 export type MediaDeliveryKeyRing = Readonly<{
   currentKeyId: string;

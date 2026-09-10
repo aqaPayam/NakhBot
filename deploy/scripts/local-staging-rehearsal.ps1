@@ -88,8 +88,11 @@ try {
   $env:NAKH_R2_BUCKET = "disabled-until-m2"
   $env:NAKH_R2_ACCESS_KEY_REF = "disabled-until-m2"
   $env:NAKH_R2_SECRET_KEY_REF = "disabled-until-m2"
+  $env:NAKH_MEDIA_CACHE_PURGE_ENABLED = "false"
   $env:NAKH_MEDIA_CDN_HOST = "disabled-until-m2.invalid"
   $env:NAKH_MEDIA_SIGNING_KEY_REF = "disabled-until-m2"
+  $env:NAKH_CLOUDFLARE_ZONE_ID = "disabled"
+  $env:NAKH_CLOUDFLARE_API_TOKEN_REF = "NAKH_CLOUDFLARE_API_TOKEN"
 
   pnpm db:verify
   if ($LASTEXITCODE -ne 0) { throw "Migration verification failed." }

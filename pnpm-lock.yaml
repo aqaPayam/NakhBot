@@ -243,6 +243,9 @@ importers:
       '@nakh/media-clamav':
         specifier: workspace:*
         version: link:../../packages/media-clamav
+      '@nakh/media-delivery':
+        specifier: workspace:*
+        version: link:../../packages/media-delivery
       '@nakh/media-r2':
         specifier: workspace:*
         version: link:../../packages/media-r2

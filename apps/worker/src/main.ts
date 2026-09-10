@@ -1,13 +1,19 @@
 import { randomUUID } from 'node:crypto';
 
-import { DownloadTelegramPhotoToQuarantine, ValidateQuarantinedPhoto } from '@nakh/application';
+import {
+  DownloadTelegramPhotoToQuarantine,
+  RevokePhotoDeliveryCache,
+  ValidateQuarantinedPhoto,
+} from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { ClamdMalwareScanner } from '@nakh/media-clamav';
+import { CloudflareMediaCachePurger } from '@nakh/media-delivery';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
 import { createLogger, M2Metrics, startTelemetry } from '@nakh/observability';
 import {
   createDatabase,
   PostgresInboxStore,
+  PostgresMediaDeliveryPathStore,
   PostgresMediaStore,
   PostgresMediaValidationStore,
   PostgresOutboxStore,
@@ -36,6 +42,13 @@ const config = loadConfig({
   ...process.env,
   NAKH_SERVICE_NAME: process.env.NAKH_SERVICE_NAME ?? 'worker',
 });
+const cachePurger = config.media.cachePurgeEnabled
+  ? new CloudflareMediaCachePurger({
+      zoneId: config.media.cloudflareZoneId,
+      apiToken: resolveSecretReference(config.media.cloudflareApiTokenRef),
+      mediaOrigin: `https://${config.media.cdnHost}`,
+    })
+  : undefined;
 const logger = createLogger({
   service: config.serviceName,
   release: config.release,
@@ -97,6 +110,9 @@ const validationHandler =
         mediaObjects,
         new SharpPhotoTransformer(),
       );
+const cacheRevocationHandler = cachePurger
+  ? new RevokePhotoDeliveryCache(new PostgresMediaDeliveryPathStore(database), cachePurger)
+  : undefined;
 const eventProcessor = new WorkerEventProcessor(
   inbox,
   mediaOwner,
@@ -104,6 +120,7 @@ const eventProcessor = new WorkerEventProcessor(
   mediaHandler === undefined ? undefined : new M2Metrics(),
   Date.now,
   validationHandler,
+  cacheRevocationHandler,
 );
 const eventWorker = createDomainEventWorker(workerConnection, config.redis.queuePrefix, (event) =>
   eventProcessor.process(event),
@@ -119,13 +136,15 @@ const dispatch = async (): Promise<void> => {
       now: new Date(),
       leaseMs: 30_000,
       limit: 50,
-      eventTypes: config.media.ingestionEnabled
-        ? [
-            'platform.sample-effect-created.v1',
-            'media.ingestion-requested.v1',
-            'media.quarantine-uploaded.v1',
-          ]
-        : ['platform.sample-effect-created.v1'],
+      eventTypes: [
+        'platform.sample-effect-created.v1',
+        ...(config.media.ingestionEnabled
+          ? ['media.ingestion-requested.v1', 'media.quarantine-uploaded.v1']
+          : []),
+        ...(config.media.cachePurgeEnabled
+          ? ['media.photo-hidden.v1', 'media.photo-deleted.v1']
+          : []),
+      ],
     });
     for (const event of events) {
       try {

@@ -36,6 +36,9 @@ locals {
     { name = "NAKH_R2_SECRET_KEY_REF", value = "disabled-until-m2" },
     { name = "NAKH_MEDIA_CDN_HOST", value = "disabled-until-m2.invalid" },
     { name = "NAKH_MEDIA_SIGNING_KEY_REF", value = "disabled-until-m2" },
+    { name = "NAKH_MEDIA_CACHE_PURGE_ENABLED", value = "false" },
+    { name = "NAKH_CLOUDFLARE_ZONE_ID", value = "disabled" },
+    { name = "NAKH_CLOUDFLARE_API_TOKEN_REF", value = "NAKH_CLOUDFLARE_API_TOKEN" },
     { name = "NAKH_OTEL_ENABLED", value = "true" },
     { name = "NAKH_OTEL_EXPORTER_ENDPOINT", value = "http://127.0.0.1:4318" },
   ]

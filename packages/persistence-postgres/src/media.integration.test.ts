@@ -7,6 +7,7 @@ import { runMigrations } from './migrations.js';
 import { PostgresMediaStore } from './media-store.js';
 import { PostgresMediaValidationStore } from './media-validation-store.js';
 import { PostgresMediaDeliveryAuthorization } from './media-delivery-authorization.js';
+import { PostgresMediaDeliveryPathStore } from './media-delivery-path-store.js';
 import { PostgresBlurGenerationStore } from './blur-generation-store.js';
 import { PostgresPhotoManagementStore } from './photo-management-store.js';
 import { PostgresProfileMediaEligibility, profilePhotosAreEligible } from './media-eligibility.js';
@@ -47,6 +48,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
   let photoManagement: PostgresPhotoManagementStore;
   let delivery: PostgresMediaDeliveryAuthorization;
   let blur: PostgresBlurGenerationStore;
+  let deliveryPaths: PostgresMediaDeliveryPathStore;
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
@@ -62,6 +64,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     photoManagement = new PostgresPhotoManagementStore(database);
     delivery = new PostgresMediaDeliveryAuthorization(database);
     blur = new PostgresBlurGenerationStore(database, 'test');
+    deliveryPaths = new PostgresMediaDeliveryPathStore(database);
   });
   afterAll(async () => {
     await database?.destroy();
@@ -790,6 +793,30 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     await expect(blur.prepare(assets[1]!)).rejects.toMatchObject({
       code: 'media_delivery_denied',
     });
+  });
+
+  it('retains versioned delivery paths after logical deletion so asynchronous purge can retry', async () => {
+    const userId = await user();
+    const profileId = await profile(userId);
+    const assets = await Promise.all(
+      Array.from({ length: 2 }, () => seedValidMedia(database, userId)),
+    );
+    await assign(profileId, assets[0]!, 0, true);
+    await assign(profileId, assets[1]!, 1);
+    const collection = await photoManagement.listOwn(userId);
+    const deletedPhoto = collection.photos.find((photo) => !photo.isPrimary)!;
+    await photoManagement.mutateOwn({
+      userId,
+      expectedProfileVersion: collection.profileVersion,
+      action: { type: 'delete', photoId: deletedPhoto.id },
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      profileEventId: randomUUID(),
+      occurredAt: new Date(),
+    });
+    await expect(deliveryPaths.listDeliveryPaths(deletedPhoto.id)).resolves.toEqual([
+      `/media/${assets[1]!}/thumbnail-v1.webp`,
+    ]);
   });
 
   it('refuses blur publication after the prepared asset stops being primary', async () => {
