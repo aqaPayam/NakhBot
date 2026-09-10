@@ -83,6 +83,12 @@ describe('HmacMediaDeliveryTokens', () => {
     expect(() => tokens().sign({ ...claims, expiresAt: claims.issuedAt + 301 })).toThrow(
       'media_grant_invalid',
     );
+    expect(() =>
+      tokens().sign({
+        ...claims,
+        path: path.replace('thumbnail-v1', 'blurred-preview-v1'),
+      }),
+    ).toThrow('media_grant_invalid');
   });
 
   it('creates an HTTPS URL without placing claims in query fields', () => {
