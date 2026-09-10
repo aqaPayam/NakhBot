@@ -62,7 +62,7 @@ export async function seedValidMedia(
         transformation_version: 1,
         storage_provider: 'r2',
         storage_key: `variants/test/${assetId}/thumbnail-v1.webp`,
-        delivery_path: `/test/${assetId}/thumbnail-v1.webp`,
+        delivery_path: `/media/${assetId}/thumbnail-v1.webp`,
         width: 300,
         height: 300,
         sha256: checksum,
