@@ -371,7 +371,8 @@ PR6 continuation checklist:
 - [x] short-lived canonical HMAC token with path/audience/purpose/rendition binding;
 - [x] bounded current/previous key rotation and constant-time verification;
 - [x] tamper, expiry, cross-user/path replay, combination, and rotation tests;
-- [ ] PostgreSQL authorization adapter for owner/card/detail purposes;
+- [x] fail-closed PostgreSQL authorization for owner preview and active administrators;
+- [ ] PostgreSQL card/detail authorization after pair/interaction state exists;
 - [ ] on-demand blurred-preview generation and concurrent deduplication;
 - [ ] Cloudflare Worker private-R2 fetch and authenticated audience binding;
 - [ ] cache purge/revocation retry and real CDN/R2 staging evidence.

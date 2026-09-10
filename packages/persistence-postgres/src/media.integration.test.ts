@@ -6,6 +6,7 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresMediaStore } from './media-store.js';
 import { PostgresMediaValidationStore } from './media-validation-store.js';
+import { PostgresMediaDeliveryAuthorization } from './media-delivery-authorization.js';
 import { PostgresPhotoManagementStore } from './photo-management-store.js';
 import { PostgresProfileMediaEligibility, profilePhotosAreEligible } from './media-eligibility.js';
 import { seedValidMedia } from './media-fixtures.js';
@@ -43,6 +44,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
   let store: PostgresMediaStore;
   let validation: PostgresMediaValidationStore;
   let photoManagement: PostgresPhotoManagementStore;
+  let delivery: PostgresMediaDeliveryAuthorization;
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
@@ -56,6 +58,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     });
     validation = new PostgresMediaValidationStore(database, 'test');
     photoManagement = new PostgresPhotoManagementStore(database);
+    delivery = new PostgresMediaDeliveryAuthorization(database);
   });
   afterAll(async () => {
     await database?.destroy();
@@ -698,6 +701,50 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
     const final = await photoManagement.listOwn(userId);
     expect(final.photos.filter((photo) => photo.isPrimary)).toHaveLength(1);
+  });
+
+  it('authorizes owner preview without exposing keys and denies cross-user access', async () => {
+    const userId = await user();
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'active' })
+      .where('user_id', '=', userId)
+      .execute();
+    const profileId = await profile(userId);
+    const assetId = await seedValidMedia(database, userId);
+    await assign(profileId, assetId, 0, true);
+    const photo = await database
+      .selectFrom('media.profile_photos')
+      .select('id')
+      .where('profile_id', '=', profileId)
+      .executeTakeFirstOrThrow();
+    await expect(
+      delivery.authorize({
+        actor: { kind: 'user', userId },
+        photoId: photo.id,
+        purpose: 'owner_preview',
+        requestedVariant: 'thumbnail',
+      }),
+    ).resolves.toMatchObject({
+      deliveryPath: `/media/${assetId}/thumbnail-v1.webp`,
+      cachePolicy: 'private',
+    });
+    await expect(
+      delivery.authorize({
+        actor: { kind: 'user', userId: await user() },
+        photoId: photo.id,
+        purpose: 'owner_preview',
+        requestedVariant: 'thumbnail',
+      }),
+    ).rejects.toMatchObject({ code: 'media_delivery_denied' });
+    await expect(
+      delivery.authorize({
+        actor: { kind: 'user', userId },
+        photoId: photo.id,
+        purpose: 'profile_card',
+        requestedVariant: 'thumbnail',
+      }),
+    ).rejects.toMatchObject({ code: 'media_delivery_denied' });
   });
 
   it('rejects terminal-state rewrites, owner changes, and active normalized duplicates', async () => {
