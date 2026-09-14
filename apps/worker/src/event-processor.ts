@@ -1,4 +1,5 @@
 import type {
+  DeletePhotoMediaObjects,
   DownloadTelegramPhotoToQuarantine,
   RevokePhotoDeliveryCache,
   ValidateQuarantinedPhoto,
@@ -10,6 +11,7 @@ import type { PostgresInboxStore } from '@nakh/persistence-postgres';
 type MediaHandler = Pick<DownloadTelegramPhotoToQuarantine, 'execute'>;
 type ValidationHandler = Pick<ValidateQuarantinedPhoto, 'execute'>;
 type CacheRevocationHandler = Pick<RevokePhotoDeliveryCache, 'execute'>;
+type MediaCleanupHandler = Pick<DeletePhotoMediaObjects, 'execute'>;
 type MediaMetrics = Pick<M2Metrics, 'recordIngestion' | 'recordQuarantineBytes'>;
 
 function mediaAssetId(event: DomainEvent): string {
@@ -60,6 +62,7 @@ export class WorkerEventProcessor {
     private readonly now: () => number = Date.now,
     private readonly validation?: ValidationHandler,
     private readonly cacheRevocation?: CacheRevocationHandler,
+    private readonly mediaCleanup?: MediaCleanupHandler,
   ) {}
 
   public async process(event: DomainEvent): Promise<void> {
@@ -74,12 +77,17 @@ export class WorkerEventProcessor {
       );
       return;
     }
-    if (
-      (event.eventType === 'media.photo-hidden.v1' ||
-        event.eventType === 'media.photo-deleted.v1') &&
-      this.cacheRevocation !== undefined
-    ) {
+    if (event.eventType === 'media.photo-hidden.v1' && this.cacheRevocation !== undefined) {
       await this.cacheRevocation.execute(lifecyclePhotoId(event));
+      return;
+    }
+    if (
+      event.eventType === 'media.photo-deleted.v1' &&
+      (this.cacheRevocation !== undefined || this.mediaCleanup !== undefined)
+    ) {
+      const photoId = lifecyclePhotoId(event);
+      await this.cacheRevocation?.execute(photoId);
+      await this.mediaCleanup?.execute(photoId, `${this.owner}:cleanup:${event.id}`);
       return;
     }
     if (event.eventType !== 'media.ingestion-requested.v1' || this.media === undefined)

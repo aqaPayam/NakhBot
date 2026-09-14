@@ -186,6 +186,31 @@ async function event(
     .execute();
 }
 
+async function tombstoneDeletedPhotoAsset(tx: Tx, photoId: string, at: Date): Promise<void> {
+  const photo = await tx
+    .selectFrom('media.profile_photos')
+    .select(['asset_id', 'status'])
+    .where('id', '=', photoId)
+    .executeTakeFirstOrThrow();
+  if (photo.status !== 'deleted')
+    throw new ApplicationError('media_invalid_state', 'error.media.state', 409);
+  const asset = await tx
+    .updateTable('media.media_assets')
+    .set({ deleted_at: at, version: sql<number>`version + 1`, updated_at: at })
+    .where('id', '=', photo.asset_id)
+    .where('deleted_at', 'is', null)
+    .returning('id')
+    .executeTakeFirst();
+  if (asset === undefined)
+    throw new ApplicationError('media_invalid_state', 'error.media.state', 409);
+  await tx
+    .updateTable('media.photo_variants')
+    .set({ deleted_at: at })
+    .where('asset_id', '=', photo.asset_id)
+    .where('deleted_at', 'is', null)
+    .execute();
+}
+
 export class PostgresPhotoManagementStore implements PhotoManagementStore {
   public constructor(private readonly database: NakhDatabase) {}
 
@@ -238,6 +263,8 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
       const rows = await lockedPhotos(tx, profile.id);
       const next = plan(rows, input.action);
       await applyPlan(tx, profile.id, rows, next, input.occurredAt);
+      if (input.action.type === 'delete')
+        await tombstoneDeletedPhotoAsset(tx, input.action.photoId, input.occurredAt);
       const profileResult = await updateProfile(tx, profile, input.occurredAt);
       const eventType =
         input.action.type === 'reorder'
@@ -344,6 +371,8 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
       const rows = await lockedPhotos(tx, profile.id);
       const next = moderatePhoto(state(rows), input.photoId, input.action);
       await applyPlan(tx, profile.id, rows, next, input.occurredAt);
+      if (input.action === 'delete')
+        await tombstoneDeletedPhotoAsset(tx, input.photoId, input.occurredAt);
       const profileResult = await updateProfile(tx, profile, input.occurredAt);
       const eventType =
         input.action === 'hide'

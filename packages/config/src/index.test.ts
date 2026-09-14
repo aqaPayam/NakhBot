@@ -26,6 +26,9 @@ describe('configuration', () => {
     expect(config.media).toMatchObject({
       ingestionEnabled: false,
       cachePurgeEnabled: false,
+      cleanupEnabled: false,
+      cleanupAccessKeyRef: 'fake',
+      cleanupSecretKeyRef: 'fake',
       transportKeyId: 'active-v1',
       transportKeyRef: 'NAKH_MEDIA_TRANSPORT_KEY',
       clamavHost: 'clamav',

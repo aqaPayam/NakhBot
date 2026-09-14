@@ -30,6 +30,8 @@ export interface MediaAssetTable {
   malware_scanned_at: Date | null;
   validation_lease_owner: string | null;
   validation_lease_expires_at: Date | null;
+  cleanup_lease_owner: Generated<string | null>;
+  cleanup_lease_expires_at: Generated<Date | null>;
   attempted_at: Date;
   uploaded_at: Date | null;
   validated_at: Date | null;

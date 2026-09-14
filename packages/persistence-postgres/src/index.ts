@@ -21,6 +21,7 @@ export { PostgresMediaValidationStore } from './media-validation-store.js';
 export { PostgresPhotoManagementStore } from './photo-management-store.js';
 export { PostgresMediaDeliveryAuthorization } from './media-delivery-authorization.js';
 export { PostgresMediaDeliveryPathStore } from './media-delivery-path-store.js';
+export { PostgresMediaCleanupStore } from './media-cleanup-store.js';
 export { PostgresBlurGenerationStore } from './blur-generation-store.js';
 export { PostgresProfileMediaEligibility } from './media-eligibility.js';
 export { PostgresProfileChangeStore } from './profile-change-store.js';

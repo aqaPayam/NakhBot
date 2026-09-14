@@ -22,6 +22,7 @@ export * from './media/photo-management.js';
 export * from './media/delivery.js';
 export * from './media/blur.js';
 export * from './media/cache-revocation.js';
+export * from './media/cleanup.js';
 export * from './profile/protected-change.js';
 export * from './presentation.js';
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  DeletePhotoMediaObjects,
   DownloadTelegramPhotoToQuarantine,
   RevokePhotoDeliveryCache,
   ValidateQuarantinedPhoto,
@@ -13,6 +14,7 @@ import { createLogger, M2Metrics, startTelemetry } from '@nakh/observability';
 import {
   createDatabase,
   PostgresInboxStore,
+  PostgresMediaCleanupStore,
   PostgresMediaDeliveryPathStore,
   PostgresMediaStore,
   PostgresMediaValidationStore,
@@ -78,24 +80,33 @@ const mediaCipher = config.media.ingestionEnabled
       new Map([[config.media.transportKeyId, transportKey(config.media.transportKeyRef)]]),
     )
   : undefined;
-const mediaObjects =
-  mediaCipher === undefined
-    ? undefined
-    : new R2QuarantineObjectStore(
-        new AwsR2ObjectClient({
-          endpoint: config.media.r2Endpoint,
-          bucket: config.media.bucket,
-          accessKeyId: resolveSecretReference(config.media.accessKeyRef),
-          secretAccessKey: resolveSecretReference(config.media.secretKeyRef),
-        }),
-      );
+const ingestionObjects = !config.media.ingestionEnabled
+  ? undefined
+  : new R2QuarantineObjectStore(
+      new AwsR2ObjectClient({
+        endpoint: config.media.r2Endpoint,
+        bucket: config.media.bucket,
+        accessKeyId: resolveSecretReference(config.media.accessKeyRef),
+        secretAccessKey: resolveSecretReference(config.media.secretKeyRef),
+      }),
+    );
+const cleanupObjects = !config.media.cleanupEnabled
+  ? undefined
+  : new R2QuarantineObjectStore(
+      new AwsR2ObjectClient({
+        endpoint: config.media.r2Endpoint,
+        bucket: config.media.bucket,
+        accessKeyId: resolveSecretReference(config.media.cleanupAccessKeyRef),
+        secretAccessKey: resolveSecretReference(config.media.cleanupSecretKeyRef),
+      }),
+    );
 const mediaHandler =
-  mediaCipher === undefined || mediaObjects === undefined
+  mediaCipher === undefined || ingestionObjects === undefined
     ? undefined
     : new DownloadTelegramPhotoToQuarantine(
         new PostgresMediaStore(database, mediaEnvironment, mediaCipher),
         new TelegramPhotoDownloadAdapter(resolveSecretReference(config.telegram.botTokenRef)),
-        mediaObjects,
+        ingestionObjects,
         new ClamdMalwareScanner({
           host: config.media.clamavHost,
           port: config.media.clamavPort,
@@ -103,16 +114,24 @@ const mediaHandler =
         }),
       );
 const validationHandler =
-  mediaObjects === undefined
+  ingestionObjects === undefined
     ? undefined
     : new ValidateQuarantinedPhoto(
         new PostgresMediaValidationStore(database, mediaEnvironment),
-        mediaObjects,
+        ingestionObjects,
         new SharpPhotoTransformer(),
       );
 const cacheRevocationHandler = cachePurger
   ? new RevokePhotoDeliveryCache(new PostgresMediaDeliveryPathStore(database), cachePurger)
   : undefined;
+const mediaCleanupHandler =
+  cleanupObjects === undefined
+    ? undefined
+    : new DeletePhotoMediaObjects(
+        new PostgresMediaCleanupStore(database),
+        cleanupObjects,
+        mediaEnvironment,
+      );
 const eventProcessor = new WorkerEventProcessor(
   inbox,
   mediaOwner,
@@ -121,6 +140,7 @@ const eventProcessor = new WorkerEventProcessor(
   Date.now,
   validationHandler,
   cacheRevocationHandler,
+  mediaCleanupHandler,
 );
 const eventWorker = createDomainEventWorker(workerConnection, config.redis.queuePrefix, (event) =>
   eventProcessor.process(event),
@@ -141,8 +161,9 @@ const dispatch = async (): Promise<void> => {
         ...(config.media.ingestionEnabled
           ? ['media.ingestion-requested.v1', 'media.quarantine-uploaded.v1']
           : []),
-        ...(config.media.cachePurgeEnabled
-          ? ['media.photo-hidden.v1', 'media.photo-deleted.v1']
+        ...(config.media.cachePurgeEnabled ? ['media.photo-hidden.v1'] : []),
+        ...(config.media.cachePurgeEnabled || config.media.cleanupEnabled
+          ? ['media.photo-deleted.v1']
           : []),
       ],
     });

@@ -8,6 +8,7 @@ import { PostgresMediaStore } from './media-store.js';
 import { PostgresMediaValidationStore } from './media-validation-store.js';
 import { PostgresMediaDeliveryAuthorization } from './media-delivery-authorization.js';
 import { PostgresMediaDeliveryPathStore } from './media-delivery-path-store.js';
+import { PostgresMediaCleanupStore } from './media-cleanup-store.js';
 import { PostgresBlurGenerationStore } from './blur-generation-store.js';
 import { PostgresPhotoManagementStore } from './photo-management-store.js';
 import { PostgresProfileMediaEligibility, profilePhotosAreEligible } from './media-eligibility.js';
@@ -49,6 +50,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
   let delivery: PostgresMediaDeliveryAuthorization;
   let blur: PostgresBlurGenerationStore;
   let deliveryPaths: PostgresMediaDeliveryPathStore;
+  let cleanup: PostgresMediaCleanupStore;
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
@@ -65,6 +67,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     delivery = new PostgresMediaDeliveryAuthorization(database);
     blur = new PostgresBlurGenerationStore(database, 'test');
     deliveryPaths = new PostgresMediaDeliveryPathStore(database);
+    cleanup = new PostgresMediaCleanupStore(database);
   });
   afterAll(async () => {
     await database?.destroy();
@@ -795,7 +798,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     });
   });
 
-  it('retains versioned delivery paths after logical deletion so asynchronous purge can retry', async () => {
+  it('revokes delivery immediately and completes leased object cleanup exactly once', async () => {
     const userId = await user();
     const profileId = await profile(userId);
     const assets = await Promise.all(
@@ -817,6 +820,69 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     await expect(deliveryPaths.listDeliveryPaths(deletedPhoto.id)).resolves.toEqual([
       `/media/${assets[1]!}/thumbnail-v1.webp`,
     ]);
+    await expect(
+      delivery.authorize({
+        actor: { kind: 'user', userId },
+        photoId: deletedPhoto.id,
+        purpose: 'owner_preview',
+        requestedVariant: 'thumbnail',
+      }),
+    ).rejects.toMatchObject({ code: 'media_delivery_denied' });
+    const assetBeforeCleanup = await database
+      .selectFrom('media.media_assets')
+      .select(['deleted_at', 'storage_deleted_at'])
+      .where('id', '=', assets[1]!)
+      .executeTakeFirstOrThrow();
+    const variantBeforeCleanup = await database
+      .selectFrom('media.photo_variants')
+      .select(['deleted_at', 'storage_deleted_at'])
+      .where('asset_id', '=', assets[1]!)
+      .executeTakeFirstOrThrow();
+    expect(assetBeforeCleanup.deleted_at).not.toBeNull();
+    expect(assetBeforeCleanup.storage_deleted_at).toBeNull();
+    expect(variantBeforeCleanup.deleted_at).not.toBeNull();
+    expect(variantBeforeCleanup.storage_deleted_at).toBeNull();
+
+    const plan = await cleanup.claimPhoto({
+      photoId: deletedPhoto.id,
+      owner: 'cleanup-worker-1',
+      leaseMs: 60_000,
+    });
+    expect(plan).toMatchObject({
+      assetId: assets[1],
+      objectKeys: [
+        `variants/test/${assets[1]!}/thumbnail-v1.webp`,
+        `validated/test/${assets[1]!}/original`,
+        `quarantine/test/${assets[1]!}/original`,
+      ],
+    });
+    await expect(
+      cleanup.claimPhoto({
+        photoId: deletedPhoto.id,
+        owner: 'cleanup-worker-2',
+        leaseMs: 60_000,
+      }),
+    ).resolves.toBeUndefined();
+    await cleanup.complete({
+      assetId: plan!.assetId,
+      deletionGeneration: plan!.deletionGeneration,
+      owner: 'cleanup-worker-1',
+      completedAt: new Date(),
+    });
+    await expect(
+      cleanup.claimPhoto({
+        photoId: deletedPhoto.id,
+        owner: 'cleanup-worker-2',
+        leaseMs: 60_000,
+      }),
+    ).resolves.toBeUndefined();
+    const completed = await database
+      .selectFrom('media.media_assets')
+      .select(['storage_deleted_at', 'cleanup_lease_owner'])
+      .where('id', '=', assets[1]!)
+      .executeTakeFirstOrThrow();
+    expect(completed.storage_deleted_at).not.toBeNull();
+    expect(completed.cleanup_lease_owner).toBeNull();
   });
 
   it('refuses blur publication after the prepared asset stops being primary', async () => {

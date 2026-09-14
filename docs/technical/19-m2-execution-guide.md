@@ -384,6 +384,32 @@ PR6 continuation checklist:
 - complete observability, alerts, runbooks, load/failure/security tests, IaC for R2 secrets/media workers, and acceptance ledger;
 - deploy to real R2/CDN staging and record evidence before declaring M2 complete.
 
+Current implementation: an owner or moderator deletion now atomically tombstones the logical photo,
+its asset, and every ordinary rendition before the lifecycle event is published, so a new delivery
+grant is impossible immediately after commit. The worker claims a bounded PostgreSQL cleanup lease,
+derives an allowlisted deletion plan exclusively from trusted asset and rendition rows, deletes each
+private R2 object, and relies on the object adapter's post-delete absence check before recording
+completion. Missing objects are success; unknown provider outcomes remain retryable. The deletion
+generation and lease owner fence stale workers, while database constraints and immutable storage-key
+triggers prevent a cleanup plan from being redirected to another asset or evidence namespace. Cache
+revocation runs before object cleanup and both operations are safe under duplicate event delivery.
+Cleanup is independently fail-closed behind `NAKH_MEDIA_CLEANUP_ENABLED=false` and supports separate,
+deletion-scoped R2 credentials. No real provider deletion evidence is claimed yet.
+
+PR7 continuation checklist:
+
+- [x] immediate transactional asset/rendition tombstoning on owner and moderator deletion;
+- [x] strict server-derived cleanup plans with environment, asset, rendition, and version binding;
+- [x] leased, generation-fenced, replay-safe cleanup completion in PostgreSQL;
+- [x] verified R2 deletion semantics where missing is success and unknown is retryable;
+- [x] separate off-by-default cleanup composition and deletion-scoped credential references;
+- [x] unit coverage for partial provider failure, malicious keys, replay, and worker routing;
+- [x] PostgreSQL integration coverage prepared for migration, lease contention, grant revocation, and completion;
+- [ ] orphan reconciliation for deterministic write-before-commit objects;
+- [ ] cleanup metrics, alerts, retention runbook, and load/failure/security evidence;
+- [ ] GitHub PostgreSQL integration and container jobs green for migration 000015;
+- [ ] real private R2/CDN staging deletion and reconciliation evidence.
+
 Each PR must pass frozen install, formatting, lint, type checks, unit tests, PostgreSQL migrations/integration/concurrency, production audit, and all container builds. Database changes deploy before new readers/writers. Object and schema cleanup is always deferred until forward compatibility is proven.
 
 ## 12. Definition of done

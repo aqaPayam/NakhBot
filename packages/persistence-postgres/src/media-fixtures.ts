@@ -42,6 +42,8 @@ export async function seedValidMedia(
       malware_scanned_at: now,
       validation_lease_owner: null,
       validation_lease_expires_at: null,
+      cleanup_lease_owner: null,
+      cleanup_lease_expires_at: null,
       attempted_at: attemptedAt,
       uploaded_at: now,
       validated_at: now,

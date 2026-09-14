@@ -124,4 +124,35 @@ describe('WorkerEventProcessor', () => {
     ).rejects.toThrow('invalid_media_cache_revocation_event');
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it('routes deletion to cache revocation and verified object cleanup with a stable owner', async () => {
+    const revoke = vi.fn().mockResolvedValue(undefined);
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      Date.now,
+      undefined,
+      { execute: revoke },
+      { execute: cleanup },
+    );
+    const deleted: DomainEvent = {
+      ...event,
+      aggregateType: 'profile_photo',
+      aggregateId: '50000000-0000-4000-8000-000000000050',
+      eventType: 'media.photo-deleted.v1',
+      payload: {
+        profileId: '60000000-0000-4000-8000-000000000060',
+        photoId: '50000000-0000-4000-8000-000000000050',
+      },
+    };
+    await processor.process(deleted);
+    expect(revoke).toHaveBeenCalledWith(deleted.aggregateId);
+    expect(cleanup).toHaveBeenCalledWith(
+      deleted.aggregateId,
+      `worker-instance:cleanup:${deleted.id}`,
+    );
+  });
 });
