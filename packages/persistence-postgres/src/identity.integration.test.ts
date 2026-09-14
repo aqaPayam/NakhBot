@@ -790,11 +790,20 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         .where('user_id', '=', userId)
         .execute(),
     ).toHaveLength(0);
-    // Fixture repair only; no restoration API is exposed.
-    await database
-      .updateTable('media.photo_variants')
-      .set({ deleted_at: null })
+    // Fixture repair only: terminal deletion must not be reversed, so replace this
+    // disposable synthetic row rather than weakening the production invariant.
+    const deletedVariant = await database
+      .selectFrom('media.photo_variants')
+      .selectAll()
       .where('asset_id', '=', additionalMediaAssetId)
+      .executeTakeFirstOrThrow();
+    await database
+      .deleteFrom('media.photo_variants')
+      .where('asset_id', '=', additionalMediaAssetId)
+      .execute();
+    await database
+      .insertInto('media.photo_variants')
+      .values({ ...deletedVariant, id: randomUUID(), deleted_at: null })
       .execute();
     const confirmations = await Promise.all([
       profiles.confirmSignup(makeWrite()),
