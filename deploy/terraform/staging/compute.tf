@@ -40,6 +40,8 @@ locals {
     { name = "NAKH_MEDIA_SIGNING_KEY_REF", value = "disabled-until-m2" },
     { name = "NAKH_MEDIA_CACHE_PURGE_ENABLED", value = "false" },
     { name = "NAKH_MEDIA_CLEANUP_ENABLED", value = "false" },
+    { name = "NAKH_MEDIA_ORPHAN_RECONCILIATION_ENABLED", value = "false" },
+    { name = "NAKH_MEDIA_ORPHAN_GRACE_MS", value = "86400000" },
     { name = "NAKH_CLOUDFLARE_ZONE_ID", value = "disabled" },
     { name = "NAKH_CLOUDFLARE_API_TOKEN_REF", value = "NAKH_CLOUDFLARE_API_TOKEN" },
     { name = "NAKH_OTEL_ENABLED", value = "true" },

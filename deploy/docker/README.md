@@ -24,6 +24,8 @@ Media deletion cleanup is independently fail-closed with `NAKH_MEDIA_CLEANUP_ENA
 Before enabling it, inject the variables named by `NAKH_R2_CLEANUP_ACCESS_KEY_REF` and
 `NAKH_R2_CLEANUP_SECRET_KEY_REF` using credentials scoped to list, head, and delete only the
 ordinary media prefixes in the configured private bucket. Do not grant access to moderation evidence.
+Orphan reconciliation is separately controlled by `NAKH_MEDIA_ORPHAN_RECONCILIATION_ENABLED`; keep
+its default 24-hour grace period unless an approved operations review establishes a safer value.
 
 ## Free staging rehearsal
 

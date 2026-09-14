@@ -174,9 +174,15 @@ importers:
 
   apps/scheduler:
     dependencies:
+      '@nakh/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@nakh/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@nakh/media-r2':
+        specifier: workspace:*
+        version: link:../../packages/media-r2
       '@nakh/observability':
         specifier: workspace:*
         version: link:../../packages/observability

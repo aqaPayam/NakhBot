@@ -23,3 +23,11 @@ Chart these bounded M1 instruments by release and environment:
 - `nakh.m1.outbox.unpublished_age` without per-User dimensions.
 
 Alert on a sustained first-start failure ratio, signup-confirmation failure spike, any material rise in reviewer authorization denial, Guest Preview denial inconsistent with consumption volume, or unpublished outbox age above the operational SLO. Dashboard variables are limited to service, release, environment, and the finite registries exported by `@nakh/observability`.
+
+## M2 media cleanup dashboard
+
+Chart `nakh.m2.media.orphan_objects.count` by its bounded `examined|deferred|referenced|deleted`
+state and `nakh.m2.media.orphan_scans.count` by `succeeded|retryable_failure`. Alert when a
+retryable failure survives two scheduled runs, when no successful scan occurs for one hour after
+activation, or when old orphan deletions remain persistently nonzero. Never attach asset IDs,
+object keys, hashes, continuation cursors, or provider error text as metric labels.

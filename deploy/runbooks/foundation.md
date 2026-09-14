@@ -48,3 +48,17 @@
 2. Verify the single immutable review, request closure, Profile version, audit record, and outbox event.
 3. Never update or delete a review row. Correct an erroneous approved Profile value through a new reviewed request.
 4. Escalate any authorization bypass as a security incident; M7 owns RBAC, operator provisioning, and the production administration route.
+
+## M2 media deletion or orphan-cleanup incident
+
+1. Keep database tombstones and delivery denial active. Disable `NAKH_MEDIA_CLEANUP_ENABLED` and
+   `NAKH_MEDIA_ORPHAN_RECONCILIATION_ENABLED` if provider identity, bucket scope, or deletion results
+   are uncertain; do not restore deleted photos or edit cleanup timestamps.
+2. Check only bounded counts, lease age, queue age, and stable error class. Never place object keys,
+   hashes, delivery tokens, image content, or continuation cursors in logs or incident tickets.
+3. Verify the configured account is restricted to ordinary quarantine, validated, and variant
+   prefixes and cannot access moderation evidence. Treat any scope expansion as a security incident.
+4. For a provider timeout or unknown delete, preserve the database lease/cursor and retry through the
+   normal worker or scheduler. Mark storage deletion complete only after HEAD confirms absence.
+5. Re-enable one scheduler replica first, confirm successful scans and cursor progress, then restore
+   workers gradually. Persistent old-orphan deletion or cleanup age requires escalation.

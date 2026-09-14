@@ -9,6 +9,7 @@ import { PostgresMediaValidationStore } from './media-validation-store.js';
 import { PostgresMediaDeliveryAuthorization } from './media-delivery-authorization.js';
 import { PostgresMediaDeliveryPathStore } from './media-delivery-path-store.js';
 import { PostgresMediaCleanupStore } from './media-cleanup-store.js';
+import { PostgresMediaObjectReferenceStore } from './media-object-reference-store.js';
 import { PostgresBlurGenerationStore } from './blur-generation-store.js';
 import { PostgresPhotoManagementStore } from './photo-management-store.js';
 import { PostgresProfileMediaEligibility, profilePhotosAreEligible } from './media-eligibility.js';
@@ -51,6 +52,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
   let blur: PostgresBlurGenerationStore;
   let deliveryPaths: PostgresMediaDeliveryPathStore;
   let cleanup: PostgresMediaCleanupStore;
+  let objectReferences: PostgresMediaObjectReferenceStore;
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
@@ -68,6 +70,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     blur = new PostgresBlurGenerationStore(database, 'test');
     deliveryPaths = new PostgresMediaDeliveryPathStore(database);
     cleanup = new PostgresMediaCleanupStore(database);
+    objectReferences = new PostgresMediaObjectReferenceStore(database);
   });
   afterAll(async () => {
     await database?.destroy();
@@ -842,6 +845,20 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     expect(assetBeforeCleanup.storage_deleted_at).toBeNull();
     expect(variantBeforeCleanup.deleted_at).not.toBeNull();
     expect(variantBeforeCleanup.storage_deleted_at).toBeNull();
+    await expect(
+      objectReferences.findReferenced([
+        `quarantine/test/${assets[1]!}/original`,
+        `validated/test/${assets[1]!}/original`,
+        `variants/test/${assets[1]!}/thumbnail-v1.webp`,
+        `variants/test/30000000-0000-4000-8000-000000000003/thumbnail-v1.webp`,
+      ]),
+    ).resolves.toEqual(
+      new Set([
+        `quarantine/test/${assets[1]!}/original`,
+        `validated/test/${assets[1]!}/original`,
+        `variants/test/${assets[1]!}/thumbnail-v1.webp`,
+      ]),
+    );
 
     const plan = await cleanup.claimPhoto({
       photoId: deletedPhoto.id,

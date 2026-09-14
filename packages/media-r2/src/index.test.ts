@@ -3,6 +3,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import { describe, expect, it } from 'vitest';
@@ -229,6 +230,50 @@ describe('AwsR2ObjectClient', () => {
     await expect(client.headObject('private/key')).resolves.toEqual({ bytes: 42, sha256: digest });
     await client.deleteObject('private/key');
     expect(commands).toEqual(['head:private/key', 'delete:private/key']);
+  });
+
+  it('lists one bounded private-prefix page without trusting malformed provider facts', async () => {
+    const client = new AwsR2ObjectClient(config, {
+      send: (command) => {
+        expect(command).toBeInstanceOf(ListObjectsV2Command);
+        expect(command.input).toMatchObject({
+          Bucket: 'nakh-staging',
+          Prefix: 'variants/staging/',
+          MaxKeys: 100,
+        });
+        return Promise.resolve({
+          Contents: [
+            {
+              Key: 'variants/staging/20000000-0000-4000-8000-000000000002/thumbnail-v1.webp',
+              LastModified: new Date('2026-09-10T00:00:00.000Z'),
+            },
+          ],
+          IsTruncated: true,
+          NextContinuationToken: 'next-page',
+        });
+      },
+    });
+    await expect(client.listObjects({ prefix: 'variants/staging/', limit: 100 })).resolves.toEqual({
+      objects: [
+        {
+          key: 'variants/staging/20000000-0000-4000-8000-000000000002/thumbnail-v1.webp',
+          lastModified: new Date('2026-09-10T00:00:00.000Z'),
+        },
+      ],
+      nextCursor: 'next-page',
+    });
+  });
+
+  it('rejects unsafe list prefixes and malformed listing responses', async () => {
+    const send = (): Promise<unknown> =>
+      Promise.resolve({ Contents: [{ Key: 'variants/test/foreign' }] });
+    const client = new AwsR2ObjectClient(config, { send });
+    await expect(
+      client.listObjects({ prefix: 'report-evidence/test/', limit: 10 }),
+    ).rejects.toThrow('invalid_media_object_listing');
+    await expect(client.listObjects({ prefix: 'variants/test/', limit: 10 })).rejects.toThrow(
+      'media_storage_listing_invalid',
+    );
   });
 
   it('rejects endpoints outside the Cloudflare R2 service origin', () => {

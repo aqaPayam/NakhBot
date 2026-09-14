@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@nakh/application": "workspace:*",
     "@nakh/config": "workspace:*",
+    "@nakh/media-r2": "workspace:*",
     "@nakh/observability": "workspace:*",
     "@nakh/persistence-postgres": "workspace:*",
     "@nakh/queue-redis": "workspace:*"

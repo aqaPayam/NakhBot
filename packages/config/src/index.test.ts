@@ -27,6 +27,8 @@ describe('configuration', () => {
       ingestionEnabled: false,
       cachePurgeEnabled: false,
       cleanupEnabled: false,
+      orphanReconciliationEnabled: false,
+      orphanGraceMs: 86_400_000,
       cleanupAccessKeyRef: 'fake',
       cleanupSecretKeyRef: 'fake',
       transportKeyId: 'active-v1',

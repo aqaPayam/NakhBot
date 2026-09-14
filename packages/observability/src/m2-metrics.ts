@@ -19,6 +19,8 @@ export const M2_MEDIA_REASON_CODES = [
 ] as const;
 export type M2MediaReasonCode = (typeof M2_MEDIA_REASON_CODES)[number];
 
+export const M2_ORPHAN_OBJECT_STATES = ['examined', 'deferred', 'referenced', 'deleted'] as const;
+
 const meter = metrics.getMeter('nakh-m2');
 
 /** Fixed labels only: user/asset IDs, hashes, keys, URLs, filenames, and provider detail
@@ -29,6 +31,8 @@ export class M2Metrics {
   private readonly duration = meter.createHistogram('nakh.m2.media.ingestion.duration', {
     unit: 'ms',
   });
+  private readonly orphanObjects = meter.createCounter('nakh.m2.media.orphan_objects.count');
+  private readonly orphanScans = meter.createCounter('nakh.m2.media.orphan_scans.count');
 
   public recordIngestion(
     outcome: M2IngestionOutcome,
@@ -42,5 +46,16 @@ export class M2Metrics {
 
   public recordQuarantineBytes(bytes: number): void {
     this.bytes.record(bytes);
+  }
+
+  public recordOrphanReconciliation(
+    result: Readonly<Record<(typeof M2_ORPHAN_OBJECT_STATES)[number], number>>,
+  ): void {
+    for (const state of M2_ORPHAN_OBJECT_STATES) this.orphanObjects.add(result[state], { state });
+    this.orphanScans.add(1, { outcome: 'succeeded' });
+  }
+
+  public recordOrphanFailure(): void {
+    this.orphanScans.add(1, { outcome: 'retryable_failure' });
   }
 }

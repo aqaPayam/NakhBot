@@ -10,6 +10,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -66,7 +67,12 @@ export type AwsR2ClientConfig = Readonly<{
 
 interface S3CommandSender {
   send(
-    command: PutObjectCommand | HeadObjectCommand | DeleteObjectCommand | GetObjectCommand,
+    command:
+      | PutObjectCommand
+      | HeadObjectCommand
+      | DeleteObjectCommand
+      | GetObjectCommand
+      | ListObjectsV2Command,
     options?: Readonly<{ abortSignal?: AbortSignal }>,
   ): Promise<unknown>;
 }
@@ -225,6 +231,78 @@ export class AwsR2ObjectClient implements R2ObjectClient {
       if (isNotFound(error)) return undefined;
       throw error;
     }
+  }
+
+  public async listObjects(
+    input: Readonly<{ prefix: string; cursor?: string; limit: number; signal?: AbortSignal }>,
+  ): Promise<
+    Readonly<{
+      objects: readonly Readonly<{ key: string; lastModified: Date }>[];
+      nextCursor?: string;
+    }>
+  > {
+    if (
+      !/^(?:quarantine|validated|variants)\/(?:development|test|staging|production)\/$/u.test(
+        input.prefix,
+      ) ||
+      !Number.isSafeInteger(input.limit) ||
+      input.limit < 1 ||
+      input.limit > 100 ||
+      (input.cursor !== undefined &&
+        (input.cursor.length < 1 ||
+          input.cursor.length > 4096 ||
+          [...input.cursor].some((character) => character.charCodeAt(0) < 32)))
+    )
+      throw new Error('invalid_media_object_listing');
+    const output = await this.client.send(
+      new ListObjectsV2Command({
+        Bucket: this.bucket,
+        Prefix: input.prefix,
+        ContinuationToken: input.cursor,
+        MaxKeys: input.limit,
+      }),
+      requestOptions(input.signal),
+    );
+    if (typeof output !== 'object' || output === null)
+      throw new Error('media_storage_listing_invalid');
+    const candidate = output as Readonly<{
+      Contents?: readonly Readonly<{ Key?: unknown; LastModified?: unknown }>[];
+      IsTruncated?: unknown;
+      NextContinuationToken?: unknown;
+    }>;
+    const contents: unknown = candidate.Contents;
+    if (
+      (contents !== undefined && !Array.isArray(contents)) ||
+      (candidate.IsTruncated !== undefined && typeof candidate.IsTruncated !== 'boolean')
+    )
+      throw new Error('media_storage_listing_invalid');
+    const entries: readonly unknown[] = contents === undefined ? [] : contents;
+    const objects = entries.map((object: unknown) => {
+      if (typeof object !== 'object' || object === null)
+        throw new Error('media_storage_listing_invalid');
+      const entry = object as Readonly<{ Key?: unknown; LastModified?: unknown }>;
+      if (
+        typeof entry.Key !== 'string' ||
+        !entry.Key.startsWith(input.prefix) ||
+        !(entry.LastModified instanceof Date) ||
+        !Number.isFinite(entry.LastModified.getTime())
+      )
+        throw new Error('media_storage_listing_invalid');
+      return { key: entry.Key, lastModified: new Date(entry.LastModified) };
+    });
+    if (
+      objects.length > input.limit ||
+      new Set(objects.map((object) => object.key)).size !== objects.length
+    )
+      throw new Error('media_storage_listing_invalid');
+    const nextCursor = candidate.NextContinuationToken;
+    if (candidate.IsTruncated === true) {
+      if (typeof nextCursor !== 'string' || nextCursor.length < 1 || nextCursor.length > 4096)
+        throw new Error('media_storage_listing_invalid');
+      return { objects, nextCursor };
+    }
+    if (nextCursor !== undefined) throw new Error('media_storage_listing_invalid');
+    return { objects };
   }
 }
 

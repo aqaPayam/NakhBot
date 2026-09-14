@@ -396,6 +396,14 @@ revocation runs before object cleanup and both operations are safe under duplica
 Cleanup is independently fail-closed behind `NAKH_MEDIA_CLEANUP_ENABLED=false` and supports separate,
 deletion-scoped R2 credentials. No real provider deletion evidence is claimed yet.
 
+The scheduler also supports an independently disabled orphan reconciler. A Redis lease limits the
+cluster to one bounded scan every 30 minutes. Each run reads one 20-object page from each ordinary
+environment prefix, persists opaque continuation cursors, ignores objects inside a 24-hour safety
+window, and rechecks all candidate keys against current PostgreSQL asset/rendition references before
+deletion. The provider adapter accepts only the three ordinary prefix shapes and rejects malformed,
+duplicate, cross-prefix, or unbounded listing results. A failed verification leaves the current page
+cursor unchanged. Metrics and logs contain bounded counts only; keys and cursors remain secret.
+
 PR7 continuation checklist:
 
 - [x] immediate transactional asset/rendition tombstoning on owner and moderator deletion;
@@ -405,8 +413,9 @@ PR7 continuation checklist:
 - [x] separate off-by-default cleanup composition and deletion-scoped credential references;
 - [x] unit coverage for partial provider failure, malicious keys, replay, and worker routing;
 - [x] PostgreSQL integration coverage prepared for migration, lease contention, grant revocation, and completion;
-- [ ] orphan reconciliation for deterministic write-before-commit objects;
-- [ ] cleanup metrics, alerts, retention runbook, and load/failure/security evidence;
+- [x] bounded, cursor-based orphan reconciliation for deterministic write-before-commit objects;
+- [x] bounded cleanup/orphan metrics, dashboard alerts, and incident runbook;
+- [ ] cleanup load, extended failure-injection, and security evidence;
 - [ ] GitHub PostgreSQL integration and container jobs green for migration 000015;
 - [ ] real private R2/CDN staging deletion and reconciliation evidence.
 
