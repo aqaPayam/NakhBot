@@ -12,9 +12,13 @@ import {
   type OnApplicationShutdown,
 } from '@nestjs/common';
 
-import { BeginTelegramPhotoIngestionHandler } from '@nakh/application';
+import {
+  BeginTelegramPhotoIngestionHandler,
+  ListOwnPhotosHandler,
+  MutateOwnPhotosHandler,
+} from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
-import { ApplicationError } from '@nakh/domain';
+import { ApplicationError, SystemClock } from '@nakh/domain';
 import {
   M1Metrics,
   M2Metrics,
@@ -26,6 +30,7 @@ import {
   createDatabase,
   PostgresIdentityStore,
   PostgresMediaStore,
+  PostgresPhotoManagementStore,
   PostgresTelegramUserResolver,
   SystemIdGenerator,
   type NakhDatabase,
@@ -34,6 +39,7 @@ import { createRedisConnection, RedisRateLimiter } from '@nakh/queue-redis';
 import {
   TelegramMediaTransportCipher,
   TelegramPhotoIngestionAdapter,
+  TelegramPhotoManagementAdapter,
   TelegramStartAdapter,
   TelegramWebhookAuthenticator,
 } from '@nakh/telegram';
@@ -42,11 +48,13 @@ const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
+const PHOTO_MANAGEMENT_ADAPTER = Symbol('PHOTO_MANAGEMENT_ADAPTER');
 const REDIS = Symbol('REDIS');
 const M1_METRICS = Symbol('M1_METRICS');
 const M2_METRICS = Symbol('M2_METRICS');
 
 type PhotoAdapter = Pick<TelegramPhotoIngestionAdapter, 'handle'>;
+type PhotoManagementAdapter = Pick<TelegramPhotoManagementAdapter, 'handle'>;
 
 function transportKey(reference: string): Uint8Array {
   const encoded = resolveSecretReference(reference);
@@ -95,6 +103,8 @@ class TelegramGatewayController {
     @Inject(AUTHENTICATOR) private readonly authenticator: TelegramWebhookAuthenticator,
     @Inject(START_ADAPTER) private readonly startAdapter: TelegramStartAdapter,
     @Inject(PHOTO_ADAPTER) private readonly photoAdapter: PhotoAdapter,
+    @Inject(PHOTO_MANAGEMENT_ADAPTER)
+    private readonly photoManagementAdapter: PhotoManagementAdapter,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
     @Inject(M2_METRICS) private readonly m2Metrics: M2Metrics,
     @Inject(DATABASE) private readonly database: NakhDatabase,
@@ -155,12 +165,14 @@ class TelegramGatewayController {
     const mediaStartedAt = performance.now();
     try {
       const media = await this.photoAdapter.handle(update);
-      if (media.handled)
+      if (media.handled) {
         this.m2Metrics.recordIngestion(
           media.result.validationState === 'pending' ? 'accepted' : 'rejected',
           performance.now() - mediaStartedAt,
           media.result.validationState === 'rejected' ? media.result.errorCode : 'none',
         );
+        return { accepted: true };
+      }
     } catch (error) {
       if (error instanceof ApplicationError) {
         this.m2Metrics.recordIngestion(
@@ -175,6 +187,13 @@ class TelegramGatewayController {
         performance.now() - mediaStartedAt,
         'storage_unavailable',
       );
+      throw error;
+    }
+    try {
+      await this.photoManagementAdapter.handle(update);
+    } catch (error) {
+      if (error instanceof ApplicationError)
+        throw new HttpException({ code: error.code }, error.status);
       throw error;
     }
     return { accepted: true };
@@ -217,6 +236,19 @@ export class TelegramGatewayModule {
           );
         })()
       : { handle: () => Promise.resolve({ handled: false as const }) };
+    const photoManagementAdapter: PhotoManagementAdapter = config.media.ingestionEnabled
+      ? (() => {
+          const store = new PostgresPhotoManagementStore(database);
+          return new TelegramPhotoManagementAdapter(
+            new PostgresTelegramUserResolver(database),
+            {
+              list: new ListOwnPhotosHandler(store),
+              mutate: new MutateOwnPhotosHandler(store, new SystemIdGenerator(), new SystemClock()),
+            },
+            limiter,
+          );
+        })()
+      : { handle: () => Promise.resolve({ handled: false as const }) };
     return {
       module: TelegramGatewayModule,
       controllers: [TelegramGatewayController],
@@ -230,6 +262,7 @@ export class TelegramGatewayModule {
         { provide: M1_METRICS, useValue: new M1Metrics() },
         { provide: M2_METRICS, useValue: new M2Metrics() },
         { provide: PHOTO_ADAPTER, useValue: photoAdapter },
+        { provide: PHOTO_MANAGEMENT_ADAPTER, useValue: photoManagementAdapter },
         {
           provide: START_ADAPTER,
           useValue: TelegramStartAdapter.withStore(new PostgresIdentityStore(database), limiter),

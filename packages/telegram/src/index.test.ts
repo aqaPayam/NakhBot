@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type {
   BeginTelegramPhotoIngestionHandler,
@@ -8,9 +8,128 @@ import type {
 import {
   TelegramPhotoDownloadAdapter,
   TelegramPhotoIngestionAdapter,
+  TelegramPhotoManagementAdapter,
   TelegramStartAdapter,
   TelegramWebhookAuthenticator,
 } from './index.js';
+
+describe('TelegramPhotoManagementAdapter', () => {
+  const collection = {
+    profileVersion: 4,
+    photos: [
+      {
+        id: '40000000-0000-4000-8000-000000000000',
+        status: 'visible' as const,
+        isPrimary: true,
+        displayOrder: 0,
+        version: 1,
+      },
+    ],
+  };
+
+  it('resolves the actor and lists only the authoritative owner collection', async () => {
+    const list = vi.fn().mockResolvedValue(collection);
+    const adapter = new TelegramPhotoManagementAdapter(
+      { resolveUserId: (id) => Promise.resolve(id === '123' ? 'user-1' : undefined) },
+      { list: { execute: list }, mutate: { execute: vi.fn() } },
+    );
+    await expect(
+      adapter.handle({ update_id: 10, message: { from: { id: 123 }, text: '/photos' } }),
+    ).resolves.toEqual({ handled: true, action: 'list', collection });
+    expect(list).toHaveBeenCalledWith({ kind: 'user', userId: 'user-1' });
+  });
+
+  it('maps a strict versioned command with stable replay identity', async () => {
+    const mutate = vi.fn().mockResolvedValue(collection);
+    const ids = ['20000000-0000-4000-8000-000000000000', '30000000-0000-4000-8000-000000000000'];
+    const adapter = new TelegramPhotoManagementAdapter(
+      { resolveUserId: () => Promise.resolve('user-1') },
+      { list: { execute: vi.fn() }, mutate: { execute: mutate } },
+      undefined,
+      () => ids.shift() ?? 'unexpected',
+    );
+    await expect(
+      adapter.handle({
+        update_id: 11,
+        message: {
+          from: { id: 123 },
+          text: '/photos_primary 40000000-0000-4000-8000-000000000000 3',
+        },
+      }),
+    ).resolves.toEqual({ handled: true, action: 'select_primary', collection });
+    expect(mutate).toHaveBeenCalledWith({
+      actor: { kind: 'user', userId: 'user-1' },
+      expectedProfileVersion: 3,
+      action: { type: 'select_primary', photoId: '40000000-0000-4000-8000-000000000000' },
+      commandId: '20000000-0000-4000-8000-000000000000',
+      requestId: '30000000-0000-4000-8000-000000000000',
+      idempotencyKey: 'telegram-update:11',
+    });
+  });
+
+  it.each([
+    [
+      '/photos_delete 40000000-0000-4000-8000-000000000000 5',
+      { type: 'delete', photoId: '40000000-0000-4000-8000-000000000000' },
+    ],
+    [
+      '/photos_order 5 40000000-0000-4000-8000-000000000000,50000000-0000-4000-8000-000000000000',
+      {
+        type: 'reorder',
+        orderedPhotoIds: [
+          '40000000-0000-4000-8000-000000000000',
+          '50000000-0000-4000-8000-000000000000',
+        ],
+      },
+    ],
+  ])('maps %s without trusting ownership from the command', async (text, action) => {
+    const mutate = vi.fn().mockResolvedValue(collection);
+    const adapter = new TelegramPhotoManagementAdapter(
+      { resolveUserId: () => Promise.resolve('user-1') },
+      { list: { execute: vi.fn() }, mutate: { execute: mutate } },
+    );
+    await adapter.handle({ update_id: 15, message: { from: { id: 123 }, text } });
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: { kind: 'user', userId: 'user-1' },
+        expectedProfileVersion: 5,
+        action,
+        idempotencyKey: 'telegram-update:15',
+      }),
+    );
+  });
+
+  it('rejects malformed, unknown-user, and rate-limited management commands', async () => {
+    const useCases = { list: { execute: vi.fn() }, mutate: { execute: vi.fn() } };
+    const malformed = new TelegramPhotoManagementAdapter(
+      { resolveUserId: () => Promise.resolve('user-1') },
+      useCases,
+    );
+    await expect(
+      malformed.handle({
+        update_id: 12,
+        message: { from: { id: 123 }, text: '/photos_delete x 1' },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    const unknown = new TelegramPhotoManagementAdapter(
+      { resolveUserId: () => Promise.resolve(undefined) },
+      useCases,
+    );
+    await expect(
+      unknown.handle({ update_id: 13, message: { from: { id: 123 }, text: '/photos' } }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    const limited = new TelegramPhotoManagementAdapter(
+      { resolveUserId: () => Promise.resolve('user-1') },
+      useCases,
+      { consume: () => Promise.resolve({ allowed: false, remaining: 0, retryAfterSeconds: 10 }) },
+    );
+    await expect(
+      limited.handle({ update_id: 14, message: { from: { id: 123 }, text: '/photos' } }),
+    ).rejects.toMatchObject({ code: 'rate_limited' });
+    expect(useCases.list.execute).not.toHaveBeenCalled();
+    expect(useCases.mutate.execute).not.toHaveBeenCalled();
+  });
+});
 
 describe('TelegramPhotoIngestionAdapter', () => {
   it('maps the largest Telegram rendition to a durable authenticated command', async () => {

@@ -357,7 +357,8 @@ PR5 continuation checklist:
 - [x] append-only moderation history plus atomic audit/outbox;
 - [x] concurrent primary-selection and lifecycle integration coverage prepared for CI;
 - [x] transactionally idempotent owner mutations under duplicate transport delivery;
-- [ ] authenticated owner HTTP/Telegram transport composition (requires the M1 runtime auth path);
+- [x] authenticated, rate-limited Telegram owner command ingress with server-side identity resolution;
+- [ ] localized owner menu rendering and opaque inline action-token delivery;
 - [ ] report-linked moderation orchestration (deferred to M7; `report_id` remains locked null);
 - [ ] verified external object cleanup for deleted photos (PR7).
 

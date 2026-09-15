@@ -103,6 +103,12 @@ For MVP photo uploads:
 
 Future web/mobile clients use an upload-intent endpoint and bounded presigned PUT to the same quarantine workflow. Both paths converge on `CompletePhotoUpload`; downstream media behavior is identical.
 
+Owner media command ingress accepts only the strict `/photos`, `/photos_primary`, `/photos_order`,
+and `/photos_delete` grammar. Telegram identity is resolved server-side, mutations carry the Telegram
+update ID as their idempotency key, and PostgreSQL rechecks ownership plus Profile version. These
+commands are not callback data. Final inline buttons must use the opaque signed action-token design in
+Section 4; they must not embed photo IDs or authorization state.
+
 ## 9. Telegram Stars interaction
 
 The Telegram adapter may create/send an invoice only after Billing creates a PendingPayment and PaymentRecord with an unguessable unique invoice payload. It answers pre-checkout only after verifying amount, currency `XTR`, payer, payload, target state, and attempt status. Product value is granted only from a durably processed successful-payment update, never merely from pre-checkout success or an invoice-send response.

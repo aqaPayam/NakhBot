@@ -64,8 +64,8 @@ accepted or enabling its feature flags:
   signing key, and Cloudflare purge token;
 - production-scale media load results and real-provider timeout, partial-write, deletion, and orphan
   reconciliation evidence;
-- authenticated owner photo-management transport; the application operations exist, but the M1
-  runtime principal path required to expose them safely is not yet composed;
+- localized owner photo-management rendering and opaque inline action tokens; authenticated,
+  rate-limited Telegram command ingress and transactionally idempotent operations are composed;
 - completed [`m2-staging-acceptance.md`](../../deploy/runbooks/m2-staging-acceptance.md) with evidence,
   reviewer, and timestamps.
 

@@ -3,6 +3,10 @@ export { TelegramMediaTransportCipher } from './media-cipher.js';
 
 import {
   type BeginTelegramPhotoIngestionHandler,
+  type ListOwnPhotosHandler,
+  type MutateOwnPhotosHandler,
+  type OwnPhotoAction,
+  type OwnPhotoCollection,
   RegisterTelegramIdentityHandler,
   routeStart,
   type IdentityStore,
@@ -376,5 +380,133 @@ export class TelegramPhotoIngestionAdapter {
       },
     });
     return { handled: true, result };
+  }
+}
+
+type TelegramPhotoManagementUseCases = Readonly<{
+  list: Pick<ListOwnPhotosHandler, 'execute'>;
+  mutate: Pick<MutateOwnPhotosHandler, 'execute'>;
+}>;
+
+type TelegramPhotoManagementUpdate = Readonly<{
+  updateId: string;
+  telegramUserId: string;
+  action: 'list' | OwnPhotoAction;
+  expectedProfileVersion?: number;
+}>;
+
+export type TelegramPhotoManagementResult =
+  | Readonly<{ handled: false }>
+  | Readonly<{
+      handled: true;
+      action: 'list' | OwnPhotoAction['type'];
+      collection: OwnPhotoCollection;
+    }>;
+
+const UUID =
+  '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}';
+
+function parsePhotoManagementUpdate(update: unknown): TelegramPhotoManagementUpdate | undefined {
+  const root = record(update);
+  const message = record(root?.message);
+  const from = record(message?.from);
+  const updateId = root?.update_id;
+  const telegramUserId = from?.id;
+  const text = message?.text;
+  if (typeof text !== 'string' || !/^\/photos(?:_|\s|$)/u.test(text)) return undefined;
+  if (text.length > 512)
+    throw new ApplicationError('invalid_request', 'error.media.telegram_command_invalid', 400);
+  if (
+    typeof updateId !== 'number' ||
+    !Number.isSafeInteger(updateId) ||
+    updateId < 0 ||
+    typeof telegramUserId !== 'number' ||
+    !Number.isSafeInteger(telegramUserId) ||
+    telegramUserId <= 0
+  )
+    throw new ApplicationError('invalid_request', 'error.media.telegram_command_invalid', 400);
+  const base = { updateId: String(updateId), telegramUserId: String(telegramUserId) };
+  if (text === '/photos') return { ...base, action: 'list' };
+  const single = new RegExp(`^/photos_(primary|delete) (${UUID}) ([1-9][0-9]{0,9})$`, 'u').exec(
+    text,
+  );
+  if (single !== null) {
+    const version = Number(single[3]);
+    if (!Number.isSafeInteger(version))
+      throw new ApplicationError('invalid_request', 'error.media.telegram_command_invalid', 400);
+    return {
+      ...base,
+      expectedProfileVersion: version,
+      action: {
+        type: single[1] === 'primary' ? 'select_primary' : 'delete',
+        photoId: single[2]!,
+      },
+    };
+  }
+  const order = /^\/photos_order ([1-9][0-9]{0,9}) (\S+)$/u.exec(text);
+  if (order !== null) {
+    const version = Number(order[1]);
+    const ids = order[2]!.split(',');
+    const uuid = new RegExp(`^${UUID}$`, 'u');
+    if (
+      !Number.isSafeInteger(version) ||
+      ids.length < 1 ||
+      ids.length > 6 ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => !uuid.test(id))
+    )
+      throw new ApplicationError('invalid_request', 'error.media.telegram_command_invalid', 400);
+    return {
+      ...base,
+      expectedProfileVersion: version,
+      action: { type: 'reorder', orderedPhotoIds: ids },
+    };
+  }
+  throw new ApplicationError('invalid_request', 'error.media.telegram_command_invalid', 400);
+}
+
+export class TelegramPhotoManagementAdapter {
+  public constructor(
+    private readonly resolver: TelegramUserResolver,
+    private readonly useCases: TelegramPhotoManagementUseCases,
+    private readonly rateLimiter?: RateLimiterPort,
+    private readonly uuid: () => string = randomUUID,
+  ) {}
+
+  public async handle(update: unknown): Promise<TelegramPhotoManagementResult> {
+    const parsed = parsePhotoManagementUpdate(update);
+    if (parsed === undefined) return { handled: false };
+    const userId = await this.resolver.resolveUserId(parsed.telegramUserId);
+    if (userId === undefined)
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    const rate = await this.rateLimiter?.consume({
+      scope: 'telegram_photo_management',
+      subject: userId,
+      limit: 30,
+      windowSeconds: 60,
+    });
+    if (rate !== undefined && !rate.allowed)
+      throw new ApplicationError('rate_limited', 'error.rate_limit.exceeded', 429, {
+        retryAfterSeconds: String(rate.retryAfterSeconds),
+      });
+    const actor = { kind: 'user' as const, userId };
+    if (parsed.action === 'list')
+      return {
+        handled: true,
+        action: 'list',
+        collection: await this.useCases.list.execute(actor),
+      };
+    return {
+      handled: true,
+      action: parsed.action.type,
+      collection: await this.useCases.mutate.execute({
+        actor,
+        expectedProfileVersion: parsed.expectedProfileVersion!,
+        action: parsed.action,
+        commandId: this.uuid(),
+        requestId: this.uuid(),
+        idempotencyKey: `telegram-update:${parsed.updateId}`,
+      }),
+    };
   }
 }
