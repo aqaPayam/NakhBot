@@ -825,6 +825,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
         get: () =>
           Promise.resolve(
             (async function* () {
+              await Promise.resolve();
               yield new Uint8Array([1]);
             })(),
           ),
