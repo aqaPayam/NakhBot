@@ -596,6 +596,9 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     ): ReturnType<PostgresPhotoManagementStore['mutateOwn']> =>
       photoManagement.mutateOwn({
         userId,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
         expectedProfileVersion,
         action,
         auditId: randomUUID(),
@@ -700,6 +703,9 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     const writes = collection.photos.map((photo) =>
       photoManagement.mutateOwn({
         userId,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
         expectedProfileVersion: collection.profileVersion,
         action: { type: 'select_primary', photoId: photo.id },
         auditId: randomUUID(),
@@ -713,6 +719,58 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
     const final = await photoManagement.listOwn(userId);
     expect(final.photos.filter((photo) => photo.isPrimary)).toHaveLength(1);
+  });
+
+  it('replays a duplicate owner mutation without repeating its audit or events', async () => {
+    const userId = await user();
+    const profileId = await profile(userId);
+    const assets = await Promise.all(
+      Array.from({ length: 2 }, () => seedValidMedia(database, userId)),
+    );
+    await assign(profileId, assets[0]!, 0, true);
+    await assign(profileId, assets[1]!, 1);
+    const collection = await photoManagement.listOwn(userId);
+    const replacement = collection.photos.find((photo) => !photo.isPrimary)!;
+    const commandId = randomUUID();
+    const eventId = randomUUID();
+    const input = {
+      userId,
+      commandId,
+      requestId: randomUUID(),
+      idempotencyKey: `telegram-update:${randomUUID()}`,
+      expectedProfileVersion: collection.profileVersion,
+      action: { type: 'select_primary' as const, photoId: replacement.id },
+      auditId: randomUUID(),
+      eventId,
+      profileEventId: randomUUID(),
+      occurredAt: new Date(),
+    };
+    const [first, replay] = await Promise.all([
+      photoManagement.mutateOwn(input),
+      photoManagement.mutateOwn(input),
+    ]);
+    expect(replay).toEqual(first);
+    await expect(
+      photoManagement.mutateOwn({
+        ...input,
+        commandId: randomUUID(),
+        action: { type: 'delete', photoId: replacement.id },
+      }),
+    ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+    expect(
+      await database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('command_id', '=', commandId)
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('platform.outbox_events')
+        .select('id')
+        .where('id', '=', eventId)
+        .execute(),
+    ).toHaveLength(1);
   });
 
   it('authorizes owner preview without exposing keys and denies cross-user access', async () => {
@@ -871,6 +929,9 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     const deletedPhoto = collection.photos.find((photo) => !photo.isPrimary)!;
     await photoManagement.mutateOwn({
       userId,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
       expectedProfileVersion: collection.profileVersion,
       action: { type: 'delete', photoId: deletedPhoto.id },
       auditId: randomUUID(),
@@ -997,6 +1058,9 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     const replacement = collection.photos.find((photo) => !photo.isPrimary)!;
     await photoManagement.mutateOwn({
       userId,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
       expectedProfileVersion: collection.profileVersion,
       action: { type: 'select_primary', photoId: replacement.id },
       auditId: randomUUID(),

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { sql, type Selectable, type Transaction } from 'kysely';
 
 import type {
@@ -163,6 +165,8 @@ async function event(
     eventType: string;
     payload: Readonly<Record<string, unknown>>;
     occurredAt: Date;
+    correlationId?: string;
+    causationId?: string;
   }>,
 ): Promise<void> {
   await tx
@@ -180,8 +184,8 @@ async function event(
       last_error_code: null,
       lease_owner: null,
       lease_expires_at: null,
-      correlation_id: input.id,
-      causation_id: input.id,
+      correlation_id: input.correlationId ?? input.id,
+      causation_id: input.causationId ?? input.id,
     })
     .execute();
 }
@@ -236,6 +240,9 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
       userId: string;
       expectedProfileVersion: number;
       action: OwnPhotoAction;
+      commandId: string;
+      requestId: string;
+      idempotencyKey: string;
       auditId: string;
       eventId: string;
       profileEventId: string;
@@ -244,6 +251,14 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
   ): Promise<OwnPhotoCollection> {
     if (!Number.isSafeInteger(input.expectedProfileVersion) || input.expectedProfileVersion < 1)
       throw new ApplicationError('invalid_request', 'error.command.version_invalid', 400);
+    const requestHash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          expectedProfileVersion: input.expectedProfileVersion,
+          action: input.action,
+        }),
+      )
+      .digest('hex');
     return this.database.transaction().execute(async (tx) => {
       await tx
         .selectFrom('identity.users')
@@ -251,6 +266,41 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
         .where('id', '=', input.userId)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      const claimed = await tx
+        .insertInto('platform.idempotency_records')
+        .values({
+          id: input.commandId,
+          actor_user_id: input.userId,
+          scope: 'media.manage-own-photos',
+          idempotency_key: input.idempotencyKey,
+          request_hash: requestHash,
+          status: 'processing',
+          response_json: null,
+          expires_at: new Date(input.occurredAt.getTime() + 24 * 60 * 60 * 1_000),
+          created_at: input.occurredAt,
+          updated_at: input.occurredAt,
+        })
+        .onConflict((conflict) => conflict.doNothing())
+        .returning('id')
+        .executeTakeFirst();
+      if (claimed === undefined) {
+        const existing = await tx
+          .selectFrom('platform.idempotency_records')
+          .select(['request_hash', 'status', 'response_json'])
+          .where('actor_user_id', '=', input.userId)
+          .where('scope', '=', 'media.manage-own-photos')
+          .where('idempotency_key', '=', input.idempotencyKey)
+          .executeTakeFirstOrThrow();
+        if (existing.request_hash !== requestHash)
+          throw new ApplicationError(
+            'idempotency_conflict',
+            'error.command.idempotency_conflict',
+            409,
+          );
+        if (existing.status !== 'completed' || existing.response_json === null)
+          throw new ApplicationError('conflict', 'error.command.in_progress', 409);
+        return existing.response_json as unknown as OwnPhotoCollection;
+      }
       const profile = await tx
         .selectFrom('profile.profiles')
         .select(['id', 'version', 'completion_status', 'ever_completed'])
@@ -287,8 +337,8 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
           result_code: 'succeeded',
           metadata_schema_version: 1,
           metadata: photoId === undefined ? {} : { photoId },
-          request_id: input.eventId,
-          command_id: input.eventId,
+          request_id: input.requestId,
+          command_id: input.commandId,
           occurred_at: input.occurredAt,
         })
         .execute();
@@ -299,6 +349,8 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
         eventType,
         payload: { profileId: profile.id, ...(photoId === undefined ? {} : { photoId }) },
         occurredAt: input.occurredAt,
+        correlationId: input.requestId,
+        causationId: input.commandId,
       });
       if (profileResult.completionChanged)
         await event(tx, {
@@ -310,6 +362,8 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
             : 'profile.profile-invalidated.v1',
           payload: { profileId: profile.id },
           occurredAt: input.occurredAt,
+          correlationId: input.requestId,
+          causationId: input.commandId,
         });
       const latest = await tx
         .selectFrom('media.profile_photos')
@@ -318,7 +372,13 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
         .where('status', '!=', 'deleted')
         .orderBy('display_order')
         .execute();
-      return { profileVersion: profileResult.version, photos: managed(latest) };
+      const result = { profileVersion: profileResult.version, photos: managed(latest) };
+      await tx
+        .updateTable('platform.idempotency_records')
+        .set({ status: 'completed', response_json: result, updated_at: input.occurredAt })
+        .where('id', '=', input.commandId)
+        .executeTakeFirstOrThrow();
+      return result;
     });
   }
 

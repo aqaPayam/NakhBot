@@ -26,6 +26,9 @@ export interface PhotoManagementStore {
       userId: string;
       expectedProfileVersion: number;
       action: OwnPhotoAction;
+      commandId: string;
+      requestId: string;
+      idempotencyKey: string;
       auditId: string;
       eventId: string;
       profileEventId: string;
@@ -73,12 +76,18 @@ export class MutateOwnPhotosHandler {
       actor: Actor;
       expectedProfileVersion: number;
       action: OwnPhotoAction;
+      commandId: string;
+      requestId: string;
+      idempotencyKey: string;
     }>,
   ): Promise<OwnPhotoCollection> {
     return this.store.mutateOwn({
       userId: userId(input.actor),
       expectedProfileVersion: input.expectedProfileVersion,
       action: input.action,
+      commandId: input.commandId,
+      requestId: input.requestId,
+      idempotencyKey: input.idempotencyKey,
       auditId: this.ids.uuid(),
       eventId: this.ids.uuid(),
       profileEventId: this.ids.uuid(),

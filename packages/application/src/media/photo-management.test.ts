@@ -37,11 +37,17 @@ describe('photo management handlers', () => {
       actor: { kind: 'user', userId: 'user-1' },
       expectedProfileVersion: 3,
       action: { type: 'select_primary', photoId: 'photo-2' },
+      commandId: 'command-1',
+      requestId: 'request-1',
+      idempotencyKey: 'telegram-update:1',
     });
     expect(mutateOwn).toHaveBeenCalledWith({
       userId: 'user-1',
       expectedProfileVersion: 3,
       action: { type: 'select_primary', photoId: 'photo-2' },
+      commandId: 'command-1',
+      requestId: 'request-1',
+      idempotencyKey: 'telegram-update:1',
       auditId: 'id-1',
       eventId: 'id-2',
       profileEventId: 'id-3',

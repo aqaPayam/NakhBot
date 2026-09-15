@@ -25,7 +25,7 @@ environment. It must be updated with the immutable commit and CI run before stag
 | Attempt admission and replay | ingestion handler and `PostgresMediaStore` | 20-way rolling-window race, server-clock boundary, coarse rejection, replay, and rollback tests |
 | Bounded private quarantine | Telegram download, scanner, R2, and quarantine coordinators | redirect/path rejection, partial/oversize stream, scanner, checksum, lease, and crash-point tests |
 | Decode and publication safety | Sharp transformer and `PostgresMediaValidationStore` | hostile fixture corpus, metadata stripping, decode limits, duplicate race, verified rendition, and thumbnail failure tests |
-| Profile lifecycle | photo management handlers/store | slot race, primary race, reorder/delete conflicts, moderation promotion, and completion recomputation tests |
+| Profile lifecycle | photo management handlers/store | slot race, primary race, duplicate-command replay, reorder/delete conflicts, moderation promotion, and completion recomputation tests |
 | Private delivery | grant signer, PostgreSQL authorization, and edge verifier | tamper, expiry, audience/path/purpose binding, key rotation, cross-user denial, and private-response tests |
 | Optional blur | blur coordinator/store | deterministic concurrency, stale-primary denial, transform/storage failure, and Profile preservation tests |
 | Deletion and reconciliation | cleanup coordinator/store, R2 adapter, worker, and scheduler | partial failure, lease recovery, generation fencing, malicious-key rejection, cursor retry, and orphan grace tests |
