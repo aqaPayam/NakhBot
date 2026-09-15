@@ -186,10 +186,11 @@ describe('ValidateQuarantinedPhoto', () => {
     expect(deleted).toEqual(['t', 'v']);
   });
 
-  it('cleans only completed writes and releases its claim at each storage failure point', async () => {
+  it('ACC-010/M2-FAILURE publishes no photo when thumbnail storage fails', async () => {
     for (const failingPut of [1, 2]) {
       const deleted: string[] = [];
       const release = vi.fn().mockResolvedValue(undefined);
+      const complete = vi.fn();
       let puts = 0;
       const handler = new ValidateQuarantinedPhoto(
         {
@@ -200,7 +201,7 @@ describe('ValidateQuarantinedPhoto', () => {
               validatedKey: 'v',
               thumbnailKey: 't',
             }),
-          complete: vi.fn(),
+          complete,
           reject: vi.fn(),
           release,
         },
@@ -237,6 +238,7 @@ describe('ValidateQuarantinedPhoto', () => {
       await expect(handler.execute('asset', 'worker')).rejects.toThrow('storage unavailable');
       expect(deleted).toEqual(failingPut === 1 ? [] : ['v']);
       expect(release).toHaveBeenCalledWith('asset', 'worker');
+      expect(complete).not.toHaveBeenCalled();
     }
   });
 });

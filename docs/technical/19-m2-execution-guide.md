@@ -123,7 +123,9 @@ Create new forward-only migrations after `000009_m1_hardening.sql`:
 1. `000010_m2_media_assets.sql` — media schema, assets, upload-attempt indexes, and validation state.
 2. `000011_m2_profile_photos.sql` — assignments, variants, moderation records, constraints, and indexes.
 3. `000012_m2_media_quarantine.sql` — verified quarantine completion facts and immutable completion guard.
-4. `000013_m2_media_jobs.sql` — durable ingestion-worker leases and versioned clean-scan evidence; later cleanup/delivery-revocation state uses existing outbox/job tables where possible.
+4. `000013_m2_media_jobs.sql` — durable ingestion-worker leases and versioned clean-scan evidence.
+5. `000014_m2_media_validation.sql` — validation leases, verified rendition facts, and publication guards.
+6. `000015_m2_media_cleanup.sql` — deletion generations, cleanup leases, immutable storage keys, and verified-deletion facts.
 
 Never edit an applied migration. Each migration must run from empty and immediately previous schema, be replay-safe through the migration runner, and add verification SQL.
 
@@ -302,7 +304,7 @@ No skipped media, security, concurrency, or acceptance test may be merged. M2 is
 - add generic ingestion handlers/ports and thin Telegram metadata/download adapter;
 - implement bounded stream hashing, scanner port, quarantine writes/verification, retry/reconciliation, rate limit, audit/outbox/metrics, and provider failure tests.
 
-Current implementation: the provider-neutral ingestion handler and request throttle, bounded stream, Telegram `getFile`/download adapter, quarantine/scanner coordinator, AES-256-GCM transport envelope, official S3-client R2 transport, durable PostgreSQL worker leases, immutable clean-scan/quarantine facts, atomic completion/rejection audit and outbox, ClamAV adapter, bounded metric definitions, and guarded worker event routing are implemented. The worker composition is disabled by default and resolves credentials only from named secret environment references. The production gateway route remains closed until live provider configuration and the complete fault suite are available.
+Current implementation: the provider-neutral ingestion handler and request throttle, bounded stream, Telegram `getFile`/download adapter, quarantine/scanner coordinator, AES-256-GCM transport envelope, official S3-client R2 transport, durable PostgreSQL worker leases, immutable clean-scan/quarantine facts, atomic completion/rejection audit and outbox, ClamAV adapter, bounded metric definitions, and guarded worker event routing are implemented. The worker composition is disabled by default and resolves credentials only from named secret environment references. The authenticated Telegram gateway now resolves an existing Telegram identity, strictly maps the largest photo rendition into an idempotent ingestion command, and remains fail-closed behind the same media activation flag.
 
 ### PR3 continuation checklist
 
@@ -310,9 +312,9 @@ Current implementation: the provider-neutral ingestion handler and request throt
 2. [x] Implement a maintained S3-compatible client with bounded streaming, independently verified checksum/length, conditional creation, and verified deletion. The worker uses bounded temporary storage to know content length and SHA-256 before upload; the object records the digest as immutable metadata. Unknown HEAD outcomes are retryable, never absent.
 3. [x] Compose the durable download claim in the worker behind an off-by-default activation flag. Each delivery uses a unique owner token; the 60-second network deadline stays below the 120-second lease. BullMQ supplies retry/backoff and database facts reconcile duplicate delivery.
 4. [x] Supply a maintained streaming malware-scanner adapter and record its engine/signature versions through the implemented clean-scan evidence seam. A clean result permits quarantine completion but never implies decoded/valid/published.
-5. Route the implemented atomic completion/rejection outbox events to validation/reconciliation exactly once at the consumer boundary.
-6. Compose the production gateway upload route with authenticated Telegram ownership, strict contract validation, the required rate limiter, and the encryption key ring. Queue routing and worker metrics are composed. Keys come from named secret environment references; old decryption keys must remain until outstanding intents expire. Raw identifiers cannot enter logs or events.
-7. Exercise provider faults, concurrent workers, write-success/database-failure, audit rollback, key rotation, and startup configuration before marking PR3 complete. Then proceed to PR4 decoding/publication. Real private R2/CDN staging evidence remains required for M2 acceptance.
+5. [x] Route the implemented atomic completion/rejection outbox events to validation/reconciliation exactly once at the consumer boundary.
+6. [x] Compose the production gateway upload route with authenticated Telegram ownership, strict contract validation, the required rate limiter, and the encryption key ring. Queue routing and worker metrics are composed. Keys come from named secret environment references; old decryption keys must remain until outstanding intents expire. Raw identifiers cannot enter logs or events.
+7. [x] Exercise provider faults, concurrent workers, write-success/database-failure, audit rollback, key rotation, and startup configuration in automated tests. Real private R2/CDN staging fault evidence remains required for M2 acceptance.
 
 Current component guarantees: network metadata is capped at 64 KiB, downloads have a 60-second deadline, redirects are rejected, and early stream exits cancel the response. The 10 MiB cap and declared length are checked while streaming. AES-GCM ciphertext is bound to environment, asset ID, key ID, and envelope version. Conditional object creation and HEAD comparison prevent silent overwrite; a prior object is re-downloaded, rescanned, hashed, and matched before database reconciliation. Worker claims fence concurrent processing and expire for recovery. Completed storage and clean-scan facts are immutable; matching replays return recorded facts without downloading again. Successful completion or terminal rejection clears transport ciphertext and atomically records audit/outbox. Rejection cleanup failures remain retryable. No photo visibility or image-validation guarantee is claimed by these components.
 
@@ -417,8 +419,13 @@ PR7 continuation checklist:
 - [x] bounded cleanup/orphan metrics, dashboard alerts, and incident runbook;
 - [x] cleanup lease-contention smoke, crash/retry, stale-owner fencing, and malicious-key evidence;
 - [ ] production-scale cleanup load and external-provider failure evidence;
-- [ ] GitHub PostgreSQL integration and container jobs green for migration 000015;
+- [x] GitHub PostgreSQL integration and container jobs green for migration 000015;
 - [ ] real private R2/CDN staging deletion and reconciliation evidence.
+
+The reproducible automated ledger and explicit external blockers are recorded in
+[`20-m2-acceptance-evidence.md`](20-m2-acceptance-evidence.md). The real-provider gate must follow
+[`m2-staging-acceptance.md`](../../deploy/runbooks/m2-staging-acceptance.md); neither document changes
+the remaining unchecked items into completed evidence.
 
 Each PR must pass frozen install, formatting, lint, type checks, unit tests, PostgreSQL migrations/integration/concurrency, production audit, and all container builds. Database changes deploy before new readers/writers. Object and schema cleanup is always deferred until forward compatibility is proven.
 
@@ -451,13 +458,13 @@ PR 1 is complete and its CI was confirmed green. Its traceability checklist is:
 - [x] provider-specific code and live routes remain outside PR 1;
 - [x] formatting, lint, type checks, unit tests, and builds passed; user confirmed PR 1 CI green.
 
-## 14. PR 2 implementation and evidence boundary
+## 14. Historical PR 2 implementation and evidence boundary
 
-Scope: PostgreSQL assets/assignments/variants/moderation tables, immutable terminal-state/owner checks, six-slot and primary constraints, versioned variant uniqueness, serialized rolling attempt accounting, idempotent ingestion intent with atomic audit/outbox, and authoritative signup assignment. No decoder, object access, live upload route, delivery grant, or moderation endpoint is added.
+The PR 2 scope was PostgreSQL assets/assignments/variants/moderation tables, immutable terminal-state/owner checks, six-slot and primary constraints, versioned variant uniqueness, serialized rolling attempt accounting, idempotent ingestion intent with atomic audit/outbox, and authoritative signup assignment. Decoder, object access, the upload route, and delivery were deliberately supplied by later M2 increments.
 
 The PostgreSQL eligibility adapter is exercised with the real confirmation handler. The confirmation transaction independently locks selected assets and thumbnail records; a precheck cannot replace this check. Confirmation retries first read their completed command result, so a completed signup does not fail because its draft advanced or its photos later changed. Both ordinary and approved protected Profile edits include media eligibility before restoring completion.
 
-The M1 **runtime transport** media placeholder is still open: the existing gateway does not yet compose the full photo/signup confirmation path. PR3/4 must wire the adapter when uploads and verified publication are available. Tests seed synthetic validated rows explicitly; they are not evidence that real objects were scanned or verified.
+The later PR 3/4 increments now compose the authenticated Telegram photo-ingestion route and verified publication worker behind an off-by-default flag. Signup confirmation still performs its independent authoritative media recheck. Synthetic validated rows remain database-fixture evidence only; they are not evidence that real provider objects were scanned or verified.
 
 Verification checklist:
 
@@ -469,10 +476,10 @@ Verification checklist:
 - [x] seven concurrent assignment inserts leave at most six saved rows;
 - [x] primary uniqueness, terminal validation and active normalized-hash constraints;
 - [x] formatting, lint, type checks, unit tests, production audit, and build;
-- [ ] GitHub PostgreSQL/Redis integration, container builds, and restore smoke green.
+- [x] GitHub PostgreSQL/Redis integration, container builds, and restore smoke green.
 
-`ACC-008..012` currently have pure-policy coverage plus selected database checks, not complete worker/lifecycle acceptance. `ACC-009..011` publication/failure evidence remains PR4, moderation/promotion remains PR5, and verified object deletion (`ACC-013`) remains PR7. Real M1/M2 staging remains blocked on the future infrastructure purchase.
+Later increments supplied the worker/lifecycle evidence for `ACC-008..013`. The current evidence and the remaining real-provider boundary are authoritative in [`20-m2-acceptance-evidence.md`](20-m2-acceptance-evidence.md). Real M1/M2 staging remains blocked on the future infrastructure purchase.
 
 Local evidence (2026-09-08): 22 PostgreSQL integration tests passed on an isolated PostgreSQL 17.11 server. This includes concurrent empty-database bootstrap, upgrade from all nine M1 migrations, verification SQL, migration replay, expired attempt capacity, and both ordinary/protected edits with a hidden photo. Migration bootstrap now acquires its advisory lock before creating the schema tracker. Integration suites share a service database and execute one file at a time because legacy fixtures reset shared tables; explicit concurrency inside individual tests is preserved. The migration-upgrade test requires `CREATEDB` on the disposable test server and deletes only its own randomly named test database.
 
-`pnpm check` passed (83 unit tests at that run, all package/app builds). Subsequent test additions and the suite-isolation change passed targeted lint/type/format checks; the media contract suite passed all seven tests, bringing the unit-test inventory to 84. The production dependency audit reported no known vulnerabilities. Redis integration, Docker builds, and restore smoke remain GitHub CI evidence pending this push; no real R2/CDN acceptance is claimed.
+The historical local PR 2 check passed 84 unit tests and all then-current builds. The suite has since expanded substantially; current counts belong to the immutable CI run recorded in the acceptance ledger, not this historical section. No real R2/CDN acceptance is claimed.

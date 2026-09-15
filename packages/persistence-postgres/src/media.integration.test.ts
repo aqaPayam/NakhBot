@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { BeginMediaIngestionWrite } from '@nakh/application';
+import { EnsureBlurredPreview, type BeginMediaIngestionWrite } from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresMediaStore } from './media-store.js';
@@ -530,7 +530,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     ).rejects.toMatchObject({ code: 'media_not_eligible' });
   });
 
-  it('serializes seven assignment inserts to six saved slots', async () => {
+  it('ACC-009/M2-CONCURRENCY serializes seven assignments to six saved slots', async () => {
     const id = await user();
     const profileId = await profile(id);
     const assets = await Promise.all(Array.from({ length: 7 }, () => seedValidMedia(database, id)));
@@ -569,7 +569,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     expect(await profilePhotosAreEligible(database, profileId)).toBe(false);
   });
 
-  it('serializes owner ordering/primary/deletion and moderator visibility changes', async () => {
+  it('ACC-008/M2-E2E and ACC-012/M2-LIFECYCLE preserve visibility invariants', async () => {
     const userId = await user();
     const profileId = await profile(userId);
     const assets = await Promise.all(
@@ -801,7 +801,64 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     });
   });
 
-  it('revokes delivery immediately and completes leased object cleanup exactly once', async () => {
+  it('ACC-011/M2-FAILURE leaves the photo and Profile valid after blur failure', async () => {
+    const userId = await user();
+    const profileId = await profile(userId);
+    const assets = await Promise.all(
+      Array.from({ length: 2 }, () => seedValidMedia(database, userId)),
+    );
+    await assign(profileId, assets[0]!, 0, true);
+    await assign(profileId, assets[1]!, 1);
+    await database
+      .updateTable('profile.profiles')
+      .set({
+        completion_status: 'complete',
+        ever_completed: true,
+        completed_at: new Date(),
+        updated_at: new Date(),
+      })
+      .where('id', '=', profileId)
+      .execute();
+    const handler = new EnsureBlurredPreview(
+      blur,
+      {
+        get: () =>
+          Promise.resolve(
+            (async function* () {
+              yield new Uint8Array([1]);
+            })(),
+          ),
+        put: () => Promise.reject(new Error('storage unavailable')),
+        delete: () => Promise.resolve(),
+      },
+      { transform: () => Promise.resolve(new Uint8Array([2])) },
+    );
+
+    await expect(handler.execute(assets[0]!)).rejects.toThrow('storage unavailable');
+    await expect(photoManagement.listOwn(userId)).resolves.toMatchObject({
+      photos: [
+        { status: 'visible', isPrimary: true },
+        { status: 'visible', isPrimary: false },
+      ],
+    });
+    await expect(
+      database
+        .selectFrom('profile.profiles')
+        .select('completion_status')
+        .where('id', '=', profileId)
+        .executeTakeFirstOrThrow(),
+    ).resolves.toEqual({ completion_status: 'complete' });
+    await expect(
+      database
+        .selectFrom('media.photo_variants')
+        .select('id')
+        .where('asset_id', '=', assets[0]!)
+        .where('variant_type', '=', 'blurred_preview')
+        .execute(),
+    ).resolves.toEqual([]);
+  });
+
+  it('ACC-013/M2-PHOTO-DELETE revokes delivery and completes cleanup exactly once', async () => {
     const userId = await user();
     const profileId = await profile(userId);
     const assets = await Promise.all(

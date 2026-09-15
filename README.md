@@ -2,7 +2,8 @@
 
 NakhBot is an English-first Telegram dating product for adults in Iran. The MVP is delivered entirely through a Telegram bot, but its domain model is designed so later clients can use the same application services and rules.
 
-This repository contains the product specification, backend technical blueprint, and M0 engineering foundation. Product feature implementation begins with M1.
+This repository contains the product specification, backend technical blueprint, and the implemented
+M0, M1, and provider-neutral M2 backend foundations.
 
 ## Specification authority
 
@@ -44,6 +45,15 @@ The MVP does not include:
 
 ## Current status
 
-Product decisions and the backend technical blueprint are complete. The M0 foundation and M1 identity/signup/Profile implementation are complete, including PostgreSQL/Redis reliability, security hardening, telemetry contracts, containers, and CI. Final M1 acceptance is waiting only for deployment to a real staging environment and the recorded manual staging checklist. The AWS staging package is default-off and can be validated before an account is purchased. Deployment-specific values such as bot tokens, storage credentials, webhook secrets, and bootstrap admin Telegram IDs must be supplied through environment or secret configuration and are not product decisions.
+Product decisions and the backend technical blueprint are complete. M0 and the provider-neutral M1
+identity/signup/Profile and M2 secure-media implementations are green in CI. Final M1 acceptance is
+waiting for the real staging checklist. Final M2 acceptance additionally requires private R2/CDN
+infrastructure, real-provider fault/load evidence, and the authenticated owner photo-management
+transport recorded in
+[`20-m2-acceptance-evidence.md`](docs/technical/20-m2-acceptance-evidence.md). All media features
+remain default-off until those prerequisites are supplied. The AWS staging package can be validated
+without purchasing an account and creates no resources until an authorized operator applies it.
+Deployment-specific tokens, storage credentials, webhook secrets, and bootstrap administrator
+identities are external configuration, not product decisions.
 
 Local setup and required checks are documented in [`CONTRIBUTING.md`](CONTRIBUTING.md).
