@@ -3,7 +3,12 @@ import { createHash } from 'node:crypto';
 import { Queue, Worker, type JobsOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 
-import type { OutboxPublisher, RateLimiterPort, RateLimitRequest } from '@nakh/application';
+import type {
+  OpaqueTokenStore,
+  OutboxPublisher,
+  RateLimiterPort,
+  RateLimitRequest,
+} from '@nakh/application';
 import type { DomainEvent } from '@nakh/contracts';
 
 export const DOMAIN_EVENT_QUEUE = 'domain-events';
@@ -99,5 +104,27 @@ export class RedisRateLimiter implements RateLimiterPort {
       remaining: Math.max(0, request.limit - raw[0]),
       retryAfterSeconds: Math.max(0, raw[1]),
     };
+  }
+}
+
+export class RedisOpaqueTokenStore implements OpaqueTokenStore {
+  public constructor(
+    private readonly redis: Redis,
+    private readonly prefix: string,
+  ) {}
+
+  public async putIfAbsent(id: string, value: string, ttlSeconds: number): Promise<boolean> {
+    if (!/^[A-Za-z0-9_-]{16}$/u.test(id) || value.length < 1 || value.length > 4096)
+      throw new Error('Opaque token state is invalid.');
+    if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > 3600)
+      throw new Error('Opaque token lifetime is invalid.');
+    return (
+      (await this.redis.set(`${this.prefix}:action:${id}`, value, 'EX', ttlSeconds, 'NX')) === 'OK'
+    );
+  }
+
+  public async get(id: string): Promise<string | undefined> {
+    if (!/^[A-Za-z0-9_-]{16}$/u.test(id)) return undefined;
+    return (await this.redis.get(`${this.prefix}:action:${id}`)) ?? undefined;
   }
 }

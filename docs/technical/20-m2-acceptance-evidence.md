@@ -29,7 +29,7 @@ environment. It must be updated with the immutable commit and CI run before stag
 | Private delivery | grant signer, PostgreSQL authorization, and edge verifier | tamper, expiry, audience/path/purpose binding, key rotation, cross-user denial, and private-response tests |
 | Optional blur | blur coordinator/store | deterministic concurrency, stale-primary denial, transform/storage failure, and Profile preservation tests |
 | Deletion and reconciliation | cleanup coordinator/store, R2 adapter, worker, and scheduler | partial failure, lease recovery, generation fencing, malicious-key rejection, cursor retry, and orphan grace tests |
-| Privacy and telemetry | redacting logger and fixed M2 metric registries | redaction and bounded-label tests; provider identifiers, object keys, hashes, and cursor values are excluded |
+| Privacy and telemetry | redacting logger, fixed M2 metric registries, and opaque Telegram action tokens | redaction, bounded-label, callback-size, tamper, actor-binding, expiry, collision, and malformed-state tests; provider identifiers, object keys, hashes, and cursor values are excluded |
 | Migration safety | migrations `000010` through `000015` and verification SQL | empty/replay migration CI, PostgreSQL integration, restore smoke, and production container builds |
 
 ## Default-branch automated gate

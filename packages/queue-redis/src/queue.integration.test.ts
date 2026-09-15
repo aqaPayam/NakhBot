@@ -9,6 +9,7 @@ import {
   createDomainEventWorker,
   createRedisConnection,
   RedisLease,
+  RedisOpaqueTokenStore,
   RedisRateLimiter,
 } from './index.js';
 
@@ -94,5 +95,13 @@ describe.skipIf(redisUrl === undefined)('Redis queue reliability', () => {
     const keys = await leaseConnection.keys(`${prefix}:rate:telegram_start:*`);
     expect(keys).toHaveLength(1);
     expect(keys[0]).not.toContain('private-telegram-id');
+  });
+
+  it('stores bounded opaque action state without overwriting a collision', async () => {
+    const tokens = new RedisOpaqueTokenStore(leaseConnection, prefix);
+    await expect(tokens.putIfAbsent('abcdefghijklmnop', '{"value":1}', 30)).resolves.toBe(true);
+    await expect(tokens.putIfAbsent('abcdefghijklmnop', '{"value":2}', 30)).resolves.toBe(false);
+    await expect(tokens.get('abcdefghijklmnop')).resolves.toBe('{"value":1}');
+    await expect(tokens.get('invalid')).resolves.toBeUndefined();
   });
 });
