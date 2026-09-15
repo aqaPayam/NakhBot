@@ -73,8 +73,11 @@ export class DeletePhotoMediaObjects {
       `^variants/${prefix}/(?:thumbnail|blurred-preview)-v[1-9][0-9]*\\.webp$`,
       'u',
     );
+    const thumbnailKey = new RegExp(`^variants/${prefix}/thumbnail-v[1-9][0-9]*\\.webp$`, 'u');
     if (
       !plan.objectKeys.includes(quarantineKey) ||
+      !plan.objectKeys.includes(validatedKey) ||
+      !plan.objectKeys.some((key) => thumbnailKey.test(key)) ||
       plan.objectKeys.some(
         (key) => key !== quarantineKey && key !== validatedKey && !variantKey.test(key),
       )

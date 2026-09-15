@@ -86,6 +86,23 @@ describe('DeletePhotoMediaObjects', () => {
     }
   });
 
+  it('rejects an incomplete cleanup plan before it could strand a required object', async () => {
+    for (const objectKeys of [
+      [plan.objectKeys[0], plan.objectKeys[2]],
+      [plan.objectKeys[1], plan.objectKeys[2]],
+    ]) {
+      const remove = vi.fn();
+      const { store, release } = fixture({
+        claimPhoto: () => Promise.resolve({ ...plan, objectKeys }),
+      });
+      await expect(
+        new DeletePhotoMediaObjects(store, { delete: remove }, 'test').execute(photoId, 'worker-1'),
+      ).rejects.toThrow('invalid_media_cleanup_plan');
+      expect(remove).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalled();
+    }
+  });
+
   it('does nothing when another worker owns the live lease or cleanup already completed', async () => {
     const claimPhoto = vi.fn().mockResolvedValue(undefined);
     const remove = vi.fn();
@@ -96,5 +113,28 @@ describe('DeletePhotoMediaObjects', () => {
     );
     expect(remove).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a crash after partial deletion on the next duplicate delivery', async () => {
+    const remaining = new Set<string>(plan.objectKeys);
+    let attempts = 0;
+    const { store, complete, release } = fixture();
+    const handler = new DeletePhotoMediaObjects(
+      store,
+      {
+        delete: (key) => {
+          attempts += 1;
+          if (attempts === 2) return Promise.reject(new Error('worker crashed'));
+          remaining.delete(key);
+          return Promise.resolve();
+        },
+      },
+      'test',
+    );
+    await expect(handler.execute(photoId, 'worker-1')).rejects.toThrow('worker crashed');
+    await expect(handler.execute(photoId, 'worker-2')).resolves.toBeUndefined();
+    expect(remaining.size).toBe(0);
+    expect(release).toHaveBeenCalledWith(assetId, 'worker-1');
+    expect(complete).toHaveBeenCalledTimes(1);
   });
 });

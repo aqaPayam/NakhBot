@@ -31,3 +31,8 @@ state and `nakh.m2.media.orphan_scans.count` by `succeeded|retryable_failure`. A
 retryable failure survives two scheduled runs, when no successful scan occurs for one hour after
 activation, or when old orphan deletions remain persistently nonzero. Never attach asset IDs,
 object keys, hashes, continuation cursors, or provider error text as metric labels.
+
+Chart `nakh.m2.media.cleanup.count` and `nakh.m2.media.cleanup.duration` only by the bounded
+`succeeded|retryable_failure` outcome. Alert when the retryable-failure ratio exceeds 5% for 15
+minutes or the p95 duration exceeds two minutes; correlate with queue age without adding per-object
+dimensions.

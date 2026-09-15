@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   M2_INGESTION_OUTCOMES,
+  M2_CLEANUP_OUTCOMES,
   M2_MEDIA_REASON_CODES,
   M2_ORPHAN_OBJECT_STATES,
   M2Metrics,
@@ -16,12 +17,14 @@ describe('M2 metric contract', () => {
     ]);
     expect(M2_MEDIA_REASON_CODES).not.toContain('asset_id');
     expect(M2_ORPHAN_OBJECT_STATES).toEqual(['examined', 'deferred', 'referenced', 'deleted']);
+    expect(M2_CLEANUP_OUTCOMES).toEqual(['succeeded', 'retryable_failure']);
     const metrics = new M2Metrics();
     expect(() => {
       metrics.recordIngestion('quarantined', 12);
       metrics.recordQuarantineBytes(1024);
       metrics.recordOrphanReconciliation({ examined: 3, deferred: 1, referenced: 1, deleted: 1 });
       metrics.recordOrphanFailure();
+      metrics.recordCleanup('succeeded', 25);
     }).not.toThrow();
   });
 });

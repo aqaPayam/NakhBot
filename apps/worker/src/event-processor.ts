@@ -12,7 +12,8 @@ type MediaHandler = Pick<DownloadTelegramPhotoToQuarantine, 'execute'>;
 type ValidationHandler = Pick<ValidateQuarantinedPhoto, 'execute'>;
 type CacheRevocationHandler = Pick<RevokePhotoDeliveryCache, 'execute'>;
 type MediaCleanupHandler = Pick<DeletePhotoMediaObjects, 'execute'>;
-type MediaMetrics = Pick<M2Metrics, 'recordIngestion' | 'recordQuarantineBytes'>;
+type MediaMetrics = Pick<M2Metrics, 'recordIngestion' | 'recordQuarantineBytes'> &
+  Partial<Pick<M2Metrics, 'recordCleanup'>>;
 
 function mediaAssetId(event: DomainEvent): string {
   if (
@@ -86,8 +87,17 @@ export class WorkerEventProcessor {
       (this.cacheRevocation !== undefined || this.mediaCleanup !== undefined)
     ) {
       const photoId = lifecyclePhotoId(event);
-      await this.cacheRevocation?.execute(photoId);
-      await this.mediaCleanup?.execute(photoId, `${this.owner}:cleanup:${event.id}`);
+      const startedAt = this.now();
+      try {
+        await this.cacheRevocation?.execute(photoId);
+        await this.mediaCleanup?.execute(photoId, `${this.owner}:cleanup:${event.id}`);
+        if (this.mediaCleanup !== undefined)
+          this.metrics?.recordCleanup?.('succeeded', this.now() - startedAt);
+      } catch (error) {
+        if (this.mediaCleanup !== undefined)
+          this.metrics?.recordCleanup?.('retryable_failure', this.now() - startedAt);
+        throw error;
+      }
       return;
     }
     if (event.eventType !== 'media.ingestion-requested.v1' || this.media === undefined)

@@ -128,12 +128,16 @@ describe('WorkerEventProcessor', () => {
   it('routes deletion to cache revocation and verified object cleanup with a stable owner', async () => {
     const revoke = vi.fn().mockResolvedValue(undefined);
     const cleanup = vi.fn().mockResolvedValue(undefined);
+    const recordCleanup = vi.fn();
+    const recordIngestion = vi.fn();
+    const recordQuarantineBytes = vi.fn();
+    let now = 0;
     const processor = new WorkerEventProcessor(
       { processSampleEvent: vi.fn() },
       'worker-instance',
       undefined,
-      undefined,
-      Date.now,
+      { recordCleanup, recordIngestion, recordQuarantineBytes },
+      () => (now += 5),
       undefined,
       { execute: revoke },
       { execute: cleanup },
@@ -154,5 +158,32 @@ describe('WorkerEventProcessor', () => {
       deleted.aggregateId,
       `worker-instance:cleanup:${deleted.id}`,
     );
+    expect(recordCleanup).toHaveBeenCalledWith('succeeded', 5);
+  });
+
+  it('records a retryable cleanup failure and preserves worker retry semantics', async () => {
+    const recordCleanup = vi.fn();
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      { recordCleanup, recordIngestion: vi.fn(), recordQuarantineBytes: vi.fn() },
+      () => 10,
+      undefined,
+      undefined,
+      { execute: () => Promise.reject(new Error('delete unknown')) },
+    );
+    const deleted: DomainEvent = {
+      ...event,
+      aggregateType: 'profile_photo',
+      aggregateId: '50000000-0000-4000-8000-000000000050',
+      eventType: 'media.photo-deleted.v1',
+      payload: {
+        profileId: '60000000-0000-4000-8000-000000000060',
+        photoId: '50000000-0000-4000-8000-000000000050',
+      },
+    };
+    await expect(processor.process(deleted)).rejects.toThrow('delete unknown');
+    expect(recordCleanup).toHaveBeenCalledWith('retryable_failure', 0);
   });
 });

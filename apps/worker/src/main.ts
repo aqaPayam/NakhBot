@@ -136,7 +136,7 @@ const eventProcessor = new WorkerEventProcessor(
   inbox,
   mediaOwner,
   mediaHandler,
-  mediaHandler === undefined ? undefined : new M2Metrics(),
+  mediaHandler === undefined && mediaCleanupHandler === undefined ? undefined : new M2Metrics(),
   Date.now,
   validationHandler,
   cacheRevocationHandler,

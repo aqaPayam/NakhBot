@@ -415,7 +415,8 @@ PR7 continuation checklist:
 - [x] PostgreSQL integration coverage prepared for migration, lease contention, grant revocation, and completion;
 - [x] bounded, cursor-based orphan reconciliation for deterministic write-before-commit objects;
 - [x] bounded cleanup/orphan metrics, dashboard alerts, and incident runbook;
-- [ ] cleanup load, extended failure-injection, and security evidence;
+- [x] cleanup lease-contention smoke, crash/retry, stale-owner fencing, and malicious-key evidence;
+- [ ] production-scale cleanup load and external-provider failure evidence;
 - [ ] GitHub PostgreSQL integration and container jobs green for migration 000015;
 - [ ] real private R2/CDN staging deletion and reconciliation evidence.
 

@@ -860,11 +860,16 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
       ]),
     );
 
-    const plan = await cleanup.claimPhoto({
-      photoId: deletedPhoto.id,
-      owner: 'cleanup-worker-1',
-      leaseMs: 60_000,
-    });
+    const contenders = Array.from({ length: 20 }, (_, index) => `cleanup-worker-${index}`);
+    const claims = await Promise.all(
+      contenders.map((owner) =>
+        cleanup.claimPhoto({ photoId: deletedPhoto.id, owner, leaseMs: 60_000 }),
+      ),
+    );
+    expect(claims.filter((claim) => claim !== undefined)).toHaveLength(1);
+    const winnerIndex = claims.findIndex((claim) => claim !== undefined);
+    const winner = contenders[winnerIndex]!;
+    const plan = claims[winnerIndex]!;
     expect(plan).toMatchObject({
       assetId: assets[1],
       objectKeys: [
@@ -876,20 +881,39 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     await expect(
       cleanup.claimPhoto({
         photoId: deletedPhoto.id,
-        owner: 'cleanup-worker-2',
+        owner: 'cleanup-worker-late',
         leaseMs: 60_000,
       }),
     ).resolves.toBeUndefined();
+    await database
+      .updateTable('media.media_assets')
+      .set({ cleanup_lease_expires_at: new Date(Date.now() - 1_000) })
+      .where('id', '=', plan.assetId)
+      .execute();
+    await expect(
+      cleanup.complete({
+        assetId: plan.assetId,
+        deletionGeneration: plan.deletionGeneration,
+        owner: winner,
+        completedAt: new Date(),
+      }),
+    ).rejects.toMatchObject({ code: 'version_conflict' });
+    const recoveredPlan = await cleanup.claimPhoto({
+      photoId: deletedPhoto.id,
+      owner: 'cleanup-worker-recovery',
+      leaseMs: 60_000,
+    });
+    expect(recoveredPlan).toEqual(plan);
     await cleanup.complete({
-      assetId: plan!.assetId,
-      deletionGeneration: plan!.deletionGeneration,
-      owner: 'cleanup-worker-1',
+      assetId: recoveredPlan!.assetId,
+      deletionGeneration: recoveredPlan!.deletionGeneration,
+      owner: 'cleanup-worker-recovery',
       completedAt: new Date(),
     });
     await expect(
       cleanup.claimPhoto({
         photoId: deletedPhoto.id,
-        owner: 'cleanup-worker-2',
+        owner: 'cleanup-worker-recovery',
         leaseMs: 60_000,
       }),
     ).resolves.toBeUndefined();
