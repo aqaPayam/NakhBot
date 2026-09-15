@@ -195,6 +195,9 @@ importers:
 
   apps/telegram-gateway:
     dependencies:
+      '@nakh/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@nakh/config':
         specifier: workspace:*
         version: link:../../packages/config

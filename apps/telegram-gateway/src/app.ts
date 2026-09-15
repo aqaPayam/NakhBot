@@ -12,22 +12,50 @@ import {
   type OnApplicationShutdown,
 } from '@nestjs/common';
 
-import type { AppConfig } from '@nakh/config';
+import { BeginTelegramPhotoIngestionHandler } from '@nakh/application';
+import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import { ApplicationError } from '@nakh/domain';
-import { M1Metrics, type M1Outcome, type M1ReasonCode } from '@nakh/observability';
+import {
+  M1Metrics,
+  M2Metrics,
+  type M1Outcome,
+  type M1ReasonCode,
+  type M2MediaReasonCode,
+} from '@nakh/observability';
 import {
   createDatabase,
   PostgresIdentityStore,
+  PostgresMediaStore,
+  PostgresTelegramUserResolver,
+  SystemIdGenerator,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection, RedisRateLimiter } from '@nakh/queue-redis';
-import { TelegramStartAdapter, TelegramWebhookAuthenticator } from '@nakh/telegram';
+import {
+  TelegramMediaTransportCipher,
+  TelegramPhotoIngestionAdapter,
+  TelegramStartAdapter,
+  TelegramWebhookAuthenticator,
+} from '@nakh/telegram';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
+const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
 const REDIS = Symbol('REDIS');
 const M1_METRICS = Symbol('M1_METRICS');
+const M2_METRICS = Symbol('M2_METRICS');
+
+type PhotoAdapter = Pick<TelegramPhotoIngestionAdapter, 'handle'>;
+
+function transportKey(reference: string): Uint8Array {
+  const encoded = resolveSecretReference(reference);
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(encoded)) throw new Error('Invalid media transport key.');
+  const key = Buffer.from(encoded, 'base64url');
+  if (key.byteLength !== 32 || key.toString('base64url') !== encoded)
+    throw new Error('Invalid media transport key.');
+  return key;
+}
 
 function applicationOutcome(error: ApplicationError): M1Outcome {
   if (error.status === 409) return 'conflict';
@@ -46,12 +74,29 @@ function applicationReason(error: ApplicationError): M1ReasonCode {
   }
 }
 
+function mediaReason(error: ApplicationError): M2MediaReasonCode {
+  switch (error.code) {
+    case 'rate_limited':
+    case 'invalid_request':
+    case 'unauthorized':
+    case 'capability_denied':
+    case 'idempotency_conflict':
+    case 'photo_upload_limit_reached':
+    case 'unsupported_media_type':
+      return error.code;
+    default:
+      return 'storage_unavailable';
+  }
+}
+
 @Controller()
 class TelegramGatewayController {
   public constructor(
     @Inject(AUTHENTICATOR) private readonly authenticator: TelegramWebhookAuthenticator,
     @Inject(START_ADAPTER) private readonly startAdapter: TelegramStartAdapter,
+    @Inject(PHOTO_ADAPTER) private readonly photoAdapter: PhotoAdapter,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
+    @Inject(M2_METRICS) private readonly m2Metrics: M2Metrics,
     @Inject(DATABASE) private readonly database: NakhDatabase,
     @Inject(REDIS) private readonly redis: ReturnType<typeof createRedisConnection>,
   ) {}
@@ -81,12 +126,14 @@ class TelegramGatewayController {
     const startedAt = performance.now();
     try {
       const result = await this.startAdapter.handle(update);
-      if (result.handled)
+      if (result.handled) {
         this.m1Metrics.recordHandler(
           'first_start',
           result.replayed ? 'replay' : 'success',
           performance.now() - startedAt,
         );
+        return { accepted: true };
+      }
     } catch (error) {
       if (error instanceof ApplicationError) {
         this.m1Metrics.recordHandler(
@@ -102,6 +149,31 @@ class TelegramGatewayController {
         'failure',
         performance.now() - startedAt,
         'internal_error',
+      );
+      throw error;
+    }
+    const mediaStartedAt = performance.now();
+    try {
+      const media = await this.photoAdapter.handle(update);
+      if (media.handled)
+        this.m2Metrics.recordIngestion(
+          media.result.validationState === 'pending' ? 'accepted' : 'rejected',
+          performance.now() - mediaStartedAt,
+          media.result.validationState === 'rejected' ? media.result.errorCode : 'none',
+        );
+    } catch (error) {
+      if (error instanceof ApplicationError) {
+        this.m2Metrics.recordIngestion(
+          error.status < 500 ? 'rejected' : 'retryable_failure',
+          performance.now() - mediaStartedAt,
+          mediaReason(error),
+        );
+        throw new HttpException({ code: error.code }, error.status);
+      }
+      this.m2Metrics.recordIngestion(
+        'retryable_failure',
+        performance.now() - mediaStartedAt,
+        'storage_unavailable',
       );
       throw error;
     }
@@ -125,6 +197,26 @@ export class TelegramGatewayModule {
   public static register(config: AppConfig): DynamicModule {
     const database = createDatabase(config.database);
     const redis = createRedisConnection(config.redis.url);
+    const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
+    const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
+    const photoAdapter: PhotoAdapter = config.media.ingestionEnabled
+      ? (() => {
+          const cipher = new TelegramMediaTransportCipher(
+            mediaEnvironment,
+            config.media.transportKeyId,
+            new Map([[config.media.transportKeyId, transportKey(config.media.transportKeyRef)]]),
+          );
+          return new TelegramPhotoIngestionAdapter(
+            new PostgresTelegramUserResolver(database),
+            new BeginTelegramPhotoIngestionHandler(
+              new PostgresMediaStore(database, mediaEnvironment, cipher),
+              cipher,
+              new SystemIdGenerator(),
+              limiter,
+            ),
+          );
+        })()
+      : { handle: () => Promise.resolve({ handled: false as const }) };
     return {
       module: TelegramGatewayModule,
       controllers: [TelegramGatewayController],
@@ -136,12 +228,11 @@ export class TelegramGatewayModule {
         { provide: DATABASE, useValue: database },
         { provide: REDIS, useValue: redis },
         { provide: M1_METRICS, useValue: new M1Metrics() },
+        { provide: M2_METRICS, useValue: new M2Metrics() },
+        { provide: PHOTO_ADAPTER, useValue: photoAdapter },
         {
           provide: START_ADAPTER,
-          useValue: TelegramStartAdapter.withStore(
-            new PostgresIdentityStore(database),
-            new RedisRateLimiter(redis, config.redis.queuePrefix),
-          ),
+          useValue: TelegramStartAdapter.withStore(new PostgresIdentityStore(database), limiter),
         },
         DatabaseLifecycle,
       ],

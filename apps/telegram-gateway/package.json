@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@nakh/application": "workspace:*",
     "@nakh/config": "workspace:*",
     "@nakh/domain": "workspace:*",
     "@nakh/observability": "workspace:*",

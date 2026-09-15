@@ -16,6 +16,12 @@ export const M2_MEDIA_REASON_CODES = [
   'storage_unavailable',
   'scanner_unavailable',
   'rate_limited',
+  'invalid_request',
+  'unauthorized',
+  'capability_denied',
+  'idempotency_conflict',
+  'photo_upload_limit_reached',
+  'unsupported_media_type',
 ] as const;
 export type M2MediaReasonCode = (typeof M2_MEDIA_REASON_CODES)[number];
 

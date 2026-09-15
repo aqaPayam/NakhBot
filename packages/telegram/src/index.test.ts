@@ -1,12 +1,116 @@
 import { describe, expect, it } from 'vitest';
 
-import type { RegisterTelegramIdentityUseCase } from '@nakh/application';
+import type {
+  BeginTelegramPhotoIngestionHandler,
+  RegisterTelegramIdentityUseCase,
+} from '@nakh/application';
 
 import {
   TelegramPhotoDownloadAdapter,
+  TelegramPhotoIngestionAdapter,
   TelegramStartAdapter,
   TelegramWebhookAuthenticator,
 } from './index.js';
+
+describe('TelegramPhotoIngestionAdapter', () => {
+  it('maps the largest Telegram rendition to a durable authenticated command', async () => {
+    const commands: Parameters<BeginTelegramPhotoIngestionHandler['execute']>[0][] = [];
+    const useCase: Pick<BeginTelegramPhotoIngestionHandler, 'execute'> = {
+      execute: (command) => {
+        commands.push(command);
+        return Promise.resolve({
+          assetId: '40000000-0000-4000-8000-000000000000',
+          validationState: 'pending',
+          acceptedAt: '2026-09-15T10:00:00.000Z',
+          replayed: false,
+        });
+      },
+    };
+    const ids = ['20000000-0000-4000-8000-000000000000', '30000000-0000-4000-8000-000000000000'];
+    const adapter = new TelegramPhotoIngestionAdapter(
+      { resolveUserId: () => Promise.resolve('10000000-0000-4000-8000-000000000000') },
+      useCase,
+      () => ids.shift() ?? 'unexpected',
+      () => new Date('2026-09-15T10:00:00.000Z'),
+    );
+
+    await expect(
+      adapter.handle({
+        update_id: 789,
+        message: {
+          from: { id: 123456789 },
+          photo: [
+            {
+              file_id: 'large-file',
+              file_unique_id: 'large-unique',
+              width: 1280,
+              height: 720,
+              file_size: 42,
+            },
+            { file_id: 'small-file', file_unique_id: 'small-unique', width: 90, height: 90 },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({ handled: true, result: { validationState: 'pending' } });
+    expect(commands).toEqual([
+      {
+        commandId: '20000000-0000-4000-8000-000000000000',
+        commandType: 'media.begin-telegram-photo-ingestion',
+        schemaVersion: 1,
+        actor: { kind: 'user', userId: '10000000-0000-4000-8000-000000000000' },
+        requestId: '30000000-0000-4000-8000-000000000000',
+        idempotencyKey: 'telegram-photo:789',
+        occurredAt: '2026-09-15T10:00:00.000Z',
+        locale: 'en',
+        channelContext: { channel: 'telegram', channelIdentityId: '123456789' },
+        data: {
+          telegramFileId: 'large-file',
+          telegramFileUniqueId: 'large-unique',
+          declaredSizeBytes: 42,
+          declaredMediaType: 'image/jpeg',
+        },
+      },
+    ]);
+  });
+
+  it('ignores non-photo updates and rejects photos from unknown users', async () => {
+    const useCase: Pick<BeginTelegramPhotoIngestionHandler, 'execute'> = {
+      execute: () => Promise.reject(new Error('must not execute')),
+    };
+    const adapter = new TelegramPhotoIngestionAdapter(
+      { resolveUserId: () => Promise.resolve(undefined) },
+      useCase,
+    );
+    await expect(adapter.handle({ update_id: 1, message: { text: 'hello' } })).resolves.toEqual({
+      handled: false,
+    });
+    await expect(
+      adapter.handle({
+        update_id: 2,
+        message: {
+          from: { id: 123 },
+          photo: [{ file_id: 'file', file_unique_id: 'unique', width: 1, height: 1 }],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'unauthorized', status: 401 });
+  });
+
+  it('fails closed when Telegram sends malformed photo metadata', async () => {
+    const adapter = new TelegramPhotoIngestionAdapter(
+      { resolveUserId: () => Promise.resolve('10000000-0000-4000-8000-000000000000') },
+      { execute: () => Promise.reject(new Error('must not execute')) },
+    );
+    await expect(
+      adapter.handle({
+        update_id: 3,
+        message: {
+          from: { id: 123 },
+          photo: [{ file_id: 'file', file_unique_id: 'unique', width: 0, height: 1 }],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request', status: 400 });
+  });
+});
 
 describe('Telegram webhook authentication', () => {
   it('accepts only the exact secret', () => {

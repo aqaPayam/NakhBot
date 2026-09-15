@@ -29,6 +29,13 @@ describe('staging deployment readiness', () => {
     expect(rollback).toContain('SCHEMA_COMPATIBLE');
     expect(rollback).toContain('describe-images');
     expect(rollback).not.toMatch(/AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/u);
+    expect(compute).toContain(
+      '{ name = "NAKH_TELEGRAM_BOT_TOKEN_REF", value = "NAKH_TELEGRAM_BOT_TOKEN" }',
+    );
+    expect(compute).toContain(
+      'valueFrom = "${aws_secretsmanager_secret.runtime.arn}:NAKH_TELEGRAM_BOT_TOKEN::"',
+    );
+    expect(compute).not.toContain('aws-secretsmanager://');
   });
 
   it('keeps data private, encrypted, recoverable, and highly available', async () => {

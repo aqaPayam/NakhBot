@@ -25,6 +25,7 @@ import {
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
+import { PostgresTelegramUserResolver } from './telegram-user-resolver.js';
 import { runMigrations } from './migrations.js';
 import { PostgresSignupStore } from './signup-store.js';
 import { PostgresProfileStore } from './profile-store.js';
@@ -274,6 +275,10 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
       },
     });
     expect(replay).toMatchObject({ created: true, replayed: true, context: { userId } });
+    const resolver = new PostgresTelegramUserResolver(database);
+    await expect(resolver.resolveUserId(write.command.data.telegramUserId)).resolves.toBe(userId);
+    await expect(resolver.resolveUserId('0')).resolves.toBeUndefined();
+    await expect(resolver.resolveUserId(telegramUserId())).resolves.toBeUndefined();
     await expect(
       store.registerTelegramIdentity({
         ...write,

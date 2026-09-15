@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 export { TelegramMediaTransportCipher } from './media-cipher.js';
 
 import {
+  type BeginTelegramPhotoIngestionHandler,
   RegisterTelegramIdentityHandler,
   routeStart,
   type IdentityStore,
@@ -11,6 +12,7 @@ import {
   type TelegramClientPort,
   type TelegramMediaDownload,
   type TelegramMediaPort,
+  type TelegramUserResolver,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 
@@ -257,5 +259,122 @@ export class TelegramStartAdapter {
       replayed: result.replayed,
       view: routeStart(result.context.entryRoute),
     };
+  }
+}
+
+type TelegramPhotoIngestionUseCase = Pick<BeginTelegramPhotoIngestionHandler, 'execute'>;
+
+export type TelegramPhotoIngestionResult =
+  | Readonly<{ handled: false }>
+  | Readonly<{
+      handled: true;
+      result: Awaited<ReturnType<TelegramPhotoIngestionUseCase['execute']>>;
+    }>;
+
+type TelegramPhotoUpdate = Readonly<{
+  updateId: string;
+  telegramUserId: string;
+  fileId: string;
+  fileUniqueId: string;
+  fileSize: number | undefined;
+}>;
+
+function parsePhotoUpdate(update: unknown): TelegramPhotoUpdate | undefined {
+  const root = record(update);
+  const message = record(root?.message);
+  const from = record(message?.from);
+  const photos = message?.photo;
+  const updateId = root?.update_id;
+  const telegramUserId = from?.id;
+  if (!Array.isArray(photos)) return undefined;
+  if (
+    typeof updateId !== 'number' ||
+    !Number.isSafeInteger(updateId) ||
+    updateId < 0 ||
+    typeof telegramUserId !== 'number' ||
+    !Number.isSafeInteger(telegramUserId) ||
+    telegramUserId <= 0 ||
+    photos.length < 1 ||
+    photos.length > 20
+  )
+    throw new ApplicationError('invalid_request', 'error.media.telegram_photo_invalid', 400);
+  const parsed = photos.map((value) => {
+    const photo = record(value);
+    const width = photo?.width;
+    const height = photo?.height;
+    const fileSize = photo?.file_size;
+    if (
+      typeof photo?.file_id !== 'string' ||
+      photo.file_id.length < 1 ||
+      photo.file_id.length > 512 ||
+      /\s/u.test(photo.file_id) ||
+      typeof photo.file_unique_id !== 'string' ||
+      photo.file_unique_id.length < 1 ||
+      photo.file_unique_id.length > 256 ||
+      typeof width !== 'number' ||
+      !Number.isSafeInteger(width) ||
+      width < 1 ||
+      typeof height !== 'number' ||
+      !Number.isSafeInteger(height) ||
+      height < 1 ||
+      (fileSize !== undefined &&
+        (typeof fileSize !== 'number' || !Number.isSafeInteger(fileSize) || fileSize < 1))
+    )
+      throw new ApplicationError('invalid_request', 'error.media.telegram_photo_invalid', 400);
+    return {
+      fileId: photo.file_id,
+      fileUniqueId: photo.file_unique_id,
+      width,
+      height,
+      fileSize,
+    };
+  });
+  const selected = parsed.reduce((largest, candidate) =>
+    BigInt(candidate.width) * BigInt(candidate.height) >
+    BigInt(largest.width) * BigInt(largest.height)
+      ? candidate
+      : largest,
+  );
+  return {
+    updateId: String(updateId),
+    telegramUserId: String(telegramUserId),
+    fileId: selected.fileId,
+    fileUniqueId: selected.fileUniqueId,
+    fileSize: selected.fileSize,
+  };
+}
+
+export class TelegramPhotoIngestionAdapter {
+  public constructor(
+    private readonly resolver: TelegramUserResolver,
+    private readonly useCase: TelegramPhotoIngestionUseCase,
+    private readonly uuid: () => string = randomUUID,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  public async handle(update: unknown): Promise<TelegramPhotoIngestionResult> {
+    const photo = parsePhotoUpdate(update);
+    if (photo === undefined) return { handled: false };
+    const userId = await this.resolver.resolveUserId(photo.telegramUserId);
+    if (userId === undefined)
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    const result = await this.useCase.execute({
+      commandId: this.uuid(),
+      commandType: 'media.begin-telegram-photo-ingestion',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId },
+      requestId: this.uuid(),
+      idempotencyKey: `telegram-photo:${photo.updateId}`,
+      occurredAt: this.now().toISOString(),
+      locale: 'en',
+      channelContext: { channel: 'telegram', channelIdentityId: photo.telegramUserId },
+      data: {
+        telegramFileId: photo.fileId,
+        telegramFileUniqueId: photo.fileUniqueId,
+        ...(photo.fileSize === undefined ? {} : { declaredSizeBytes: photo.fileSize }),
+        declaredMediaType: 'image/jpeg',
+      },
+    });
+    return { handled: true, result };
   }
 }

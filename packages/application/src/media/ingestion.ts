@@ -9,6 +9,11 @@ export interface MediaTransportEncryptor {
   encrypt(telegramFileId: string, assetId: string): Promise<Uint8Array>;
 }
 
+/** Resolves a provider identity only after the transport has authenticated the update. */
+export interface TelegramUserResolver {
+  resolveUserId(telegramUserId: string): Promise<string | undefined>;
+}
+
 /** Receives a validated command from an authenticated transport. Database policy
  * remains authoritative for account capability, replay, and the rolling limit. */
 export class BeginTelegramPhotoIngestionHandler {
