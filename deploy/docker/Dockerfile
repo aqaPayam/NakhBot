@@ -1,4 +1,4 @@
-FROM node:24.19.0-bookworm-slim AS build
+FROM node:26.8-bookworm-slim AS build
 
 ARG APP
 WORKDIR /workspace
@@ -8,7 +8,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm build
 RUN pnpm --filter "@nakh/${APP}" --prod deploy /out
 
-FROM node:24.19.0-bookworm-slim AS runtime
+FROM node:26.8-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
 WORKDIR /app
