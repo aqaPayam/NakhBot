@@ -19,6 +19,7 @@ import {
 } from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import { ApplicationError, SystemClock } from '@nakh/domain';
+import { CatalogRenderer } from '@nakh/localization';
 import {
   M1Metrics,
   M2Metrics,
@@ -29,6 +30,7 @@ import {
 import {
   createDatabase,
   PostgresIdentityStore,
+  PostgresLocalizationStore,
   PostgresMediaStore,
   PostgresPhotoManagementStore,
   PostgresTelegramUserResolver,
@@ -38,11 +40,15 @@ import {
 import { createRedisConnection, RedisOpaqueTokenStore, RedisRateLimiter } from '@nakh/queue-redis';
 import {
   TelegramMediaTransportCipher,
+  TelegramBotApiMenuClient,
   TelegramPhotoActionTokens,
   TelegramPhotoIngestionAdapter,
   TelegramPhotoManagementAdapter,
+  TelegramPhotoMenuPresenter,
   TelegramStartAdapter,
   TelegramWebhookAuthenticator,
+  renderTelegramPhotoMenu,
+  type TelegramPhotoManagementResult,
 } from '@nakh/telegram';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
@@ -50,12 +56,18 @@ const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
 const PHOTO_MANAGEMENT_ADAPTER = Symbol('PHOTO_MANAGEMENT_ADAPTER');
+const PHOTO_MENU_DELIVERY = Symbol('PHOTO_MENU_DELIVERY');
 const REDIS = Symbol('REDIS');
 const M1_METRICS = Symbol('M1_METRICS');
 const M2_METRICS = Symbol('M2_METRICS');
 
 type PhotoAdapter = Pick<TelegramPhotoIngestionAdapter, 'handle'>;
 type PhotoManagementAdapter = Pick<TelegramPhotoManagementAdapter, 'handle'>;
+type HandledPhotoManagementResult = Extract<TelegramPhotoManagementResult, { handled: true }>;
+
+type PhotoMenuDelivery = Readonly<{
+  deliver(result: HandledPhotoManagementResult): Promise<void>;
+}>;
 
 function secretKey(reference: string): Uint8Array {
   const encoded = resolveSecretReference(reference);
@@ -106,6 +118,7 @@ class TelegramGatewayController {
     @Inject(PHOTO_ADAPTER) private readonly photoAdapter: PhotoAdapter,
     @Inject(PHOTO_MANAGEMENT_ADAPTER)
     private readonly photoManagementAdapter: PhotoManagementAdapter,
+    @Inject(PHOTO_MENU_DELIVERY) private readonly photoMenuDelivery: PhotoMenuDelivery,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
     @Inject(M2_METRICS) private readonly m2Metrics: M2Metrics,
     @Inject(DATABASE) private readonly database: NakhDatabase,
@@ -191,7 +204,8 @@ class TelegramGatewayController {
       throw error;
     }
     try {
-      await this.photoManagementAdapter.handle(update);
+      const management = await this.photoManagementAdapter.handle(update);
+      if (management.handled) await this.photoMenuDelivery.deliver(management);
     } catch (error) {
       if (error instanceof ApplicationError)
         throw new HttpException({ code: error.code }, error.status);
@@ -218,6 +232,7 @@ export class TelegramGatewayModule {
     const database = createDatabase(config.database);
     const redis = createRedisConnection(config.redis.url);
     const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
+    const identityStore = new PostgresIdentityStore(database);
     const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
     const photoAdapter: PhotoAdapter = config.media.ingestionEnabled
       ? (() => {
@@ -256,6 +271,43 @@ export class TelegramGatewayModule {
           );
         })()
       : { handle: () => Promise.resolve({ handled: false as const }) };
+    const photoMenuDelivery: PhotoMenuDelivery = config.media.ingestionEnabled
+      ? (() => {
+          const actionTokens = new TelegramPhotoActionTokens(
+            new RedisOpaqueTokenStore(redis, config.redis.queuePrefix),
+            secretKey(config.telegram.actionTokenKeyRef),
+          );
+          const presenter = new TelegramPhotoMenuPresenter(actionTokens);
+          const localization = new PostgresLocalizationStore(database);
+          const client = new TelegramBotApiMenuClient(
+            resolveSecretReference(config.telegram.botTokenRef),
+          );
+          return {
+            deliver: async (result: HandledPhotoManagementResult): Promise<void> => {
+              const context = await identityStore.getByUserId(result.userId);
+              if (context === undefined) throw new Error('Telegram menu identity is unavailable.');
+              const catalog = await localization.loadActiveCatalog(context.uiLocale);
+              const renderer = new CatalogRenderer(
+                { [catalog.resolvedLocale]: catalog.messages },
+                catalog.resolvedLocale,
+              );
+              const model = await presenter.present(result.telegramUserId, result.collection);
+              const delivery = client.sendMenu(
+                result.telegramUserId,
+                renderTelegramPhotoMenu(model, (intent) =>
+                  renderer.render(catalog.resolvedLocale, intent),
+                ),
+              );
+              await Promise.all([
+                delivery,
+                result.callbackQueryId === undefined
+                  ? Promise.resolve()
+                  : client.answerCallback(result.callbackQueryId),
+              ]);
+            },
+          };
+        })()
+      : { deliver: () => Promise.resolve() };
     return {
       module: TelegramGatewayModule,
       controllers: [TelegramGatewayController],
@@ -270,9 +322,10 @@ export class TelegramGatewayModule {
         { provide: M2_METRICS, useValue: new M2Metrics() },
         { provide: PHOTO_ADAPTER, useValue: photoAdapter },
         { provide: PHOTO_MANAGEMENT_ADAPTER, useValue: photoManagementAdapter },
+        { provide: PHOTO_MENU_DELIVERY, useValue: photoMenuDelivery },
         {
           provide: START_ADAPTER,
-          useValue: TelegramStartAdapter.withStore(new PostgresIdentityStore(database), limiter),
+          useValue: TelegramStartAdapter.withStore(identityStore, limiter),
         },
         DatabaseLifecycle,
       ],

@@ -13,6 +13,7 @@
     "@nakh/application": "workspace:*",
     "@nakh/config": "workspace:*",
     "@nakh/domain": "workspace:*",
+    "@nakh/localization": "workspace:*",
     "@nakh/observability": "workspace:*",
     "@nakh/persistence-postgres": "workspace:*",
     "@nakh/queue-redis": "workspace:*",

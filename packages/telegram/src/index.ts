@@ -7,6 +7,11 @@ export {
   type TelegramPhotoMenuButton,
   type TelegramPhotoMenuRow,
 } from './photo-menu.js';
+export {
+  TelegramBotApiMenuClient,
+  renderTelegramPhotoMenu,
+  type RenderedTelegramPhotoMenu,
+} from './photo-menu-delivery.js';
 
 import {
   type BeginTelegramPhotoIngestionHandler,
@@ -398,6 +403,7 @@ type TelegramPhotoManagementUseCases = Readonly<{
 type TelegramPhotoManagementUpdate = Readonly<{
   updateId: string;
   telegramUserId: string;
+  callbackQueryId?: string;
 }> &
   (
     | Readonly<{ action: 'list' }>
@@ -416,6 +422,9 @@ export type TelegramPhotoManagementResult =
   | Readonly<{
       handled: true;
       action: 'list' | OwnPhotoAction['type'];
+      userId: string;
+      telegramUserId: string;
+      callbackQueryId?: string;
       collection: OwnPhotoCollection;
     }>;
 
@@ -426,6 +435,7 @@ function parsePhotoManagementUpdate(update: unknown): TelegramPhotoManagementUpd
   const root = record(update);
   const message = record(root?.message);
   const from = record(message?.from);
+  const chat = record(message?.chat);
   const updateId = root?.update_id;
   const telegramUserId = from?.id;
   const text = message?.text;
@@ -438,7 +448,9 @@ function parsePhotoManagementUpdate(update: unknown): TelegramPhotoManagementUpd
     updateId < 0 ||
     typeof telegramUserId !== 'number' ||
     !Number.isSafeInteger(telegramUserId) ||
-    telegramUserId <= 0
+    telegramUserId <= 0 ||
+    chat?.type !== 'private' ||
+    chat.id !== telegramUserId
   )
     throw new ApplicationError('invalid_request', 'error.media.telegram_command_invalid', 400);
   const base = { updateId: String(updateId), telegramUserId: String(telegramUserId) };
@@ -481,12 +493,19 @@ function parsePhotoManagementUpdate(update: unknown): TelegramPhotoManagementUpd
   throw new ApplicationError('invalid_request', 'error.media.telegram_command_invalid', 400);
 }
 
-function parsePhotoManagementCallback(
-  update: unknown,
-): Readonly<{ updateId: string; telegramUserId: string; token: string }> | undefined {
+function parsePhotoManagementCallback(update: unknown):
+  | Readonly<{
+      updateId: string;
+      telegramUserId: string;
+      callbackQueryId: string;
+      token: string;
+    }>
+  | undefined {
   const root = record(update);
   const callback = record(root?.callback_query);
   const from = record(callback?.from);
+  const message = record(callback?.message);
+  const chat = record(message?.chat);
   const data = callback?.data;
   if (typeof data !== 'string' || !data.startsWith('v1.pm.')) return undefined;
   const updateId = root?.update_id;
@@ -502,10 +521,17 @@ function parsePhotoManagementCallback(
     updateId < 0 ||
     typeof telegramUserId !== 'number' ||
     !Number.isSafeInteger(telegramUserId) ||
-    telegramUserId <= 0
+    telegramUserId <= 0 ||
+    chat?.type !== 'private' ||
+    chat.id !== telegramUserId
   )
     throw new ApplicationError('invalid_request', 'error.media.telegram_action_invalid', 400);
-  return { updateId: String(updateId), telegramUserId: String(telegramUserId), token: data };
+  return {
+    updateId: String(updateId),
+    telegramUserId: String(telegramUserId),
+    callbackQueryId: callbackId,
+    token: data,
+  };
 }
 
 export class TelegramPhotoManagementAdapter {
@@ -528,6 +554,7 @@ export class TelegramPhotoManagementAdapter {
       parsed = {
         updateId: callback.updateId,
         telegramUserId: callback.telegramUserId,
+        callbackQueryId: callback.callbackQueryId,
         action: state.action,
         expectedProfileVersion: state.expectedProfileVersion,
       };
@@ -550,11 +577,16 @@ export class TelegramPhotoManagementAdapter {
       return {
         handled: true,
         action: 'list',
+        userId,
+        telegramUserId: parsed.telegramUserId,
         collection: await this.useCases.list.execute(actor),
       };
     return {
       handled: true,
       action: parsed.action.type,
+      userId,
+      telegramUserId: parsed.telegramUserId,
+      ...(parsed.callbackQueryId === undefined ? {} : { callbackQueryId: parsed.callbackQueryId }),
       collection: await this.useCases.mutate.execute({
         actor,
         expectedProfileVersion: parsed.expectedProfileVersion,

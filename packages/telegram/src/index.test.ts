@@ -34,8 +34,17 @@ describe('TelegramPhotoManagementAdapter', () => {
       { list: { execute: list }, mutate: { execute: vi.fn() } },
     );
     await expect(
-      adapter.handle({ update_id: 10, message: { from: { id: 123 }, text: '/photos' } }),
-    ).resolves.toEqual({ handled: true, action: 'list', collection });
+      adapter.handle({
+        update_id: 10,
+        message: { from: { id: 123 }, chat: { id: 123, type: 'private' }, text: '/photos' },
+      }),
+    ).resolves.toEqual({
+      handled: true,
+      action: 'list',
+      userId: 'user-1',
+      telegramUserId: '123',
+      collection,
+    });
     expect(list).toHaveBeenCalledWith({ kind: 'user', userId: 'user-1' });
   });
 
@@ -53,10 +62,17 @@ describe('TelegramPhotoManagementAdapter', () => {
         update_id: 11,
         message: {
           from: { id: 123 },
+          chat: { id: 123, type: 'private' },
           text: '/photos_primary 40000000-0000-4000-8000-000000000000 3',
         },
       }),
-    ).resolves.toEqual({ handled: true, action: 'select_primary', collection });
+    ).resolves.toEqual({
+      handled: true,
+      action: 'select_primary',
+      userId: 'user-1',
+      telegramUserId: '123',
+      collection,
+    });
     expect(mutate).toHaveBeenCalledWith({
       actor: { kind: 'user', userId: 'user-1' },
       expectedProfileVersion: 3,
@@ -88,7 +104,10 @@ describe('TelegramPhotoManagementAdapter', () => {
       { resolveUserId: () => Promise.resolve('user-1') },
       { list: { execute: vi.fn() }, mutate: { execute: mutate } },
     );
-    await adapter.handle({ update_id: 15, message: { from: { id: 123 }, text } });
+    await adapter.handle({
+      update_id: 15,
+      message: { from: { id: 123 }, chat: { id: 123, type: 'private' }, text },
+    });
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         actor: { kind: 'user', userId: 'user-1' },
@@ -108,7 +127,11 @@ describe('TelegramPhotoManagementAdapter', () => {
     await expect(
       malformed.handle({
         update_id: 12,
-        message: { from: { id: 123 }, text: '/photos_delete x 1' },
+        message: {
+          from: { id: 123 },
+          chat: { id: 123, type: 'private' },
+          text: '/photos_delete x 1',
+        },
       }),
     ).rejects.toMatchObject({ code: 'invalid_request' });
     const unknown = new TelegramPhotoManagementAdapter(
@@ -116,7 +139,10 @@ describe('TelegramPhotoManagementAdapter', () => {
       useCases,
     );
     await expect(
-      unknown.handle({ update_id: 13, message: { from: { id: 123 }, text: '/photos' } }),
+      unknown.handle({
+        update_id: 13,
+        message: { from: { id: 123 }, chat: { id: 123, type: 'private' }, text: '/photos' },
+      }),
     ).rejects.toMatchObject({ code: 'unauthorized' });
     const limited = new TelegramPhotoManagementAdapter(
       { resolveUserId: () => Promise.resolve('user-1') },
@@ -124,10 +150,32 @@ describe('TelegramPhotoManagementAdapter', () => {
       { consume: () => Promise.resolve({ allowed: false, remaining: 0, retryAfterSeconds: 10 }) },
     );
     await expect(
-      limited.handle({ update_id: 14, message: { from: { id: 123 }, text: '/photos' } }),
+      limited.handle({
+        update_id: 14,
+        message: { from: { id: 123 }, chat: { id: 123, type: 'private' }, text: '/photos' },
+      }),
     ).rejects.toMatchObject({ code: 'rate_limited' });
     expect(useCases.list.execute).not.toHaveBeenCalled();
     expect(useCases.mutate.execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects photo management outside the authenticated sender private chat', async () => {
+    const list = vi.fn();
+    const adapter = new TelegramPhotoManagementAdapter(
+      { resolveUserId: () => Promise.resolve('user-1') },
+      { list: { execute: list }, mutate: { execute: vi.fn() } },
+    );
+    await expect(
+      adapter.handle({
+        update_id: 18,
+        message: {
+          from: { id: 123 },
+          chat: { id: -456, type: 'group' },
+          text: '/photos',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(list).not.toHaveBeenCalled();
   });
 
   it('resolves an actor-bound opaque callback before invoking a mutation', async () => {
@@ -147,7 +195,12 @@ describe('TelegramPhotoManagementAdapter', () => {
     await expect(
       adapter.handle({
         update_id: 16,
-        callback_query: { id: 'callback-1', from: { id: 123 }, data: token },
+        callback_query: {
+          id: 'callback-1',
+          from: { id: 123 },
+          message: { chat: { id: 123, type: 'private' } },
+          data: token,
+        },
       }),
     ).resolves.toMatchObject({ handled: true, action: 'delete' });
     expect(resolve).toHaveBeenCalledWith(token, '123');
@@ -175,6 +228,7 @@ describe('TelegramPhotoManagementAdapter', () => {
         callback_query: {
           id: 'callback-2',
           from: { id: 123 },
+          message: { chat: { id: 123, type: 'private' } },
           data: 'v1.pm.abcdefghijklmnop.83u2A2bTH5JUrFIB',
         },
       }),

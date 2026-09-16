@@ -361,7 +361,7 @@ PR5 continuation checklist:
 - [x] callback-sized HMAC action-token codec and bounded Redis state port with actor/expiry binding;
 - [x] fail-closed opaque callback resolution into versioned, idempotent owner mutations;
 - [x] provider-neutral localized owner-menu model with opaque, actor-bound action-token issuance;
-- [ ] Telegram Bot API rendering and inline-keyboard delivery of the owner-menu model;
+- [x] Telegram Bot API rendering and private-chat inline-keyboard delivery of the owner-menu model;
 - [ ] report-linked moderation orchestration (deferred to M7; `report_id` remains locked null);
 - [ ] verified external object cleanup for deleted photos (PR7).
 

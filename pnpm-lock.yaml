@@ -204,6 +204,9 @@ importers:
       '@nakh/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@nakh/localization':
+        specifier: workspace:*
+        version: link:../../packages/localization
       '@nakh/observability':
         specifier: workspace:*
         version: link:../../packages/observability
