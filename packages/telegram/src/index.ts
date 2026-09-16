@@ -392,8 +392,17 @@ type TelegramPhotoManagementUseCases = Readonly<{
 type TelegramPhotoManagementUpdate = Readonly<{
   updateId: string;
   telegramUserId: string;
-  action: 'list' | OwnPhotoAction;
-  expectedProfileVersion?: number;
+}> &
+  (
+    | Readonly<{ action: 'list' }>
+    | Readonly<{ action: OwnPhotoAction; expectedProfileVersion: number }>
+  );
+
+type TelegramPhotoActionTokenResolver = Readonly<{
+  resolve(
+    token: string,
+    telegramUserId: string,
+  ): Promise<Readonly<{ expectedProfileVersion: number; action: OwnPhotoAction }> | undefined>;
 }>;
 
 export type TelegramPhotoManagementResult =
@@ -466,17 +475,57 @@ function parsePhotoManagementUpdate(update: unknown): TelegramPhotoManagementUpd
   throw new ApplicationError('invalid_request', 'error.media.telegram_command_invalid', 400);
 }
 
+function parsePhotoManagementCallback(
+  update: unknown,
+): Readonly<{ updateId: string; telegramUserId: string; token: string }> | undefined {
+  const root = record(update);
+  const callback = record(root?.callback_query);
+  const from = record(callback?.from);
+  const data = callback?.data;
+  if (typeof data !== 'string' || !data.startsWith('v1.pm.')) return undefined;
+  const updateId = root?.update_id;
+  const telegramUserId = from?.id;
+  const callbackId = callback?.id;
+  if (
+    data.length > 64 ||
+    typeof callbackId !== 'string' ||
+    callbackId.length < 1 ||
+    callbackId.length > 128 ||
+    typeof updateId !== 'number' ||
+    !Number.isSafeInteger(updateId) ||
+    updateId < 0 ||
+    typeof telegramUserId !== 'number' ||
+    !Number.isSafeInteger(telegramUserId) ||
+    telegramUserId <= 0
+  )
+    throw new ApplicationError('invalid_request', 'error.media.telegram_action_invalid', 400);
+  return { updateId: String(updateId), telegramUserId: String(telegramUserId), token: data };
+}
+
 export class TelegramPhotoManagementAdapter {
   public constructor(
     private readonly resolver: TelegramUserResolver,
     private readonly useCases: TelegramPhotoManagementUseCases,
     private readonly rateLimiter?: RateLimiterPort,
     private readonly uuid: () => string = randomUUID,
+    private readonly actionTokens?: TelegramPhotoActionTokenResolver,
   ) {}
 
   public async handle(update: unknown): Promise<TelegramPhotoManagementResult> {
-    const parsed = parsePhotoManagementUpdate(update);
-    if (parsed === undefined) return { handled: false };
+    let parsed = parsePhotoManagementUpdate(update);
+    if (parsed === undefined) {
+      const callback = parsePhotoManagementCallback(update);
+      if (callback === undefined) return { handled: false };
+      const state = await this.actionTokens?.resolve(callback.token, callback.telegramUserId);
+      if (state === undefined)
+        throw new ApplicationError('invalid_request', 'error.media.telegram_action_invalid', 400);
+      parsed = {
+        updateId: callback.updateId,
+        telegramUserId: callback.telegramUserId,
+        action: state.action,
+        expectedProfileVersion: state.expectedProfileVersion,
+      };
+    }
     const userId = await this.resolver.resolveUserId(parsed.telegramUserId);
     if (userId === undefined)
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
@@ -502,7 +551,7 @@ export class TelegramPhotoManagementAdapter {
       action: parsed.action.type,
       collection: await this.useCases.mutate.execute({
         actor,
-        expectedProfileVersion: parsed.expectedProfileVersion!,
+        expectedProfileVersion: parsed.expectedProfileVersion,
         action: parsed.action,
         commandId: this.uuid(),
         requestId: this.uuid(),

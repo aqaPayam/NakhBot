@@ -48,7 +48,12 @@ In the repository, open **Settings → Secrets and variables → Actions**. Add 
 | `STAGING_ROUTE53_ZONE_ID` | Route53 zone containing that hostname |
 | `STAGING_ALERT_EMAIL` | monitored operational email |
 
-Add two repository secrets: `STAGING_TELEGRAM_BOT_TOKEN` from the separate staging bot and `STAGING_TELEGRAM_WEBHOOK_SECRET`, containing at least 32 cryptographically random characters. Do not add AWS access keys: GitHub uses a short-lived OIDC role restricted to this repository and its `main` branch.
+Add three repository secrets: `STAGING_TELEGRAM_BOT_TOKEN` from the separate staging bot,
+`STAGING_TELEGRAM_WEBHOOK_SECRET` containing at least 32 cryptographically random characters, and
+`STAGING_TELEGRAM_ACTION_TOKEN_KEY` containing an unpadded base64url-encoded random 32-byte key.
+Keep the action-token key independent from the webhook secret and media signing/encryption keys. Do
+not add AWS access keys: GitHub uses a short-lived OIDC role restricted to this repository and its
+`main` branch.
 
 Repository secrets are used because protected environments are unavailable for this private repository on the current GitHub plan. The workflow is manual-only, refuses non-`main` refs, requires the exact `DEPLOY-STAGING` confirmation, and the AWS trust policy independently permits only the `main` branch. Upgrade the repository plan and move these values into a required-reviewer environment before production.
 

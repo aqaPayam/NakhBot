@@ -34,6 +34,7 @@ jobs:
       TF_VAR_alert_email: ${{ vars.STAGING_ALERT_EMAIL }}
       TF_VAR_telegram_bot_token: ${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}
       TF_VAR_telegram_webhook_secret: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_SECRET }}
+      TF_VAR_telegram_action_token_key: ${{ secrets.STAGING_TELEGRAM_ACTION_TOKEN_KEY }}
       WEBHOOK_SECRET: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_SECRET }}
       IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
     steps:
@@ -45,6 +46,7 @@ jobs:
           test -n "$TF_VAR_public_hostname"
           test -n "$TF_VAR_route53_zone_id"
           test -n "$TF_VAR_alert_email"
+          test -n "$TF_VAR_telegram_action_token_key"
           test "${#TF_VAR_telegram_bot_token}" -ge 20
           test "${#TF_VAR_telegram_webhook_secret}" -ge 32
           test "$IMAGE_TAG" != "latest"

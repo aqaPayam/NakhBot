@@ -13,6 +13,7 @@ x-runtime-environment: &runtime-environment
   NAKH_QUEUE_PREFIX: nakh-staging-rehearsal
   NAKH_TELEGRAM_BOT_TOKEN_REF: NAKH_TELEGRAM_BOT_TOKEN
   NAKH_TELEGRAM_WEBHOOK_SECRET: local-rehearsal-webhook-secret-000001
+  NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF: NAKH_TELEGRAM_ACTION_TOKEN_KEY
   NAKH_R2_ENDPOINT: https://disabled-until-m2.invalid
   NAKH_R2_BUCKET: disabled-until-m2
   NAKH_R2_ACCESS_KEY_REF: NAKH_R2_ACCESS_KEY

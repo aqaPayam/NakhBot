@@ -35,6 +35,12 @@ describe('staging deployment readiness', () => {
     expect(compute).toContain(
       'valueFrom = "${aws_secretsmanager_secret.runtime.arn}:NAKH_TELEGRAM_BOT_TOKEN::"',
     );
+    expect(compute).toContain(
+      'valueFrom = "${aws_secretsmanager_secret.runtime.arn}:NAKH_TELEGRAM_ACTION_TOKEN_KEY::"',
+    );
+    expect(workflow).toContain('STAGING_TELEGRAM_ACTION_TOKEN_KEY');
+    expect(variables).toContain('variable "telegram_action_token_key"');
+    expect(variables).toContain('^[A-Za-z0-9_-]{43}$');
     expect(compute).not.toContain('aws-secretsmanager://');
   });
 
@@ -50,6 +56,7 @@ describe('staging deployment readiness', () => {
     expect(data).toContain('at_rest_encryption_enabled = true');
     expect(data).toContain('automatic_failover_enabled = true');
     expect(data).toContain('value = "noeviction"');
+    expect(data).toContain('NAKH_TELEGRAM_ACTION_TOKEN_KEY = var.telegram_action_token_key');
     expect(network).not.toMatch(/database[\s\S]{0,400}cidr_ipv4\s*=\s*"0\.0\.0\.0\/0"/u);
     expect(network).not.toMatch(/redis[\s\S]{0,400}cidr_ipv4\s*=\s*"0\.0\.0\.0\/0"/u);
   });

@@ -135,6 +135,17 @@ variable "telegram_bot_token" {
   }
 }
 
+variable "telegram_action_token_key" {
+  description = "Base64url-encoded 32-byte HMAC key for opaque Telegram actions. Pass through TF_VAR_telegram_action_token_key; never commit it."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_-]{43}$", var.telegram_action_token_key))
+    error_message = "telegram_action_token_key must be an unpadded base64url-encoded 32-byte key."
+  }
+}
+
 variable "monthly_budget_usd" {
   description = "Staging monthly cost budget. The alert is created only when alert_email is set."
   type        = number

@@ -23,6 +23,7 @@ describe('configuration', () => {
 
     expect(config.environment).toBe('test');
     expect(config.http.port).toBe(3000);
+    expect(config.telegram.actionTokenKeyRef).toBe('NAKH_TELEGRAM_ACTION_TOKEN_KEY');
     expect(config.media).toMatchObject({
       ingestionEnabled: false,
       cachePurgeEnabled: false,

@@ -129,6 +129,58 @@ describe('TelegramPhotoManagementAdapter', () => {
     expect(useCases.list.execute).not.toHaveBeenCalled();
     expect(useCases.mutate.execute).not.toHaveBeenCalled();
   });
+
+  it('resolves an actor-bound opaque callback before invoking a mutation', async () => {
+    const mutate = vi.fn().mockResolvedValue(collection);
+    const resolve = vi.fn().mockResolvedValue({
+      expectedProfileVersion: 6,
+      action: { type: 'delete', photoId: '40000000-0000-4000-8000-000000000000' },
+    });
+    const adapter = new TelegramPhotoManagementAdapter(
+      { resolveUserId: () => Promise.resolve('user-1') },
+      { list: { execute: vi.fn() }, mutate: { execute: mutate } },
+      undefined,
+      () => '20000000-0000-4000-8000-000000000000',
+      { resolve },
+    );
+    const token = 'v1.pm.abcdefghijklmnop.83u2A2bTH5JUrFIB';
+    await expect(
+      adapter.handle({
+        update_id: 16,
+        callback_query: { id: 'callback-1', from: { id: 123 }, data: token },
+      }),
+    ).resolves.toMatchObject({ handled: true, action: 'delete' });
+    expect(resolve).toHaveBeenCalledWith(token, '123');
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: { kind: 'user', userId: 'user-1' },
+        expectedProfileVersion: 6,
+        idempotencyKey: 'telegram-update:16',
+      }),
+    );
+  });
+
+  it('fails closed for an invalid opaque callback without resolving the user', async () => {
+    const resolveUserId = vi.fn();
+    const adapter = new TelegramPhotoManagementAdapter(
+      { resolveUserId },
+      { list: { execute: vi.fn() }, mutate: { execute: vi.fn() } },
+      undefined,
+      undefined,
+      { resolve: () => Promise.resolve(undefined) },
+    );
+    await expect(
+      adapter.handle({
+        update_id: 17,
+        callback_query: {
+          id: 'callback-2',
+          from: { id: 123 },
+          data: 'v1.pm.abcdefghijklmnop.83u2A2bTH5JUrFIB',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(resolveUserId).not.toHaveBeenCalled();
+  });
 });
 
 describe('TelegramPhotoIngestionAdapter', () => {

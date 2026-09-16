@@ -35,9 +35,10 @@ import {
   SystemIdGenerator,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
-import { createRedisConnection, RedisRateLimiter } from '@nakh/queue-redis';
+import { createRedisConnection, RedisOpaqueTokenStore, RedisRateLimiter } from '@nakh/queue-redis';
 import {
   TelegramMediaTransportCipher,
+  TelegramPhotoActionTokens,
   TelegramPhotoIngestionAdapter,
   TelegramPhotoManagementAdapter,
   TelegramStartAdapter,
@@ -56,12 +57,12 @@ const M2_METRICS = Symbol('M2_METRICS');
 type PhotoAdapter = Pick<TelegramPhotoIngestionAdapter, 'handle'>;
 type PhotoManagementAdapter = Pick<TelegramPhotoManagementAdapter, 'handle'>;
 
-function transportKey(reference: string): Uint8Array {
+function secretKey(reference: string): Uint8Array {
   const encoded = resolveSecretReference(reference);
-  if (!/^[A-Za-z0-9_-]{43}$/u.test(encoded)) throw new Error('Invalid media transport key.');
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(encoded)) throw new Error('Invalid 32-byte secret key.');
   const key = Buffer.from(encoded, 'base64url');
   if (key.byteLength !== 32 || key.toString('base64url') !== encoded)
-    throw new Error('Invalid media transport key.');
+    throw new Error('Invalid 32-byte secret key.');
   return key;
 }
 
@@ -223,7 +224,7 @@ export class TelegramGatewayModule {
           const cipher = new TelegramMediaTransportCipher(
             mediaEnvironment,
             config.media.transportKeyId,
-            new Map([[config.media.transportKeyId, transportKey(config.media.transportKeyRef)]]),
+            new Map([[config.media.transportKeyId, secretKey(config.media.transportKeyRef)]]),
           );
           return new TelegramPhotoIngestionAdapter(
             new PostgresTelegramUserResolver(database),
@@ -239,6 +240,10 @@ export class TelegramGatewayModule {
     const photoManagementAdapter: PhotoManagementAdapter = config.media.ingestionEnabled
       ? (() => {
           const store = new PostgresPhotoManagementStore(database);
+          const actionTokens = new TelegramPhotoActionTokens(
+            new RedisOpaqueTokenStore(redis, config.redis.queuePrefix),
+            secretKey(config.telegram.actionTokenKeyRef),
+          );
           return new TelegramPhotoManagementAdapter(
             new PostgresTelegramUserResolver(database),
             {
@@ -246,6 +251,8 @@ export class TelegramGatewayModule {
               mutate: new MutateOwnPhotosHandler(store, new SystemIdGenerator(), new SystemClock()),
             },
             limiter,
+            undefined,
+            actionTokens,
           );
         })()
       : { handle: () => Promise.resolve({ handled: false as const }) };

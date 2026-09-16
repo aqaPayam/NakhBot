@@ -30,6 +30,7 @@ locals {
     { name = "NAKH_DATABASE_LOCK_TIMEOUT_MS", value = "1000" },
     { name = "NAKH_QUEUE_PREFIX", value = local.name },
     { name = "NAKH_TELEGRAM_BOT_TOKEN_REF", value = "NAKH_TELEGRAM_BOT_TOKEN" },
+    { name = "NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF", value = "NAKH_TELEGRAM_ACTION_TOKEN_KEY" },
     { name = "NAKH_R2_ENDPOINT", value = "https://disabled-until-m2.invalid" },
     { name = "NAKH_R2_BUCKET", value = "disabled-until-m2" },
     { name = "NAKH_R2_ACCESS_KEY_REF", value = "disabled-until-m2" },
@@ -64,6 +65,10 @@ locals {
     {
       name      = "NAKH_TELEGRAM_BOT_TOKEN"
       valueFrom = "${aws_secretsmanager_secret.runtime.arn}:NAKH_TELEGRAM_BOT_TOKEN::"
+    },
+    {
+      name      = "NAKH_TELEGRAM_ACTION_TOKEN_KEY"
+      valueFrom = "${aws_secretsmanager_secret.runtime.arn}:NAKH_TELEGRAM_ACTION_TOKEN_KEY::"
     },
   ]
 

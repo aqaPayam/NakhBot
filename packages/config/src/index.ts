@@ -31,6 +31,7 @@ const ConfigSchema = Type.Object(
     telegram: Type.Object({
       botTokenRef: Type.String({ minLength: 1 }),
       webhookSecret: Type.String({ minLength: 32 }),
+      actionTokenKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
@@ -121,6 +122,11 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     telegram: {
       botTokenRef: required(env, 'NAKH_TELEGRAM_BOT_TOKEN_REF'),
       webhookSecret: required(env, 'NAKH_TELEGRAM_WEBHOOK_SECRET'),
+      actionTokenKeyRef: required(
+        env,
+        'NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF',
+        'NAKH_TELEGRAM_ACTION_TOKEN_KEY',
+      ),
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),
