@@ -36,7 +36,7 @@ describe('M3 discovery application ports', () => {
     );
   });
 
-  it('rejects a non-user candidate query before storage', async () => {
+  it('rejects a non-user candidate query before storage', () => {
     const reserveNext = vi.fn();
     const handler = new GetNextExploreCandidateHandler(
       { saveFilter: vi.fn(), reserveNext },
