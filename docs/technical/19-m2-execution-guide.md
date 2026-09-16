@@ -360,7 +360,8 @@ PR5 continuation checklist:
 - [x] authenticated, rate-limited Telegram owner command ingress with server-side identity resolution;
 - [x] callback-sized HMAC action-token codec and bounded Redis state port with actor/expiry binding;
 - [x] fail-closed opaque callback resolution into versioned, idempotent owner mutations;
-- [ ] localized owner menu rendering and opaque inline action-token delivery;
+- [x] provider-neutral localized owner-menu model with opaque, actor-bound action-token issuance;
+- [ ] Telegram Bot API rendering and inline-keyboard delivery of the owner-menu model;
 - [ ] report-linked moderation orchestration (deferred to M7; `report_id` remains locked null);
 - [ ] verified external object cleanup for deleted photos (PR7).
 

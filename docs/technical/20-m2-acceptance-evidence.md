@@ -29,8 +29,8 @@ environment. It must be updated with the immutable commit and CI run before stag
 | Private delivery | grant signer, PostgreSQL authorization, and edge verifier | tamper, expiry, audience/path/purpose binding, key rotation, cross-user denial, and private-response tests |
 | Optional blur | blur coordinator/store | deterministic concurrency, stale-primary denial, transform/storage failure, and Profile preservation tests |
 | Deletion and reconciliation | cleanup coordinator/store, R2 adapter, worker, and scheduler | partial failure, lease recovery, generation fencing, malicious-key rejection, cursor retry, and orphan grace tests |
-| Privacy and telemetry | redacting logger, fixed M2 metric registries, and opaque Telegram action tokens | redaction, bounded-label, callback-size, tamper, actor-binding, expiry, collision, and malformed-state tests; provider identifiers, object keys, hashes, and cursor values are excluded |
-| Migration safety | migrations `000010` through `000015` and verification SQL | empty/replay migration CI, PostgreSQL integration, restore smoke, and production container builds |
+| Privacy and telemetry | redacting logger, fixed M2 metric registries, opaque Telegram action tokens, and localized owner-menu model | redaction, bounded-label, callback-size, tamper, actor-binding, expiry, collision, malformed-state, no-identifier view-model, and exact reorder-state tests; provider identifiers, object keys, hashes, and cursor values are excluded |
+| Migration safety | migrations `000010` through `000016` and verification SQL | empty/replay migration CI, PostgreSQL integration, restore smoke, and production container builds |
 
 ## Default-branch automated gate
 
@@ -64,8 +64,9 @@ accepted or enabling its feature flags:
   signing key, and Cloudflare purge token;
 - production-scale media load results and real-provider timeout, partial-write, deletion, and orphan
   reconciliation evidence;
-- localized owner photo-management rendering and opaque inline action tokens; authenticated,
-  rate-limited Telegram command ingress and transactionally idempotent operations are composed;
+- Telegram Bot API rendering and inline-keyboard delivery of the localized owner-menu model;
+  authenticated, rate-limited Telegram command ingress, opaque action issuance/resolution, and
+  transactionally idempotent operations are composed;
 - completed [`m2-staging-acceptance.md`](../../deploy/runbooks/m2-staging-acceptance.md) with evidence,
   reviewer, and timestamps.
 

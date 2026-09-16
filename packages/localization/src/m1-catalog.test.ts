@@ -32,6 +32,7 @@ describe('M1 localization manifest', () => {
           '000007_m1_profile_confirmation.sql',
           '000008_m1_profile_change_requests.sql',
           '000009_m1_hardening.sql',
+          '000016_m2_localization.sql',
         ].map((name) => readFile(resolve(process.cwd(), 'migrations', name), 'utf8')),
       )
     ).join('\n');

@@ -1,6 +1,12 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 export { TelegramMediaTransportCipher } from './media-cipher.js';
 export { TelegramPhotoActionTokens, type TelegramPhotoActionTokenState } from './action-token.js';
+export {
+  TelegramPhotoMenuPresenter,
+  type TelegramPhotoMenu,
+  type TelegramPhotoMenuButton,
+  type TelegramPhotoMenuRow,
+} from './photo-menu.js';
 
 import {
   type BeginTelegramPhotoIngestionHandler,

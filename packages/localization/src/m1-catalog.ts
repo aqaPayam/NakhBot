@@ -276,6 +276,72 @@ const CORE_M1_ENGLISH_ENTRIES = [
   },
 ] as const satisfies ReadonlyArray<Omit<LocalizationManifestEntry, 'variables' | 'required'>>;
 
+export const M2_LOCALIZATION_ENTRIES: readonly LocalizationManifestEntry[] = [
+  {
+    key: 'media.photos.title',
+    category: 'message',
+    english: 'Your photos ({count})',
+    variables: ['count'],
+    required: true,
+  },
+  {
+    key: 'media.photos.empty',
+    category: 'message',
+    english: 'You have no photos yet.',
+    variables: [],
+    required: true,
+  },
+  {
+    key: 'media.photos.item.primary',
+    category: 'message',
+    english: 'Photo {position} · Primary',
+    variables: ['position'],
+    required: true,
+  },
+  {
+    key: 'media.photos.item.visible',
+    category: 'message',
+    english: 'Photo {position} · Visible',
+    variables: ['position'],
+    required: true,
+  },
+  {
+    key: 'media.photos.item.hidden',
+    category: 'message',
+    english: 'Photo {position} · Hidden',
+    variables: ['position'],
+    required: true,
+  },
+  {
+    key: 'media.photos.button.set_primary',
+    category: 'button',
+    english: 'Make primary',
+    variables: [],
+    required: true,
+  },
+  {
+    key: 'media.photos.button.move_up',
+    category: 'button',
+    english: 'Move up',
+    variables: [],
+    required: true,
+  },
+  {
+    key: 'media.photos.button.move_down',
+    category: 'button',
+    english: 'Move down',
+    variables: [],
+    required: true,
+  },
+  {
+    key: 'media.photos.button.delete',
+    category: 'button',
+    english: 'Delete',
+    variables: [],
+    required: true,
+  },
+] as const;
+
 const CATALOG_GROUPS = [
   { namespace: 'gender', codes: ['man', 'woman', 'other'] },
   { namespace: 'gender_preference', codes: ['men', 'women', 'everyone'] },
@@ -418,6 +484,7 @@ export const M1_CATALOG_LOCALIZATION_ENTRIES: readonly LocalizationManifestEntry
 export const M1_LOCALIZATION_MANIFEST: readonly LocalizationManifestEntry[] = [
   ...CORE_M1_ENGLISH_ENTRIES.map((entry) => ({ ...entry, variables: [], required: true })),
   ...M1_CATALOG_LOCALIZATION_ENTRIES,
+  ...M2_LOCALIZATION_ENTRIES,
 ];
 
 export function englishCatalogFromManifest(): Readonly<Record<string, string>> {
