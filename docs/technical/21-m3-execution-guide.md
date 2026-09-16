@@ -242,3 +242,17 @@ Stable acceptance IDs:
 Every increment must pass frozen install, formatting, lint, type checks, unit/integration/concurrency
 tests, migration replay/verification, security audit, and production builds. M3 is complete only when
 `ACC-014..019` and the production-volume query-plan gate are green with no skipped M3 tests.
+
+## 13. Implementation status
+
+PR 1 foundation:
+
+- [x] canonical pair normalization and invalid/self-pair rejection;
+- [x] reciprocal compatibility and Explore-filter narrowing policy;
+- [x] approximate-age, City, relationship-goal, and bounded-shuffle policies;
+- [x] irreversible Like and pair-state transition policies;
+- [x] strict Save Filter, candidate, Like, Not Interested, Liked By, delivery-job, and result schemas;
+- [x] explicit versioned M3 event-name registry and stable application error codes;
+- [x] channel-neutral discovery/interaction store ports and authorization-first handlers;
+- [x] focused domain, schema, privacy-shape, and handler tests;
+- [ ] persistence migrations and PostgreSQL adapters (PR 2).
