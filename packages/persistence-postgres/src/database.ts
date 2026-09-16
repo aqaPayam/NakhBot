@@ -391,6 +391,78 @@ export interface CandidateDeliveryTable {
   updated_at: Date;
 }
 
+export interface LikeTable {
+  id: string;
+  sender_user_id: string;
+  receiver_user_id: string;
+  status:
+    | 'active'
+    | 'closed_by_match'
+    | 'closed_by_not_interested'
+    | 'closed_by_unmatch'
+    | 'cancelled_by_system';
+  created_at: Date;
+  closed_at: Date | null;
+  version: Generated<number>;
+}
+
+export interface NotInterestedTable {
+  id: string;
+  sender_user_id: string;
+  receiver_user_id: string;
+  source: 'explore' | 'liked_by' | 'cancelled_pending_nakh';
+  created_at: Date;
+}
+
+export interface UserPairStateTable {
+  user_low_id: string;
+  user_high_id: string;
+  state: 'matched' | 'unmatched' | 'blocked';
+  reason_code: string;
+  changed_at: Date;
+  version: Generated<number>;
+}
+
+export interface MatchTable {
+  id: string;
+  user_low_id: string;
+  user_high_id: string;
+  source: 'mutual_like' | 'nakh_accept';
+  source_like_a_id: string | null;
+  source_like_b_id: string | null;
+  source_nakh_id: string | null;
+  status: 'active' | 'unmatched' | 'closed';
+  created_at: Date;
+  closed_at: Date | null;
+  version: Generated<number>;
+}
+
+export interface MatchParticipantTable {
+  match_id: string;
+  user_id: string;
+  joined_at: Date;
+}
+
+export interface ChatSessionTable {
+  id: string;
+  match_id: string;
+  status: 'active' | 'closed';
+  next_sequence_number: Generated<string>;
+  created_at: Date;
+  closed_at: Date | null;
+  closed_reason:
+    'unmatch' | 'account_deleted' | 'user_banned' | 'admin_action' | 'internal_block' | null;
+  version: Generated<number>;
+}
+
+export interface ChatParticipantTable {
+  chat_session_id: string;
+  user_id: string;
+  last_read_at: Date | null;
+  muted_at: Date | null;
+  unlock_safety_warning_shown_at: Date | null;
+}
+
 export interface DatabaseSchema {
   'media.media_assets': MediaAssetTable;
   'media.photo_variants': PhotoVariantTable;
@@ -439,6 +511,13 @@ export interface DatabaseSchema {
   'discovery.explore_filter_genders': ExploreFilterGenderTable;
   'discovery.explore_consumptions': ExploreConsumptionTable;
   'discovery.candidate_deliveries': CandidateDeliveryTable;
+  'interaction.likes': LikeTable;
+  'interaction.not_interested': NotInterestedTable;
+  'interaction.user_pair_states': UserPairStateTable;
+  'matching.matches': MatchTable;
+  'matching.match_participants': MatchParticipantTable;
+  'chat.chat_sessions': ChatSessionTable;
+  'chat.chat_participants': ChatParticipantTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;

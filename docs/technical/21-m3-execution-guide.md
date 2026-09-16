@@ -256,4 +256,5 @@ PR 1 foundation:
 - [x] channel-neutral discovery/interaction store ports and authorization-first handlers;
 - [x] focused domain, schema, privacy-shape, and handler tests;
 - [x] migration `000017` discovery/filter/consumption/reservation schema and verification SQL;
-- [ ] migrations `000018..000019` and PostgreSQL adapters (PR 2 continuation).
+- [x] migrations `000018..000019` interaction/Match/Chat foundation and verification SQL;
+- [ ] PostgreSQL discovery and interaction adapters (PR 2 continuation).
