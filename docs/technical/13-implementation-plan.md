@@ -62,6 +62,8 @@ Exit gate: `ACC-008..013`, malicious-image corpus, R2 failure/retry, object auth
 
 Deliver Explore/Guest candidate query, saved temporary filters, reciprocal compatibility, atomic consumption, Like, Liked By derived query, Not Interested, opposite-Like Match/chat creation.
 
+Execution guide: [`21-m3-execution-guide.md`](21-m3-execution-guide.md).
+
 Exit gate: `ACC-014..019`, property and production-volume query-plan tests pass.
 
 ### M4 — billing foundation and paid unlocks
