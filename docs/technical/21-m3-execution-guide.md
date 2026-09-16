@@ -255,4 +255,5 @@ PR 1 foundation:
 - [x] explicit versioned M3 event-name registry and stable application error codes;
 - [x] channel-neutral discovery/interaction store ports and authorization-first handlers;
 - [x] focused domain, schema, privacy-shape, and handler tests;
-- [ ] persistence migrations and PostgreSQL adapters (PR 2).
+- [x] migration `000017` discovery/filter/consumption/reservation schema and verification SQL;
+- [ ] migrations `000018..000019` and PostgreSQL adapters (PR 2 continuation).

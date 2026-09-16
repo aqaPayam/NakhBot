@@ -352,6 +352,45 @@ export interface AuditLogTable {
   occurred_at: Date;
 }
 
+export interface ExploreFilterTable {
+  user_id: string;
+  min_age: number;
+  max_age: number;
+  city_id: string;
+  relationship_goal_id: string | null;
+  version: Generated<number>;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ExploreFilterGenderTable {
+  user_id: string;
+  gender_option_id: string;
+}
+
+export interface ExploreConsumptionTable {
+  viewer_user_id: string;
+  target_user_id: string;
+  reason: 'preview' | 'like' | 'not_interested' | 'nakh_flow' | 'match';
+  consumed_at: Date;
+}
+
+export interface CandidateDeliveryTable {
+  id: string;
+  viewer_user_id: string;
+  target_user_id: string;
+  mode: 'explore' | 'guest_preview';
+  filter_version: number;
+  state: 'reserved' | 'delivered' | 'failed';
+  attempt_count: Generated<number>;
+  expires_at: Date;
+  provider_message_id: string | null;
+  reserved_at: Date;
+  delivered_at: Date | null;
+  failed_at: Date | null;
+  updated_at: Date;
+}
+
 export interface DatabaseSchema {
   'media.media_assets': MediaAssetTable;
   'media.photo_variants': PhotoVariantTable;
@@ -396,6 +435,10 @@ export interface DatabaseSchema {
   'profile.profile_change_requests': ProfileChangeRequestTable;
   'profile.profile_change_reviews': ProfileChangeReviewTable;
   'administration.admin_users': AdminUserTable;
+  'discovery.explore_filters': ExploreFilterTable;
+  'discovery.explore_filter_genders': ExploreFilterGenderTable;
+  'discovery.explore_consumptions': ExploreConsumptionTable;
+  'discovery.candidate_deliveries': CandidateDeliveryTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;
