@@ -126,6 +126,7 @@ Create new forward-only migrations after `000009_m1_hardening.sql`:
 4. `000013_m2_media_jobs.sql` — durable ingestion-worker leases and versioned clean-scan evidence.
 5. `000014_m2_media_validation.sql` — validation leases, verified rendition facts, and publication guards.
 6. `000015_m2_media_cleanup.sql` — deletion generations, cleanup leases, immutable storage keys, and verified-deletion facts.
+7. `000016_m2_localization.sql` — localized owner photo-menu copy and typed template variables.
 
 Never edit an applied migration. Each migration must run from empty and immediately previous schema, be replay-safe through the migration runner, and add verification SQL.
 

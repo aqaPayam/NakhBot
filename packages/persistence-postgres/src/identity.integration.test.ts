@@ -188,7 +188,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     await database?.destroy();
   });
 
-  it('installs the locked locales and complete initial English catalog', async () => {
+  it('installs the locked locales and complete English catalog', async () => {
     const locales = await database
       .selectFrom('catalog.locales')
       .select(['code', 'is_active', 'is_default'])
@@ -202,8 +202,9 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(161);
+    expect(Object.keys(english.messages)).toHaveLength(170);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
+    expect(english.messages['media.photos.button.delete']).toBe('Delete');
     expect(inactiveFallback).toMatchObject({ requestedLocale: 'fa', resolvedLocale: 'en' });
   });
 
