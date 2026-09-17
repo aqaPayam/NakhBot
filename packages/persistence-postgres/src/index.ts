@@ -28,6 +28,7 @@ export { PostgresBlurGenerationStore } from './blur-generation-store.js';
 export { PostgresProfileMediaEligibility } from './media-eligibility.js';
 export { PostgresProfileChangeStore } from './profile-change-store.js';
 export { PostgresGuestPreviewStore } from './guest-preview-store.js';
+export { PostgresExploreFilterStore } from './explore-filter-store.js';
 export {
   migrationStatus,
   runMigrations,

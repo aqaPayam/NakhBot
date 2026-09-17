@@ -18,11 +18,14 @@ export type CandidateReservation = Readonly<{
   expiresAt: string;
 }>;
 
-export interface DiscoveryStore {
+export interface ExploreFilterStore {
   saveFilter(
     command: SaveExploreFilterCommand,
     generated: Readonly<{ auditId: string; eventId: string; processedAt: Date }>,
   ): Promise<ExploreFilterResult>;
+}
+
+export interface CandidateReservationStore {
   reserveNext(
     query: GetNextExploreCandidateQuery,
     generated: Readonly<{ deliveryId: string; eventId: string; reservedAt: Date }>,
@@ -36,7 +39,7 @@ function assertUser(actor: Readonly<{ kind: string; userId: string }>): void {
 
 export class SaveExploreFilterHandler {
   public constructor(
-    private readonly store: DiscoveryStore,
+    private readonly store: ExploreFilterStore,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
   ) {}
@@ -53,7 +56,7 @@ export class SaveExploreFilterHandler {
 
 export class GetNextExploreCandidateHandler {
   public constructor(
-    private readonly store: DiscoveryStore,
+    private readonly store: CandidateReservationStore,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
   ) {}

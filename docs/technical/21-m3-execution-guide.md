@@ -257,4 +257,5 @@ PR 1 foundation:
 - [x] focused domain, schema, privacy-shape, and handler tests;
 - [x] migration `000017` discovery/filter/consumption/reservation schema and verification SQL;
 - [x] migrations `000018..000019` interaction/Match/Chat foundation and verification SQL;
-- [ ] PostgreSQL discovery and interaction adapters (PR 2 continuation).
+- [x] idempotent PostgreSQL Explore-filter save with optimistic version and preference-subset proof;
+- [ ] candidate reservation/query and interaction transaction adapters (PR 2 continuation).

@@ -8,7 +8,7 @@ const clock = { now: () => new Date('2026-09-16T00:00:00.000Z') };
 describe('M3 discovery application ports', () => {
   it('passes generated durable identities to the filter transaction', async () => {
     const saveFilter = vi.fn().mockResolvedValue({ version: 1, replayed: false });
-    const handler = new SaveExploreFilterHandler({ saveFilter, reserveNext: vi.fn() }, ids, clock);
+    const handler = new SaveExploreFilterHandler({ saveFilter }, ids, clock);
     const command = {
       commandId: '20000000-0000-4000-8000-000000000000',
       commandType: 'discovery.save-explore-filter' as const,
@@ -38,11 +38,7 @@ describe('M3 discovery application ports', () => {
 
   it('rejects a non-user candidate query before storage', () => {
     const reserveNext = vi.fn();
-    const handler = new GetNextExploreCandidateHandler(
-      { saveFilter: vi.fn(), reserveNext },
-      ids,
-      clock,
-    );
+    const handler = new GetNextExploreCandidateHandler({ reserveNext }, ids, clock);
     expect(() =>
       handler.execute({
         actor: { kind: 'system', userId: '30000000-0000-4000-8000-000000000000' },
