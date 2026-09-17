@@ -107,7 +107,8 @@ against consumption before reservation.
 
 Reservation transaction:
 
-1. lock viewer and expire a stale reservation;
+1. lock viewer and return any unresolved reservation; expiry only makes it reconciliation-eligible,
+   and only a proven definitive non-delivery may mark it failed;
 2. validate viewer mode and authoritative target eligibility;
 3. insert the reservation without yet creating final consumption;
 4. for Guest Preview, lock the counter and admit the reservation only when
@@ -262,4 +263,6 @@ PR 1 foundation:
 - [x] idempotent PostgreSQL Explore-filter save with optimistic version and preference-subset proof;
 - [x] reciprocal Explore/Guest candidate query with bounded shuffle, writer recheck, pair locking,
   Guest Preview admission, and one-live durable reservation;
-- [ ] delivery finalization/compensation and interaction transaction adapters (PR 2 continuation).
+- [x] idempotent delivery success/failure finalization with atomic consumption and Guest Preview
+  counter use, plus definitive-failure compensation without consumption;
+- [ ] interaction transaction adapters (PR 2 continuation).

@@ -274,14 +274,6 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
     return this.database.transaction().execute(async (transaction) => {
       const viewerId = query.actor.userId;
       await lockViewer(transaction, viewerId);
-      await transaction
-        .updateTable('discovery.candidate_deliveries')
-        .set({ state: 'failed', failed_at: generated.reservedAt, updated_at: generated.reservedAt })
-        .where('viewer_user_id', '=', viewerId)
-        .where('state', '=', 'reserved')
-        .where('expires_at', '<=', generated.reservedAt)
-        .execute();
-
       let viewer = await loadViewer(transaction, viewerId);
       validateViewer(viewer, query.mode);
       const existing = await transaction
@@ -289,7 +281,6 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
         .select(['id', 'target_user_id', 'mode', 'filter_version', 'expires_at'])
         .where('viewer_user_id', '=', viewerId)
         .where('state', '=', 'reserved')
-        .where('expires_at', '>', generated.reservedAt)
         .executeTakeFirst();
       if (existing !== undefined) {
         if (existing.mode !== query.mode)

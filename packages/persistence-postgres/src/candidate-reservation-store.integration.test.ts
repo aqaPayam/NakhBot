@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { GetNextExploreCandidateQuery } from '@nakh/contracts';
 
+import { PostgresCandidateDeliveryStore } from './candidate-delivery-store.js';
 import { PostgresCandidateReservationStore } from './candidate-reservation-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { seedValidMedia } from './media-fixtures.js';
@@ -122,6 +123,28 @@ function generated(at = new Date()): Readonly<{
   return { deliveryId: randomUUID(), eventId: randomUUID(), reservedAt: at };
 }
 
+function deliveredGenerated(): Readonly<{
+  auditId: string;
+  deliveryEventId: string;
+  consumptionEventId: string;
+  processedAt: Date;
+}> {
+  return {
+    auditId: randomUUID(),
+    deliveryEventId: randomUUID(),
+    consumptionEventId: randomUUID(),
+    processedAt: new Date(),
+  };
+}
+
+function failedGenerated(): Readonly<{
+  auditId: string;
+  eventId: string;
+  processedAt: Date;
+}> {
+  return { auditId: randomUUID(), eventId: randomUUID(), processedAt: new Date() };
+}
+
 describe.skipIf(databaseUrl === undefined)('M3 candidate reservation persistence', () => {
   let database: NakhDatabase;
 
@@ -201,6 +224,26 @@ describe.skipIf(databaseUrl === undefined)('M3 candidate reservation persistence
       .where('event_type', '=', 'discovery.candidate-reserved.v1')
       .execute();
     expect(events).toHaveLength(1);
+
+    const deliveryStore = new PostgresCandidateDeliveryStore(database);
+    const outcomes = await Promise.all([
+      deliveryStore.recordDelivered(
+        { deliveryId: requests[0]!.deliveryId, providerMessageId: '101' },
+        deliveredGenerated(),
+      ),
+      deliveryStore.recordDelivered(
+        { deliveryId: requests[0]!.deliveryId, providerMessageId: '101' },
+        deliveredGenerated(),
+      ),
+    ]);
+    expect(outcomes.map((outcome) => outcome.replayed).sort()).toEqual([false, true]);
+    const consumption = await database
+      .selectFrom('discovery.explore_consumptions')
+      .select('reason')
+      .where('viewer_user_id', '=', viewerId)
+      .where('target_user_id', '=', targetId)
+      .executeTakeFirstOrThrow();
+    expect(consumption.reason).toBe('preview');
   });
 
   it('ignores viewer Profile facts for Guest Preview and refuses a new reservation at the limit', async () => {
@@ -219,8 +262,57 @@ describe.skipIf(databaseUrl === undefined)('M3 candidate reservation persistence
     expect(reservation).toMatchObject({ mode: 'guest_preview', filterVersion: 1 });
     expect(reservation?.targetUserId).toBeTruthy();
     expect(targetId).toBeTruthy();
+    const deliveryStore = new PostgresCandidateDeliveryStore(database);
+    await deliveryStore.recordDelivered(
+      { deliveryId: reservation!.deliveryId, providerMessageId: '202' },
+      deliveredGenerated(),
+    );
+    const counter = await database
+      .selectFrom('identity.guest_preview_counters')
+      .select('preview_count')
+      .where('user_id', '=', guestId)
+      .executeTakeFirstOrThrow();
+    expect(counter.preview_count).toBe(1);
     await expect(
       store.reserveNext(query(limitedGuestId, 'guest_preview'), generated()),
     ).rejects.toMatchObject({ code: 'guest_preview_limit_reached' });
+  });
+
+  it('releases a definitively failed reservation without consumption or counter use', async () => {
+    const currentYear = new Date().getUTCFullYear();
+    await createUser(database, 'active', {
+      genderOptionId: womanGenderId,
+      genderPreferenceId: menPreferenceId,
+      birthYear: currentYear - 30,
+      primaryPhoto: true,
+    });
+    const guestId = await createUser(database, 'guest');
+    const reservations = new PostgresCandidateReservationStore(database);
+    const deliveries = new PostgresCandidateDeliveryStore(database);
+    const first = await reservations.reserveNext(query(guestId, 'guest_preview'), generated());
+    expect(first).toBeDefined();
+    await expect(
+      deliveries.recordDefinitiveFailure(
+        { deliveryId: first!.deliveryId, reasonCode: 'provider_rejected' },
+        failedGenerated(),
+      ),
+    ).resolves.toMatchObject({ state: 'failed', replayed: false });
+    const consumption = await database
+      .selectFrom('discovery.explore_consumptions')
+      .select('viewer_user_id')
+      .where('viewer_user_id', '=', guestId)
+      .execute();
+    const counter = await database
+      .selectFrom('identity.guest_preview_counters')
+      .select('preview_count')
+      .where('user_id', '=', guestId)
+      .executeTakeFirstOrThrow();
+    expect(consumption).toHaveLength(0);
+    expect(counter.preview_count).toBe(0);
+    const replacement = await reservations.reserveNext(
+      query(guestId, 'guest_preview'),
+      generated(),
+    );
+    expect(replacement?.deliveryId).not.toBe(first!.deliveryId);
   });
 });

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { GetNextExploreCandidateHandler, SaveExploreFilterHandler } from './discovery.js';
+import {
+  GetNextExploreCandidateHandler,
+  RecordCandidateDeliveryHandler,
+  SaveExploreFilterHandler,
+} from './discovery.js';
 
 const ids = { uuid: vi.fn(() => '10000000-0000-4000-8000-000000000000') };
 const clock = { now: () => new Date('2026-09-16T00:00:00.000Z') };
@@ -47,5 +51,40 @@ describe('M3 discovery application ports', () => {
       }),
     ).toThrowError(expect.objectContaining({ code: 'unauthorized' }));
     expect(reserveNext).not.toHaveBeenCalled();
+  });
+
+  it('validates provider outcomes before recording the delivery transaction', async () => {
+    const recordDelivered = vi.fn().mockResolvedValue({
+      deliveryId: '20000000-0000-4000-8000-000000000000',
+      mode: 'explore',
+      state: 'delivered',
+      replayed: false,
+    });
+    const recordDefinitiveFailure = vi.fn();
+    const handler = new RecordCandidateDeliveryHandler(
+      { recordDelivered, recordDefinitiveFailure },
+      ids,
+      clock,
+    );
+    await handler.recordDelivered({
+      deliveryId: '20000000-0000-4000-8000-000000000000',
+      providerMessageId: '123456',
+    });
+    expect(recordDelivered).toHaveBeenCalledWith(
+      expect.objectContaining({ providerMessageId: '123456' }),
+      expect.objectContaining({
+        auditId: '10000000-0000-4000-8000-000000000000',
+        deliveryEventId: '10000000-0000-4000-8000-000000000000',
+        consumptionEventId: '10000000-0000-4000-8000-000000000000',
+        processedAt: clock.now(),
+      }),
+    );
+    expect(() =>
+      handler.recordDefinitiveFailure({
+        deliveryId: '20000000-0000-4000-8000-000000000000',
+        reasonCode: 'Provider Error',
+      }),
+    ).toThrowError(expect.objectContaining({ code: 'invalid_request' }));
+    expect(recordDefinitiveFailure).not.toHaveBeenCalled();
   });
 });
