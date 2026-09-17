@@ -74,7 +74,8 @@ Create and verify these forward-only migrations:
    constraints, and Liked By indexes.
 3. `000019_m3_matching.sql` — unique normalized Match, exactly-two membership foundation,
    ChatSession/participants, and source proof.
-4. `000020_m3_localization.sql` — Explore, exhaustion, Like, Not Interested, Liked By, Match, stale
+4. `000020_m3_candidate_query.sql` — global Guest Preview shuffle index and canonical pair lock.
+5. `000021_m3_localization.sql` — Explore, exhaustion, Like, Not Interested, Liked By, Match, stale
    action, and safe error keys with exact variable declarations.
 
 Each migration must bootstrap from empty, upgrade from `000016`, replay unchanged, and have matching
@@ -231,12 +232,12 @@ Stable acceptance IDs:
 ## 12. Pull-request sequence
 
 1. Domain policies, contracts, ports, stable errors/events, and this execution guide.
-2. Migrations `000017..000019`, verification SQL, repositories, and migration integration coverage.
+2. Migrations `000017..000020`, verification SQL, repositories, and migration integration coverage.
 3. Filter save plus reciprocal candidate query and production-shaped query-plan evidence.
 4. Durable reservation/delivery lifecycle and completion of the M1 Guest Preview acceptance seam.
 5. Like, Not Interested, mutual Match/Chat transaction, and concurrency evidence.
 6. Liked By projection, blurred grants, opaque Telegram rendering/actions, and privacy tests.
-7. Localization migration `000020`, observability/runbooks, load/fault tests, acceptance ledger, and
+7. Localization migration `000021`, observability/runbooks, load/fault tests, acceptance ledger, and
    staging evidence.
 
 Every increment must pass frozen install, formatting, lint, type checks, unit/integration/concurrency
@@ -257,5 +258,8 @@ PR 1 foundation:
 - [x] focused domain, schema, privacy-shape, and handler tests;
 - [x] migration `000017` discovery/filter/consumption/reservation schema and verification SQL;
 - [x] migrations `000018..000019` interaction/Match/Chat foundation and verification SQL;
+- [x] migration `000020` global candidate-query index and shared canonical pair lock;
 - [x] idempotent PostgreSQL Explore-filter save with optimistic version and preference-subset proof;
-- [ ] candidate reservation/query and interaction transaction adapters (PR 2 continuation).
+- [x] reciprocal Explore/Guest candidate query with bounded shuffle, writer recheck, pair locking,
+  Guest Preview admission, and one-live durable reservation;
+- [ ] delivery finalization/compensation and interaction transaction adapters (PR 2 continuation).

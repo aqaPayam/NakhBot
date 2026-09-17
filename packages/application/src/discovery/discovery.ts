@@ -14,6 +14,7 @@ export type ExploreFilterResult = Readonly<{
 export type CandidateReservation = Readonly<{
   deliveryId: string;
   targetUserId: string;
+  mode: GetNextExploreCandidateQuery['mode'];
   filterVersion: number;
   expiresAt: string;
 }>;

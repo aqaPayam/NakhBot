@@ -29,6 +29,8 @@ export { PostgresProfileMediaEligibility } from './media-eligibility.js';
 export { PostgresProfileChangeStore } from './profile-change-store.js';
 export { PostgresGuestPreviewStore } from './guest-preview-store.js';
 export { PostgresExploreFilterStore } from './explore-filter-store.js';
+export { PostgresCandidateReservationStore } from './candidate-reservation-store.js';
+export { lockUserPair } from './pair-lock.js';
 export {
   migrationStatus,
   runMigrations,
