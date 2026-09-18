@@ -481,10 +481,151 @@ export const M1_CATALOG_LOCALIZATION_ENTRIES: readonly LocalizationManifestEntry
     })),
   );
 
+const M3_SIMPLE_LOCALIZATION_ENTRIES = [
+  { key: 'explore.title', category: 'message', english: 'Explore' },
+  { key: 'explore.empty', category: 'message', english: 'No one is available right now.' },
+  { key: 'explore.button.like', category: 'button', english: 'Like' },
+  { key: 'explore.button.not_interested', category: 'button', english: 'Not interested' },
+  {
+    key: 'explore.guest.limit_reached',
+    category: 'message',
+    english: 'You have used all guest previews.',
+  },
+  { key: 'interaction.like.sent', category: 'message', english: 'Like sent.' },
+  {
+    key: 'interaction.not_interested.saved',
+    category: 'message',
+    english: 'You will not see this person again.',
+  },
+  { key: 'matching.match.created', category: 'message', english: 'You matched!' },
+  { key: 'liked_by.empty', category: 'message', english: 'No Likes yet.' },
+  { key: 'liked_by.button.unlock', category: 'button', english: 'Unlock' },
+  { key: 'liked_by.button.next', category: 'button', english: 'Next' },
+  {
+    key: 'error.discovery.failure_reason_invalid',
+    category: 'error',
+    english: 'This delivery result was invalid.',
+  },
+  {
+    key: 'error.discovery.provider_message_invalid',
+    category: 'error',
+    english: 'This delivery could not be confirmed.',
+  },
+  {
+    key: 'error.discovery.candidate_pool_invalid',
+    category: 'error',
+    english: 'Candidate selection is unavailable.',
+  },
+  {
+    key: 'error.discovery.gender_filter_invalid',
+    category: 'error',
+    english: 'Choose at least one eligible gender.',
+  },
+  {
+    key: 'error.discovery.age_filter_invalid',
+    category: 'error',
+    english: 'Choose an age range from 18 to 120.',
+  },
+  { key: 'error.discovery.age_invalid', category: 'error', english: 'This age is invalid.' },
+  {
+    key: 'error.discovery.city_filter_invalid',
+    category: 'error',
+    english: 'Choose an eligible city.',
+  },
+  {
+    key: 'error.discovery.delivery_not_found',
+    category: 'error',
+    english: 'This discovery delivery is no longer available.',
+  },
+  {
+    key: 'error.discovery.delivery_state_conflict',
+    category: 'error',
+    english: 'This discovery delivery has changed.',
+  },
+  {
+    key: 'error.discovery.reservation_in_progress',
+    category: 'error',
+    english: 'Please wait for your current card.',
+  },
+  {
+    key: 'error.discovery.unavailable',
+    category: 'error',
+    english: 'Discovery is not available right now.',
+  },
+  {
+    key: 'error.discovery.version_conflict',
+    category: 'error',
+    english: 'Your Explore settings changed. Refresh and try again.',
+  },
+  {
+    key: 'error.discovery.catalog_invalid',
+    category: 'error',
+    english: 'One of your Explore choices is unavailable.',
+  },
+  {
+    key: 'error.interaction.cursor_invalid',
+    category: 'error',
+    english: 'This page link expired. Open Liked By again.',
+  },
+  {
+    key: 'error.interaction.pair_invalid',
+    category: 'error',
+    english: 'This interaction is unavailable.',
+  },
+  {
+    key: 'error.interaction.like_already_exists',
+    category: 'error',
+    english: 'You already liked this person.',
+  },
+  {
+    key: 'error.interaction.not_interested_already_exists',
+    category: 'error',
+    english: 'You already marked this person Not Interested.',
+  },
+  {
+    key: 'error.interaction.pair_unavailable',
+    category: 'error',
+    english: 'This interaction is no longer available.',
+  },
+  {
+    key: 'error.interaction.unavailable',
+    category: 'error',
+    english: 'This action is no longer available.',
+  },
+  {
+    key: 'error.interaction.page_limit_invalid',
+    category: 'error',
+    english: 'This page size is invalid.',
+  },
+] as const satisfies ReadonlyArray<Omit<LocalizationManifestEntry, 'variables' | 'required'>>;
+
+export const M3_LOCALIZATION_ENTRIES: readonly LocalizationManifestEntry[] = [
+  ...M3_SIMPLE_LOCALIZATION_ENTRIES.map((entry) => ({
+    ...entry,
+    variables: [],
+    required: true,
+  })),
+  {
+    key: 'liked_by.title',
+    category: 'message',
+    english: 'Liked By ({count})',
+    variables: ['count'],
+    required: true,
+  },
+  {
+    key: 'liked_by.card.locked',
+    category: 'message',
+    english: 'Like {position} · Locked',
+    variables: ['position'],
+    required: true,
+  },
+];
+
 export const M1_LOCALIZATION_MANIFEST: readonly LocalizationManifestEntry[] = [
   ...CORE_M1_ENGLISH_ENTRIES.map((entry) => ({ ...entry, variables: [], required: true })),
   ...M1_CATALOG_LOCALIZATION_ENTRIES,
   ...M2_LOCALIZATION_ENTRIES,
+  ...M3_LOCALIZATION_ENTRIES,
 ];
 
 export function englishCatalogFromManifest(): Readonly<Record<string, string>> {

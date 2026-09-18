@@ -1,5 +1,10 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 export { TelegramMediaTransportCipher } from './media-cipher.js';
+export {
+  TelegramLockedLikedByPresenter,
+  type TelegramLockedLikedByCard,
+  type TelegramLockedLikedByScreen,
+} from './liked-by-screen.js';
 export { TelegramPhotoActionTokens, type TelegramPhotoActionTokenState } from './action-token.js';
 export {
   TelegramPhotoMenuPresenter,

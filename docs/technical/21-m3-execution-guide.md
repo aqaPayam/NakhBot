@@ -282,4 +282,8 @@ PR 1 foundation:
   foreign, wrong-variant, and absent-rendition requests;
 - [x] provider-neutral locked-card composition triggers bounded on-demand blur, reauthorizes every
   grant, and returns only opaque actions/cursors and no-store blurred media;
-- [ ] Telegram rendering and production wiring, plus final performance/acceptance evidence.
+- [x] Telegram locked-card presentation validates callback size and the exact signed blur origin,
+  path, rendition, and expiry; it does not send CDN grants directly to Telegram;
+- [x] migration `000021` seeds verified English M3 text and exact variable declarations;
+- [ ] authenticated Telegram media-byte relay and production wiring, plus final
+  performance/acceptance evidence.
