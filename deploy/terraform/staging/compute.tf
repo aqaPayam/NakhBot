@@ -39,6 +39,8 @@ locals {
     { name = "NAKH_R2_CLEANUP_SECRET_KEY_REF", value = "NAKH_R2_CLEANUP_SECRET_KEY" },
     { name = "NAKH_MEDIA_CDN_HOST", value = "disabled-until-m2.invalid" },
     { name = "NAKH_MEDIA_SIGNING_KEY_REF", value = "disabled-until-m2" },
+    { name = "NAKH_MEDIA_AUDIENCE_KEY_ID", value = "audience-v1" },
+    { name = "NAKH_MEDIA_AUDIENCE_KEY_REF", value = "NAKH_MEDIA_AUDIENCE_KEY" },
     { name = "NAKH_MEDIA_CACHE_PURGE_ENABLED", value = "false" },
     { name = "NAKH_MEDIA_CLEANUP_ENABLED", value = "false" },
     { name = "NAKH_MEDIA_ORPHAN_RECONCILIATION_ENABLED", value = "false" },

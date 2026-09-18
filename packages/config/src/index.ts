@@ -47,6 +47,8 @@ const ConfigSchema = Type.Object(
       cleanupSecretKeyRef: Type.String({ minLength: 1 }),
       cdnHost: Type.String({ minLength: 1 }),
       signingKeyRef: Type.String({ minLength: 1 }),
+      audienceKeyId: Type.String({ pattern: '^[a-z][a-z0-9_-]{0,31}$' }),
+      audienceKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       cloudflareZoneId: Type.String({ minLength: 1, maxLength: 64 }),
       cloudflareApiTokenRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       transportKeyId: Type.String({ pattern: '^[A-Za-z0-9_-]{1,32}$' }),
@@ -150,6 +152,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       ),
       cdnHost: required(env, 'NAKH_MEDIA_CDN_HOST'),
       signingKeyRef: required(env, 'NAKH_MEDIA_SIGNING_KEY_REF'),
+      audienceKeyId: required(env, 'NAKH_MEDIA_AUDIENCE_KEY_ID', 'audience-v1'),
+      audienceKeyRef: required(env, 'NAKH_MEDIA_AUDIENCE_KEY_REF', 'NAKH_MEDIA_AUDIENCE_KEY'),
       cloudflareZoneId: required(env, 'NAKH_CLOUDFLARE_ZONE_ID', 'disabled'),
       cloudflareApiTokenRef: required(
         env,

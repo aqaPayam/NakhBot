@@ -296,6 +296,8 @@ PR 1 foundation:
   signed CDN URLs and edge credentials never enter the Telegram request;
 - [x] independent short-lived HMAC audience credential has a gateway-side issuer and Web Crypto
   edge verifier, with strict viewer/origin binding, expiry, key rotation, and cross-viewer denial tests;
+- [x] audience key ID and secret reference are validated configuration, with no key material in
+  repository or local-staging settings and no change to the default-off delivery state;
 - [x] migration `000021` seeds verified English M3 text and exact variable declarations;
 - [ ] provision the separate audience-credential key and private edge, wire the Telegram gateway
   and durable delivery job, and collect final performance/acceptance evidence.

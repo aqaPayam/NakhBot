@@ -32,6 +32,8 @@ describe('configuration', () => {
       orphanGraceMs: 86_400_000,
       cleanupAccessKeyRef: 'fake',
       cleanupSecretKeyRef: 'fake',
+      audienceKeyId: 'audience-v1',
+      audienceKeyRef: 'NAKH_MEDIA_AUDIENCE_KEY',
       transportKeyId: 'active-v1',
       transportKeyRef: 'NAKH_MEDIA_TRANSPORT_KEY',
       clamavHost: 'clamav',
@@ -62,6 +64,25 @@ describe('configuration', () => {
     expect(() => parseConfig({ ...validEnvironment, NAKH_CLAMAV_PORT: '0' })).toThrow(
       '/media/clamavPort',
     );
+  });
+
+  it('accepts only a reference, not literal audience key material', () => {
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_MEDIA_AUDIENCE_KEY_ID: 'rotated-v2',
+        NAKH_MEDIA_AUDIENCE_KEY_REF: 'NAKH_ROTATED_AUDIENCE_KEY',
+      }).media,
+    ).toMatchObject({
+      audienceKeyId: 'rotated-v2',
+      audienceKeyRef: 'NAKH_ROTATED_AUDIENCE_KEY',
+    });
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_MEDIA_AUDIENCE_KEY_REF: 'literal-secret' }),
+    ).toThrow('/media/audienceKeyRef');
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_MEDIA_AUDIENCE_KEY_ID: '../unsafe' }),
+    ).toThrow('/media/audienceKeyId');
   });
 
   it('fails startup when a secret-shaped required value is absent', () => {

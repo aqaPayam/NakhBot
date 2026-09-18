@@ -20,6 +20,12 @@ ClamAV runs as a private TCP service on port 3310. The pinned `clamav/clamav-deb
 
 Media ingestion is fail-closed with `NAKH_MEDIA_INGESTION_ENABLED=false`. Enable it only after the R2 endpoint/bucket are private and the named environment variables referenced by the Telegram token, R2 credentials, and 32-byte base64url transport key settings are injected by the deployment secret manager. Secret values never belong in Compose files or `NAKH_*_REF` settings.
 
+The M3 private-media audience credential has its own key ID and secret reference
+(`NAKH_MEDIA_AUDIENCE_KEY_ID` and `NAKH_MEDIA_AUDIENCE_KEY_REF`). These settings name the key but
+do not enable locked-card delivery or require the secret during the local rehearsal. When that
+delivery path is explicitly enabled later, provision a separate 32–64-byte audience key to the
+Telegram gateway and private edge; do not reuse the media-grant signing or transport key.
+
 Media deletion cleanup is independently fail-closed with `NAKH_MEDIA_CLEANUP_ENABLED=false`.
 Before enabling it, inject the variables named by `NAKH_R2_CLEANUP_ACCESS_KEY_REF` and
 `NAKH_R2_CLEANUP_SECRET_KEY_REF` using credentials scoped to list, head, and delete only the
