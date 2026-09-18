@@ -276,5 +276,6 @@ PR 1 foundation:
 - [x] opposite-Like serialization into exactly one Match, pair state, two memberships, and one
   two-participant Chat session;
 - [x] internal Liked By actionable count/keyset projection under one repeatable-read snapshot;
-- [ ] opaque Liked By cursor/action tokens, blurred grants, delivery composition, and final
-  performance/acceptance evidence.
+- [x] signed, receiver-bound, short-lived opaque Liked By cursor/action references with query-version
+  binding, purpose separation, and fail-closed resolution;
+- [ ] blurred grants, Liked By delivery composition, and final performance/acceptance evidence.
