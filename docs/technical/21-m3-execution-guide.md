@@ -291,6 +291,8 @@ PR 1 foundation:
   grant, and returns only opaque actions/cursors and no-store blurred media;
 - [x] Telegram locked-card presentation validates callback size and the exact signed blur origin,
   path, rendition, and expiry; it does not send CDN grants directly to Telegram;
+- [x] Telegram Liked By ingress accepts only private-chat `/liked_by` and actor-bound opaque page
+  callbacks, rate-limits before Redis/SQL reads, and returns a safe notice for M4 unlock actions;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;
