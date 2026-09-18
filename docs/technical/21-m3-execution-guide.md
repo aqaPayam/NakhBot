@@ -305,6 +305,9 @@ PR 1 foundation:
   transaction with a minimal outbox fact; the worker does not consume this event yet;
 - [x] PostgreSQL delivery claims use server-time leases, `SKIP LOCKED`, and an incrementing attempt
   fence; only the current live lease may complete, retry, or terminally fail a request;
+- [x] worker-side delivery processor claims one request, rebuilds its page after the claim, and
+  classifies bounded retry, terminal denial, exhausted attempts, and lost leases; its sender port is
+  not composed into the live worker until message-level resume and provider classification exist;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;
