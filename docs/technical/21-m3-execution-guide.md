@@ -195,7 +195,10 @@ Explore/Guest cards use Profile's viewer-safe projection and M2 delivery grants.
 contain short actor-bound opaque tokens. Every action reloads authoritative state; a rendered card is
 never authorization.
 
-The Telegram gateway must fetch locked-card blurred bytes itself. It mints a short-lived HMAC
+Telegram ingress must persist only the actor-bound, update-derived delivery request; it must not
+persist an already rendered card or a short-lived media grant. The delivery worker reloads the
+authoritative Liked By page and mints fresh grants immediately before sending. Its Telegram relay
+fetches locked-card blurred bytes itself. It mints a short-lived HMAC
 audience credential bound to the internal viewer ID and exact HTTPS edge origin using a key separate
 from the media-grant signing key. The private edge verifies that credential and separately verifies
 the signed media path and audience before reading R2. Telegram receives only the blurred bytes,
@@ -292,7 +295,10 @@ PR 1 foundation:
 - [x] Telegram locked-card presentation validates callback size and the exact signed blur origin,
   path, rendition, and expiry; it does not send CDN grants directly to Telegram;
 - [x] Telegram Liked By ingress accepts only private-chat `/liked_by` and actor-bound opaque page
-  callbacks, rate-limits before Redis/SQL reads, and returns a safe notice for M4 unlock actions;
+  callbacks, rate-limits before Redis reads, emits only a compact page request, and returns a safe
+  notice for M4 unlock actions;
+- [x] deferred page processor validates the compact request and runs the authoritative page query
+  and grant creation only when the request is being delivered;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;

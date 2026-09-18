@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import type {
-  GetLockedLikedByPageHandler,
   LikedByKeyset,
   LocalizedIntent,
   RateLimiterPort,
@@ -9,29 +8,25 @@ import type {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 
-import type {
-  TelegramLockedLikedByPresenter,
-  TelegramLockedLikedByScreen,
-} from './liked-by-screen.js';
-
-type LikedByPageUseCase = Pick<GetLockedLikedByPageHandler, 'execute'>;
-
 export interface TelegramLikedByReferences {
   resolveCursor(token: string, receiverUserId: string): Promise<LikedByKeyset | undefined>;
   resolveAction(token: string, receiverUserId: string): Promise<string | undefined>;
 }
 
+export type TelegramLikedByPageRequest = Readonly<{
+  handled: true;
+  kind: 'page_request';
+  updateId: string;
+  userId: string;
+  telegramUserId: string;
+  requestId: string;
+  cursor?: string;
+  callbackQueryId?: string;
+}>;
+
 export type TelegramLikedByResult =
   | Readonly<{ handled: false }>
-  | Readonly<{
-      handled: true;
-      kind: 'page';
-      updateId: string;
-      userId: string;
-      telegramUserId: string;
-      callbackQueryId?: string;
-      screen: TelegramLockedLikedByScreen;
-    }>
+  | TelegramLikedByPageRequest
   | Readonly<{
       handled: true;
       kind: 'notice';
@@ -52,7 +47,6 @@ type ParsedUpdate =
       token: string;
     }>;
 
-const PAGE_SIZE = 5;
 const TOKEN = /^v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u;
 
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -102,13 +96,11 @@ function parseUpdate(update: unknown): ParsedUpdate | undefined {
   return { ...base, kind: 'callback', callbackQueryId, token: data };
 }
 
-/** Transport adapter only. The M3 query remains the sole source of authorization. */
+/** Fast ingress only. A durable worker must query and mint media grants just before delivery. */
 export class TelegramLikedByAdapter {
   public constructor(
     private readonly resolver: TelegramUserResolver,
-    private readonly page: LikedByPageUseCase,
     private readonly references: TelegramLikedByReferences,
-    private readonly presenter: TelegramLockedLikedByPresenter,
     private readonly limiter: RateLimiterPort,
     private readonly uuid: () => string = randomUUID,
   ) {}
@@ -155,21 +147,15 @@ export class TelegramLikedByAdapter {
         };
       }
     }
-    const query = {
-      actor: { kind: 'user' as const, userId },
-      requestId: this.uuid(),
-      limit: PAGE_SIZE,
-      ...(parsed.kind === 'command' ? {} : { cursor: parsed.token }),
-    };
-    const screen = this.presenter.present(await this.page.execute(query));
     return {
       handled: true,
-      kind: 'page',
+      kind: 'page_request',
       updateId: parsed.updateId,
       userId,
       telegramUserId: parsed.telegramUserId,
+      requestId: this.uuid(),
+      ...(parsed.kind === 'command' ? {} : { cursor: parsed.token }),
       ...(parsed.kind === 'command' ? {} : { callbackQueryId: parsed.callbackQueryId }),
-      screen,
     };
   }
 }

@@ -1,19 +1,11 @@
 import { describe, expect, it, vi, type Mock } from 'vitest';
 
 import { TelegramLikedByAdapter } from './liked-by-adapter.js';
-import { TelegramLockedLikedByPresenter } from './liked-by-screen.js';
 
 const viewerId = '10000000-0000-4000-8000-000000000000';
 const likeId = '20000000-0000-4000-8000-000000000000';
 const cursor = 'v1.lb.abcdefghijklmnop.ponmlkjihgfedcba';
 const action = 'v1.lb.ponmlkjihgfedcba.abcdefghijklmnop';
-const photo = {
-  deliveryUrl:
-    'https://media.example.test/media/40000000-0000-4000-8000-000000000000/blurred-preview-v1.webp?token=payload.signature',
-  expiresAt: '2026-10-01T00:00:00.000Z',
-  variantType: 'blurred_preview' as const,
-  cachePolicy: 'no-store' as const,
-};
 
 function command(chatType = 'private'): unknown {
   return {
@@ -41,22 +33,12 @@ function callback(data: string, chatId = 12345): unknown {
 type Fixture = Readonly<{
   adapter: TelegramLikedByAdapter;
   resolver: Readonly<{ resolveUserId: Mock }>;
-  page: Readonly<{ execute: Mock }>;
   references: Readonly<{ resolveCursor: Mock; resolveAction: Mock }>;
   limiter: Readonly<{ consume: Mock }>;
 }>;
 
 function fixture(): Fixture {
   const resolver = { resolveUserId: vi.fn(() => Promise.resolve(viewerId)) };
-  const page = {
-    execute: vi.fn(() =>
-      Promise.resolve({
-        totalCount: 1,
-        cards: [{ actionToken: action, blurredPhoto: photo }],
-        nextCursor: cursor,
-      }),
-    ),
-  };
   const references = {
     resolveCursor: vi.fn(() => Promise.resolve(undefined)),
     resolveAction: vi.fn(() => Promise.resolve(undefined as string | undefined)),
@@ -66,17 +48,15 @@ function fixture(): Fixture {
   };
   const adapter = new TelegramLikedByAdapter(
     resolver,
-    page,
     references,
-    new TelegramLockedLikedByPresenter('https://media.example.test', () => 1_000),
     limiter,
     () => '50000000-0000-4000-8000-000000000000',
   );
-  return { adapter, resolver, page, references, limiter };
+  return { adapter, resolver, references, limiter };
 }
 
 describe('Telegram Liked By ingress', () => {
-  it('resolves a private-chat command to one bounded, authorized page query', async () => {
+  it('resolves a private-chat command to a minimal durable request, without querying or minting grants', async () => {
     const parts = fixture();
     const result = await parts.adapter.handle(command());
     expect(parts.resolver.resolveUserId).toHaveBeenCalledWith('12345');
@@ -86,20 +66,16 @@ describe('Telegram Liked By ingress', () => {
       limit: 20,
       windowSeconds: 60,
     });
-    expect(parts.page.execute).toHaveBeenCalledWith({
-      actor: { kind: 'user', userId: viewerId },
-      requestId: '50000000-0000-4000-8000-000000000000',
-      limit: 5,
-    });
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       handled: true,
-      kind: 'page',
+      kind: 'page_request',
       updateId: '42',
       userId: viewerId,
       telegramUserId: '12345',
-      screen: { title: { key: 'liked_by.title', variables: { count: 1 } } },
+      requestId: '50000000-0000-4000-8000-000000000000',
     });
     expect(JSON.stringify(result)).not.toContain(likeId);
+    expect(JSON.stringify(result)).not.toContain('deliveryUrl');
   });
 
   it('accepts only the receiver-bound cursor for pagination', async () => {
@@ -108,14 +84,15 @@ describe('Telegram Liked By ingress', () => {
     const result = await parts.adapter.handle(callback(cursor));
     expect(parts.references.resolveCursor).toHaveBeenCalledWith(cursor, viewerId);
     expect(parts.references.resolveAction).not.toHaveBeenCalled();
-    expect(parts.page.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ actor: { kind: 'user', userId: viewerId }, cursor }),
-    );
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       handled: true,
-      kind: 'page',
+      kind: 'page_request',
       callbackQueryId: 'callback-id',
+      cursor,
       updateId: '43',
+      userId: viewerId,
+      telegramUserId: '12345',
+      requestId: '50000000-0000-4000-8000-000000000000',
     });
   });
 
@@ -123,7 +100,6 @@ describe('Telegram Liked By ingress', () => {
     const parts = fixture();
     parts.references.resolveAction.mockResolvedValue(likeId);
     const result = await parts.adapter.handle(callback(action));
-    expect(parts.page.execute).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       handled: true,
       kind: 'notice',
@@ -141,7 +117,6 @@ describe('Telegram Liked By ingress', () => {
       notice: { key: 'error.interaction.cursor_invalid', variables: {} },
     });
     expect(parts.references.resolveCursor).not.toHaveBeenCalled();
-    expect(parts.page.execute).not.toHaveBeenCalled();
   });
 
   it('ignores unrelated updates and refuses public or foreign-chat requests', async () => {
@@ -156,7 +131,7 @@ describe('Telegram Liked By ingress', () => {
     expect(parts.resolver.resolveUserId).not.toHaveBeenCalled();
   });
 
-  it('rate-limits before Redis cursor lookup or a database read', async () => {
+  it('rate-limits before Redis cursor lookup or a delivery request', async () => {
     const parts = fixture();
     parts.limiter.consume.mockResolvedValue({
       allowed: false,
@@ -168,6 +143,5 @@ describe('Telegram Liked By ingress', () => {
       status: 429,
     });
     expect(parts.references.resolveCursor).not.toHaveBeenCalled();
-    expect(parts.page.execute).not.toHaveBeenCalled();
   });
 });
