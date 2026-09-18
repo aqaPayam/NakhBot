@@ -1,12 +1,9 @@
 import { ApplicationError } from '@nakh/domain';
 import type { ClaimedTelegramLikedByDelivery } from '@nakh/persistence-postgres';
-import type { TelegramLockedLikedByScreen } from '@nakh/telegram';
+import { TelegramLikedBySendFailure, type TelegramLockedLikedByScreen } from '@nakh/telegram';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 
-import {
-  TelegramLikedByDeliveryProcessor,
-  TelegramLikedBySendFailure,
-} from './liked-by-delivery-processor.js';
+import { TelegramLikedByDeliveryProcessor } from './liked-by-delivery-processor.js';
 
 const delivery: ClaimedTelegramLikedByDelivery = {
   id: '10000000-0000-4000-8000-000000000000',

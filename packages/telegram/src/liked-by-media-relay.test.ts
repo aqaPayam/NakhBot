@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { TelegramLockedLikedByMediaRelay } from './liked-by-media-relay.js';
 import { TelegramLockedLikedByPresenter } from './liked-by-screen.js';
+import { TelegramLikedBySendFailure } from './liked-by-send-failure.js';
 
 const viewer = '10000000-0000-4000-8000-000000000000';
 const grant = {
@@ -158,5 +159,87 @@ describe('Telegram locked Liked By media relay', () => {
       );
       expect(fetcher).toHaveBeenCalledTimes(index === 2 ? 2 : 1);
     }
+  });
+
+  it('classifies Telegram throttling without exposing its response body', async () => {
+    const fetcher = vi.fn((input: string) =>
+      Promise.resolve(
+        input.startsWith('https://media.example.test')
+          ? webp()
+          : new Response(
+              JSON.stringify({
+                ok: false,
+                error_code: 429,
+                description: 'sensitive provider detail',
+                parameters: { retry_after: 17 },
+              }),
+              { status: 429 },
+            ),
+      ),
+    );
+    const relay = new TelegramLockedLikedByMediaRelay(
+      'https://media.example.test',
+      'bot-secret',
+      audience,
+      fetcher,
+      () => 1_000,
+    );
+    let failure: TelegramLikedBySendFailure | undefined;
+    try {
+      await relay.sendCard(viewer, '12345', card, render);
+    } catch (error) {
+      if (error instanceof TelegramLikedBySendFailure) failure = error;
+    }
+    expect(failure).toMatchObject({ reasonCode: 'provider_unavailable', retryAfterMs: 17_000 });
+    expect(failure?.message).not.toContain('sensitive provider detail');
+  });
+
+  it('marks blocked recipients terminal and provider outages retryable', async () => {
+    for (const [status, expected] of [
+      [403, 'provider_rejected'],
+      [502, 'provider_unavailable'],
+    ] as const) {
+      const relay = new TelegramLockedLikedByMediaRelay(
+        'https://media.example.test',
+        'bot-secret',
+        audience,
+        (input) =>
+          Promise.resolve(
+            input.startsWith('https://media.example.test')
+              ? webp()
+              : new Response('{"ok":false}', { status }),
+          ),
+        () => 1_000,
+      );
+      await expect(relay.sendCard(viewer, '12345', card, render)).rejects.toMatchObject({
+        reasonCode: expected,
+      });
+    }
+  });
+
+  it('classifies a timed-out Bot API send separately from a media-fetch failure', async () => {
+    const timeoutRelay = new TelegramLockedLikedByMediaRelay(
+      'https://media.example.test',
+      'bot-secret',
+      audience,
+      (input) =>
+        input.startsWith('https://media.example.test')
+          ? Promise.resolve(webp())
+          : Promise.reject(new DOMException('request timed out', 'TimeoutError')),
+      () => 1_000,
+    );
+    await expect(timeoutRelay.sendCard(viewer, '12345', card, render)).rejects.toMatchObject({
+      reasonCode: 'provider_timeout',
+    });
+    const mediaRelay = new TelegramLockedLikedByMediaRelay(
+      'https://media.example.test',
+      'bot-secret',
+      audience,
+      () => Promise.reject(new Error('private media response detail')),
+      () => 1_000,
+    );
+    await expect(mediaRelay.sendCard(viewer, '12345', card, render)).rejects.toMatchObject({
+      reasonCode: 'media_unavailable',
+    });
   });
 });

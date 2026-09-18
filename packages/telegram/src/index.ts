@@ -16,6 +16,10 @@ export {
   TelegramLockedLikedByMediaRelay,
   type TelegramMediaAudienceCredentials,
 } from './liked-by-media-relay.js';
+export {
+  TelegramLikedBySendFailure,
+  type TelegramLikedByProviderFailureCode,
+} from './liked-by-send-failure.js';
 export { TelegramPhotoActionTokens, type TelegramPhotoActionTokenState } from './action-token.js';
 export {
   TelegramPhotoMenuPresenter,

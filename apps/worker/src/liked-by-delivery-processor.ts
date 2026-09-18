@@ -4,7 +4,11 @@ import type {
   PostgresTelegramLikedByDeliveryStore,
   TelegramLikedByDeliveryErrorCode,
 } from '@nakh/persistence-postgres';
-import type { TelegramLikedByPageProcessor, TelegramLockedLikedByScreen } from '@nakh/telegram';
+import {
+  TelegramLikedBySendFailure,
+  type TelegramLikedByPageProcessor,
+  type TelegramLockedLikedByScreen,
+} from '@nakh/telegram';
 
 type DeliveryStore = Pick<
   PostgresTelegramLikedByDeliveryStore,
@@ -24,32 +28,6 @@ export type TelegramLikedBySendInput = Readonly<{
 export interface TelegramLikedBySendPort {
   /** Must resume from stable deliveryId after a partial or uncertain Telegram send. */
   send(input: TelegramLikedBySendInput): Promise<void>;
-}
-
-type ProviderFailureCode = Extract<
-  TelegramLikedByDeliveryErrorCode,
-  'media_unavailable' | 'provider_timeout' | 'provider_rejected' | 'provider_unavailable'
->;
-const PROVIDER_FAILURE_CODES = new Set<ProviderFailureCode>([
-  'media_unavailable',
-  'provider_timeout',
-  'provider_rejected',
-  'provider_unavailable',
-]);
-
-export class TelegramLikedBySendFailure extends Error {
-  public constructor(
-    public readonly reasonCode: ProviderFailureCode,
-    public readonly retryAfterMs?: number,
-  ) {
-    super(reasonCode);
-    if (
-      !PROVIDER_FAILURE_CODES.has(reasonCode) ||
-      (retryAfterMs !== undefined &&
-        (!Number.isSafeInteger(retryAfterMs) || retryAfterMs < 0 || retryAfterMs > 3_600_000))
-    )
-      throw new Error('Invalid Telegram retry delay.');
-  }
 }
 
 export type TelegramLikedByPollResult =

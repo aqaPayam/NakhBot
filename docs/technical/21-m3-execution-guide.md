@@ -307,7 +307,10 @@ PR 1 foundation:
   fence; only the current live lease may complete, retry, or terminally fail a request;
 - [x] worker-side delivery processor claims one request, rebuilds its page after the claim, and
   classifies bounded retry, terminal denial, exhausted attempts, and lost leases; its sender port is
-  not composed into the live worker until message-level resume and provider classification exist;
+  not composed into the live worker until message-level resume exists;
+- [x] locked-card Telegram relay distinguishes bounded provider retry-after, temporary outage,
+  timeout, terminal rejection, and private-media failure without retaining response bodies or
+  leaking token-bearing URLs; message-level resume is still required before live composition;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;
