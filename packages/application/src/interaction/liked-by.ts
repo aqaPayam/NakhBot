@@ -6,6 +6,7 @@ export type LikedByKeyset = Readonly<{ createdAt: Date; likeId: string }>;
 export type ActionableLikedByRow = Readonly<{
   likeId: string;
   primaryPhotoId: string;
+  assetId: string;
   createdAt: Date;
 }>;
 

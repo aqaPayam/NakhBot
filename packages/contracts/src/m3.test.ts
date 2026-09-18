@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CandidateDeliveryJobSchema,
   GetLikedByPageQuerySchema,
+  LockedLikedByPageSchema,
   M3EventTypeSchema,
   MarkNotInterestedCommandSchema,
   SaveExploreFilterCommandSchema,
@@ -83,6 +84,14 @@ describe('M3 discovery and interaction contracts', () => {
         actor: envelope.actor,
         requestId: envelope.requestId,
         limit: 20,
+        cursor: 'v1.lb.abcdefghijklmnop.ponmlkjihgfedcba',
+      }),
+    ).toBe(true);
+    expect(
+      validate({
+        actor: envelope.actor,
+        requestId: envelope.requestId,
+        limit: 20,
         cursor: 'short',
       }),
     ).toBe(false);
@@ -106,5 +115,35 @@ describe('M3 discovery and interaction contracts', () => {
     expect(validate('matching.match-created.v1')).toBe(true);
     expect(validate('matching.match-created')).toBe(false);
     expect(validate('discovery.profile-exposed.v1')).toBe(false);
+  });
+
+  it('allows only privacy-reduced locked Liked By cards', () => {
+    const validate = validator(LockedLikedByPageSchema);
+    const card = {
+      actionToken: 'v1.lb.abcdefghijklmnop.ponmlkjihgfedcba',
+      blurredPhoto: {
+        deliveryUrl: 'https://media.example.test/private-blur',
+        expiresAt: '2026-01-01T00:01:00.000Z',
+        variantType: 'blurred_preview',
+        cachePolicy: 'no-store',
+      },
+    };
+    expect(validate({ totalCount: 1, cards: [card] })).toBe(true);
+    expect(validate({ totalCount: 1, cards: [{ ...card, name: 'private' }] })).toBe(false);
+    expect(validate({ totalCount: 1, cards: [{ ...card, actionToken: targetUserId }] })).toBe(
+      false,
+    );
+    expect(
+      validate({
+        totalCount: 1,
+        cards: [{ ...card, blurredPhoto: { ...card.blurredPhoto, variantType: 'thumbnail' } }],
+      }),
+    ).toBe(false);
+    expect(
+      validate({
+        totalCount: 1,
+        cards: [{ ...card, blurredPhoto: { ...card.blurredPhoto, fullPhoto: 'private' } }],
+      }),
+    ).toBe(false);
   });
 });

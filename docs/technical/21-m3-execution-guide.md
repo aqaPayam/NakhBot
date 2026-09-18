@@ -280,4 +280,6 @@ PR 1 foundation:
   binding, purpose separation, and fail-closed resolution;
 - [x] blurred-primary grant authorization shares the actionable Liked By predicate and denies stale,
   foreign, wrong-variant, and absent-rendition requests;
-- [ ] on-demand blur and Liked By delivery composition, plus final performance/acceptance evidence.
+- [x] provider-neutral locked-card composition triggers bounded on-demand blur, reauthorizes every
+  grant, and returns only opaque actions/cursors and no-store blurred media;
+- [ ] Telegram rendering and production wiring, plus final performance/acceptance evidence.

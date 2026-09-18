@@ -29,6 +29,7 @@ export * from './discovery/discovery.js';
 export * from './interaction/interaction.js';
 export * from './interaction/liked-by.js';
 export * from './interaction/liked-by-tokens.js';
+export * from './interaction/liked-by-page.js';
 export * from './profile/protected-change.js';
 export * from './presentation.js';
 

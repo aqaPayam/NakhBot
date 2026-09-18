@@ -118,16 +118,50 @@ export const MarkNotInterestedCommandSchema = commandSchema(
 );
 export type MarkNotInterestedCommand = Static<typeof MarkNotInterestedCommandSchema>;
 
+const LikedByOpaqueReferenceSchema = Type.String({
+  pattern: '^v1\\.lb\\.[A-Za-z0-9_-]{16}\\.[A-Za-z0-9_-]{16}$',
+  maxLength: 64,
+});
+
 export const GetLikedByPageQuerySchema = Type.Object(
   {
     actor: ActorSchema,
     requestId: UuidSchema,
     limit: Type.Integer({ minimum: 1, maximum: 50 }),
-    cursor: Type.Optional(Type.String({ minLength: 16, maxLength: 512 })),
+    cursor: Type.Optional(LikedByOpaqueReferenceSchema),
   },
   { additionalProperties: false },
 );
 export type GetLikedByPageQuery = Static<typeof GetLikedByPageQuerySchema>;
+
+const LikedByBlurGrantSchema = Type.Object(
+  {
+    deliveryUrl: Type.String({ format: 'uri', pattern: '^https://' }),
+    expiresAt: UtcTimestampSchema,
+    variantType: Type.Literal('blurred_preview'),
+    cachePolicy: Type.Literal('no-store'),
+  },
+  { additionalProperties: false },
+);
+
+export const LockedLikedByPageSchema = Type.Object(
+  {
+    totalCount: Type.Integer({ minimum: 0 }),
+    cards: Type.Array(
+      Type.Object(
+        {
+          actionToken: LikedByOpaqueReferenceSchema,
+          blurredPhoto: LikedByBlurGrantSchema,
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 50 },
+    ),
+    nextCursor: Type.Optional(LikedByOpaqueReferenceSchema),
+  },
+  { additionalProperties: false },
+);
+export type LockedLikedByPage = Static<typeof LockedLikedByPageSchema>;
 
 export const CandidateDeliveryJobSchema = Type.Object(
   {

@@ -297,6 +297,7 @@ describe.skipIf(databaseUrl === undefined)('M3 interaction persistence', () => {
     expect(firstPage).toMatchObject({ totalCount: 2, hasMore: true });
     expect(firstPage.rows).toHaveLength(1);
     expect(Object.keys(firstPage.rows[0]!).sort()).toEqual([
+      'assetId',
       'createdAt',
       'likeId',
       'primaryPhotoId',

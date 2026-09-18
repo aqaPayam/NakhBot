@@ -93,10 +93,11 @@ export class PostgresLikedByStore implements LikedByReadStore {
         const pageResult = await sql<{
           like_id: string;
           primary_photo_id: string;
+          asset_id: string;
           created_at: Date;
         }>`
           SELECT incoming.id AS like_id, primary_photo.id AS primary_photo_id,
-            incoming.created_at AS created_at
+            primary_asset.id AS asset_id, incoming.created_at AS created_at
           ${from}
           ${position}
           ORDER BY incoming.created_at DESC, incoming.id DESC
@@ -107,6 +108,7 @@ export class PostgresLikedByStore implements LikedByReadStore {
           rows: pageResult.rows.slice(0, query.limit).map((row) => ({
             likeId: row.like_id,
             primaryPhotoId: row.primary_photo_id,
+            assetId: row.asset_id,
             createdAt: row.created_at,
           })),
           hasMore: pageResult.rows.length > query.limit,
