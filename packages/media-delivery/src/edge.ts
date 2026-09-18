@@ -5,6 +5,8 @@ import {
   type MediaDeliveryClaims,
 } from './claims.js';
 
+export { EdgeHmacMediaAudienceAuthenticator } from './audience-edge.js';
+
 export type EdgeMediaDeliveryKeyRing = ReadonlyMap<string, Uint8Array>;
 
 function encode(value: Uint8Array): string {

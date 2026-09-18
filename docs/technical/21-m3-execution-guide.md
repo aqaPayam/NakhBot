@@ -195,6 +195,13 @@ Explore/Guest cards use Profile's viewer-safe projection and M2 delivery grants.
 contain short actor-bound opaque tokens. Every action reloads authoritative state; a rendered card is
 never authorization.
 
+The Telegram gateway must fetch locked-card blurred bytes itself. It mints a short-lived HMAC
+audience credential bound to the internal viewer ID and exact HTTPS edge origin using a key separate
+from the media-grant signing key. The private edge verifies that credential and separately verifies
+the signed media path and audience before reading R2. Telegram receives only the blurred bytes,
+never the signed CDN URL or audience credential. Keep this delivery path disabled until both keys,
+edge authentication, and durable channel-delivery handling are configured and tested in staging.
+
 ## 10. Events, observability, and operations
 
 Version schemas for filter saved, candidate reserved/delivered/failed, consumption created, Like
@@ -287,6 +294,8 @@ PR 1 foundation:
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;
+- [x] independent short-lived HMAC audience credential has a gateway-side issuer and Web Crypto
+  edge verifier, with strict viewer/origin binding, expiry, key rotation, and cross-viewer denial tests;
 - [x] migration `000021` seeds verified English M3 text and exact variable declarations;
-- [ ] production edge audience-credential implementation and Telegram gateway wiring, plus final
-  performance/acceptance evidence.
+- [ ] provision the separate audience-credential key and private edge, wire the Telegram gateway
+  and durable delivery job, and collect final performance/acceptance evidence.
