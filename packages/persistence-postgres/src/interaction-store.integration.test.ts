@@ -8,6 +8,8 @@ import type { MarkNotInterestedCommand, SendLikeCommand } from '@nakh/contracts'
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresInteractionStore } from './interaction-store.js';
+import { PostgresLikedByStore } from './liked-by-store.js';
+import { seedValidMedia } from './media-fixtures.js';
 import { runMigrations } from './migrations.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
@@ -57,6 +59,31 @@ async function createActiveUser(database: NakhDatabase, genderOptionId: string):
     })
     .execute();
   return userId;
+}
+
+async function addPrimaryPhoto(database: NakhDatabase, userId: string): Promise<void> {
+  const profile = await database
+    .selectFrom('profile.profiles')
+    .select('id')
+    .where('user_id', '=', userId)
+    .executeTakeFirstOrThrow();
+  const assetId = await seedValidMedia(database, userId);
+  const now = new Date();
+  await database
+    .insertInto('media.profile_photos')
+    .values({
+      id: randomUUID(),
+      profile_id: profile.id,
+      asset_id: assetId,
+      status: 'visible',
+      is_primary: true,
+      display_order: 0,
+      created_at: now,
+      updated_at: now,
+      hidden_at: null,
+      deleted_at: null,
+    })
+    .execute();
 }
 
 function likeCommand(senderUserId: string, receiverUserId: string): SendLikeCommand {
@@ -232,5 +259,56 @@ describe.skipIf(databaseUrl === undefined)('M3 interaction persistence', () => {
       'interaction.like-closed.v1',
       'interaction.not-interested-created.v1',
     ]);
+  });
+
+  it('uses one actionable predicate for Liked By count and keyset page', async () => {
+    const receiverId = await createActiveUser(database, manGenderId);
+    const firstLikerId = await createActiveUser(database, womanGenderId);
+    const secondLikerId = await createActiveUser(database, womanGenderId);
+    const excludedLikerId = await createActiveUser(database, womanGenderId);
+    await Promise.all([
+      addPrimaryPhoto(database, firstLikerId),
+      addPrimaryPhoto(database, secondLikerId),
+      addPrimaryPhoto(database, excludedLikerId),
+    ]);
+    const interactions = new PostgresInteractionStore(database);
+    await interactions.sendLike(likeCommand(firstLikerId, receiverId), likeGenerated());
+    await interactions.sendLike(likeCommand(secondLikerId, receiverId), likeGenerated());
+    await interactions.sendLike(likeCommand(excludedLikerId, receiverId), likeGenerated());
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'restricted', state_changed_at: new Date() })
+      .where('user_id', '=', excludedLikerId)
+      .execute();
+
+    const store = new PostgresLikedByStore(database);
+    const query = {
+      actor: { kind: 'user' as const, userId: receiverId },
+      requestId: randomUUID(),
+      limit: 1,
+    };
+    const firstPage = await store.readActionablePage(query);
+    expect(firstPage).toMatchObject({ totalCount: 2, hasMore: true });
+    expect(firstPage.rows).toHaveLength(1);
+    expect(Object.keys(firstPage.rows[0]!).sort()).toEqual([
+      'createdAt',
+      'likeId',
+      'primaryPhotoId',
+    ]);
+    const secondPage = await store.readActionablePage(query, {
+      createdAt: firstPage.rows[0]!.createdAt,
+      likeId: firstPage.rows[0]!.likeId,
+    });
+    expect(secondPage).toMatchObject({ totalCount: 2, hasMore: false });
+    expect(secondPage.rows).toHaveLength(1);
+    expect(secondPage.rows[0]!.likeId).not.toBe(firstPage.rows[0]!.likeId);
+
+    await interactions.markNotInterested(
+      rejectionCommand(receiverId, firstLikerId),
+      rejectionGenerated(),
+    );
+    const finalPage = await store.readActionablePage({ ...query, limit: 10 });
+    expect(finalPage).toMatchObject({ totalCount: 1, hasMore: false });
+    expect(finalPage.rows).toHaveLength(1);
   });
 });

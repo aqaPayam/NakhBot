@@ -275,4 +275,6 @@ PR 1 foundation:
   proofs exist; matched Likes suppress ordinary Like notification eligibility;
 - [x] opposite-Like serialization into exactly one Match, pair state, two memberships, and one
   two-participant Chat session;
-- [ ] Liked By projection, delivery composition, and final performance/acceptance evidence.
+- [x] internal Liked By actionable count/keyset projection under one repeatable-read snapshot;
+- [ ] opaque Liked By cursor/action tokens, blurred grants, delivery composition, and final
+  performance/acceptance evidence.

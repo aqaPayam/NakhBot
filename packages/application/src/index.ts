@@ -27,6 +27,7 @@ export * from './media/cleanup.js';
 export * from './media/orphan-reconciliation.js';
 export * from './discovery/discovery.js';
 export * from './interaction/interaction.js';
+export * from './interaction/liked-by.js';
 export * from './profile/protected-change.js';
 export * from './presentation.js';
 
