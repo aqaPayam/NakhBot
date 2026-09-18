@@ -402,6 +402,14 @@ describe.skipIf(databaseUrl === undefined)('M3 interaction persistence', () => {
       .set({ state: 'active', state_changed_at: new Date() })
       .where('user_id', '=', likerId)
       .execute();
+    await database
+      .updateTable('identity.user_settings')
+      .set({ visibility_enabled: true })
+      .where('user_id', '=', likerId)
+      .execute();
+    await expect(delivery.authorize(request)).resolves.toMatchObject({
+      variantType: 'blurred_preview',
+    });
     await interactions.markNotInterested(
       rejectionCommand(receiverId, likerId),
       rejectionGenerated(),
