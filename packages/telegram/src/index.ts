@@ -5,6 +5,10 @@ export {
   type TelegramLockedLikedByCard,
   type TelegramLockedLikedByScreen,
 } from './liked-by-screen.js';
+export {
+  TelegramLockedLikedByMediaRelay,
+  type TelegramMediaAudienceCredentials,
+} from './liked-by-media-relay.js';
 export { TelegramPhotoActionTokens, type TelegramPhotoActionTokenState } from './action-token.js';
 export {
   TelegramPhotoMenuPresenter,

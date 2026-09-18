@@ -1,7 +1,7 @@
 import type { GetLockedLikedByPageHandler, LocalizedIntent } from '@nakh/application';
 
 type LockedPage = Awaited<ReturnType<GetLockedLikedByPageHandler['execute']>>;
-type BlurredGrant = LockedPage['cards'][number]['blurredPhoto'];
+export type BlurredGrant = LockedPage['cards'][number]['blurredPhoto'];
 
 const OPAQUE_REFERENCE = /^v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u;
 const MEDIA_PATH =
@@ -9,7 +9,7 @@ const MEDIA_PATH =
 
 export type TelegramLockedLikedByCard = Readonly<{
   label: LocalizedIntent;
-  /** For a future authenticated byte relay; never hand this URL to Telegram's fetcher. */
+  /** Server relay only; never hand this URL to Telegram's fetcher. */
   blurredPhoto: BlurredGrant;
   unlock: Readonly<{ label: LocalizedIntent; callbackData: string }>;
 }>;
@@ -25,13 +25,8 @@ function intent(key: string, variables: LocalizedIntent['variables'] = {}): Loca
   return { key, variables };
 }
 
-export class TelegramLockedLikedByPresenter {
-  private readonly mediaOrigin: string;
-
-  public constructor(
-    mediaOrigin: string,
-    private readonly now: () => number = Date.now,
-  ) {
+export function validateLikedByMediaOrigin(mediaOrigin: string): string {
+  try {
     const url = new URL(mediaOrigin);
     if (
       url.protocol !== 'https:' ||
@@ -43,36 +38,53 @@ export class TelegramLockedLikedByPresenter {
       url.hash !== ''
     )
       throw new Error('Liked By media origin is invalid.');
-    this.mediaOrigin = url.origin;
+    return url.origin;
+  } catch {
+    throw new Error('Liked By media origin is invalid.');
   }
+}
 
-  private validGrant(grant: BlurredGrant): boolean {
-    const expiry = new Date(grant.expiresAt);
-    if (
-      grant.variantType !== 'blurred_preview' ||
-      grant.cachePolicy !== 'no-store' ||
-      !Number.isFinite(expiry.getTime()) ||
-      expiry.toISOString() !== grant.expiresAt ||
-      expiry.getTime() <= this.now() ||
-      grant.deliveryUrl.length > 2048
-    )
-      return false;
-    try {
-      const url = new URL(grant.deliveryUrl);
-      const token = url.searchParams.get('token');
-      return (
-        url.origin === this.mediaOrigin &&
-        url.username === '' &&
-        url.password === '' &&
-        MEDIA_PATH.test(url.pathname) &&
-        url.searchParams.size === 1 &&
-        token !== null &&
-        /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(token) &&
-        url.hash === ''
-      );
-    } catch {
-      return false;
-    }
+export function validLikedByBlurredGrant(
+  grant: BlurredGrant,
+  mediaOrigin: string,
+  now: number,
+): boolean {
+  const expiry = new Date(grant.expiresAt);
+  if (
+    grant.variantType !== 'blurred_preview' ||
+    grant.cachePolicy !== 'no-store' ||
+    !Number.isFinite(expiry.getTime()) ||
+    expiry.toISOString() !== grant.expiresAt ||
+    expiry.getTime() <= now ||
+    grant.deliveryUrl.length > 2048
+  )
+    return false;
+  try {
+    const url = new URL(grant.deliveryUrl);
+    const token = url.searchParams.get('token');
+    return (
+      url.origin === mediaOrigin &&
+      url.username === '' &&
+      url.password === '' &&
+      MEDIA_PATH.test(url.pathname) &&
+      url.searchParams.size === 1 &&
+      token !== null &&
+      /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(token) &&
+      url.hash === ''
+    );
+  } catch {
+    return false;
+  }
+}
+
+export class TelegramLockedLikedByPresenter {
+  private readonly mediaOrigin: string;
+
+  public constructor(
+    mediaOrigin: string,
+    private readonly now: () => number = Date.now,
+  ) {
+    this.mediaOrigin = validateLikedByMediaOrigin(mediaOrigin);
   }
 
   public present(page: LockedPage): TelegramLockedLikedByScreen {
@@ -81,7 +93,9 @@ export class TelegramLockedLikedByPresenter {
       page.totalCount < page.cards.length ||
       page.cards.length > 50 ||
       page.cards.some(
-        (card) => !OPAQUE_REFERENCE.test(card.actionToken) || !this.validGrant(card.blurredPhoto),
+        (card) =>
+          !OPAQUE_REFERENCE.test(card.actionToken) ||
+          !validLikedByBlurredGrant(card.blurredPhoto, this.mediaOrigin, this.now()),
       ) ||
       (page.nextCursor !== undefined && !OPAQUE_REFERENCE.test(page.nextCursor))
     )
