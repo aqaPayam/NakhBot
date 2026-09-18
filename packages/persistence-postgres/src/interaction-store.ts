@@ -204,7 +204,9 @@ export class PostgresInteractionStore implements InteractionStore {
 
   public sendLike(command: SendLikeCommand, generated: LikeGenerated): Promise<InteractionResult> {
     if (command.actor.kind !== 'user')
-      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+      return Promise.reject(
+        new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
+      );
     return this.database.transaction().execute(async (transaction) => {
       const pair = await lockUserPair(transaction, command.actor.userId, command.data.targetUserId);
       const replay = await claimCommand(transaction, command, generated.occurredAt);
@@ -460,11 +462,15 @@ export class PostgresInteractionStore implements InteractionStore {
     generated: RejectionGenerated,
   ): Promise<InteractionResult> {
     if (command.actor.kind !== 'user')
-      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+      return Promise.reject(
+        new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
+      );
     // Liked By unlock and Pending Nakh authorization arrive in M4/M5. The M3 adapter
     // must not turn a forged source into a free action against either later flow.
     if (command.data.source !== 'explore')
-      throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
+      return Promise.reject(
+        new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409),
+      );
     return this.database.transaction().execute(async (transaction) => {
       const pair = await lockUserPair(transaction, command.actor.userId, command.data.targetUserId);
       const replay = await claimCommand(transaction, command, generated.occurredAt);
