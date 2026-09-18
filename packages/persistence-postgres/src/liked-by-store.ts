@@ -6,7 +6,8 @@ import { ApplicationError } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
 
-function actionableFrom(receiverUserId: string): RawBuilder<unknown> {
+/** Shared actionable predicate for the inbox and its media-grant authorization. */
+export function actionableLikedByFrom(receiverUserId: string): RawBuilder<unknown> {
   return sql`
     FROM interaction.likes incoming
     JOIN identity.accounts liker_account ON liker_account.user_id = incoming.sender_user_id
@@ -19,6 +20,7 @@ function actionableFrom(receiverUserId: string): RawBuilder<unknown> {
       AND liker_account.state = 'active'
       AND liker_profile.completion_status = 'complete'
       AND primary_photo.status = 'visible' AND primary_photo.is_primary
+      AND primary_photo.deleted_at IS NULL
       AND primary_asset.validation_state = 'valid'
       AND primary_asset.deleted_at IS NULL AND primary_asset.storage_deleted_at IS NULL
       AND thumbnail.variant_type = 'thumbnail' AND thumbnail.transformation_version = 1
@@ -48,9 +50,13 @@ export class PostgresLikedByStore implements LikedByReadStore {
     after?: LikedByKeyset,
   ): Promise<ActionableLikedByPage> {
     if (query.actor.kind !== 'user')
-      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+      return Promise.reject(
+        new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
+      );
     if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 50)
-      throw new ApplicationError('invalid_request', 'error.interaction.page_limit_invalid', 400);
+      return Promise.reject(
+        new ApplicationError('invalid_request', 'error.interaction.page_limit_invalid', 400),
+      );
     return this.database
       .transaction()
       .setIsolationLevel('repeatable read')
@@ -70,7 +76,7 @@ export class PostgresLikedByStore implements LikedByReadStore {
         )
           denied();
 
-        const from = actionableFrom(query.actor.userId);
+        const from = actionableLikedByFrom(query.actor.userId);
         const countResult = await sql<{ count: string }>`SELECT count(*) AS count ${from}`.execute(
           transaction,
         );

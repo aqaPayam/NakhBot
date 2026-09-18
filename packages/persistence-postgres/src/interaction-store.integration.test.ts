@@ -9,6 +9,7 @@ import type { MarkNotInterestedCommand, SendLikeCommand } from '@nakh/contracts'
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresInteractionStore } from './interaction-store.js';
 import { PostgresLikedByStore } from './liked-by-store.js';
+import { PostgresMediaDeliveryAuthorization } from './media-delivery-authorization.js';
 import { seedValidMedia } from './media-fixtures.js';
 import { runMigrations } from './migrations.js';
 
@@ -61,7 +62,10 @@ async function createActiveUser(database: NakhDatabase, genderOptionId: string):
   return userId;
 }
 
-async function addPrimaryPhoto(database: NakhDatabase, userId: string): Promise<void> {
+async function addPrimaryPhoto(
+  database: NakhDatabase,
+  userId: string,
+): Promise<Readonly<{ photoId: string; assetId: string }>> {
   const profile = await database
     .selectFrom('profile.profiles')
     .select('id')
@@ -69,10 +73,11 @@ async function addPrimaryPhoto(database: NakhDatabase, userId: string): Promise<
     .executeTakeFirstOrThrow();
   const assetId = await seedValidMedia(database, userId);
   const now = new Date();
+  const photoId = randomUUID();
   await database
     .insertInto('media.profile_photos')
     .values({
-      id: randomUUID(),
+      id: photoId,
       profile_id: profile.id,
       asset_id: assetId,
       status: 'visible',
@@ -84,6 +89,7 @@ async function addPrimaryPhoto(database: NakhDatabase, userId: string): Promise<
       deleted_at: null,
     })
     .execute();
+  return { photoId, assetId };
 }
 
 function likeCommand(senderUserId: string, receiverUserId: string): SendLikeCommand {
@@ -310,5 +316,98 @@ describe.skipIf(databaseUrl === undefined)('M3 interaction persistence', () => {
     const finalPage = await store.readActionablePage({ ...query, limit: 10 });
     expect(finalPage).toMatchObject({ totalCount: 1, hasMore: false });
     expect(finalPage.rows).toHaveLength(1);
+  });
+
+  it('authorizes only the current actionable Liked By blurred primary photo', async () => {
+    const receiverId = await createActiveUser(database, manGenderId);
+    const likerId = await createActiveUser(database, womanGenderId);
+    const strangerId = await createActiveUser(database, manGenderId);
+    const { photoId, assetId } = await addPrimaryPhoto(database, likerId);
+    const interactions = new PostgresInteractionStore(database);
+    const delivery = new PostgresMediaDeliveryAuthorization(database);
+    await interactions.sendLike(likeCommand(likerId, receiverId), likeGenerated());
+    const request = {
+      actor: { kind: 'user' as const, userId: receiverId },
+      photoId,
+      purpose: 'liked_by_blur' as const,
+      requestedVariant: 'blurred_preview' as const,
+    };
+    await expect(delivery.authorize(request)).rejects.toMatchObject({
+      code: 'media_delivery_denied',
+    });
+    await database
+      .insertInto('media.photo_variants')
+      .values({
+        id: randomUUID(),
+        asset_id: assetId,
+        variant_type: 'blurred_preview',
+        transformation_version: 1,
+        storage_provider: 'r2',
+        storage_key: `variants/test/${assetId}/blurred-preview-v1.webp`,
+        delivery_path: `/media/${assetId}/blurred-preview-v1.webp`,
+        width: 96,
+        height: 96,
+        sha256: Buffer.alloc(32, 1),
+        generated_at: new Date(),
+        verified_at: new Date(),
+        deleted_at: null,
+        storage_deleted_at: null,
+      })
+      .execute();
+    await expect(delivery.authorize(request)).resolves.toEqual({
+      deliveryPath: `/media/${assetId}/blurred-preview-v1.webp`,
+      variantType: 'blurred_preview',
+      cachePolicy: 'no-store',
+    });
+    await expect(
+      delivery.authorize({ ...request, actor: { kind: 'user', userId: strangerId } }),
+    ).rejects.toMatchObject({ code: 'media_delivery_denied' });
+    await expect(
+      delivery.authorize({ ...request, requestedVariant: 'thumbnail' }),
+    ).rejects.toMatchObject({ code: 'media_delivery_denied' });
+    await expect(delivery.authorize({ ...request, photoId: randomUUID() })).rejects.toMatchObject({
+      code: 'media_delivery_denied',
+    });
+    await database
+      .updateTable('identity.user_settings')
+      .set({ visibility_enabled: false })
+      .where('user_id', '=', likerId)
+      .execute();
+    await expect(delivery.authorize(request)).resolves.toMatchObject({
+      variantType: 'blurred_preview',
+    });
+    await database
+      .updateTable('identity.user_settings')
+      .set({ visibility_enabled: false })
+      .where('user_id', '=', receiverId)
+      .execute();
+    await expect(delivery.authorize(request)).rejects.toMatchObject({
+      code: 'media_delivery_denied',
+    });
+    await database
+      .updateTable('identity.user_settings')
+      .set({ visibility_enabled: true })
+      .where('user_id', '=', receiverId)
+      .execute();
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'restricted', state_changed_at: new Date() })
+      .where('user_id', '=', likerId)
+      .execute();
+    await expect(delivery.authorize(request)).rejects.toMatchObject({
+      code: 'media_delivery_denied',
+    });
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'active', state_changed_at: new Date() })
+      .where('user_id', '=', likerId)
+      .execute();
+    await interactions.markNotInterested(
+      rejectionCommand(receiverId, likerId),
+      rejectionGenerated(),
+    );
+    await expect(delivery.authorize(request)).rejects.toMatchObject({
+      code: 'media_delivery_denied',
+    });
   });
 });

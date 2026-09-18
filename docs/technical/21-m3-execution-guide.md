@@ -278,4 +278,6 @@ PR 1 foundation:
 - [x] internal Liked By actionable count/keyset projection under one repeatable-read snapshot;
 - [x] signed, receiver-bound, short-lived opaque Liked By cursor/action references with query-version
   binding, purpose separation, and fail-closed resolution;
-- [ ] blurred grants, Liked By delivery composition, and final performance/acceptance evidence.
+- [x] blurred-primary grant authorization shares the actionable Liked By predicate and denies stale,
+  foreign, wrong-variant, and absent-rendition requests;
+- [ ] on-demand blur and Liked By delivery composition, plus final performance/acceptance evidence.
