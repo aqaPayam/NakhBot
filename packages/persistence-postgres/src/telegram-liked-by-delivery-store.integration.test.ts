@@ -10,6 +10,7 @@ import { SystemIdGenerator } from './foundation-store.js';
 import { runMigrations } from './migrations.js';
 import {
   PostgresTelegramLikedByDeliveryStore,
+  type TelegramLikedByDeliveryErrorCode,
   type TelegramLikedByDeliveryInput,
 } from './telegram-liked-by-delivery-store.js';
 
@@ -160,5 +161,82 @@ describe.skipIf(databaseUrl === undefined)('M3 durable Telegram Liked By handoff
         .where('update_id', 'in', [String(updateBase + 3), String(updateBase + 4)])
         .execute(),
     ).toHaveLength(0);
+  });
+
+  it('claims each due request once and fences a former attempt after retry', async () => {
+    const target = await store.enqueue(request(5));
+    const [first, second] = await Promise.all([
+      store.claimBatch({ owner: 'sender-a', leaseMs: 30_000, limit: 100 }),
+      store.claimBatch({ owner: 'sender-b', leaseMs: 30_000, limit: 100 }),
+    ]);
+    const claimed = [
+      ...first.map((item) => ({ ...item, owner: 'sender-a' })),
+      ...second.map((item) => ({ ...item, owner: 'sender-b' })),
+    ];
+    expect(new Set(claimed.map((item) => item.id)).size).toBe(claimed.length);
+    const delivery = claimed.find((item) => item.id === target.deliveryId);
+    expect(delivery).toMatchObject({ id: target.deliveryId, attemptCount: 1 });
+    const settlement = {
+      id: target.deliveryId,
+      owner: delivery!.owner,
+      attemptCount: delivery!.attemptCount,
+    };
+    expect(await store.markDelivered({ ...settlement, owner: 'other-sender' })).toBe(false);
+    expect(
+      await store.releaseForRetry({
+        ...settlement,
+        errorCode: 'provider_timeout',
+        delayMs: 60_000,
+      }),
+    ).toBe(true);
+    expect(await store.claimBatch({ owner: 'sender-c', leaseMs: 30_000, limit: 100 })).toEqual([]);
+    await database
+      .updateTable('channel_telegram.liked_by_delivery_requests')
+      .set({ available_at: new Date(Date.now() - 1_000) })
+      .where('id', '=', target.deliveryId)
+      .execute();
+    const reclaimed = await store.claimBatch({
+      owner: settlement.owner,
+      leaseMs: 30_000,
+      limit: 1,
+    });
+    expect(reclaimed).toMatchObject([{ id: target.deliveryId, attemptCount: 2 }]);
+    expect(await store.markDelivered(settlement)).toBe(false);
+    expect(await store.markDelivered({ ...settlement, attemptCount: 2 })).toBe(true);
+    const stored = await database
+      .selectFrom('channel_telegram.liked_by_delivery_requests')
+      .select(['state', 'delivered_at', 'lease_owner', 'last_error_code'])
+      .where('id', '=', target.deliveryId)
+      .executeTakeFirstOrThrow();
+    expect(stored.state).toBe('delivered');
+    expect(stored.delivered_at).toBeInstanceOf(Date);
+    expect(stored.lease_owner).toBeNull();
+    expect(stored.last_error_code).toBeNull();
+  });
+
+  it('marks terminal failures without retaining raw provider errors or reclaiming them', async () => {
+    const target = await store.enqueue(request(6));
+    const claimed = await store.claimBatch({ owner: 'sender-d', leaseMs: 30_000, limit: 100 });
+    const delivery = claimed.find((item) => item.id === target.deliveryId)!;
+    const settlement = { id: delivery.id, owner: 'sender-d', attemptCount: delivery.attemptCount };
+    await expect(
+      store.markFailed({
+        ...settlement,
+        errorCode: `provider_${telegramUserId}` as TelegramLikedByDeliveryErrorCode,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(await store.markFailed({ ...settlement, errorCode: 'provider_rejected' })).toBe(true);
+    expect(await store.markFailed({ ...settlement, errorCode: 'provider_rejected' })).toBe(false);
+    const stored = await database
+      .selectFrom('channel_telegram.liked_by_delivery_requests')
+      .select(['state', 'last_error_code', 'lease_owner'])
+      .where('id', '=', target.deliveryId)
+      .executeTakeFirstOrThrow();
+    expect(stored).toEqual({
+      state: 'failed',
+      last_error_code: 'provider_rejected',
+      lease_owner: null,
+    });
+    expect(await store.claimBatch({ owner: 'sender-e', leaseMs: 30_000, limit: 100 })).toEqual([]);
   });
 });

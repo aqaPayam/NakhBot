@@ -1,5 +1,6 @@
 import type { Clock, IdGenerator } from '@nakh/domain';
 import { ApplicationError } from '@nakh/domain';
+import { sql } from 'kysely';
 
 import type { NakhDatabase } from './database.js';
 
@@ -18,10 +19,75 @@ export type TelegramLikedByEnqueueResult = Readonly<{
   replayed: boolean;
 }>;
 
+export type ClaimedTelegramLikedByDelivery = Readonly<{
+  id: string;
+  botId: string;
+  updateId: string;
+  viewerUserId: string;
+  telegramUserId: string;
+  requestId: string;
+  cursor?: string;
+  callbackQueryId?: string;
+  attemptCount: number;
+}>;
+
+export type TelegramLikedByDeliveryClaim = Readonly<{
+  owner: string;
+  leaseMs: number;
+  limit: number;
+}>;
+
+export type TelegramLikedByDeliverySettlement = Readonly<{
+  id: string;
+  owner: string;
+  attemptCount: number;
+}>;
+
+export type TelegramLikedByDeliveryErrorCode =
+  | 'identity_unavailable'
+  | 'page_unavailable'
+  | 'media_unavailable'
+  | 'provider_timeout'
+  | 'provider_rejected'
+  | 'provider_unavailable'
+  | 'retry_exhausted'
+  | 'unknown_failure';
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const PROVIDER_ID = /^[1-9][0-9]{0,19}$/u;
 const UPDATE_ID = /^(?:0|[1-9][0-9]{0,19})$/u;
 const CURSOR = /^v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u;
+const OWNER = /^[\x20-\x7e]{1,128}$/u;
+const ERROR_CODES = new Set<TelegramLikedByDeliveryErrorCode>([
+  'identity_unavailable',
+  'page_unavailable',
+  'media_unavailable',
+  'provider_timeout',
+  'provider_rejected',
+  'provider_unavailable',
+  'retry_exhausted',
+  'unknown_failure',
+]);
+
+function validErrorCode(value: unknown): value is TelegramLikedByDeliveryErrorCode {
+  return typeof value === 'string' && ERROR_CODES.has(value as TelegramLikedByDeliveryErrorCode);
+}
+
+function invalidLease(): never {
+  throw new ApplicationError('invalid_request', 'error.interaction.unavailable', 400);
+}
+
+function validateSettlement(input: TelegramLikedByDeliverySettlement): void {
+  if (
+    typeof input.id !== 'string' ||
+    !UUID.test(input.id) ||
+    typeof input.owner !== 'string' ||
+    !OWNER.test(input.owner) ||
+    !Number.isSafeInteger(input.attemptCount) ||
+    input.attemptCount < 1
+  )
+    invalidLease();
+}
 
 function validate(input: TelegramLikedByDeliveryInput): void {
   if (
@@ -134,5 +200,143 @@ export class PostgresTelegramLikedByDeliveryStore {
         .execute();
       return { deliveryId, replayed: false };
     });
+  }
+
+  /** Claim only due requests. The attempt number fences a former owner after lease expiry. */
+  public async claimBatch(
+    input: TelegramLikedByDeliveryClaim,
+  ): Promise<ClaimedTelegramLikedByDelivery[]> {
+    if (
+      typeof input.owner !== 'string' ||
+      !OWNER.test(input.owner) ||
+      !Number.isSafeInteger(input.leaseMs) ||
+      input.leaseMs < 30_000 ||
+      input.leaseMs > 900_000 ||
+      !Number.isSafeInteger(input.limit) ||
+      input.limit < 1 ||
+      input.limit > 100
+    )
+      invalidLease();
+    return this.database.transaction().execute(async (transaction) => {
+      const due = await transaction
+        .selectFrom('channel_telegram.liked_by_delivery_requests')
+        .select('id')
+        .where('state', '=', 'pending')
+        .where('available_at', '<=', sql<Date>`clock_timestamp()`)
+        .where((expression) =>
+          expression.or([
+            expression('lease_expires_at', 'is', null),
+            expression('lease_expires_at', '<', sql<Date>`clock_timestamp()`),
+          ]),
+        )
+        .orderBy('available_at', 'asc')
+        .orderBy('id', 'asc')
+        .limit(input.limit)
+        .forUpdate()
+        .skipLocked()
+        .execute();
+      if (due.length === 0) return [];
+      const rows = await transaction
+        .updateTable('channel_telegram.liked_by_delivery_requests')
+        .set((expression) => ({
+          lease_owner: input.owner,
+          lease_expires_at: sql<Date>`clock_timestamp() + (${input.leaseMs} * interval '1 millisecond')`,
+          attempt_count: expression('attempt_count', '+', 1),
+          updated_at: sql<Date>`clock_timestamp()`,
+        }))
+        .where(
+          'id',
+          'in',
+          due.map(({ id }) => id),
+        )
+        .returningAll()
+        .execute();
+      return rows.map((row) => ({
+        id: row.id,
+        botId: row.bot_id,
+        updateId: row.update_id,
+        viewerUserId: row.viewer_user_id,
+        telegramUserId: row.telegram_user_id,
+        requestId: row.request_id,
+        ...(row.cursor === null ? {} : { cursor: row.cursor }),
+        ...(row.callback_query_id === null ? {} : { callbackQueryId: row.callback_query_id }),
+        attemptCount: row.attempt_count,
+      }));
+    });
+  }
+
+  public async markDelivered(input: TelegramLikedByDeliverySettlement): Promise<boolean> {
+    validateSettlement(input);
+    const updated = await this.database
+      .updateTable('channel_telegram.liked_by_delivery_requests')
+      .set({
+        state: 'delivered',
+        delivered_at: sql<Date>`clock_timestamp()`,
+        updated_at: sql<Date>`clock_timestamp()`,
+        lease_owner: null,
+        lease_expires_at: null,
+        last_error_code: null,
+      })
+      .where('id', '=', input.id)
+      .where('state', '=', 'pending')
+      .where('lease_owner', '=', input.owner)
+      .where('attempt_count', '=', input.attemptCount)
+      .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+      .executeTakeFirst();
+    return updated.numUpdatedRows === 1n;
+  }
+
+  public async releaseForRetry(
+    input: TelegramLikedByDeliverySettlement &
+      Readonly<{ errorCode: TelegramLikedByDeliveryErrorCode; delayMs: number }>,
+  ): Promise<boolean> {
+    validateSettlement(input);
+    if (
+      !validErrorCode(input.errorCode) ||
+      !Number.isSafeInteger(input.delayMs) ||
+      input.delayMs < 0 ||
+      input.delayMs > 3_600_000
+    )
+      invalidLease();
+    const updated = await this.database
+      .updateTable('channel_telegram.liked_by_delivery_requests')
+      .set({
+        lease_owner: null,
+        lease_expires_at: null,
+        available_at: sql<Date>`clock_timestamp() + (${input.delayMs} * interval '1 millisecond')`,
+        last_error_code: input.errorCode,
+        updated_at: sql<Date>`clock_timestamp()`,
+      })
+      .where('id', '=', input.id)
+      .where('state', '=', 'pending')
+      .where('lease_owner', '=', input.owner)
+      .where('attempt_count', '=', input.attemptCount)
+      .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+      .executeTakeFirst();
+    return updated.numUpdatedRows === 1n;
+  }
+
+  public async markFailed(
+    input: TelegramLikedByDeliverySettlement &
+      Readonly<{ errorCode: TelegramLikedByDeliveryErrorCode }>,
+  ): Promise<boolean> {
+    validateSettlement(input);
+    if (!validErrorCode(input.errorCode)) invalidLease();
+    const updated = await this.database
+      .updateTable('channel_telegram.liked_by_delivery_requests')
+      .set({
+        state: 'failed',
+        lease_owner: null,
+        lease_expires_at: null,
+        last_error_code: input.errorCode,
+        updated_at: sql<Date>`clock_timestamp()`,
+      })
+      .where('id', '=', input.id)
+      .where('state', '=', 'pending')
+      .where('lease_owner', '=', input.owner)
+      .where('attempt_count', '=', input.attemptCount)
+      .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+      .executeTakeFirst();
+    return updated.numUpdatedRows === 1n;
   }
 }

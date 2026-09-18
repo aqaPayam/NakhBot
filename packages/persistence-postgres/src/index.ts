@@ -17,7 +17,11 @@ export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-sto
 export { PostgresTelegramUserResolver } from './telegram-user-resolver.js';
 export {
   PostgresTelegramLikedByDeliveryStore,
+  type ClaimedTelegramLikedByDelivery,
+  type TelegramLikedByDeliveryClaim,
+  type TelegramLikedByDeliveryErrorCode,
   type TelegramLikedByDeliveryInput,
+  type TelegramLikedByDeliverySettlement,
   type TelegramLikedByEnqueueResult,
 } from './telegram-liked-by-delivery-store.js';
 export { PostgresSignupStore } from './signup-store.js';
