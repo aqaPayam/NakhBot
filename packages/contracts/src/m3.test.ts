@@ -113,6 +113,7 @@ describe('M3 discovery and interaction contracts', () => {
   it('locks M3 event names to explicit versioned values', () => {
     const validate = validator(M3EventTypeSchema);
     expect(validate('matching.match-created.v1')).toBe(true);
+    expect(validate('telegram.liked-by-delivery-requested.v1')).toBe(true);
     expect(validate('matching.match-created')).toBe(false);
     expect(validate('discovery.profile-exposed.v1')).toBe(false);
   });

@@ -62,6 +62,7 @@ export const M3EventTypeSchema = Type.Union([
   Type.Literal('interaction.like-closed.v1'),
   Type.Literal('interaction.not-interested-created.v1'),
   Type.Literal('matching.match-created.v1'),
+  Type.Literal('telegram.liked-by-delivery-requested.v1'),
 ]);
 export type M3EventType = Static<typeof M3EventTypeSchema>;
 

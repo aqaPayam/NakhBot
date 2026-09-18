@@ -47,6 +47,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000019_m3_matching.sql',
         '000020_m3_candidate_query.sql',
         '000021_m3_localization.sql',
+        '000022_m3_telegram_delivery.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -62,9 +63,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000019_m3_matching.sql');
       expect(verified).toContain('000020_m3_candidate_query.sql');
       expect(verified).toContain('000021_m3_localization.sql');
+      expect(verified).toContain('000022_m3_telegram_delivery.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(21);
+      expect(replay.existing).toHaveLength(22);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

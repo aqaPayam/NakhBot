@@ -15,6 +15,11 @@ export {
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 export { PostgresTelegramUserResolver } from './telegram-user-resolver.js';
+export {
+  PostgresTelegramLikedByDeliveryStore,
+  type TelegramLikedByDeliveryInput,
+  type TelegramLikedByEnqueueResult,
+} from './telegram-liked-by-delivery-store.js';
 export { PostgresSignupStore } from './signup-store.js';
 export { PostgresProfileStore } from './profile-store.js';
 export { PostgresMediaStore } from './media-store.js';

@@ -18,6 +18,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `platform.idempotency_records` | short-lived reliability metadata | expire by configured TTL; redact response payloads | Platform |
 | `platform.outbox_events` | reliability/audit transport | retain until published plus operational retention window | Platform |
 | `platform.inbox_messages` | deduplication metadata | retain for consumer replay window | Platform |
+| `channel_telegram.liked_by_delivery_requests` | Telegram ID, opaque cursor, and short-lived delivery metadata | cancel on product deletion and purge after the seven-day transport-deduplication window; never retain rendered cards or signed media grants | Telegram channel / Privacy |
 | `platform.audit_logs` | append-only safe audit metadata | retain by category policy; never store user prose or Telegram identifiers | Platform/Security |
 | `profile.profiles`, optional details, and selection joins | sensitive dating Profile | purge | Ordinary product data; Profile |
 | `profile.profile_change_requests` | sensitive correction request | purge after the approved compliance window | Contains protected value snapshots and User reason; Profile/Privacy |

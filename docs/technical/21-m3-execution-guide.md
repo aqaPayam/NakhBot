@@ -77,6 +77,8 @@ Create and verify these forward-only migrations:
 4. `000020_m3_candidate_query.sql` — global Guest Preview shuffle index and canonical pair lock.
 5. `000021_m3_localization.sql` — Explore, exhaustion, Like, Not Interested, Liked By, Match, stale
    action, and safe error keys with exact variable declarations.
+6. `000022_m3_telegram_delivery.sql` — a Telegram-specific, update-deduplicated channel-delivery
+   request ledger. It stores only routing metadata and opaque cursors, never rendered cards or grants.
 
 Each migration must bootstrap from empty, upgrade from `000016`, replay unchanged, and have matching
 verification SQL. Applied migrations are immutable.
@@ -252,8 +254,8 @@ Stable acceptance IDs:
 4. Durable reservation/delivery lifecycle and completion of the M1 Guest Preview acceptance seam.
 5. Like, Not Interested, mutual Match/Chat transaction, and concurrency evidence.
 6. Liked By projection, blurred grants, opaque Telegram rendering/actions, and privacy tests.
-7. Localization migration `000021`, observability/runbooks, load/fault tests, acceptance ledger, and
-   staging evidence.
+7. Localization migration `000021`, durable Telegram handoff migration `000022`,
+   observability/runbooks, load/fault tests, acceptance ledger, and staging evidence.
 
 Every increment must pass frozen install, formatting, lint, type checks, unit/integration/concurrency
 tests, migration replay/verification, security audit, and production builds. M3 is complete only when
@@ -299,6 +301,8 @@ PR 1 foundation:
   notice for M4 unlock actions;
 - [x] deferred page processor validates the compact request and runs the authoritative page query
   and grant creation only when the request is being delivered;
+- [x] migration `000022` and PostgreSQL adapter deduplicate `(bot ID, update ID)` in one
+  transaction with a minimal outbox fact; the worker does not consume this event yet;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;

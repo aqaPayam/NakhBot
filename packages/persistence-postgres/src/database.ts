@@ -66,6 +66,26 @@ export interface InboxMessageTable {
   result_code: string | null;
 }
 
+export interface TelegramLikedByDeliveryRequestTable {
+  id: string;
+  bot_id: string;
+  update_id: string;
+  viewer_user_id: string;
+  telegram_user_id: string;
+  request_id: string;
+  cursor: string | null;
+  callback_query_id: string | null;
+  state: Generated<'pending' | 'delivered' | 'failed'>;
+  attempt_count: Generated<number>;
+  available_at: Date;
+  lease_owner: string | null;
+  lease_expires_at: Date | null;
+  last_error_code: string | null;
+  delivered_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface SampleProjectionTable {
   id: string;
   source_event_id: string;
@@ -464,6 +484,7 @@ export interface ChatParticipantTable {
 }
 
 export interface DatabaseSchema {
+  'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'media.media_assets': MediaAssetTable;
   'media.photo_variants': PhotoVariantTable;
   'media.profile_photos': ProfilePhotoTable;
