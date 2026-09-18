@@ -9,7 +9,10 @@ export interface InteractionStore {
       matchId: string;
       chatSessionId: string;
       auditId: string;
-      eventId: string;
+      likeEventId: string;
+      likeClosedEventId: string;
+      matchEventId: string;
+      consumptionEventId: string;
       occurredAt: Date;
     }>,
   ): Promise<InteractionResult>;
@@ -18,7 +21,9 @@ export interface InteractionStore {
     generated: Readonly<{
       rejectionId: string;
       auditId: string;
-      eventId: string;
+      rejectionEventId: string;
+      likeClosedEventId: string;
+      consumptionEventId: string;
       occurredAt: Date;
     }>,
   ): Promise<InteractionResult>;
@@ -43,7 +48,10 @@ export class SendLikeHandler {
       matchId: this.ids.uuid(),
       chatSessionId: this.ids.uuid(),
       auditId: this.ids.uuid(),
-      eventId: this.ids.uuid(),
+      likeEventId: this.ids.uuid(),
+      likeClosedEventId: this.ids.uuid(),
+      matchEventId: this.ids.uuid(),
+      consumptionEventId: this.ids.uuid(),
       occurredAt: this.clock.now(),
     });
   }
@@ -61,7 +69,9 @@ export class MarkNotInterestedHandler {
     return this.store.markNotInterested(command, {
       rejectionId: this.ids.uuid(),
       auditId: this.ids.uuid(),
-      eventId: this.ids.uuid(),
+      rejectionEventId: this.ids.uuid(),
+      likeClosedEventId: this.ids.uuid(),
+      consumptionEventId: this.ids.uuid(),
       occurredAt: this.clock.now(),
     });
   }

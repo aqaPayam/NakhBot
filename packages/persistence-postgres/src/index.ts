@@ -31,6 +31,7 @@ export { PostgresGuestPreviewStore } from './guest-preview-store.js';
 export { PostgresExploreFilterStore } from './explore-filter-store.js';
 export { PostgresCandidateReservationStore } from './candidate-reservation-store.js';
 export { PostgresCandidateDeliveryStore } from './candidate-delivery-store.js';
+export { PostgresInteractionStore } from './interaction-store.js';
 export { lockUserPair } from './pair-lock.js';
 export {
   migrationStatus,

@@ -103,7 +103,7 @@ export class PostgresCandidateDeliveryStore implements CandidateDeliveryStore {
           );
         guestCount = counter.preview_count;
       }
-      await transaction
+      const delivered = await transaction
         .updateTable('discovery.candidate_deliveries')
         .set({
           state: 'delivered',
@@ -114,7 +114,9 @@ export class PostgresCandidateDeliveryStore implements CandidateDeliveryStore {
         })
         .where('id', '=', delivery.id)
         .where('state', '=', 'reserved')
-        .executeTakeFirstOrThrow();
+        .returning('id')
+        .executeTakeFirst();
+      if (delivered === undefined) conflict();
       await transaction
         .insertInto('platform.audit_logs')
         .values({
@@ -205,7 +207,7 @@ export class PostgresCandidateDeliveryStore implements CandidateDeliveryStore {
       if (delivery.state === 'failed')
         return { deliveryId: delivery.id, mode: delivery.mode, state: 'failed', replayed: true };
       if (delivery.state === 'delivered') conflict();
-      await transaction
+      const failed = await transaction
         .updateTable('discovery.candidate_deliveries')
         .set({
           state: 'failed',
@@ -215,7 +217,9 @@ export class PostgresCandidateDeliveryStore implements CandidateDeliveryStore {
         })
         .where('id', '=', delivery.id)
         .where('state', '=', 'reserved')
-        .executeTakeFirstOrThrow();
+        .returning('id')
+        .executeTakeFirst();
+      if (failed === undefined) conflict();
       await transaction
         .insertInto('platform.audit_logs')
         .values({

@@ -175,6 +175,10 @@ call the matching coordinator inside the same transaction: create/replay Match, 
 pair state, ChatSession/participants; close both Likes as `closed_by_match`; emit Match events and no
 ordinary Like notification.
 
+M3 records the receiver notification eligibility on the durable Like-created outbox fact. The
+Notification module's eventual delivery record and channel sending remain M6-owned; an M3 Like
+must not bypass that future preference-aware delivery pipeline.
+
 ### MarkNotInterested
 
 Lock the pair, validate source, insert/replay rejection and consumption, and close only the applicable
@@ -265,4 +269,10 @@ PR 1 foundation:
   Guest Preview admission, and one-live durable reservation;
 - [x] idempotent delivery success/failure finalization with atomic consumption and Guest Preview
   counter use, plus definitive-failure compensation without consumption;
-- [ ] interaction transaction adapters (PR 2 continuation).
+- [x] idempotent Like and Not Interested transactions with shared pair locking, immutable
+  consumption, silent rejection, and received-Like closure;
+- [x] M3 rejects forged Liked By/Pending Nakh action sources until their M4/M5 authorization
+  proofs exist; matched Likes suppress ordinary Like notification eligibility;
+- [x] opposite-Like serialization into exactly one Match, pair state, two memberships, and one
+  two-participant Chat session;
+- [ ] Liked By projection, delivery composition, and final performance/acceptance evidence.
