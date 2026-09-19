@@ -20,6 +20,7 @@ class MemoryTokens implements OpaqueTokenStore {
 const receiverId = '10000000-0000-4000-8000-000000000001';
 const anotherReceiverId = '10000000-0000-4000-8000-000000000002';
 const likeId = '20000000-0000-4000-8000-000000000001';
+const requestId = '30000000-0000-4000-8000-000000000001';
 const position = { createdAt: new Date('2026-01-02T03:04:05.000Z'), likeId };
 const key = new Uint8Array(32).fill(7);
 
@@ -77,6 +78,23 @@ describe('Liked By opaque references', () => {
     ).resolves.toBeUndefined();
     now = 901_000;
     await expect(tokens.resolveCursor(cursor, receiverId)).resolves.toBeUndefined();
+  });
+
+  it('replays the same opaque references for one delivery without leaking stable inputs', async () => {
+    let now = 1_000;
+    const store = new MemoryTokens();
+    const tokens = new LikedByOpaqueReferences(store, key, () => now);
+    const firstAction = await tokens.issueAction(receiverId, likeId, requestId);
+    const firstCursor = await tokens.issueCursor(receiverId, position, requestId);
+    now = 10_000;
+    expect(await tokens.issueAction(receiverId, likeId, requestId)).toBe(firstAction);
+    expect(await tokens.issueCursor(receiverId, position, requestId)).toBe(firstCursor);
+    expect(await tokens.issueAction(receiverId, likeId, anotherReceiverId)).not.toBe(firstAction);
+    for (const token of [firstAction, firstCursor]) {
+      expect(token).not.toContain(receiverId);
+      expect(token).not.toContain(requestId);
+      expect(token).not.toContain(likeId);
+    }
   });
 
   it('fails closed for missing or malformed state and bounded allocation collisions', async () => {

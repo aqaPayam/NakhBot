@@ -80,10 +80,20 @@ describe('GetLockedLikedByPageHandler', () => {
       purpose: 'liked_by_blur',
       requestedVariant: 'blurred_preview',
     });
-    expect(parts.references.issueCursor).toHaveBeenCalledWith(receiverId, {
-      createdAt: rows[1]!.createdAt,
-      likeId: rows[1]!.likeId,
-    });
+    expect(parts.references.issueCursor).toHaveBeenCalledWith(
+      receiverId,
+      {
+        createdAt: rows[1]!.createdAt,
+        likeId: rows[1]!.likeId,
+      },
+      query.requestId,
+    );
+    expect(parts.references.issueAction).toHaveBeenNthCalledWith(
+      1,
+      receiverId,
+      rows[0]!.likeId,
+      query.requestId,
+    );
     for (const row of rows) {
       expect(JSON.stringify(result)).not.toContain(row.likeId);
       expect(JSON.stringify(result)).not.toContain(row.primaryPhotoId);

@@ -50,7 +50,11 @@ export class GetLockedLikedByPageHandler {
               blurredPhoto.cachePolicy !== 'no-store'
             )
               throw new ApplicationError('internal_error', 'error.internal', 500);
-            const actionToken = await this.references.issueAction(query.actor.userId, row.likeId);
+            const actionToken = await this.references.issueAction(
+              query.actor.userId,
+              row.likeId,
+              query.requestId,
+            );
             return {
               actionToken,
               blurredPhoto: {
@@ -67,10 +71,11 @@ export class GetLockedLikedByPageHandler {
     if (!page.hasMore) return { totalCount: page.totalCount, cards };
     const last = page.rows.at(-1);
     if (last === undefined) throw new ApplicationError('internal_error', 'error.internal', 500);
-    const nextCursor = await this.references.issueCursor(query.actor.userId, {
-      createdAt: last.createdAt,
-      likeId: last.likeId,
-    });
+    const nextCursor = await this.references.issueCursor(
+      query.actor.userId,
+      { createdAt: last.createdAt, likeId: last.likeId },
+      query.requestId,
+    );
     return { totalCount: page.totalCount, cards, nextCursor };
   }
 }

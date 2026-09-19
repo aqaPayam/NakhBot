@@ -52,6 +52,22 @@ function validState(value: unknown): value is StoredState {
   );
 }
 
+function sameReference(left: StoredState, right: StoredState): boolean {
+  if (
+    left.purpose !== right.purpose ||
+    left.version !== right.version ||
+    left.receiverUserId !== right.receiverUserId ||
+    left.likeId !== right.likeId
+  )
+    return false;
+  return (
+    left.purpose === 'liked_by_action' ||
+    (right.purpose === 'liked_by_cursor' &&
+      left.queryVersion === right.queryVersion &&
+      left.createdAt === right.createdAt)
+  );
+}
+
 /** Short, signed, Redis-backed references. Neither Like IDs nor cursor positions reach a client. */
 export class LikedByOpaqueReferences {
   private readonly key: Uint8Array;
@@ -74,22 +90,59 @@ export class LikedByOpaqueReferences {
       .toString('base64url');
   }
 
-  private async issue(state: StoredState): Promise<string> {
+  private token(id: string): string {
+    const unsigned = `v1.lb.${id}`;
+    return `${unsigned}.${this.signature(unsigned)}`;
+  }
+
+  private stableId(
+    idempotencyKey: string,
+    purpose: StoredState['purpose'],
+    subject: string,
+  ): string {
+    if (!UUID.test(idempotencyKey)) throw new Error('Liked By idempotency key is invalid.');
+    return createHmac('sha256', this.key)
+      .update(`liked-by-reference-v1\0${idempotencyKey}\0${purpose}\0${subject}`)
+      .digest()
+      .subarray(0, 12)
+      .toString('base64url');
+  }
+
+  private async issue(state: StoredState, stableId?: string): Promise<string> {
     if (!validState(state) || state.expiresAt <= this.now())
       throw new Error('Liked By token state is invalid.');
+    if (stableId !== undefined) {
+      if (!TOKEN_ID.test(stableId)) throw new Error('Liked By token identifier is invalid.');
+      const encoded = JSON.stringify(state);
+      if (await this.store.putIfAbsent(stableId, encoded, lifetimeSeconds))
+        return this.token(stableId);
+      const existing = await this.store.get(stableId);
+      if (existing !== undefined) {
+        try {
+          const parsed = JSON.parse(existing) as unknown;
+          if (validState(parsed) && parsed.expiresAt > this.now() && sameReference(parsed, state))
+            return this.token(stableId);
+        } catch {
+          // The deterministic slot is occupied by malformed or conflicting state.
+        }
+      }
+      throw new Error('Liked By token allocation failed.');
+    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const id = this.randomId();
       if (!TOKEN_ID.test(id)) throw new Error('Liked By token identifier is invalid.');
-      if (await this.store.putIfAbsent(id, JSON.stringify(state), lifetimeSeconds)) {
-        const unsigned = `v1.lb.${id}`;
-        return `${unsigned}.${this.signature(unsigned)}`;
-      }
+      if (await this.store.putIfAbsent(id, JSON.stringify(state), lifetimeSeconds))
+        return this.token(id);
     }
     throw new Error('Liked By token allocation failed.');
   }
 
-  public issueCursor(receiverUserId: string, position: LikedByKeyset): Promise<string> {
-    return this.issue({
+  public issueCursor(
+    receiverUserId: string,
+    position: LikedByKeyset,
+    idempotencyKey?: string,
+  ): Promise<string> {
+    const state: CursorState = {
       version: 1,
       purpose: 'liked_by_cursor',
       queryVersion,
@@ -97,17 +150,37 @@ export class LikedByOpaqueReferences {
       createdAt: position.createdAt.toISOString(),
       likeId: position.likeId,
       expiresAt: this.now() + lifetimeSeconds * 1000,
-    });
+    };
+    return this.issue(
+      state,
+      idempotencyKey === undefined
+        ? undefined
+        : this.stableId(
+            idempotencyKey,
+            state.purpose,
+            `${state.createdAt}\0${state.likeId}\0${receiverUserId}`,
+          ),
+    );
   }
 
-  public issueAction(receiverUserId: string, likeId: string): Promise<string> {
-    return this.issue({
+  public issueAction(
+    receiverUserId: string,
+    likeId: string,
+    idempotencyKey?: string,
+  ): Promise<string> {
+    const state: ActionState = {
       version: 1,
       purpose: 'liked_by_action',
       receiverUserId,
       likeId,
       expiresAt: this.now() + lifetimeSeconds * 1000,
-    });
+    };
+    return this.issue(
+      state,
+      idempotencyKey === undefined
+        ? undefined
+        : this.stableId(idempotencyKey, state.purpose, `${likeId}\0${receiverUserId}`),
+    );
   }
 
   private async resolve(token: string, receiverUserId: string): Promise<StoredState | undefined> {
