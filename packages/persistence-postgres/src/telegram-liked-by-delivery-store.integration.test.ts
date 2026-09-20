@@ -266,7 +266,7 @@ describe.skipIf(databaseUrl === undefined)('M3 durable Telegram Liked By handoff
       await store.recordMessageReceipt({
         ...settlement,
         owner: 'former-sender',
-        messageKey: 'screen:abcdefghijklmnop',
+        messageKey: 'screen:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         providerMessageId: 43,
       }),
     ).toEqual({ outcome: 'lease_lost' });

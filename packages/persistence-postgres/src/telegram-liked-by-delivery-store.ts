@@ -69,7 +69,8 @@ const PROVIDER_ID = /^[1-9][0-9]{0,19}$/u;
 const UPDATE_ID = /^(?:0|[1-9][0-9]{0,19})$/u;
 const CURSOR = /^v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u;
 const OWNER = /^[\x20-\x7e]{1,128}$/u;
-const MESSAGE_KEY = /^(?:card|screen):[A-Za-z0-9._-]{1,80}$/u;
+const MESSAGE_KEY =
+  /^(?:card:v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}|screen:[A-Za-z0-9_-]{43})$/u;
 const ERROR_CODES = new Set<TelegramLikedByDeliveryErrorCode>([
   'identity_unavailable',
   'page_unavailable',

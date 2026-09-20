@@ -81,6 +81,8 @@ Create and verify these forward-only migrations:
    request ledger. It stores only routing metadata and opaque cursors, never rendered cards or grants.
 7. `000023_m3_telegram_delivery_receipts.sql` — known-success, per-message Telegram receipts keyed
    by opaque logical message identity; no rendered content, grants, credentials, or profile IDs.
+8. `000024_m3_telegram_receipt_key.sql` — exact opaque key shapes for card actions and fixed-length
+   screen digests; raw identifiers and arbitrary labels fail at both adapter and database boundaries.
 
 Each migration must bootstrap from empty, upgrade from `000016`, replay unchanged, and have matching
 verification SQL. Applied migrations are immutable.
