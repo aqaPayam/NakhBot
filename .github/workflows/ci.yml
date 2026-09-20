@@ -79,7 +79,7 @@ jobs:
       NAKH_R2_ACCESS_KEY_REF: fake
       NAKH_R2_SECRET_KEY_REF: fake
       NAKH_MEDIA_CDN_HOST: media.invalid
-      NAKH_MEDIA_SIGNING_KEY_REF: fake
+      NAKH_MEDIA_SIGNING_KEY_REF: NAKH_MEDIA_SIGNING_KEY
       PGHOST: localhost
       PGUSER: nakh
       PGDATABASE: nakh
