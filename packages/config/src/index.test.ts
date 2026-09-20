@@ -14,7 +14,7 @@ const validEnvironment: NodeJS.ProcessEnv = {
   NAKH_R2_ACCESS_KEY_REF: 'fake',
   NAKH_R2_SECRET_KEY_REF: 'fake',
   NAKH_MEDIA_CDN_HOST: 'media.invalid',
-  NAKH_MEDIA_SIGNING_KEY_REF: 'fake',
+  NAKH_MEDIA_SIGNING_KEY_REF: 'NAKH_MEDIA_SIGNING_KEY',
 };
 
 describe('configuration', () => {
@@ -33,6 +33,7 @@ describe('configuration', () => {
       orphanGraceMs: 86_400_000,
       cleanupAccessKeyRef: 'fake',
       cleanupSecretKeyRef: 'fake',
+      signingKeyId: 'media-v1',
       audienceKeyId: 'audience-v1',
       audienceKeyRef: 'NAKH_MEDIA_AUDIENCE_KEY',
       transportKeyId: 'active-v1',
@@ -96,6 +97,25 @@ describe('configuration', () => {
     expect(() =>
       parseConfig({ ...validEnvironment, NAKH_MEDIA_AUDIENCE_KEY_ID: '../unsafe' }),
     ).toThrow('/media/audienceKeyId');
+  });
+
+  it('validates the media signing key identifier independently of its secret reference', () => {
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_MEDIA_SIGNING_KEY_ID: 'rotated-v2',
+        NAKH_MEDIA_SIGNING_KEY_REF: 'NAKH_ROTATED_MEDIA_KEY',
+      }).media,
+    ).toMatchObject({
+      signingKeyId: 'rotated-v2',
+      signingKeyRef: 'NAKH_ROTATED_MEDIA_KEY',
+    });
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_MEDIA_SIGNING_KEY_ID: '../unsafe' }),
+    ).toThrow('/media/signingKeyId');
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_MEDIA_SIGNING_KEY_REF: 'literal-secret' }),
+    ).toThrow('/media/signingKeyRef');
   });
 
   it('fails startup when a secret-shaped required value is absent', () => {

@@ -328,6 +328,9 @@ PR 1 foundation:
   throttling, timeout, outage, and terminal recipient rejection;
 - [x] worker renderer reloads the viewer's current locale and active catalog at delivery time, and a
   disabled-by-default `NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED` switch gates future live composition;
+- [x] worker production composition connects the durable claim store, fresh page query, replay-stable
+  references, on-demand blur, signed private grant, localized resumable sender, and Telegram relays;
+  disabled mode resolves no delivery secrets and starts no delivery poller;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;

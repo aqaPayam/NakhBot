@@ -1,4 +1,5 @@
 import type { IdentityStore, LocalizationStore, LocalizedIntent } from '@nakh/application';
+import { ApplicationError } from '@nakh/domain';
 import { CatalogRenderer } from '@nakh/localization';
 
 import type { TelegramLikedByRendererProvider } from './liked-by-resumable-sender.js';
@@ -15,7 +16,8 @@ export class WorkerTelegramLikedByRendererProvider implements TelegramLikedByRen
 
   public async rendererFor(viewerUserId: string): Promise<(intent: LocalizedIntent) => string> {
     const identity = await this.identities.getByUserId(viewerUserId);
-    if (identity === undefined) throw new Error('Telegram Liked By identity is unavailable.');
+    if (identity === undefined)
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const catalog = await this.localization.loadActiveCatalog(identity.uiLocale);
     const renderer = new CatalogRenderer(
       { [catalog.resolvedLocale]: catalog.messages },

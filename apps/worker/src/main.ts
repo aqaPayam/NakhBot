@@ -29,6 +29,7 @@ import {
 import { TelegramMediaTransportCipher, TelegramPhotoDownloadAdapter } from '@nakh/telegram';
 
 import { WorkerEventProcessor } from './event-processor.js';
+import { createTelegramLikedByDeliveryRuntime } from './liked-by-delivery-runtime.js';
 import { SharpPhotoTransformer } from './media/image-transformer.js';
 
 function transportKey(reference: string): Uint8Array {
@@ -71,6 +72,12 @@ const publisher = new BullMqOutboxPublisher(publisherConnection, config.redis.qu
 const outbox = new PostgresOutboxStore(database);
 const inbox = new PostgresInboxStore(database, new SystemIdGenerator());
 const owner = `${config.serviceName}-${randomUUID()}`;
+const likedByDelivery = createTelegramLikedByDeliveryRuntime({
+  config,
+  database,
+  redis: workerConnection,
+  owner: `telegram-liked-by-${randomUUID()}`,
+});
 const mediaOwner = randomUUID();
 const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
 const mediaCipher = config.media.ingestionEnabled
@@ -187,12 +194,51 @@ const dispatch = async (): Promise<void> => {
   }
 };
 
-await dispatch();
+let likedByDispatching = false;
+const dispatchLikedBy = async (): Promise<void> => {
+  if (likedByDelivery === undefined || likedByDispatching) return;
+  likedByDispatching = true;
+  try {
+    const result = await likedByDelivery.processNext();
+    if (result.outcome === 'retry_scheduled' || result.outcome === 'failed')
+      logger.warn(
+        {
+          operation: 'telegram.liked_by.deliver',
+          outcome: result.outcome,
+          reasonCode: result.reasonCode,
+        },
+        'Telegram Liked By delivery did not complete',
+      );
+    else if (result.outcome === 'lease_lost')
+      logger.warn(
+        { operation: 'telegram.liked_by.deliver', outcome: result.outcome },
+        'Telegram Liked By delivery lease was lost',
+      );
+  } catch (error) {
+    logger.error(
+      { err: error, operation: 'telegram.liked_by.deliver' },
+      'Telegram Liked By delivery polling failed',
+    );
+  } finally {
+    likedByDispatching = false;
+  }
+};
+
+await Promise.all([dispatch(), dispatchLikedBy()]);
 const timer = setInterval(() => void dispatch(), 250);
-logger.info({ operation: 'service.started' }, 'service started');
+const likedByTimer =
+  likedByDelivery === undefined ? undefined : setInterval(() => void dispatchLikedBy(), 250);
+logger.info(
+  {
+    operation: 'service.started',
+    telegramLikedByDeliveryEnabled: likedByDelivery !== undefined,
+  },
+  'service started',
+);
 
 const shutdown = async (): Promise<void> => {
   clearInterval(timer);
+  if (likedByTimer !== undefined) clearInterval(likedByTimer);
   await eventWorker.close();
   await publisher.close();
   await Promise.all([publisherConnection.quit(), workerConnection.quit()]);

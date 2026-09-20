@@ -39,7 +39,10 @@ describe('worker Telegram Liked By renderer provider', () => {
       { getByUserId: vi.fn().mockResolvedValue(undefined) },
       localization,
     );
-    await expect(provider.rendererFor(identity.userId)).rejects.toThrow('identity is unavailable');
+    await expect(provider.rendererFor(identity.userId)).rejects.toMatchObject({
+      code: 'unauthorized',
+      status: 401,
+    });
     expect(localization.loadActiveCatalog).not.toHaveBeenCalled();
   });
 
