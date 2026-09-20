@@ -20,6 +20,7 @@ export {
   TelegramLikedBySendFailure,
   type TelegramLikedByProviderFailureCode,
 } from './liked-by-send-failure.js';
+export { TelegramLockedLikedByScreenRelay } from './liked-by-screen-relay.js';
 export { TelegramPhotoActionTokens, type TelegramPhotoActionTokenState } from './action-token.js';
 export {
   TelegramPhotoMenuPresenter,
