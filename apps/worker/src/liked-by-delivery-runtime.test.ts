@@ -73,6 +73,7 @@ describe('Telegram Liked By delivery runtime composition', () => {
     });
     expect(runtime).toBeDefined();
     expect(typeof runtime?.processNext).toBe('function');
+    expect(typeof runtime?.measureBacklog).toBe('function');
     expect(new Set(resolveSecret.mock.calls.map(([reference]) => reference))).toEqual(
       new Set(Object.keys(secrets)),
     );

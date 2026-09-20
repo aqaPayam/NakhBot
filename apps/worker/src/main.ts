@@ -10,7 +10,7 @@ import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { ClamdMalwareScanner } from '@nakh/media-clamav';
 import { CloudflareMediaCachePurger } from '@nakh/media-delivery';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
-import { createLogger, M2Metrics, startTelemetry } from '@nakh/observability';
+import { createLogger, M2Metrics, M3Metrics, startTelemetry } from '@nakh/observability';
 import {
   createDatabase,
   PostgresInboxStore,
@@ -78,6 +78,7 @@ const likedByDelivery = createTelegramLikedByDeliveryRuntime({
   redis: workerConnection,
   owner: `telegram-liked-by-${randomUUID()}`,
 });
+const likedByMetrics = likedByDelivery === undefined ? undefined : new M3Metrics();
 const mediaOwner = randomUUID();
 const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
 const mediaCipher = config.media.ingestionEnabled
@@ -198,8 +199,15 @@ let likedByDispatching = false;
 const dispatchLikedBy = async (): Promise<void> => {
   if (likedByDelivery === undefined || likedByDispatching) return;
   likedByDispatching = true;
+  const startedAt = performance.now();
   try {
     const result = await likedByDelivery.processNext();
+    if (result.outcome !== 'idle')
+      likedByMetrics?.recordTelegramDelivery(
+        result.outcome,
+        performance.now() - startedAt,
+        'reasonCode' in result ? result.reasonCode : 'none',
+      );
     if (result.outcome === 'retry_scheduled' || result.outcome === 'failed')
       logger.warn(
         {
@@ -215,6 +223,11 @@ const dispatchLikedBy = async (): Promise<void> => {
         'Telegram Liked By delivery lease was lost',
       );
   } catch (error) {
+    likedByMetrics?.recordTelegramDelivery(
+      'poll_failure',
+      performance.now() - startedAt,
+      'internal_error',
+    );
     logger.error(
       { err: error, operation: 'telegram.liked_by.deliver' },
       'Telegram Liked By delivery polling failed',
@@ -224,10 +237,32 @@ const dispatchLikedBy = async (): Promise<void> => {
   }
 };
 
-await Promise.all([dispatch(), dispatchLikedBy()]);
+let likedByBacklogSampling = false;
+const sampleLikedByBacklog = async (): Promise<void> => {
+  if (likedByDelivery === undefined || likedByBacklogSampling) return;
+  likedByBacklogSampling = true;
+  try {
+    const backlog = await likedByDelivery.measureBacklog();
+    likedByMetrics?.recordTelegramBacklog(backlog.pendingCount, backlog.oldestAgeSeconds);
+  } catch (error) {
+    likedByMetrics?.recordTelegramBacklogFailure();
+    logger.error(
+      { err: error, operation: 'telegram.liked_by.measure_backlog' },
+      'Telegram Liked By backlog measurement failed',
+    );
+  } finally {
+    likedByBacklogSampling = false;
+  }
+};
+
+await Promise.all([dispatch(), dispatchLikedBy(), sampleLikedByBacklog()]);
 const timer = setInterval(() => void dispatch(), 250);
 const likedByTimer =
   likedByDelivery === undefined ? undefined : setInterval(() => void dispatchLikedBy(), 250);
+const likedByBacklogTimer =
+  likedByDelivery === undefined
+    ? undefined
+    : setInterval(() => void sampleLikedByBacklog(), 30_000);
 logger.info(
   {
     operation: 'service.started',
@@ -239,6 +274,7 @@ logger.info(
 const shutdown = async (): Promise<void> => {
   clearInterval(timer);
   if (likedByTimer !== undefined) clearInterval(likedByTimer);
+  if (likedByBacklogTimer !== undefined) clearInterval(likedByBacklogTimer);
   await eventWorker.close();
   await publisher.close();
   await Promise.all([publisherConnection.quit(), workerConnection.quit()]);

@@ -19,6 +19,7 @@ export {
   PostgresTelegramLikedByDeliveryStore,
   type ClaimedTelegramLikedByDelivery,
   type TelegramLikedByDeliveryClaim,
+  type TelegramLikedByDeliveryBacklog,
   type TelegramLikedByDeliveryErrorCode,
   type TelegramLikedByDeliveryInput,
   type TelegramLikedByDeliveryReceiptInput,

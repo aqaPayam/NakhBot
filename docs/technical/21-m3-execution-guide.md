@@ -344,6 +344,10 @@ PR 1 foundation:
   Liked By blurred bytes with `no-store`;
 - [x] audience key ID and secret reference are validated configuration, with no key material in
   repository or local-staging settings and no change to the default-off delivery state;
+- [x] bounded M3 telemetry covers ingress, delivery latency/outcome, retries, terminal failure,
+  lease loss, and aggregate backlog health without identity dimensions; staging alarms page on
+  sustained ingress failures, delivery failures/retries, lease loss, backlog size/age, and failed
+  backlog measurement;
 - [x] migration `000021` seeds verified English M3 text and exact variable declarations;
 - [ ] provision the separate audience-credential key and private edge, wire the Telegram gateway
   and durable delivery job, and collect final performance/acceptance evidence.

@@ -240,6 +240,30 @@ describe.skipIf(databaseUrl === undefined)('M3 durable Telegram Liked By handoff
     expect(await store.claimBatch({ owner: 'sender-e', leaseMs: 30_000, limit: 100 })).toEqual([]);
   });
 
+  it('reports aggregate pending count and oldest age without returning request identity', async () => {
+    const before = await store.measureBacklog();
+    const target = await store.enqueue(request(8));
+    const pending = await store.measureBacklog();
+    expect(pending.pendingCount).toBe(before.pendingCount + 1);
+    expect(pending.oldestAgeSeconds).toBeGreaterThanOrEqual(0);
+    expect(Object.keys(pending).sort()).toEqual(['oldestAgeSeconds', 'pendingCount']);
+
+    const claimed = await store.claimBatch({
+      owner: 'metrics-sender',
+      leaseMs: 30_000,
+      limit: 100,
+    });
+    const delivery = claimed.find((item) => item.id === target.deliveryId)!;
+    expect(
+      await store.markDelivered({
+        id: delivery.id,
+        owner: 'metrics-sender',
+        attemptCount: delivery.attemptCount,
+      }),
+    ).toBe(true);
+    expect((await store.measureBacklog()).pendingCount).toBe(before.pendingCount);
+  });
+
   it('records only opaque known-success receipts under the current fenced lease', async () => {
     const target = await store.enqueue(request(7));
     const claimed = await store.claimBatch({

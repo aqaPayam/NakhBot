@@ -23,9 +23,11 @@ import { CatalogRenderer } from '@nakh/localization';
 import {
   M1Metrics,
   M2Metrics,
+  M3Metrics,
   type M1Outcome,
   type M1ReasonCode,
   type M2MediaReasonCode,
+  type M3TelegramReasonCode,
 } from '@nakh/observability';
 import {
   createDatabase,
@@ -66,6 +68,7 @@ const LIKED_BY_INGRESS = Symbol('LIKED_BY_INGRESS');
 const REDIS = Symbol('REDIS');
 const M1_METRICS = Symbol('M1_METRICS');
 const M2_METRICS = Symbol('M2_METRICS');
+const M3_METRICS = Symbol('M3_METRICS');
 
 type PhotoAdapter = Pick<TelegramPhotoIngestionAdapter, 'handle'>;
 type PhotoManagementAdapter = Pick<TelegramPhotoManagementAdapter, 'handle'>;
@@ -116,6 +119,18 @@ function mediaReason(error: ApplicationError): M2MediaReasonCode {
   }
 }
 
+function likedByReason(error: ApplicationError): M3TelegramReasonCode {
+  switch (error.code) {
+    case 'rate_limited':
+    case 'unauthorized':
+    case 'invalid_request':
+    case 'idempotency_conflict':
+      return error.code;
+    default:
+      return 'internal_error';
+  }
+}
+
 @Controller()
 class TelegramGatewayController {
   public constructor(
@@ -128,6 +143,7 @@ class TelegramGatewayController {
     @Inject(LIKED_BY_INGRESS) private readonly likedByIngress: TelegramLikedByIngressPort,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
     @Inject(M2_METRICS) private readonly m2Metrics: M2Metrics,
+    @Inject(M3_METRICS) private readonly m3Metrics: M3Metrics,
     @Inject(DATABASE) private readonly database: NakhDatabase,
     @Inject(REDIS) private readonly redis: ReturnType<typeof createRedisConnection>,
   ) {}
@@ -183,11 +199,27 @@ class TelegramGatewayController {
       );
       throw error;
     }
+    const likedByStartedAt = performance.now();
     try {
-      if (await this.likedByIngress.handle(update)) return { accepted: true };
+      const outcome = await this.likedByIngress.handle(update);
+      if (outcome !== 'unhandled') {
+        this.m3Metrics.recordTelegramIngress(outcome, performance.now() - likedByStartedAt);
+        return { accepted: true };
+      }
     } catch (error) {
-      if (error instanceof ApplicationError)
+      if (error instanceof ApplicationError) {
+        this.m3Metrics.recordTelegramIngress(
+          'rejected',
+          performance.now() - likedByStartedAt,
+          likedByReason(error),
+        );
         throw new HttpException({ code: error.code }, error.status);
+      }
+      this.m3Metrics.recordTelegramIngress(
+        'failure',
+        performance.now() - likedByStartedAt,
+        'internal_error',
+      );
       throw error;
     }
     const mediaStartedAt = performance.now();
@@ -335,6 +367,7 @@ export class TelegramGatewayModule {
         { provide: REDIS, useValue: redis },
         { provide: M1_METRICS, useValue: new M1Metrics() },
         { provide: M2_METRICS, useValue: new M2Metrics() },
+        { provide: M3_METRICS, useValue: new M3Metrics() },
         { provide: PHOTO_ADAPTER, useValue: photoAdapter },
         { provide: PHOTO_MANAGEMENT_ADAPTER, useValue: photoManagementAdapter },
         { provide: PHOTO_MENU_DELIVERY, useValue: photoMenuDelivery },

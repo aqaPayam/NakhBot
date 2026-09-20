@@ -38,7 +38,10 @@ import { SharpBlurTransformer } from './media/blur-transformer.js';
 type RedisConnection = ReturnType<typeof createRedisConnection>;
 type SecretResolver = (reference: string) => string;
 
-export type TelegramLikedByDeliveryRuntime = Pick<TelegramLikedByDeliveryProcessor, 'processNext'>;
+export type TelegramLikedByDeliveryRuntime = Readonly<{
+  processNext: TelegramLikedByDeliveryProcessor['processNext'];
+  measureBacklog: PostgresTelegramLikedByDeliveryStore['measureBacklog'];
+}>;
 
 function secretKey(reference: string, resolve: SecretResolver, maximumBytes = 64): Uint8Array {
   const encoded = resolve(reference);
@@ -123,10 +126,14 @@ export function createTelegramLikedByDeliveryRuntime(
       }),
     ),
   );
-  return new TelegramLikedByDeliveryProcessor(
+  const processor = new TelegramLikedByDeliveryProcessor(
     deliveryStore,
     new TelegramLikedByPageProcessor(page, new TelegramLockedLikedByPresenter(mediaOrigin)),
     sender,
     input.owner,
   );
+  return {
+    processNext: () => processor.processNext(),
+    measureBacklog: () => deliveryStore.measureBacklog(),
+  };
 }

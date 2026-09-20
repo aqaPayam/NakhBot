@@ -19,6 +19,11 @@ export type TelegramLikedByEnqueueResult = Readonly<{
   replayed: boolean;
 }>;
 
+export type TelegramLikedByDeliveryBacklog = Readonly<{
+  pendingCount: number;
+  oldestAgeSeconds: number;
+}>;
+
 export type ClaimedTelegramLikedByDelivery = Readonly<{
   id: string;
   botId: string;
@@ -213,6 +218,29 @@ export class PostgresTelegramLikedByDeliveryStore {
         .execute();
       return { deliveryId, replayed: false };
     });
+  }
+
+  /** Aggregate operational health only; this query intentionally returns no request identity. */
+  public async measureBacklog(): Promise<TelegramLikedByDeliveryBacklog> {
+    const result = await sql<{
+      pending_count: number | string;
+      oldest_age_seconds: number | string;
+    }>`
+      SELECT
+        count(*)::integer AS pending_count,
+        COALESCE(
+          EXTRACT(EPOCH FROM (clock_timestamp() - min(created_at))),
+          0
+        )::double precision AS oldest_age_seconds
+      FROM channel_telegram.liked_by_delivery_requests
+      WHERE state = 'pending'
+    `.execute(this.database);
+    const row = result.rows[0];
+    if (row === undefined) return { pendingCount: 0, oldestAgeSeconds: 0 };
+    return {
+      pendingCount: Math.max(0, Number(row.pending_count)),
+      oldestAgeSeconds: Math.max(0, Number(row.oldest_age_seconds)),
+    };
   }
 
   /** Claim only due requests. The attempt number fences a former owner after lease expiry. */

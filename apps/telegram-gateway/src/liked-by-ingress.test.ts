@@ -69,13 +69,13 @@ describe('Telegram Liked By durable ingress', () => {
       redis: {} as ReturnType<typeof createRedisConnection>,
       resolveSecret,
     });
-    await expect(ingress.handle({ message: { text: '/liked_by' } })).resolves.toBe(false);
+    await expect(ingress.handle({ message: { text: '/liked_by' } })).resolves.toBe('unhandled');
     expect(resolveSecret).not.toHaveBeenCalled();
   });
 
   it('ignores unrelated updates without touching durable or provider state', async () => {
     const parts = fixture({ handled: false });
-    await expect(parts.ingress.handle({ update_id: 1 })).resolves.toBe(false);
+    await expect(parts.ingress.handle({ update_id: 1 })).resolves.toBe('unhandled');
     expect(parts.deliveries.enqueue).not.toHaveBeenCalled();
     expect(parts.callbacks.acknowledgePage).not.toHaveBeenCalled();
   });
@@ -91,7 +91,7 @@ describe('Telegram Liked By durable ingress', () => {
       order.push('acknowledge');
       return Promise.resolve();
     });
-    await expect(parts.ingress.handle({})).resolves.toBe(true);
+    await expect(parts.ingress.handle({})).resolves.toBe('enqueued');
     expect(parts.deliveries.enqueue).toHaveBeenCalledWith({
       botId: '987654321',
       updateId: page.updateId,
@@ -114,7 +114,7 @@ describe('Telegram Liked By durable ingress', () => {
       requestId: page.requestId,
     };
     const parts = fixture(command);
-    await expect(parts.ingress.handle({})).resolves.toBe(true);
+    await expect(parts.ingress.handle({})).resolves.toBe('enqueued');
     expect(parts.deliveries.enqueue).toHaveBeenCalledWith({
       botId: '987654321',
       updateId: page.updateId,
@@ -136,8 +136,14 @@ describe('Telegram Liked By durable ingress', () => {
       notice: { key: 'error.interaction.unavailable', variables: {} },
     };
     const parts = fixture(notice);
-    await expect(parts.ingress.handle({})).resolves.toBe(true);
+    await expect(parts.ingress.handle({})).resolves.toBe('notice');
     expect(parts.callbacks.deliverNotice).toHaveBeenCalledWith(notice);
     expect(parts.deliveries.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('reports a replay without duplicating the durable request', async () => {
+    const parts = fixture(page);
+    parts.deliveries.enqueue.mockResolvedValue({ deliveryId: 'id', replayed: true });
+    await expect(parts.ingress.handle({})).resolves.toBe('replayed');
   });
 });

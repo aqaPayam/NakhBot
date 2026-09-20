@@ -35,8 +35,10 @@ export interface TelegramLikedByCallbackDelivery {
 }
 
 export interface TelegramLikedByIngressPort {
-  handle(update: unknown): Promise<boolean>;
+  handle(update: unknown): Promise<TelegramLikedByIngressOutcome>;
 }
+
+export type TelegramLikedByIngressOutcome = 'unhandled' | 'enqueued' | 'replayed' | 'notice';
 
 const BOT_TOKEN = /^([1-9][0-9]{0,19}):[A-Za-z0-9_-]{20,}$/u;
 
@@ -52,21 +54,21 @@ export class TelegramLikedByIngress implements TelegramLikedByIngressPort {
       throw new Error('Telegram bot identity is invalid.');
   }
 
-  public async handle(update: unknown): Promise<boolean> {
+  public async handle(update: unknown): Promise<TelegramLikedByIngressOutcome> {
     const result = await this.adapter.handle(update);
-    if (!result.handled) return false;
+    if (!result.handled) return 'unhandled';
     if (result.kind === 'notice') {
       await this.callbacks.deliverNotice(result);
-      return true;
+      return 'notice';
     }
-    await this.persist(result);
+    const replayed = await this.persist(result);
     if (result.callbackQueryId !== undefined)
       await this.callbacks.acknowledgePage(result.callbackQueryId);
-    return true;
+    return replayed ? 'replayed' : 'enqueued';
   }
 
-  private async persist(request: PageRequest): Promise<void> {
-    await this.deliveries.enqueue({
+  private async persist(request: PageRequest): Promise<boolean> {
+    const result = await this.deliveries.enqueue({
       botId: this.botId,
       updateId: request.updateId,
       userId: request.userId,
@@ -77,6 +79,7 @@ export class TelegramLikedByIngress implements TelegramLikedByIngressPort {
         ? {}
         : { callbackQueryId: request.callbackQueryId }),
     });
+    return result.replayed;
   }
 }
 
@@ -98,7 +101,7 @@ export function createTelegramLikedByIngress(
   }>,
 ): TelegramLikedByIngressPort {
   if (!input.config.telegram.likedByDeliveryEnabled)
-    return { handle: () => Promise.resolve(false) };
+    return { handle: () => Promise.resolve('unhandled') };
   const resolve = input.resolveSecret ?? resolveSecretReference;
   const botToken = resolve(input.config.telegram.botTokenRef);
   const match = BOT_TOKEN.exec(botToken);

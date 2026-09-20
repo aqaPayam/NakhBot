@@ -216,3 +216,68 @@ resource "aws_cloudwatch_metric_alarm" "service_running_count" {
   alarm_actions = [aws_sns_topic.operations.arn]
   ok_actions    = [aws_sns_topic.operations.arn]
 }
+
+locals {
+  telegram_liked_by_alarms = {
+    ingress_failures = {
+      description = "Telegram Liked By ingress is rejecting or failing requests."
+      metric_name = "nakh.m3.telegram.ingress.failures"
+      statistic   = "Sum"
+      threshold   = 5
+    }
+    delivery_failures = {
+      description = "Telegram Liked By delivery has terminal or polling failures."
+      metric_name = "nakh.m3.telegram.delivery.failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    delivery_retries = {
+      description = "Telegram Liked By delivery retries are elevated."
+      metric_name = "nakh.m3.telegram.delivery.retries"
+      statistic   = "Sum"
+      threshold   = 10
+    }
+    lease_losses = {
+      description = "Telegram Liked By delivery is repeatedly losing fenced leases."
+      metric_name = "nakh.m3.telegram.delivery.lease_losses"
+      statistic   = "Sum"
+      threshold   = 3
+    }
+    pending_backlog = {
+      description = "Telegram Liked By pending delivery backlog is elevated."
+      metric_name = "nakh.m3.telegram.backlog.pending"
+      statistic   = "Maximum"
+      threshold   = 100
+    }
+    oldest_backlog = {
+      description = "The oldest Telegram Liked By request has waited at least five minutes."
+      metric_name = "nakh.m3.telegram.backlog.oldest_age"
+      statistic   = "Maximum"
+      threshold   = 300
+    }
+    backlog_failures = {
+      description = "Telegram Liked By backlog health measurement is failing."
+      metric_name = "nakh.m3.telegram.backlog.failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "telegram_liked_by" {
+  for_each = local.telegram_liked_by_alarms
+
+  alarm_name          = "${local.name}-telegram-liked-by-${replace(each.key, "_", "-")}"
+  alarm_description   = each.value.description
+  namespace           = "Nakh/Platform"
+  metric_name         = each.value.metric_name
+  statistic           = each.value.statistic
+  period              = 300
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  threshold           = each.value.threshold
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.operations.arn]
+  ok_actions          = [aws_sns_topic.operations.arn]
+}

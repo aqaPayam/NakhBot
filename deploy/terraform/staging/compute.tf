@@ -90,7 +90,7 @@ locals {
     exporters:
       awsxray: {}
       awsemf:
-        namespace: Nakh/M1
+        namespace: Nakh/Platform
         log_group_name: ${aws_cloudwatch_log_group.telemetry.name}
     service:
       pipelines:
