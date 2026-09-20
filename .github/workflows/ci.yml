@@ -97,6 +97,8 @@ jobs:
       - run: pnpm test:integration
       - name: M1 concurrency load smoke
         run: pnpm test:m1-load-smoke
+      - name: M3 concurrency load smoke
+        run: pnpm test:m3-load-smoke
       - name: Migration immutability replay
         run: pnpm db:migrate
       - name: Backup and restore smoke

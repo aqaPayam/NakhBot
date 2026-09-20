@@ -85,4 +85,20 @@ describe('staging deployment readiness', () => {
     expect(compose).toContain('no-new-privileges:true');
     expect(compose).toContain('cap_drop:');
   });
+
+  it('gates M3 with concurrency evidence and an explicit external acceptance boundary', async () => {
+    const packageJson = await source('package.json');
+    const workflow = await source('.github/workflows/ci.yml');
+    const rehearsal = await source('deploy/scripts/local-staging-rehearsal.ps1');
+    const evidence = await source('docs/technical/22-m3-acceptance-evidence.md');
+    const runbook = await source('deploy/runbooks/m3-staging-acceptance.md');
+
+    expect(packageJson).toContain('"test:m3-load-smoke": "tsx scripts/m3-load-smoke.ts"');
+    expect(workflow).toContain('pnpm test:m3-load-smoke');
+    expect(rehearsal).toContain('pnpm test:m3-load-smoke');
+    expect(evidence).toContain('CI success is not provider or');
+    expect(evidence).toContain('production-volume query-plan');
+    expect(runbook).toContain('NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED=false');
+    expect(runbook).toContain('Do not delete queue rows');
+  });
 });

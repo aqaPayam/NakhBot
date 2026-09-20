@@ -62,3 +62,20 @@
    normal worker or scheduler. Mark storage deletion complete only after HEAD confirms absence.
 5. Re-enable one scheduler replica first, confirm successful scans and cursor progress, then restore
    workers gradually. Persistent old-orphan deletion or cleanup age requires escalation.
+
+## M3 discovery, interaction, or Telegram delivery incident
+
+1. Disable `NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED` on the affected gateway and worker canaries if
+   authorization, private-media delivery, provider outcome, receipt state, or Match invariants are
+   uncertain. Disable the private edge separately when token verification or bucket scope is suspect.
+2. Preserve candidate deliveries, consumptions, Likes, rejections, pair states, Matches, Chats,
+   delivery requests/receipts, audits, and outbox facts. Never reopen, delete, or manually rewrite
+   these rows; use a reviewed forward repair after the invariant is understood.
+3. Diagnose with bounded counts, latency, backlog age, retry/error codes, and protected internal
+   queries only. Never place identities, Profile content, cursor/action values, media paths, signed
+   URLs, audience credentials, object keys, or raw provider responses in logs or incident tickets.
+4. A provider timeout or success without a receipt is an uncertain at-least-once outcome. Let the
+   fenced request retry through the resumable sender; do not mark it delivered or fabricate a receipt.
+5. Before restoring traffic, run `ACC-016`, `ACC-017`, the full Liked By exclusion matrix, query-plan
+   gate, and one canary delivery. Restore one worker, then one gateway, and widen only after backlog
+   age returns to zero with no lease-loss, privacy, or invariant alarm.
