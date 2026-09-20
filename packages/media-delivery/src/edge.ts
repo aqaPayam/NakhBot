@@ -172,12 +172,13 @@ export class CloudflarePrivateMediaWorker {
       );
       if (object === null || !Number.isSafeInteger(object.size) || object.size <= 0)
         return unavailable();
-      const moderation = claims.purpose === 'moderation_evidence';
+      const noStore =
+        claims.purpose === 'moderation_evidence' || claims.purpose === 'liked_by_blur';
       const remaining = Math.max(0, claims.expiresAt - now);
       return new Response(object.body, {
         status: 200,
         headers: {
-          'cache-control': moderation ? 'no-store' : `private, max-age=${String(remaining)}`,
+          'cache-control': noStore ? 'no-store' : `private, max-age=${String(remaining)}`,
           'content-length': String(object.size),
           'content-security-policy': "default-src 'none'; sandbox",
           'content-type': 'image/webp',

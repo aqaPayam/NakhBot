@@ -12,7 +12,7 @@ export type MediaAudienceKeyRing = Readonly<{
   keys: ReadonlyMap<string, Uint8Array>;
 }>;
 
-/** Gateway-only issuer. Its independent key must never be exposed to clients or Telegram. */
+/** Trusted delivery-service issuer. Its independent key never reaches clients or Telegram. */
 export class HmacMediaAudienceCredentials {
   private readonly keys: ReadonlyMap<string, Uint8Array>;
   private readonly keyId: string;

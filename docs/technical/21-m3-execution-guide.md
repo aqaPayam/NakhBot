@@ -337,8 +337,11 @@ PR 1 foundation:
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;
-- [x] independent short-lived HMAC audience credential has a gateway-side issuer and Web Crypto
+- [x] independent short-lived HMAC audience credential has a delivery-worker issuer and Web Crypto
   edge verifier, with strict viewer/origin binding, expiry, key rotation, and cross-viewer denial tests;
+- [x] deployable private-media Worker composition is disabled by default, reads no keys while off,
+  validates bounded rotation rings when enabled, maps only verified claims to private R2, and serves
+  Liked By blurred bytes with `no-store`;
 - [x] audience key ID and secret reference are validated configuration, with no key material in
   repository or local-staging settings and no change to the default-off delivery state;
 - [x] migration `000021` seeds verified English M3 text and exact variable declarations;

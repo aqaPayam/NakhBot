@@ -61,6 +61,7 @@ describe('private media audience credentials', () => {
       new Request(signedMediaUrl(), { headers: { authorization: `Bearer ${credential}` } }),
     );
     expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
     expect(get).toHaveBeenCalledWith(`variants/production/${asset}/blurred-preview-v1.webp`);
     expect(await response.arrayBuffer()).toEqual(Uint8Array.from([1, 2]).buffer);
 

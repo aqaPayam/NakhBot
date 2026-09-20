@@ -1,0 +1,17 @@
+name = "nakh-media-edge-staging"
+main = "../../packages/media-delivery/dist/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+[[r2_buckets]]
+binding = "NAKH_MEDIA_BUCKET"
+bucket_name = "replace-with-staging-private-bucket"
+
+[vars]
+NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED = "false"
+NAKH_MEDIA_ORIGIN = "https://media.staging.example.com"
+NAKH_MEDIA_ENVIRONMENT = "staging"
+
+# Provision these as encrypted Worker secrets, never plaintext vars:
+# NAKH_MEDIA_SIGNING_KEYS={"media-v1":"<base64url-32-to-64-byte-key>"}
+# NAKH_MEDIA_AUDIENCE_KEYS={"audience-v1":"<different-base64url-32-to-64-byte-key>"}
