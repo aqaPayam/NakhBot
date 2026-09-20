@@ -25,6 +25,8 @@ The M3 private-media audience credential has its own key ID and secret reference
 do not enable locked-card delivery or require the secret during the local rehearsal. When that
 delivery path is explicitly enabled later, provision a separate 32–64-byte audience key to the
 Telegram gateway and private edge; do not reuse the media-grant signing or transport key.
+Keep `NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED=false` until the gateway handoff, worker composition,
+private-media edge, and staging fault tests are all green. The switch alone never supplies secrets.
 
 Media deletion cleanup is independently fail-closed with `NAKH_MEDIA_CLEANUP_ENABLED=false`.
 Before enabling it, inject the variables named by `NAKH_R2_CLEANUP_ACCESS_KEY_REF` and

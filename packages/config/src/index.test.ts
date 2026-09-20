@@ -24,6 +24,7 @@ describe('configuration', () => {
     expect(config.environment).toBe('test');
     expect(config.http.port).toBe(3000);
     expect(config.telegram.actionTokenKeyRef).toBe('NAKH_TELEGRAM_ACTION_TOKEN_KEY');
+    expect(config.telegram.likedByDeliveryEnabled).toBe(false);
     expect(config.media).toMatchObject({
       ingestionEnabled: false,
       cachePurgeEnabled: false,
@@ -58,6 +59,18 @@ describe('configuration', () => {
         NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
       }).media.cachePurgeEnabled,
     ).toBe(true);
+  });
+
+  it('enables Telegram Liked By delivery only through an explicit boolean switch', () => {
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED: 'true',
+      }).telegram.likedByDeliveryEnabled,
+    ).toBe(true);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED: 'yes' }),
+    ).toThrow('boolean values');
   });
 
   it('rejects an invalid scanner endpoint before startup', () => {

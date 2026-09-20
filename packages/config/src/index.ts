@@ -32,6 +32,7 @@ const ConfigSchema = Type.Object(
       botTokenRef: Type.String({ minLength: 1 }),
       webhookSecret: Type.String({ minLength: 32 }),
       actionTokenKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      likedByDeliveryEnabled: Type.Boolean(),
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
@@ -129,6 +130,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
         'NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF',
         'NAKH_TELEGRAM_ACTION_TOKEN_KEY',
       ),
+      likedByDeliveryEnabled: boolean(env.NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED, false),
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),

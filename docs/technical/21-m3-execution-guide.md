@@ -326,6 +326,8 @@ PR 1 foundation:
 - [x] concrete Telegram screen relay binds the configured numeric bot identity, renders one bounded
   localized header/empty/pagination message, returns its provider message ID, and safely classifies
   throttling, timeout, outage, and terminal recipient rejection;
+- [x] worker renderer reloads the viewer's current locale and active catalog at delivery time, and a
+  disabled-by-default `NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED` switch gates future live composition;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;
