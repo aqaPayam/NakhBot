@@ -51,12 +51,18 @@ import {
   type TelegramPhotoManagementResult,
 } from '@nakh/telegram';
 
+import {
+  createTelegramLikedByIngress,
+  type TelegramLikedByIngressPort,
+} from './liked-by-ingress.js';
+
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
 const PHOTO_MANAGEMENT_ADAPTER = Symbol('PHOTO_MANAGEMENT_ADAPTER');
 const PHOTO_MENU_DELIVERY = Symbol('PHOTO_MENU_DELIVERY');
+const LIKED_BY_INGRESS = Symbol('LIKED_BY_INGRESS');
 const REDIS = Symbol('REDIS');
 const M1_METRICS = Symbol('M1_METRICS');
 const M2_METRICS = Symbol('M2_METRICS');
@@ -119,6 +125,7 @@ class TelegramGatewayController {
     @Inject(PHOTO_MANAGEMENT_ADAPTER)
     private readonly photoManagementAdapter: PhotoManagementAdapter,
     @Inject(PHOTO_MENU_DELIVERY) private readonly photoMenuDelivery: PhotoMenuDelivery,
+    @Inject(LIKED_BY_INGRESS) private readonly likedByIngress: TelegramLikedByIngressPort,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
     @Inject(M2_METRICS) private readonly m2Metrics: M2Metrics,
     @Inject(DATABASE) private readonly database: NakhDatabase,
@@ -174,6 +181,13 @@ class TelegramGatewayController {
         performance.now() - startedAt,
         'internal_error',
       );
+      throw error;
+    }
+    try {
+      if (await this.likedByIngress.handle(update)) return { accepted: true };
+    } catch (error) {
+      if (error instanceof ApplicationError)
+        throw new HttpException({ code: error.code }, error.status);
       throw error;
     }
     const mediaStartedAt = performance.now();
@@ -233,6 +247,7 @@ export class TelegramGatewayModule {
     const redis = createRedisConnection(config.redis.url);
     const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
     const identityStore = new PostgresIdentityStore(database);
+    const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
     const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
     const photoAdapter: PhotoAdapter = config.media.ingestionEnabled
       ? (() => {
@@ -323,6 +338,7 @@ export class TelegramGatewayModule {
         { provide: PHOTO_ADAPTER, useValue: photoAdapter },
         { provide: PHOTO_MANAGEMENT_ADAPTER, useValue: photoManagementAdapter },
         { provide: PHOTO_MENU_DELIVERY, useValue: photoMenuDelivery },
+        { provide: LIKED_BY_INGRESS, useValue: likedByIngress },
         {
           provide: START_ADAPTER,
           useValue: TelegramStartAdapter.withStore(identityStore, limiter),

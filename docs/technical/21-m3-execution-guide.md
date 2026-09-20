@@ -331,6 +331,9 @@ PR 1 foundation:
 - [x] worker production composition connects the durable claim store, fresh page query, replay-stable
   references, on-demand blur, signed private grant, localized resumable sender, and Telegram relays;
   disabled mode resolves no delivery secrets and starts no delivery poller;
+- [x] Telegram gateway composition authenticates and rate-limits `/liked_by` plus page callbacks,
+  persists the compact request before callback acknowledgement, and localizes unsupported-action
+  notices; disabled mode resolves no Liked By secrets and accepts none of these updates;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;

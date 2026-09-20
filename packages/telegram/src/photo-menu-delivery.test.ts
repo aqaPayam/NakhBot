@@ -44,7 +44,7 @@ describe('Telegram photo-menu delivery', () => {
     });
     const client = new TelegramBotApiMenuClient('secret-token', fetcher);
     await client.sendMenu('123', { text: 'menu', replyMarkup: { inline_keyboard: [] } });
-    await client.answerCallback('callback-1');
+    await client.answerCallback('callback-1', 'Unavailable');
     expect(calls.map((call) => call.input)).toEqual([
       'https://api.telegram.org/botsecret-token/sendMessage',
       'https://api.telegram.org/botsecret-token/answerCallbackQuery',
@@ -54,6 +54,13 @@ describe('Telegram photo-menu delivery', () => {
       text: 'menu',
       reply_markup: { inline_keyboard: [] },
     });
+    expect(JSON.parse(calls[1]!.init!.body as string)).toEqual({
+      callback_query_id: 'callback-1',
+      text: 'Unavailable',
+    });
+    await expect(client.answerCallback('callback-1', 'x'.repeat(201))).rejects.toThrow(
+      'callback query is invalid',
+    );
     const failed = new TelegramBotApiMenuClient('do-not-leak', () =>
       Promise.reject(new Error('x')),
     );

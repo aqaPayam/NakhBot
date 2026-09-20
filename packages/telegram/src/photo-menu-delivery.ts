@@ -57,10 +57,17 @@ export class TelegramBotApiMenuClient {
     });
   }
 
-  public async answerCallback(callbackQueryId: string): Promise<void> {
-    if (callbackQueryId.length < 1 || callbackQueryId.length > 128)
+  public async answerCallback(callbackQueryId: string, text?: string): Promise<void> {
+    if (
+      callbackQueryId.length < 1 ||
+      callbackQueryId.length > 128 ||
+      (text !== undefined && (text.length < 1 || text.length > 200))
+    )
       throw new Error('Telegram callback query is invalid.');
-    await this.call('answerCallbackQuery', { callback_query_id: callbackQueryId });
+    await this.call('answerCallbackQuery', {
+      callback_query_id: callbackQueryId,
+      ...(text === undefined ? {} : { text }),
+    });
   }
 
   private async call(method: 'answerCallbackQuery' | 'sendMessage', body: unknown): Promise<void> {
