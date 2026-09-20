@@ -3,7 +3,10 @@ import type { ClaimedTelegramLikedByDelivery } from '@nakh/persistence-postgres'
 import { TelegramLikedBySendFailure, type TelegramLockedLikedByScreen } from '@nakh/telegram';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 
-import { TelegramLikedByDeliveryProcessor } from './liked-by-delivery-processor.js';
+import {
+  TelegramLikedByDeliveryProcessor,
+  TelegramLikedByLeaseLost,
+} from './liked-by-delivery-processor.js';
 
 const delivery: ClaimedTelegramLikedByDelivery = {
   id: '10000000-0000-4000-8000-000000000000',
@@ -77,6 +80,8 @@ describe('Telegram Liked By delivery processor', () => {
     });
     expect(sender.send).toHaveBeenCalledWith({
       deliveryId: delivery.id,
+      owner: 'sender-one',
+      attemptCount: 1,
       botId: delivery.botId,
       viewerUserId: delivery.viewerUserId,
       telegramUserId: delivery.telegramUserId,
@@ -167,5 +172,13 @@ describe('Telegram Liked By delivery processor', () => {
     const { processor, store } = fixture();
     store.markDelivered.mockResolvedValue(false);
     expect(await processor.processNext()).toEqual({ outcome: 'lease_lost' });
+  });
+
+  it('stops immediately when the resumable sender detects a lost lease', async () => {
+    const { processor, store, sender } = fixture();
+    sender.send.mockRejectedValue(new TelegramLikedByLeaseLost());
+    expect(await processor.processNext()).toEqual({ outcome: 'lease_lost' });
+    expect(store.releaseForRetry).not.toHaveBeenCalled();
+    expect(store.markFailed).not.toHaveBeenCalled();
   });
 });

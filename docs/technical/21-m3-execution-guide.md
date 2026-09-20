@@ -320,6 +320,9 @@ PR 1 foundation:
   these references serve as logical keys for the per-message receipt ledger;
 - [x] migration `000023` and the fenced PostgreSQL receipt adapter persist only opaque logical keys
   plus provider message IDs, replay known success, and reject stale delivery owners;
+- [x] resumable worker sender derives a salted opaque screen key, skips exact known-success screen
+  and card messages, records each accepted provider message, and stops immediately on lease loss;
+  uncertain provider outcomes remain explicitly at-least-once;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;

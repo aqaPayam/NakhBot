@@ -18,6 +18,8 @@ type PageProcessor = Pick<TelegramLikedByPageProcessor, 'execute'>;
 
 export type TelegramLikedBySendInput = Readonly<{
   deliveryId: string;
+  owner: string;
+  attemptCount: number;
   botId: string;
   viewerUserId: string;
   telegramUserId: string;
@@ -28,6 +30,12 @@ export type TelegramLikedBySendInput = Readonly<{
 export interface TelegramLikedBySendPort {
   /** Must resume from stable deliveryId after a partial or uncertain Telegram send. */
   send(input: TelegramLikedBySendInput): Promise<void>;
+}
+
+export class TelegramLikedByLeaseLost extends Error {
+  public constructor() {
+    super('Telegram Liked By delivery lease was lost.');
+  }
 }
 
 export type TelegramLikedByPollResult =
@@ -107,6 +115,8 @@ export class TelegramLikedByDeliveryProcessor {
       });
       await this.sender.send({
         deliveryId: delivery.id,
+        owner: this.owner,
+        attemptCount: delivery.attemptCount,
         botId: delivery.botId,
         viewerUserId: delivery.viewerUserId,
         telegramUserId: delivery.telegramUserId,
@@ -116,6 +126,7 @@ export class TelegramLikedByDeliveryProcessor {
         screen,
       });
     } catch (error) {
+      if (error instanceof TelegramLikedByLeaseLost) return { outcome: 'lease_lost' };
       const failure = classify(error);
       if (!failure.retryable || delivery.attemptCount >= 5) {
         const reasonCode = failure.retryable ? 'retry_exhausted' : failure.reasonCode;
