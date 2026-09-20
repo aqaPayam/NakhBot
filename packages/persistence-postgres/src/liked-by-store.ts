@@ -38,6 +38,64 @@ export function actionableLikedByFrom(receiverUserId: string): RawBuilder<unknow
   `;
 }
 
+function likedByCountStatement(receiverUserId: string): RawBuilder<{ count: string }> {
+  return sql<{ count: string }>`SELECT count(*) AS count ${actionableLikedByFrom(receiverUserId)}`;
+}
+
+function likedByPageStatement(
+  receiverUserId: string,
+  limit: number,
+  after?: LikedByKeyset,
+): RawBuilder<{
+  like_id: string;
+  primary_photo_id: string;
+  asset_id: string;
+  created_at: Date;
+}> {
+  const position =
+    after === undefined
+      ? sql``
+      : sql`AND (
+          incoming.created_at < ${after.createdAt}
+          OR (incoming.created_at = ${after.createdAt} AND incoming.id < ${after.likeId}::uuid)
+        )`;
+  return sql<{
+    like_id: string;
+    primary_photo_id: string;
+    asset_id: string;
+    created_at: Date;
+  }>`
+    SELECT incoming.id AS like_id, primary_photo.id AS primary_photo_id,
+      primary_asset.id AS asset_id, incoming.created_at AS created_at
+    ${actionableLikedByFrom(receiverUserId)}
+    ${position}
+    ORDER BY incoming.created_at DESC, incoming.id DESC
+    LIMIT ${limit + 1}
+  `;
+}
+
+/** Runs the exact actionable count and first-page statements under PostgreSQL instrumentation. */
+export async function explainLikedByQueries(
+  database: NakhDatabase,
+  receiverUserId: string,
+  limit: number,
+): Promise<Readonly<{ count: unknown; page: unknown }>> {
+  const [count, page] = await Promise.all([
+    sql<{ 'QUERY PLAN': unknown }>`
+      EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+      ${likedByCountStatement(receiverUserId)}
+    `.execute(database),
+    sql<{ 'QUERY PLAN': unknown }>`
+      EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+      ${likedByPageStatement(receiverUserId, limit)}
+    `.execute(database),
+  ]);
+  return {
+    count: count.rows[0]?.['QUERY PLAN'],
+    page: page.rows[0]?.['QUERY PLAN'],
+  };
+}
+
 function denied(): never {
   throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
 }
@@ -76,33 +134,15 @@ export class PostgresLikedByStore implements LikedByReadStore {
         )
           denied();
 
-        const from = actionableLikedByFrom(query.actor.userId);
-        const countResult = await sql<{ count: string }>`SELECT count(*) AS count ${from}`.execute(
-          transaction,
-        );
+        const countResult = await likedByCountStatement(query.actor.userId).execute(transaction);
         const totalCount = Number(countResult.rows[0]?.count);
         if (!Number.isSafeInteger(totalCount))
           throw new ApplicationError('internal_error', 'error.internal', 500);
-        const position =
-          after === undefined
-            ? sql``
-            : sql`AND (
-                incoming.created_at < ${after.createdAt}
-                OR (incoming.created_at = ${after.createdAt} AND incoming.id < ${after.likeId}::uuid)
-              )`;
-        const pageResult = await sql<{
-          like_id: string;
-          primary_photo_id: string;
-          asset_id: string;
-          created_at: Date;
-        }>`
-          SELECT incoming.id AS like_id, primary_photo.id AS primary_photo_id,
-            primary_asset.id AS asset_id, incoming.created_at AS created_at
-          ${from}
-          ${position}
-          ORDER BY incoming.created_at DESC, incoming.id DESC
-          LIMIT ${query.limit + 1}
-        `.execute(transaction);
+        const pageResult = await likedByPageStatement(
+          query.actor.userId,
+          query.limit,
+          after,
+        ).execute(transaction);
         return {
           totalCount,
           rows: pageResult.rows.slice(0, query.limit).map((row) => ({

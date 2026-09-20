@@ -1,7 +1,7 @@
 # M3 Acceptance Evidence and Traceability
 
-Status: automated functional and concurrency evidence complete; production-volume query-plan and
-real Telegram/private-edge staging evidence remain release blockers. CI success is not provider or
+Status: automated functional, concurrency, and production-shaped query-plan gates implemented; real
+Telegram/private-edge staging evidence remains a release blocker. CI success is not provider or
 staging evidence.
 
 This ledger records what the default branch proves and what must still be observed against the exact
@@ -38,7 +38,7 @@ The staging candidate must pass, without skipped M3 acceptance or concurrency sc
 2. migration/verification replay and every PostgreSQL/Redis integration suite;
 3. `pnpm test:m1-load-smoke` and `pnpm test:m3-load-smoke`;
 4. Terraform formatting/validation, container builds, dependency audit, and restore smoke;
-5. the production-volume candidate/Liked By query-plan gate once added to CI.
+5. the production-volume candidate/Liked By query-plan gate, with its privacy-safe artifact retained.
 
 Record for the staging candidate:
 
@@ -54,8 +54,8 @@ Record for the staging candidate:
 
 - provision a private R2 bucket and private-media edge with a separate audience-credential key;
 - inject the Telegram, action-token, media-signing, audience, and scoped R2 secrets by reference;
-- add and pass the production-shaped candidate and Liked By `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`
-  gate with retained CI artifacts and reviewed latency/row budgets;
+- attach the successful production-shaped candidate and Liked By query-plan artifact from the exact
+  immutable candidate CI run and confirm its latency/block budgets are still approved;
 - complete the remaining `ACC-019` prohibited-state matrix at production-shaped volume;
 - run provider-success-before-receipt, worker termination, throttling, timeout, key rotation, and
   rollback drills against real staging services;

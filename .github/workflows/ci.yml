@@ -99,6 +99,16 @@ jobs:
         run: pnpm test:m1-load-smoke
       - name: M3 concurrency load smoke
         run: pnpm test:m3-load-smoke
+      - name: M3 production-shaped query-plan gate
+        run: pnpm test:m3-query-plan
+      - name: Retain privacy-safe M3 query plans
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: m3-query-plans-${{ github.sha }}
+          path: artifacts/m3-query-plans.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Migration immutability replay
         run: pnpm db:migrate
       - name: Backup and restore smoke

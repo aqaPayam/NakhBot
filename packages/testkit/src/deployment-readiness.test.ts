@@ -94,10 +94,14 @@ describe('staging deployment readiness', () => {
     const runbook = await source('deploy/runbooks/m3-staging-acceptance.md');
 
     expect(packageJson).toContain('"test:m3-load-smoke": "tsx scripts/m3-load-smoke.ts"');
+    expect(packageJson).toContain('"test:m3-query-plan": "tsx scripts/m3-query-plan-gate.ts"');
     expect(workflow).toContain('pnpm test:m3-load-smoke');
+    expect(workflow).toContain('pnpm test:m3-query-plan');
+    expect(workflow).toContain('artifacts/m3-query-plans.json');
     expect(rehearsal).toContain('pnpm test:m3-load-smoke');
+    expect(rehearsal).toContain('pnpm test:m3-query-plan');
     expect(evidence).toContain('CI success is not provider or');
-    expect(evidence).toContain('production-volume query-plan');
+    expect(evidence).toContain('production-shaped query-plan');
     expect(runbook).toContain('NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED=false');
     expect(runbook).toContain('Do not delete queue rows');
   });

@@ -351,6 +351,10 @@ PR 1 foundation:
 - [x] CI and local rehearsal run a dedicated M3 concurrency smoke: 50 simultaneous candidate
   reservations converge, 25 delivery completions create one consumption, the next candidate does
   not repeat, and 20 independent opposite-Like races each create one Match and one Chat;
+- [x] CI seeds 5,000 production-shaped candidates and Likes, runs the exact candidate pool and
+  Liked By count/page statements under `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, rejects missing
+  supporting indexes, unbounded candidate sorts/function scans, latency/block budget regressions,
+  and retains only a privacy-safe structural plan artifact;
 - [x] the M3 acceptance ledger and staging/incident runbooks separate automated evidence from
   private-edge, provider, production-volume query-plan, fault-injection, and reviewer evidence;
 - [x] migration `000021` seeds verified English M3 text and exact variable declarations;

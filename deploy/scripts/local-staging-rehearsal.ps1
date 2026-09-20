@@ -109,6 +109,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "M1 load smoke failed." }
   pnpm test:m3-load-smoke
   if ($LASTEXITCODE -ne 0) { throw "M3 load smoke failed." }
+  pnpm test:m3-query-plan
+  if ($LASTEXITCODE -ne 0) { throw "M3 query-plan gate failed." }
 
   Write-Host "Local staging rehearsal passed. This is rehearsal evidence only, not real staging acceptance."
 } finally {

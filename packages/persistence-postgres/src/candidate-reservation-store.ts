@@ -181,13 +181,12 @@ function pairExclusion(
       )`;
 }
 
-async function candidatePool(
-  database: NakhDatabase,
+function candidatePoolStatement(
   query: GetNextExploreCandidateQuery,
   viewer: ViewerFacts,
   filter: EffectiveFilter | undefined,
   exactTargetId?: string,
-): Promise<readonly string[]> {
+): RawBuilder<{ target_user_id: string }> {
   const viewerId = query.actor.userId;
   const explore = query.mode === 'explore';
   if (explore && (filter === undefined || viewer.genderOptionId === null)) unavailable();
@@ -218,7 +217,7 @@ async function candidatePool(
     : sql``;
   const exactTarget =
     exactTargetId === undefined ? sql`` : sql`AND target.user_id = ${exactTargetId}`;
-  const result = await sql<{ target_user_id: string }>`
+  return sql<{ target_user_id: string }>`
     SELECT target.user_id AS target_user_id
     FROM profile.profiles target
     JOIN identity.accounts target_account ON target_account.user_id = target.user_id
@@ -258,8 +257,50 @@ async function candidatePool(
       ${exactTarget}
     ORDER BY target.random_shuffle_key, target.id
     LIMIT 100
-  `.execute(database);
+  `;
+}
+
+async function candidatePool(
+  database: NakhDatabase,
+  query: GetNextExploreCandidateQuery,
+  viewer: ViewerFacts,
+  filter: EffectiveFilter | undefined,
+  exactTargetId?: string,
+): Promise<readonly string[]> {
+  const result = await candidatePoolStatement(query, viewer, filter, exactTargetId).execute(
+    database,
+  );
   return result.rows.map((row) => row.target_user_id);
+}
+
+/** Runs the exact bounded candidate-pool statement under PostgreSQL plan instrumentation. */
+export async function explainCandidatePool(
+  database: NakhDatabase,
+  query: GetNextExploreCandidateQuery,
+): Promise<unknown> {
+  if (query.actor.kind !== 'user')
+    throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+  const viewer = await loadViewer(database, query.actor.userId);
+  validateViewer(viewer, query.mode);
+  const filter =
+    query.mode === 'explore'
+      ? await effectiveFilter(database, query.actor.userId, viewer, query.filterVersion)
+      : undefined;
+  const result = await sql<{ 'QUERY PLAN': unknown }>`
+    EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+    ${candidatePoolStatement(query, viewer, filter)}
+  `.execute(database);
+  return result.rows[0]?.['QUERY PLAN'];
+}
+
+/** Refreshes only the planner statistics used by the M3 production-shaped CI gate. */
+export async function analyzeM3QueryTables(database: NakhDatabase): Promise<void> {
+  await sql`
+    ANALYZE identity.accounts, identity.user_settings, profile.profiles,
+      media.media_assets, media.profile_photos, media.photo_variants,
+      interaction.likes, interaction.not_interested, interaction.user_pair_states,
+      discovery.explore_consumptions
+  `.execute(database);
 }
 
 export class PostgresCandidateReservationStore implements CandidateReservationStore {
