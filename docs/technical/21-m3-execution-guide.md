@@ -79,6 +79,8 @@ Create and verify these forward-only migrations:
    action, and safe error keys with exact variable declarations.
 6. `000022_m3_telegram_delivery.sql` — a Telegram-specific, update-deduplicated channel-delivery
    request ledger. It stores only routing metadata and opaque cursors, never rendered cards or grants.
+7. `000023_m3_telegram_delivery_receipts.sql` — known-success, per-message Telegram receipts keyed
+   by opaque logical message identity; no rendered content, grants, credentials, or profile IDs.
 
 Each migration must bootstrap from empty, upgrade from `000016`, replay unchanged, and have matching
 verification SQL. Applied migrations are immutable.
@@ -313,7 +315,9 @@ PR 1 foundation:
   leaking token-bearing URLs; message-level resume is still required before live composition;
 - [x] Liked By action and next-page references are replay-stable for one delivery request through
   keyed derivation, while remaining opaque, receiver-bound, expiring, and free of raw identifiers;
-  these references are the logical keys for the pending per-message receipt ledger;
+  these references serve as logical keys for the per-message receipt ledger;
+- [x] migration `000023` and the fenced PostgreSQL receipt adapter persist only opaque logical keys
+  plus provider message IDs, replay known success, and reject stale delivery owners;
 - [x] bounded Telegram locked-card media relay requires a server-minted, viewer-bound edge
   credential to fetch blurred bytes, then uploads only those bytes to the fixed Bot API endpoint;
   signed CDN URLs and edge credentials never enter the Telegram request;

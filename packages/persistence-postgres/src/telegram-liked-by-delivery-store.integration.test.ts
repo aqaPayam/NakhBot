@@ -239,4 +239,53 @@ describe.skipIf(databaseUrl === undefined)('M3 durable Telegram Liked By handoff
     });
     expect(await store.claimBatch({ owner: 'sender-e', leaseMs: 30_000, limit: 100 })).toEqual([]);
   });
+
+  it('records only opaque known-success receipts under the current fenced lease', async () => {
+    const target = await store.enqueue(request(7));
+    const claimed = await store.claimBatch({
+      owner: 'receipt-sender',
+      leaseMs: 30_000,
+      limit: 100,
+    });
+    const delivery = claimed.find((item) => item.id === target.deliveryId)!;
+    const settlement = {
+      id: delivery.id,
+      owner: 'receipt-sender',
+      attemptCount: delivery.attemptCount,
+    };
+    const messageKey = 'card:v1.lb.abcdefghijklmnop.ponmlkjihgfedcba';
+    expect(await store.loadRecordedMessageKeys(settlement)).toEqual([]);
+    expect(
+      await store.recordMessageReceipt({ ...settlement, messageKey, providerMessageId: 42 }),
+    ).toEqual({ outcome: 'recorded', providerMessageId: 42 });
+    expect(
+      await store.recordMessageReceipt({ ...settlement, messageKey, providerMessageId: 99 }),
+    ).toEqual({ outcome: 'replayed', providerMessageId: 42 });
+    expect(await store.loadRecordedMessageKeys(settlement)).toEqual([messageKey]);
+    expect(
+      await store.recordMessageReceipt({
+        ...settlement,
+        owner: 'former-sender',
+        messageKey: 'screen:abcdefghijklmnop',
+        providerMessageId: 43,
+      }),
+    ).toEqual({ outcome: 'lease_lost' });
+    await expect(
+      store.recordMessageReceipt({
+        ...settlement,
+        messageKey: `card:raw-user-${userId}`,
+        providerMessageId: 44,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(await store.markDelivered(settlement)).toBe(true);
+    expect(await store.loadRecordedMessageKeys(settlement)).toBeUndefined();
+    const stored = await database
+      .selectFrom('channel_telegram.liked_by_delivery_receipts')
+      .selectAll()
+      .where('delivery_id', '=', target.deliveryId)
+      .execute();
+    expect(stored).toHaveLength(1);
+    expect(JSON.stringify(stored)).not.toContain(userId);
+    expect(JSON.stringify(stored)).not.toContain('deliveryUrl');
+  });
 });

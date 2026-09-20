@@ -21,6 +21,8 @@ export {
   type TelegramLikedByDeliveryClaim,
   type TelegramLikedByDeliveryErrorCode,
   type TelegramLikedByDeliveryInput,
+  type TelegramLikedByDeliveryReceiptInput,
+  type TelegramLikedByDeliveryReceiptResult,
   type TelegramLikedByDeliverySettlement,
   type TelegramLikedByEnqueueResult,
 } from './telegram-liked-by-delivery-store.js';

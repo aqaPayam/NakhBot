@@ -86,6 +86,13 @@ export interface TelegramLikedByDeliveryRequestTable {
   updated_at: Date;
 }
 
+export interface TelegramLikedByDeliveryReceiptTable {
+  delivery_id: string;
+  message_key: string;
+  provider_message_id: string;
+  recorded_at: Date;
+}
+
 export interface SampleProjectionTable {
   id: string;
   source_event_id: string;
@@ -485,6 +492,7 @@ export interface ChatParticipantTable {
 
 export interface DatabaseSchema {
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
+  'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;
   'media.media_assets': MediaAssetTable;
   'media.photo_variants': PhotoVariantTable;
   'media.profile_photos': ProfilePhotoTable;

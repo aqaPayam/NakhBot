@@ -53,11 +53,23 @@ export type TelegramLikedByDeliveryErrorCode =
   | 'retry_exhausted'
   | 'unknown_failure';
 
+export type TelegramLikedByDeliveryReceiptInput = TelegramLikedByDeliverySettlement &
+  Readonly<{
+    messageKey: string;
+    providerMessageId: number;
+  }>;
+
+export type TelegramLikedByDeliveryReceiptResult = Readonly<{
+  outcome: 'recorded' | 'replayed' | 'lease_lost';
+  providerMessageId?: number;
+}>;
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const PROVIDER_ID = /^[1-9][0-9]{0,19}$/u;
 const UPDATE_ID = /^(?:0|[1-9][0-9]{0,19})$/u;
 const CURSOR = /^v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u;
 const OWNER = /^[\x20-\x7e]{1,128}$/u;
+const MESSAGE_KEY = /^(?:card|screen):[A-Za-z0-9._-]{1,80}$/u;
 const ERROR_CODES = new Set<TelegramLikedByDeliveryErrorCode>([
   'identity_unavailable',
   'page_unavailable',
@@ -284,6 +296,77 @@ export class PostgresTelegramLikedByDeliveryStore {
       .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
       .executeTakeFirst();
     return updated.numUpdatedRows === 1n;
+  }
+
+  public async loadRecordedMessageKeys(
+    input: TelegramLikedByDeliverySettlement,
+  ): Promise<readonly string[] | undefined> {
+    validateSettlement(input);
+    return this.database.transaction().execute(async (transaction) => {
+      const lease = await transaction
+        .selectFrom('channel_telegram.liked_by_delivery_requests')
+        .select('id')
+        .where('id', '=', input.id)
+        .where('state', '=', 'pending')
+        .where('lease_owner', '=', input.owner)
+        .where('attempt_count', '=', input.attemptCount)
+        .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+        .executeTakeFirst();
+      if (lease === undefined) return undefined;
+      const receipts = await transaction
+        .selectFrom('channel_telegram.liked_by_delivery_receipts')
+        .select('message_key')
+        .where('delivery_id', '=', input.id)
+        .orderBy('message_key', 'asc')
+        .execute();
+      return receipts.map(({ message_key: messageKey }) => messageKey);
+    });
+  }
+
+  public async recordMessageReceipt(
+    input: TelegramLikedByDeliveryReceiptInput,
+  ): Promise<TelegramLikedByDeliveryReceiptResult> {
+    validateSettlement(input);
+    if (
+      typeof input.messageKey !== 'string' ||
+      !MESSAGE_KEY.test(input.messageKey) ||
+      !Number.isSafeInteger(input.providerMessageId) ||
+      input.providerMessageId < 1
+    )
+      invalidLease();
+    return this.database.transaction().execute(async (transaction) => {
+      const lease = await transaction
+        .selectFrom('channel_telegram.liked_by_delivery_requests')
+        .select('id')
+        .where('id', '=', input.id)
+        .where('state', '=', 'pending')
+        .where('lease_owner', '=', input.owner)
+        .where('attempt_count', '=', input.attemptCount)
+        .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+        .forUpdate()
+        .executeTakeFirst();
+      if (lease === undefined) return { outcome: 'lease_lost' };
+      const inserted = await transaction
+        .insertInto('channel_telegram.liked_by_delivery_receipts')
+        .values({
+          delivery_id: input.id,
+          message_key: input.messageKey,
+          provider_message_id: String(input.providerMessageId),
+          recorded_at: sql<Date>`clock_timestamp()`,
+        })
+        .onConflict((conflict) => conflict.columns(['delivery_id', 'message_key']).doNothing())
+        .returning('provider_message_id')
+        .executeTakeFirst();
+      if (inserted !== undefined)
+        return { outcome: 'recorded', providerMessageId: Number(inserted.provider_message_id) };
+      const existing = await transaction
+        .selectFrom('channel_telegram.liked_by_delivery_receipts')
+        .select('provider_message_id')
+        .where('delivery_id', '=', input.id)
+        .where('message_key', '=', input.messageKey)
+        .executeTakeFirstOrThrow();
+      return { outcome: 'replayed', providerMessageId: Number(existing.provider_message_id) };
+    });
   }
 
   public async releaseForRetry(
