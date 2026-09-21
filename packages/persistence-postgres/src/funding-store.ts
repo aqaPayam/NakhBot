@@ -260,7 +260,7 @@ export class PostgresFundingStore implements BillingFundingStore {
       paymentRecordId: row.id,
       starsAmount: BigInt(row.stars_amount),
       expiresAt,
-      payloadCiphertext: row.invoice_payload_ciphertext,
+      payloadCiphertext: Uint8Array.from(row.invoice_payload_ciphertext),
       payloadKeyId: row.invoice_payload_key_id,
       replayed,
     };
