@@ -351,6 +351,46 @@ export interface CreditAccountTable {
   updated_at: Date;
 }
 
+export interface UserCounterTable {
+  user_id: string;
+  pending_nakh_count: Generated<number>;
+  version: Generated<number>;
+  updated_at: Generated<Date>;
+}
+
+export interface NakhFlowTable {
+  id: string;
+  sender_user_id: string;
+  receiver_user_id: string;
+  created_at: Generated<Date>;
+}
+
+export interface PendingNakhTable {
+  id: string;
+  nakh_flow_id: string;
+  sender_user_id: string;
+  text: string;
+  status: Generated<
+    'pending_payment' | 'paid_and_sent' | 'cancelled' | 'expired' | 'closed_by_system'
+  >;
+  pending_payment_id: string;
+  auto_settle_authorized_at: Date;
+  authorization_source: 'explore';
+  authorized_at: Date;
+  created_at: Generated<Date>;
+  expires_at: Date;
+  paid_at: Date | null;
+  cancelled_at: Date | null;
+  expired_at: Date | null;
+  closed_at: Date | null;
+  cancel_resolution: 'converted_to_like' | 'converted_to_not_interested' | null;
+  reminder_count: Generated<number>;
+  last_reminder_at: Date | null;
+  idempotency_key: string;
+  request_hash: string;
+  version: Generated<number>;
+}
+
 export interface CreditPackageTable {
   id: string;
   code: 'starter' | 'plus' | 'best_value' | 'ultimate';
@@ -797,6 +837,9 @@ export interface DatabaseSchema {
   'identity.signup_progress': SignupProgressTable;
   'identity.signup_drafts': SignupDraftTable;
   'billing.credit_accounts': CreditAccountTable;
+  'platform.user_counters': UserCounterTable;
+  'nakh.nakh_flows': NakhFlowTable;
+  'nakh.pending_nakhes': PendingNakhTable;
   'billing.credit_packages': CreditPackageTable;
   'billing.credit_transactions': CreditTransactionTable;
   'billing.pending_payments': PendingPaymentTable;

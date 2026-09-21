@@ -9,7 +9,7 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
-describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M4 upgrade', () => {
+describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M5 upgrade', () => {
   it('serializes empty-database bootstrap, upgrades M1, verifies, and replays unchanged', async () => {
     // This suite needs CREATEDB on the disposable CI database server.
     const name = `nakh_migration_${randomUUID().replaceAll('-', '')}`;
@@ -56,6 +56,8 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000028_m4_feature_unlocks.sql',
         '000029_m4_notifications_refunds.sql',
         '000030_m4_localization.sql',
+        '000031_m5_nakh_flows.sql',
+        '000032_m5_pending_nakhes.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -80,9 +82,11 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000028_m4_feature_unlocks.sql');
       expect(verified).toContain('000029_m4_notifications_refunds.sql');
       expect(verified).toContain('000030_m4_localization.sql');
+      expect(verified).toContain('000031_m5_nakh_flows.sql');
+      expect(verified).toContain('000032_m5_pending_nakhes.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(30);
+      expect(replay.existing).toHaveLength(32);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
