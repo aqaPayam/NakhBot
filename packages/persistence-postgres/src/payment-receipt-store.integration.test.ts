@@ -9,6 +9,7 @@ import type {
   TelegramSuccessfulPaymentWrite,
 } from '@nakh/application';
 
+import { PostgresBillingReconciliationStore } from './billing-reconciliation-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresFundingStore } from './funding-store.js';
 import { runMigrations } from './migrations.js';
@@ -83,6 +84,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
   let funding: PostgresFundingStore;
   let receipts: PostgresTelegramStarsReceiptStore;
   let refunds: PostgresRefundStore;
+  let reconciliation: PostgresBillingReconciliationStore;
 
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
@@ -95,6 +97,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     funding = new PostgresFundingStore(database);
     receipts = new PostgresTelegramStarsReceiptStore(database, ids, { digest });
     refunds = new PostgresRefundStore(database);
+    reconciliation = new PostgresBillingReconciliationStore(database);
   });
 
   afterAll(async () => {
@@ -706,5 +709,46 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     expect(
       reclaim.find((candidate) => candidate.refundRecordId === refundRecordId),
     ).toBeUndefined();
+
+    const proposedRunId = randomUUID();
+    const runId = await reconciliation.resumeOrStart(proposedRunId);
+    const refundBatch = await reconciliation.scanNextBatch(runId, 100);
+    expect(refundBatch.completed).toBe(false);
+    expect(refundBatch.anomalyCount).toBeGreaterThanOrEqual(1);
+    const paymentBatch = await reconciliation.scanNextBatch(runId, 100);
+    expect(paymentBatch.completed).toBe(true);
+    expect(
+      await database
+        .selectFrom('billing.reconciliation_anomalies')
+        .select([
+          'run_id',
+          'anomaly_type',
+          'entity_type',
+          'entity_id',
+          'disposition',
+          'safe_detail',
+        ])
+        .where('entity_type', '=', 'refund_record')
+        .where('entity_id', '=', refundRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({
+      run_id: runId,
+      anomaly_type: 'stars_refund_outcome_uncertain',
+      entity_type: 'refund_record',
+      entity_id: refundRecordId,
+      disposition: 'quarantined',
+      safe_detail: {
+        status: 'failed_retryable',
+        providerProgress: 'call_started',
+        errorCode: 'provider_outcome_unknown',
+      },
+    });
+    const completedRun = await database
+      .selectFrom('billing.reconciliation_runs')
+      .select(['status', 'finished_at'])
+      .where('id', '=', runId)
+      .executeTakeFirstOrThrow();
+    expect(completedRun.status).toBe('succeeded');
+    expect(completedRun.finished_at).toBeInstanceOf(Date);
   });
 });

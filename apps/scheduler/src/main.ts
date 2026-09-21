@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto';
 
-import { ReconcileMediaObjectCandidates } from '@nakh/application';
+import {
+  ReconcileMediaObjectCandidates,
+  RunBillingReconciliationBatchHandler,
+} from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
-import { createLogger, M2Metrics, startTelemetry } from '@nakh/observability';
-import { createDatabase, PostgresMediaObjectReferenceStore } from '@nakh/persistence-postgres';
+import { createLogger, M2Metrics, M4Metrics, startTelemetry } from '@nakh/observability';
+import {
+  createDatabase,
+  PostgresBillingReconciliationStore,
+  PostgresMediaObjectReferenceStore,
+} from '@nakh/persistence-postgres';
 import { createRedisConnection, RedisLease } from '@nakh/queue-redis';
 
 import { MediaOrphanScanner } from './media-orphan-scanner.js';
@@ -65,6 +72,12 @@ const orphanScanner =
         mediaEnvironment,
       );
 const mediaMetrics = orphanScanner === undefined ? undefined : new M2Metrics();
+const billingReconciliation = new RunBillingReconciliationBatchHandler(
+  new PostgresBillingReconciliationStore(database),
+);
+const billingMetrics = new M4Metrics();
+const billingReconciliationIntervalMs = 15 * 60_000;
+let nextBillingReconciliationAt = 0;
 
 let ticking = false;
 const tick = async (): Promise<void> => {
@@ -89,6 +102,40 @@ const tick = async (): Promise<void> => {
             await lease.release(orphanLeaseKey, owner).catch(() => false);
             throw error;
           }
+      }
+      if (Date.now() >= nextBillingReconciliationAt) {
+        const startedAt = performance.now();
+        try {
+          const result = await billingReconciliation.execute({
+            proposedRunId: randomUUID(),
+            limit: 100,
+          });
+          billingMetrics.recordReconciliationBatch(
+            result.completed ? 'completed' : 'in_progress',
+            performance.now() - startedAt,
+            result.scannedCount,
+            result.anomalyCount,
+          );
+          nextBillingReconciliationAt = result.completed
+            ? Date.now() + billingReconciliationIntervalMs
+            : Date.now();
+          logger.info(
+            {
+              operation: 'billing.reconciliation.batch',
+              completed: result.completed,
+              scannedCount: result.scannedCount,
+              anomalyCount: result.anomalyCount,
+            },
+            'billing reconciliation batch completed',
+          );
+        } catch (error) {
+          billingMetrics.recordReconciliationBatch('failure', performance.now() - startedAt);
+          nextBillingReconciliationAt = Date.now() + 60_000;
+          logger.error(
+            { err: error, operation: 'billing.reconciliation.batch' },
+            'billing reconciliation batch failed',
+          );
+        }
       }
       await lease.release(leaseKey, owner);
     }

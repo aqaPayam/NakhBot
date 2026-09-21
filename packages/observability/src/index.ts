@@ -11,6 +11,7 @@ import pino, { type DestinationStream, type Logger } from 'pino';
 export * from './m1-metrics.js';
 export * from './m2-metrics.js';
 export * from './m3-metrics.js';
+export * from './m4-metrics.js';
 
 export type TelemetryConfig = Readonly<{
   enabled: boolean;

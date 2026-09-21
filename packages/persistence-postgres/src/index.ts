@@ -25,6 +25,7 @@ export {
   type StoredNotification,
 } from './notification-store.js';
 export { PostgresRefundStore, type StarsRefundClaim } from './refund-store.js';
+export { PostgresBillingReconciliationStore } from './billing-reconciliation-store.js';
 export { PostgresFundingStore } from './funding-store.js';
 export { lockAndValidatePaidActionTarget, PostgresPaidActionStore } from './paid-action-store.js';
 export {
