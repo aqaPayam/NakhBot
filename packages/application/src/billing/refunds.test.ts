@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
   ProcessTelegramStarsRefundHandler,
@@ -18,68 +18,86 @@ const refund: ClaimedStarsRefund = {
   attemptCount: 1,
 };
 
-function harness() {
+type RefundHarness = Readonly<{
+  handler: ProcessTelegramStarsRefundHandler;
+  beginProviderCall: Mock<StarsRefundStore['beginProviderCall']>;
+  completeStarsRefund: Mock<StarsRefundStore['completeStarsRefund']>;
+  recordProviderFailure: Mock<StarsRefundStore['recordProviderFailure']>;
+  refundProvider: Mock<TelegramStarsRefundProvider['refund']>;
+}>;
+
+function harness(): RefundHarness {
+  const beginProviderCall = vi.fn<StarsRefundStore['beginProviderCall']>().mockResolvedValue(true);
+  const completeStarsRefund = vi
+    .fn<StarsRefundStore['completeStarsRefund']>()
+    .mockResolvedValue('processed');
+  const recordProviderFailure = vi
+    .fn<StarsRefundStore['recordProviderFailure']>()
+    .mockResolvedValue(true);
   const store = {
-    beginProviderCall: vi.fn().mockResolvedValue(true),
-    completeStarsRefund: vi.fn().mockResolvedValue('processed'),
-    recordProviderFailure: vi.fn().mockResolvedValue(true),
-  } as unknown as StarsRefundStore;
-  const provider = {
-    refund: vi.fn().mockResolvedValue({ outcome: 'succeeded' }),
-  } as unknown as TelegramStarsRefundProvider;
+    beginProviderCall,
+    completeStarsRefund,
+    recordProviderFailure,
+  } satisfies StarsRefundStore;
+  const refundProvider = vi
+    .fn<TelegramStarsRefundProvider['refund']>()
+    .mockResolvedValue({ outcome: 'succeeded' });
+  const provider = { refund: refundProvider } satisfies TelegramStarsRefundProvider;
   return {
-    store,
-    provider,
+    beginProviderCall,
+    completeStarsRefund,
+    recordProviderFailure,
+    refundProvider,
     handler: new ProcessTelegramStarsRefundHandler(store, provider, 12_000),
   };
 }
 
 describe('M4 Telegram Stars refund processor', () => {
   it('never contacts Telegram until call_started is durable', async () => {
-    const { store, provider, handler } = harness();
-    vi.mocked(store.beginProviderCall).mockResolvedValue(false);
+    const { beginProviderCall, refundProvider, handler } = harness();
+    beginProviderCall.mockResolvedValue(false);
     await expect(handler.execute(refund)).resolves.toEqual({ outcome: 'lease_lost' });
-    expect(provider.refund).not.toHaveBeenCalled();
+    expect(refundProvider).not.toHaveBeenCalled();
   });
 
   it('finalizes only a known provider success', async () => {
-    const { store, provider, handler } = harness();
+    const { completeStarsRefund, refundProvider, handler } = harness();
     await expect(handler.execute(refund)).resolves.toEqual({ outcome: 'processed' });
-    expect(provider.refund).toHaveBeenCalledWith({
+    expect(refundProvider).toHaveBeenCalledWith({
       refundRecordId: refund.refundRecordId,
       telegramChargeId: refund.telegramChargeId,
       starsAmount: refund.starsAmount,
     });
-    expect(store.completeStarsRefund).toHaveBeenCalledWith(refund);
+    expect(completeStarsRefund).toHaveBeenCalledWith(refund);
   });
 
   it('makes a definitely-unsent request retryable', async () => {
-    const { store, provider, handler } = harness();
-    vi.mocked(provider.refund).mockResolvedValue({
+    const { completeStarsRefund, recordProviderFailure, refundProvider, handler } = harness();
+    refundProvider.mockResolvedValue({
       outcome: 'retryable_not_sent',
       errorCode: 'provider_unavailable',
     });
     await expect(handler.execute(refund)).resolves.toEqual({ outcome: 'retryable' });
-    expect(store.recordProviderFailure).toHaveBeenCalledWith({
+    expect(recordProviderFailure).toHaveBeenCalledWith({
       ...refund,
       kind: 'retryable_not_sent',
       errorCode: 'provider_unavailable',
       delayMs: 12_000,
     });
-    expect(store.completeStarsRefund).not.toHaveBeenCalled();
+    expect(completeStarsRefund).not.toHaveBeenCalled();
   });
 
   it('quarantines a thrown or explicitly ambiguous provider outcome', async () => {
-    const { store, provider, handler } = harness();
-    vi.mocked(provider.refund).mockRejectedValue(new Error('timeout after request write'));
+    const { completeStarsRefund, recordProviderFailure, refundProvider, handler } = harness();
+    refundProvider.mockRejectedValue(new Error('timeout after request write'));
     await expect(handler.execute(refund)).resolves.toEqual({
       outcome: 'reconciliation_required',
     });
-    expect(store.recordProviderFailure).toHaveBeenCalledWith({
+    expect(recordProviderFailure).toHaveBeenCalledWith({
       ...refund,
       kind: 'ambiguous',
       errorCode: 'provider_outcome_unknown',
     });
-    expect(store.completeStarsRefund).not.toHaveBeenCalled();
+    expect(completeStarsRefund).not.toHaveBeenCalled();
   });
 });

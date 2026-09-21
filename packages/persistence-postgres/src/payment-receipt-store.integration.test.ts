@@ -578,32 +578,29 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     );
     expect(completions.filter((outcome) => outcome === 'processed')).toHaveLength(1);
     expect(completions.filter((outcome) => outcome === 'replayed')).toHaveLength(19);
-    expect(
-      await database
-        .selectFrom('billing.refund_records')
-        .select(['status', 'provider_progress', 'attempt_count', 'processed_at'])
-        .where('id', '=', write.refundRecordId)
-        .executeTakeFirstOrThrow(),
-    ).toMatchObject({
-      status: 'processed',
-      provider_progress: 'refund_confirmed',
-      attempt_count: 1,
-      processed_at: expect.any(Date),
-    });
-    expect(
-      await database
-        .selectFrom('billing.payment_records')
-        .select(['status', 'refunded_at'])
-        .where('id', '=', payment.paymentRecordId)
-        .executeTakeFirstOrThrow(),
-    ).toMatchObject({ status: 'refunded', refunded_at: expect.any(Date) });
-    expect(
-      await database
-        .selectFrom('billing.payment_fulfillments')
-        .select(['state', 'corrected_at'])
-        .where('payment_record_id', '=', payment.paymentRecordId)
-        .executeTakeFirstOrThrow(),
-    ).toMatchObject({ state: 'corrected', corrected_at: expect.any(Date) });
+    const processedRefund = await database
+      .selectFrom('billing.refund_records')
+      .select(['status', 'provider_progress', 'attempt_count', 'processed_at'])
+      .where('id', '=', write.refundRecordId)
+      .executeTakeFirstOrThrow();
+    expect(processedRefund.status).toBe('processed');
+    expect(processedRefund.provider_progress).toBe('refund_confirmed');
+    expect(processedRefund.attempt_count).toBe(1);
+    expect(processedRefund.processed_at).toBeInstanceOf(Date);
+    const refundedPayment = await database
+      .selectFrom('billing.payment_records')
+      .select(['status', 'refunded_at'])
+      .where('id', '=', payment.paymentRecordId)
+      .executeTakeFirstOrThrow();
+    expect(refundedPayment.status).toBe('refunded');
+    expect(refundedPayment.refunded_at).toBeInstanceOf(Date);
+    const correctedFulfillment = await database
+      .selectFrom('billing.payment_fulfillments')
+      .select(['state', 'corrected_at'])
+      .where('payment_record_id', '=', payment.paymentRecordId)
+      .executeTakeFirstOrThrow();
+    expect(correctedFulfillment.state).toBe('corrected');
+    expect(correctedFulfillment.corrected_at).toBeInstanceOf(Date);
     expect(
       await database
         .selectFrom('notification.notifications')
