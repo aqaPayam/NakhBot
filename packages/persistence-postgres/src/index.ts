@@ -14,6 +14,13 @@ export {
   type InboxProcessingHooks,
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
+export {
+  PostgresCreditLedgerStore,
+  type AppendCreditTransactionInput,
+  type CreditPackageRecord,
+  type CreditTransactionReference,
+  type CreditTransactionResult,
+} from './credit-ledger-store.js';
 export { PostgresTelegramUserResolver } from './telegram-user-resolver.js';
 export {
   PostgresTelegramLikedByDeliveryStore,

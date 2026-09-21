@@ -9,7 +9,7 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
-describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M3 upgrade', () => {
+describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M4 upgrade', () => {
   it('serializes empty-database bootstrap, upgrades M1, verifies, and replays unchanged', async () => {
     // This suite needs CREATEDB on the disposable CI database server.
     const name = `nakh_migration_${randomUUID().replaceAll('-', '')}`;
@@ -50,6 +50,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000022_m3_telegram_delivery.sql',
         '000023_m3_telegram_delivery_receipts.sql',
         '000024_m3_telegram_receipt_key.sql',
+        '000025_m4_credit_ledger.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -68,9 +69,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000022_m3_telegram_delivery.sql');
       expect(verified).toContain('000023_m3_telegram_delivery_receipts.sql');
       expect(verified).toContain('000024_m3_telegram_receipt_key.sql');
+      expect(verified).toContain('000025_m4_credit_ledger.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(24);
+      expect(replay.existing).toHaveLength(25);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

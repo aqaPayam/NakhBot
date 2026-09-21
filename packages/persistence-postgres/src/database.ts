@@ -351,6 +351,43 @@ export interface CreditAccountTable {
   updated_at: Date;
 }
 
+export interface CreditPackageTable {
+  id: string;
+  code: 'starter' | 'plus' | 'best_value' | 'ultimate';
+  title_key: string;
+  credit_amount: string;
+  stars_price: string;
+  badge_key: string | null;
+  is_active: Generated<boolean>;
+  display_order: number;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface CreditTransactionTable {
+  id: string;
+  credit_account_id: string;
+  user_id: string;
+  account_version: number;
+  transaction_type:
+    | 'purchase'
+    | 'spend_nakh'
+    | 'spend_chat_unlock'
+    | 'spend_liked_by_unlock'
+    | 'refund'
+    | 'admin_adjustment';
+  amount: string;
+  balance_before: string;
+  balance_after: string;
+  payment_record_id: string | null;
+  pending_payment_id: string | null;
+  feature_unlock_id: string | null;
+  nakh_id: string | null;
+  idempotency_key: string;
+  correlation_id: string;
+  created_at: Generated<Date>;
+}
+
 export interface NotificationPreferenceTable {
   user_id: string;
   chat_enabled: Generated<boolean>;
@@ -526,6 +563,8 @@ export interface DatabaseSchema {
   'identity.signup_progress': SignupProgressTable;
   'identity.signup_drafts': SignupDraftTable;
   'billing.credit_accounts': CreditAccountTable;
+  'billing.credit_packages': CreditPackageTable;
+  'billing.credit_transactions': CreditTransactionTable;
   'notification.notification_preferences': NotificationPreferenceTable;
   'platform.audit_logs': AuditLogTable;
   'profile.profiles': ProfileTable;
