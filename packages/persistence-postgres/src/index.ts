@@ -19,6 +19,8 @@ export { PostgresPaidActionStore } from './paid-action-store.js';
 export {
   PostgresTelegramStarsReceiptStore,
   type ClaimedPaymentFulfillment,
+  type CreditPackageFulfillmentResult,
+  type CreditPackageFulfillmentWrite,
   type PaymentFulfillmentClaim,
   type PaymentFulfillmentLease,
 } from './payment-receipt-store.js';

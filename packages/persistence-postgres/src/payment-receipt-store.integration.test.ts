@@ -210,6 +210,38 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
         .where('id', '=', payment.paymentRecordId)
         .executeTakeFirstOrThrow(),
     ).toEqual({ status: 'paid', provider_payment_id: write.telegramChargeId });
+
+    const claimed = (
+      await receipts.claimFulfillments({ owner: 'package-worker', leaseMs: 60_000, limit: 100 })
+    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
+    expect(claimed).toBeDefined();
+    const fulfillmentWrite = {
+      paymentRecordId: payment.paymentRecordId,
+      owner: 'package-worker',
+      fenceToken: claimed!.fenceToken,
+      creditTransactionId: randomUUID(),
+      creditIncreasedEventId: randomUUID(),
+      paymentFulfilledEventId: randomUUID(),
+    };
+    const fulfillments = await Promise.all(
+      Array.from({ length: 20 }, () => receipts.fulfillCreditPackage(fulfillmentWrite)),
+    );
+    expect(fulfillments.filter(({ replayed }) => !replayed)).toHaveLength(1);
+    expect(fulfillments.filter(({ replayed }) => replayed)).toHaveLength(19);
+    expect(
+      await database
+        .selectFrom('billing.credit_accounts')
+        .select(['balance', 'version'])
+        .where('user_id', '=', payment.userId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ balance: '10', version: 2 });
+    expect(
+      await database
+        .selectFrom('billing.credit_transactions')
+        .select(({ fn }) => fn.countAll<string>().as('count'))
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ count: '1' });
   });
 
   it('never grants on wrong payment facts and fences a former fulfillment owner', async () => {

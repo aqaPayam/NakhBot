@@ -11,7 +11,7 @@ import type {
   TelegramStarsReceiptStore,
   TelegramSuccessfulPaymentWrite,
 } from '@nakh/application';
-import { ApplicationError, type IdGenerator } from '@nakh/domain';
+import { ApplicationError, calculateCreditBalance, type IdGenerator } from '@nakh/domain';
 
 import { actionableLikedByFrom } from './liked-by-store.js';
 import type { NakhDatabase } from './database.js';
@@ -56,6 +56,20 @@ export type PaymentFulfillmentLease = Readonly<{
   paymentRecordId: string;
   owner: string;
   fenceToken: bigint;
+}>;
+
+export type CreditPackageFulfillmentWrite = PaymentFulfillmentLease &
+  Readonly<{
+    creditTransactionId: string;
+    creditIncreasedEventId: string;
+    paymentFulfilledEventId: string;
+  }>;
+
+export type CreditPackageFulfillmentResult = Readonly<{
+  paymentRecordId: string;
+  creditTransactionId: string;
+  balanceAfter: bigint;
+  replayed: boolean;
 }>;
 
 function factHash(value: Readonly<Record<string, string>>): string {
@@ -400,6 +414,192 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         })
         .execute();
       return { outcome: 'receipt_recorded', paymentRecordId: payment.id };
+    });
+  }
+
+  /** Completes a captured package purchase and its ledger credit in one fenced transaction. */
+  public async fulfillCreditPackage(
+    input: CreditPackageFulfillmentWrite,
+  ): Promise<CreditPackageFulfillmentResult> {
+    this.validateLease(input);
+    return this.database.transaction().execute(async (transaction) => {
+      const fulfillment = await transaction
+        .selectFrom('billing.payment_fulfillments')
+        .selectAll()
+        .select(sql<Date>`transaction_timestamp()`.as('database_now'))
+        .where('payment_record_id', '=', input.paymentRecordId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (fulfillment === undefined)
+        throw new ApplicationError('not_found', 'error.billing.fulfillment_not_found', 404);
+      if (fulfillment.state === 'fulfilled') {
+        const prior = await transaction
+          .selectFrom('billing.credit_transactions')
+          .select(['id', 'balance_after'])
+          .where('payment_record_id', '=', input.paymentRecordId)
+          .where('transaction_type', '=', 'purchase')
+          .executeTakeFirstOrThrow();
+        return {
+          paymentRecordId: input.paymentRecordId,
+          creditTransactionId: prior.id,
+          balanceAfter: BigInt(prior.balance_after),
+          replayed: true,
+        };
+      }
+      if (
+        fulfillment.state !== 'fulfillment_pending' ||
+        fulfillment.lease_owner !== input.owner ||
+        BigInt(fulfillment.fence_token) !== input.fenceToken ||
+        fulfillment.lease_expires_at === null ||
+        fulfillment.lease_expires_at <= fulfillment.database_now
+      )
+        throw new ApplicationError('conflict', 'error.billing.fulfillment_lease_lost', 409);
+
+      const payment = await transaction
+        .selectFrom('billing.payment_records as payment')
+        .innerJoin('billing.pending_payments as intent', 'intent.id', 'payment.pending_payment_id')
+        .innerJoin(
+          'billing.telegram_stars_receipts as receipt',
+          'receipt.payment_record_id',
+          'payment.id',
+        )
+        .select([
+          'payment.id',
+          'payment.user_id',
+          'payment.payment_type',
+          'payment.status',
+          'payment.stars_amount',
+          'payment.package_credit_amount_snapshot',
+          'payment.credit_package_id',
+          'intent.status as intent_status',
+          'intent.target_id',
+          'receipt.stars_amount as receipt_stars_amount',
+        ])
+        .where('payment.id', '=', input.paymentRecordId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        payment === undefined ||
+        payment.payment_type !== 'buy_credit_package' ||
+        payment.status !== 'paid' ||
+        payment.intent_status !== 'paid' ||
+        payment.credit_package_id === null ||
+        payment.credit_package_id !== payment.target_id ||
+        payment.package_credit_amount_snapshot === null ||
+        payment.stars_amount !== payment.receipt_stars_amount
+      )
+        throw new ApplicationError(
+          'payment_verification_failed',
+          'error.billing.payment_mismatch',
+          409,
+        );
+
+      const account = await transaction
+        .selectFrom('billing.credit_accounts')
+        .select(['balance', 'version'])
+        .where('user_id', '=', payment.user_id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const balanceBefore = BigInt(account.balance);
+      const amount = BigInt(payment.package_credit_amount_snapshot);
+      const balanceAfter = calculateCreditBalance({
+        transactionType: 'purchase',
+        balanceBefore,
+        amount,
+      });
+      const accountVersion = account.version + 1;
+      const recordedAt = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(
+        transaction,
+      );
+      const now = recordedAt.rows[0]!.now;
+      await transaction
+        .insertInto('billing.credit_transactions')
+        .values({
+          id: input.creditTransactionId,
+          credit_account_id: payment.user_id,
+          user_id: payment.user_id,
+          account_version: accountVersion,
+          transaction_type: 'purchase',
+          amount: amount.toString(),
+          balance_before: balanceBefore.toString(),
+          balance_after: balanceAfter.toString(),
+          payment_record_id: payment.id,
+          pending_payment_id: null,
+          feature_unlock_id: null,
+          nakh_id: null,
+          idempotency_key: `purchase:${payment.id}`,
+          correlation_id: payment.id,
+        })
+        .execute();
+      await transaction
+        .updateTable('billing.credit_accounts')
+        .set({ balance: balanceAfter.toString(), version: accountVersion, updated_at: now })
+        .where('user_id', '=', payment.user_id)
+        .where('version', '=', account.version)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable('billing.payment_fulfillments')
+        .set((expression) => ({
+          state: 'fulfilled',
+          lease_owner: null,
+          lease_expires_at: null,
+          last_error_code: null,
+          fulfilled_at: now,
+          updated_at: now,
+          version: expression('version', '+', 1),
+        }))
+        .where('payment_record_id', '=', payment.id)
+        .where('state', '=', 'fulfillment_pending')
+        .where('lease_owner', '=', input.owner)
+        .where('fence_token', '=', input.fenceToken.toString())
+        .executeTakeFirstOrThrow();
+      await transaction
+        .insertInto('platform.outbox_events')
+        .values([
+          {
+            id: input.creditIncreasedEventId,
+            aggregate_type: 'credit_account',
+            aggregate_id: payment.user_id,
+            event_type: 'billing.credit-increased.v1',
+            schema_version: 1,
+            payload: {
+              creditTransactionId: input.creditTransactionId,
+              amount: amount.toString(),
+              balanceAfter: balanceAfter.toString(),
+            },
+            occurred_at: now,
+            available_at: now,
+            published_at: null,
+            last_error_code: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            correlation_id: payment.id,
+            causation_id: payment.id,
+          },
+          {
+            id: input.paymentFulfilledEventId,
+            aggregate_type: 'payment_record',
+            aggregate_id: payment.id,
+            event_type: 'billing.payment-fulfilled.v1',
+            schema_version: 1,
+            payload: { paymentRecordId: payment.id },
+            occurred_at: now,
+            available_at: now,
+            published_at: null,
+            last_error_code: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            correlation_id: payment.id,
+            causation_id: payment.id,
+          },
+        ])
+        .execute();
+      return {
+        paymentRecordId: payment.id,
+        creditTransactionId: input.creditTransactionId,
+        balanceAfter,
+        replayed: false,
+      };
     });
   }
 
