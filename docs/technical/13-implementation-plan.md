@@ -78,6 +78,8 @@ Exit gate: `ACC-020`, `ACC-032..033`, `ACC-036..038`, callback replay/crash/conc
 
 Deliver NakhFlow, pending/delivered phases, quota counter, edit/cancel, direct/credit funding, strict FIFO auto-settlement after every balance increase, reminders, expiry, receive/accept/reject/report, Match creation.
 
+Execution guide: [`25-m5-execution-guide.md`](25-m5-execution-guide.md).
+
 Exit gate: `ACC-021..030`, oldest-first/stop/close-and-continue properties, provider replay and concurrency tests pass.
 
 ### M6 — chat and notifications
