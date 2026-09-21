@@ -453,6 +453,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       owner: 'direct-worker',
       fenceToken: claim!.fenceToken,
       featureUnlockId: randomUUID(),
+      refundRecordId: randomUUID(),
       featureUnlockedEventId: randomUUID(),
       paymentTerminalEventId: randomUUID(),
     };
@@ -493,5 +494,75 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     expect(
       notifications.filter(({ notification_type }) => notification_type === 'payment_success'),
     ).toEqual([{ user_id: payer.userId, notification_type: 'payment_success' }]);
+  });
+
+  it('ACC-037 creates one correction when a paid Match closes before fulfillment', async () => {
+    const payer = await createUser(database);
+    const other = await createUser(database);
+    const matchId = await createActiveMatch(payer.userId, other.userId);
+    const payment = await preparePaymentFor(payer, { type: 'match', targetId: matchId });
+    const telegramChargeId = `telegram:${randomUUID()}`;
+    const eventId = `closed-target:${randomUUID()}`;
+    await receipts.recordSuccessfulPayment({
+      providerEventId: eventId,
+      telegramUserId: payer.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount,
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      telegramChargeId,
+      evidence: evidence(eventId),
+    });
+    await database
+      .updateTable('matching.matches')
+      .set((expression) => ({
+        status: 'closed',
+        closed_at: new Date(),
+        version: expression('version', '+', 1),
+      }))
+      .where('id', '=', matchId)
+      .executeTakeFirstOrThrow();
+    const claim = (
+      await receipts.claimFulfillments({ owner: 'correction-worker', leaseMs: 60_000, limit: 100 })
+    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
+    expect(claim).toBeDefined();
+    const write = {
+      paymentRecordId: payment.paymentRecordId,
+      owner: 'correction-worker',
+      fenceToken: claim!.fenceToken,
+      featureUnlockId: randomUUID(),
+      refundRecordId: randomUUID(),
+      featureUnlockedEventId: randomUUID(),
+      paymentTerminalEventId: randomUUID(),
+    };
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => receipts.fulfillDirectPaidAction(write)),
+    );
+    expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
+    expect(results.filter(({ replayed }) => replayed)).toHaveLength(19);
+    expect(new Set(results.map(({ refundRecordId }) => refundRecordId))).toEqual(
+      new Set([write.refundRecordId]),
+    );
+    expect(
+      await database
+        .selectFrom('billing.refund_records')
+        .select(['user_id', 'payment_record_id', 'telegram_charge_id', 'stars_amount', 'status'])
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({
+      user_id: payer.userId,
+      payment_record_id: payment.paymentRecordId,
+      telegram_charge_id: telegramChargeId,
+      stars_amount: payment.starsAmount.toString(),
+      status: 'pending',
+    });
+    expect(
+      await database
+        .selectFrom('interaction.feature_unlocks')
+        .select(({ fn }) => fn.countAll<string>().as('count'))
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ count: '0' });
   });
 });

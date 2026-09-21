@@ -81,6 +81,7 @@ export type CreditPackageFulfillmentResult = Readonly<{
 export type DirectPaidActionFulfillmentWrite = PaymentFulfillmentLease &
   Readonly<{
     featureUnlockId: string;
+    refundRecordId: string;
     featureUnlockedEventId: string;
     paymentTerminalEventId: string;
   }>;
@@ -89,6 +90,7 @@ export type DirectPaidActionFulfillmentResult = Readonly<{
   paymentRecordId: string;
   outcome: 'fulfilled' | 'correction_required';
   featureUnlockId?: string;
+  refundRecordId?: string;
   replayed: boolean;
 }>;
 
@@ -660,12 +662,19 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           replayed: true,
         };
       }
-      if (fulfillment.state === 'correction_required')
+      if (fulfillment.state === 'correction_required') {
+        const prior = await transaction
+          .selectFrom('billing.refund_records')
+          .select('id')
+          .where('payment_record_id', '=', input.paymentRecordId)
+          .executeTakeFirstOrThrow();
         return {
           paymentRecordId: input.paymentRecordId,
           outcome: 'correction_required',
+          refundRecordId: prior.id,
           replayed: true,
         };
+      }
       if (
         fulfillment.state !== 'fulfillment_pending' ||
         fulfillment.lease_owner !== input.owner ||
@@ -694,6 +703,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           'intent.target_type',
           'intent.target_id',
           'receipt.stars_amount as receipt_stars_amount',
+          'receipt.telegram_charge_id',
         ])
         .where('payment.id', '=', input.paymentRecordId)
         .forUpdate()
@@ -740,6 +750,27 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
       const now = fulfillment.database_now;
       if (!targetAvailable) {
         await transaction
+          .insertInto('billing.refund_records')
+          .values({
+            id: input.refundRecordId,
+            user_id: payment.user_id,
+            funding_type: 'telegram_stars',
+            payment_record_id: payment.id,
+            original_credit_transaction_id: null,
+            refund_credit_transaction_id: null,
+            telegram_charge_id: payment.telegram_charge_id,
+            reason_code: 'target_unavailable',
+            stars_amount: payment.stars_amount,
+            credits_amount: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            last_error_code: null,
+            idempotency_key: `stars-refund:${payment.id}`,
+            processed_at: null,
+            failed_at: null,
+          })
+          .execute();
+        await transaction
           .updateTable('billing.payment_fulfillments')
           .set((expression) => ({
             state: 'correction_required',
@@ -765,6 +796,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         return {
           paymentRecordId: payment.id,
           outcome: 'correction_required',
+          refundRecordId: input.refundRecordId,
           replayed: false,
         };
       }
