@@ -15,12 +15,14 @@ export {
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 export { PostgresFundingStore } from './funding-store.js';
-export { PostgresPaidActionStore } from './paid-action-store.js';
+export { lockAndValidatePaidActionTarget, PostgresPaidActionStore } from './paid-action-store.js';
 export {
   PostgresTelegramStarsReceiptStore,
   type ClaimedPaymentFulfillment,
   type CreditPackageFulfillmentResult,
   type CreditPackageFulfillmentWrite,
+  type DirectPaidActionFulfillmentResult,
+  type DirectPaidActionFulfillmentWrite,
   type PaymentFulfillmentClaim,
   type PaymentFulfillmentLease,
 } from './payment-receipt-store.js';

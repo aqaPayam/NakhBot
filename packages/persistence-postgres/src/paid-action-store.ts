@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 
 import type {
+  PaidActionTarget,
   PaidActionStore,
   SpendCreditsForPaidActionWrite,
   StoredFeatureUnlock,
@@ -35,15 +36,89 @@ function result(
   };
 }
 
+function unavailable(): never {
+  throw new ApplicationError('unlock_unavailable', 'error.billing.unlock_unavailable', 409);
+}
+
+/** Locks the product scope and revalidates the canonical effective-access prerequisites. */
+export async function lockAndValidatePaidActionTarget(
+  database: NakhDatabase,
+  userId: string,
+  target: PaidActionTarget,
+): Promise<void> {
+  if (target.type === 'like') {
+    const identity = await database
+      .selectFrom('interaction.likes')
+      .select(['sender_user_id', 'receiver_user_id'])
+      .where('id', '=', target.targetId)
+      .executeTakeFirst();
+    if (identity === undefined || identity.receiver_user_id !== userId) unavailable();
+    await lockUserPair(database, identity.sender_user_id, identity.receiver_user_id);
+    const like = await database
+      .selectFrom('interaction.likes')
+      .select('status')
+      .where('id', '=', target.targetId)
+      .where('receiver_user_id', '=', userId)
+      .forUpdate()
+      .executeTakeFirst();
+    const receiver = await database
+      .selectFrom('identity.accounts as account')
+      .innerJoin('identity.user_settings as settings', 'settings.user_id', 'account.user_id')
+      .innerJoin('profile.profiles as profile', 'profile.user_id', 'account.user_id')
+      .select(['account.state', 'settings.visibility_enabled', 'profile.completion_status'])
+      .where('account.user_id', '=', userId)
+      .executeTakeFirst();
+    const actionable = await sql<{ id: string }>`
+      SELECT incoming.id ${actionableLikedByFrom(userId)}
+      AND incoming.id = ${target.targetId}::uuid
+    `.execute(database);
+    if (
+      like?.status !== 'active' ||
+      receiver?.state !== 'active' ||
+      !receiver.visibility_enabled ||
+      receiver.completion_status !== 'complete' ||
+      actionable.rows.length !== 1
+    )
+      unavailable();
+    return;
+  }
+
+  const identity = await database
+    .selectFrom('matching.matches')
+    .select(['user_low_id', 'user_high_id'])
+    .where('id', '=', target.targetId)
+    .executeTakeFirst();
+  if (identity === undefined) unavailable();
+  await lockUserPair(database, identity.user_low_id, identity.user_high_id);
+  const match = await database
+    .selectFrom('matching.matches as match')
+    .innerJoin('matching.match_participants as participant', 'participant.match_id', 'match.id')
+    .innerJoin('chat.chat_sessions as chat', 'chat.match_id', 'match.id')
+    .innerJoin('interaction.user_pair_states as pair', (join) =>
+      join
+        .onRef('pair.user_low_id', '=', 'match.user_low_id')
+        .onRef('pair.user_high_id', '=', 'match.user_high_id'),
+    )
+    .innerJoin('identity.accounts as account', 'account.user_id', 'participant.user_id')
+    .select('match.id')
+    .where('match.id', '=', target.targetId)
+    .where('participant.user_id', '=', userId)
+    .where('match.status', '=', 'active')
+    .where('chat.status', '=', 'active')
+    .where('pair.state', '=', 'matched')
+    .where('account.state', '=', 'active')
+    .forUpdate()
+    .executeTakeFirst();
+  if (match === undefined) unavailable();
+}
+
 export class PostgresPaidActionStore implements PaidActionStore {
   public constructor(private readonly database: NakhDatabase) {}
 
   public async spendCredits(write: SpendCreditsForPaidActionWrite): Promise<StoredFeatureUnlock> {
     return this.database.transaction().execute(async (transaction) => {
       const featureType = write.target.type === 'like' ? 'liked_by_profile_unlock' : 'chat_unlock';
-      if (write.target.type === 'like')
-        await this.lockAndValidateLike(transaction, write.userId, write.target.targetId);
-      else await this.lockAndValidateMatch(transaction, write.userId, write.target.targetId);
+      await lockAndValidatePaidActionTarget(transaction, write.userId, write.target);
 
       const existing = await transaction
         .selectFrom('interaction.feature_unlocks')
@@ -156,83 +231,5 @@ export class PostgresPaidActionStore implements PaidActionStore {
         .execute();
       return result(unlock, false);
     });
-  }
-
-  private async lockAndValidateLike(
-    database: NakhDatabase,
-    userId: string,
-    likeId: string,
-  ): Promise<void> {
-    const identity = await database
-      .selectFrom('interaction.likes')
-      .select(['sender_user_id', 'receiver_user_id'])
-      .where('id', '=', likeId)
-      .executeTakeFirst();
-    if (identity === undefined || identity.receiver_user_id !== userId) this.unavailable();
-    await lockUserPair(database, identity.sender_user_id, identity.receiver_user_id);
-    const like = await database
-      .selectFrom('interaction.likes')
-      .select('status')
-      .where('id', '=', likeId)
-      .where('receiver_user_id', '=', userId)
-      .forUpdate()
-      .executeTakeFirst();
-    const receiver = await database
-      .selectFrom('identity.accounts as account')
-      .innerJoin('identity.user_settings as settings', 'settings.user_id', 'account.user_id')
-      .innerJoin('profile.profiles as profile', 'profile.user_id', 'account.user_id')
-      .select(['account.state', 'settings.visibility_enabled', 'profile.completion_status'])
-      .where('account.user_id', '=', userId)
-      .executeTakeFirst();
-    const actionable = await sql<{ id: string }>`
-      SELECT incoming.id ${actionableLikedByFrom(userId)}
-      AND incoming.id = ${likeId}::uuid
-    `.execute(database);
-    if (
-      like?.status !== 'active' ||
-      receiver?.state !== 'active' ||
-      !receiver.visibility_enabled ||
-      receiver.completion_status !== 'complete' ||
-      actionable.rows.length !== 1
-    )
-      this.unavailable();
-  }
-
-  private async lockAndValidateMatch(
-    database: NakhDatabase,
-    userId: string,
-    matchId: string,
-  ): Promise<void> {
-    const identity = await database
-      .selectFrom('matching.matches')
-      .select(['user_low_id', 'user_high_id'])
-      .where('id', '=', matchId)
-      .executeTakeFirst();
-    if (identity === undefined) this.unavailable();
-    await lockUserPair(database, identity.user_low_id, identity.user_high_id);
-    const match = await database
-      .selectFrom('matching.matches as match')
-      .innerJoin('matching.match_participants as participant', 'participant.match_id', 'match.id')
-      .innerJoin('chat.chat_sessions as chat', 'chat.match_id', 'match.id')
-      .innerJoin('interaction.user_pair_states as pair', (join) =>
-        join
-          .onRef('pair.user_low_id', '=', 'match.user_low_id')
-          .onRef('pair.user_high_id', '=', 'match.user_high_id'),
-      )
-      .innerJoin('identity.accounts as account', 'account.user_id', 'participant.user_id')
-      .select('match.id')
-      .where('match.id', '=', matchId)
-      .where('participant.user_id', '=', userId)
-      .where('match.status', '=', 'active')
-      .where('chat.status', '=', 'active')
-      .where('pair.state', '=', 'matched')
-      .where('account.state', '=', 'active')
-      .forUpdate()
-      .executeTakeFirst();
-    if (match === undefined) this.unavailable();
-  }
-
-  private unavailable(): never {
-    throw new ApplicationError('unlock_unavailable', 'error.billing.unlock_unavailable', 409);
   }
 }

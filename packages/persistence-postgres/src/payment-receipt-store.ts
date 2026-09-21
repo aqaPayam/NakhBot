@@ -5,6 +5,7 @@ import { sql } from 'kysely';
 import type {
   EncryptedProviderEvidence,
   InvoicePayloadProtector,
+  PaidActionTarget,
   TelegramPaymentReceiptResult,
   TelegramPreCheckoutDecision,
   TelegramPreCheckoutWrite,
@@ -14,6 +15,7 @@ import type {
 import { ApplicationError, calculateCreditBalance, type IdGenerator } from '@nakh/domain';
 
 import { actionableLikedByFrom } from './liked-by-store.js';
+import { lockAndValidatePaidActionTarget } from './paid-action-store.js';
 import type { NakhDatabase } from './database.js';
 
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -69,6 +71,20 @@ export type CreditPackageFulfillmentResult = Readonly<{
   paymentRecordId: string;
   creditTransactionId: string;
   balanceAfter: bigint;
+  replayed: boolean;
+}>;
+
+export type DirectPaidActionFulfillmentWrite = PaymentFulfillmentLease &
+  Readonly<{
+    featureUnlockId: string;
+    featureUnlockedEventId: string;
+    paymentTerminalEventId: string;
+  }>;
+
+export type DirectPaidActionFulfillmentResult = Readonly<{
+  paymentRecordId: string;
+  outcome: 'fulfilled' | 'correction_required';
+  featureUnlockId?: string;
   replayed: boolean;
 }>;
 
@@ -603,6 +619,215 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
     });
   }
 
+  /** Grants one payment-funded Like/Match entitlement or durably requests correction. */
+  public async fulfillDirectPaidAction(
+    input: DirectPaidActionFulfillmentWrite,
+  ): Promise<DirectPaidActionFulfillmentResult> {
+    this.validateLease(input);
+    return this.database.transaction().execute(async (transaction) => {
+      const fulfillment = await transaction
+        .selectFrom('billing.payment_fulfillments')
+        .selectAll()
+        .select(sql<Date>`transaction_timestamp()`.as('database_now'))
+        .where('payment_record_id', '=', input.paymentRecordId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (fulfillment === undefined)
+        throw new ApplicationError('not_found', 'error.billing.fulfillment_not_found', 404);
+      if (fulfillment.state === 'fulfilled') {
+        const prior = await transaction
+          .selectFrom('interaction.feature_unlocks')
+          .select('id')
+          .where('payment_record_id', '=', input.paymentRecordId)
+          .executeTakeFirstOrThrow();
+        return {
+          paymentRecordId: input.paymentRecordId,
+          outcome: 'fulfilled',
+          featureUnlockId: prior.id,
+          replayed: true,
+        };
+      }
+      if (fulfillment.state === 'correction_required')
+        return {
+          paymentRecordId: input.paymentRecordId,
+          outcome: 'correction_required',
+          replayed: true,
+        };
+      if (
+        fulfillment.state !== 'fulfillment_pending' ||
+        fulfillment.lease_owner !== input.owner ||
+        BigInt(fulfillment.fence_token) !== input.fenceToken ||
+        fulfillment.lease_expires_at === null ||
+        fulfillment.lease_expires_at <= fulfillment.database_now
+      )
+        throw new ApplicationError('conflict', 'error.billing.fulfillment_lease_lost', 409);
+
+      const payment = await transaction
+        .selectFrom('billing.payment_records as payment')
+        .innerJoin('billing.pending_payments as intent', 'intent.id', 'payment.pending_payment_id')
+        .innerJoin(
+          'billing.telegram_stars_receipts as receipt',
+          'receipt.payment_record_id',
+          'payment.id',
+        )
+        .select([
+          'payment.id',
+          'payment.user_id',
+          'payment.payment_type',
+          'payment.paid_action_reason',
+          'payment.status',
+          'payment.stars_amount',
+          'intent.status as intent_status',
+          'intent.target_type',
+          'intent.target_id',
+          'receipt.stars_amount as receipt_stars_amount',
+        ])
+        .where('payment.id', '=', input.paymentRecordId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        payment === undefined ||
+        payment.payment_type !== 'direct_paid_action' ||
+        payment.status !== 'paid' ||
+        payment.intent_status !== 'paid' ||
+        payment.stars_amount !== payment.receipt_stars_amount ||
+        !(
+          (payment.paid_action_reason === 'unlock_liked_by_profile' &&
+            payment.target_type === 'like') ||
+          (payment.paid_action_reason === 'unlock_chat' && payment.target_type === 'match')
+        )
+      )
+        throw new ApplicationError(
+          'payment_verification_failed',
+          'error.billing.payment_mismatch',
+          409,
+        );
+      const target: PaidActionTarget = {
+        type: payment.target_type === 'like' ? 'like' : 'match',
+        targetId: payment.target_id,
+      };
+      let targetAvailable = true;
+      try {
+        await lockAndValidatePaidActionTarget(transaction, payment.user_id, target);
+      } catch (error) {
+        if (!(error instanceof ApplicationError) || error.code !== 'unlock_unavailable')
+          throw error;
+        targetAvailable = false;
+      }
+      if (targetAvailable) {
+        const existing = await transaction
+          .selectFrom('interaction.feature_unlocks')
+          .select(['id', 'payment_record_id'])
+          .where(target.type === 'like' ? 'like_id' : 'match_id', '=', target.targetId)
+          .executeTakeFirst();
+        if (existing !== undefined && existing.payment_record_id !== payment.id)
+          targetAvailable = false;
+      }
+
+      const now = fulfillment.database_now;
+      if (!targetAvailable) {
+        await transaction
+          .updateTable('billing.payment_fulfillments')
+          .set((expression) => ({
+            state: 'correction_required',
+            lease_owner: null,
+            lease_expires_at: null,
+            last_error_code: 'target_unavailable',
+            correction_required_at: now,
+            updated_at: now,
+            version: expression('version', '+', 1),
+          }))
+          .where('payment_record_id', '=', payment.id)
+          .where('state', '=', 'fulfillment_pending')
+          .where('lease_owner', '=', input.owner)
+          .where('fence_token', '=', input.fenceToken.toString())
+          .executeTakeFirstOrThrow();
+        await this.insertTerminalPaymentEvent(
+          transaction,
+          input.paymentTerminalEventId,
+          payment.id,
+          'billing.payment-correction-required.v1',
+          now,
+        );
+        return {
+          paymentRecordId: payment.id,
+          outcome: 'correction_required',
+          replayed: false,
+        };
+      }
+
+      const unlock = await transaction
+        .insertInto('interaction.feature_unlocks')
+        .values({
+          id: input.featureUnlockId,
+          payer_user_id: payment.user_id,
+          feature_type: target.type === 'like' ? 'liked_by_profile_unlock' : 'chat_unlock',
+          like_id: target.type === 'like' ? target.targetId : null,
+          match_id: target.type === 'match' ? target.targetId : null,
+          payment_record_id: payment.id,
+          credit_transaction_id: null,
+          expires_at: null,
+          revoked_at: null,
+          revoked_reason: null,
+          revoked_by_admin_id: null,
+          expired_at: null,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable('billing.payment_fulfillments')
+        .set((expression) => ({
+          state: 'fulfilled',
+          lease_owner: null,
+          lease_expires_at: null,
+          last_error_code: null,
+          fulfilled_at: now,
+          updated_at: now,
+          version: expression('version', '+', 1),
+        }))
+        .where('payment_record_id', '=', payment.id)
+        .where('state', '=', 'fulfillment_pending')
+        .where('lease_owner', '=', input.owner)
+        .where('fence_token', '=', input.fenceToken.toString())
+        .executeTakeFirstOrThrow();
+      await transaction
+        .insertInto('platform.outbox_events')
+        .values({
+          id: input.featureUnlockedEventId,
+          aggregate_type: 'feature_unlock',
+          aggregate_id: unlock.id,
+          event_type: 'entitlement.feature-unlocked.v1',
+          schema_version: 1,
+          payload: {
+            featureUnlockId: unlock.id,
+            featureType: target.type === 'like' ? 'liked_by_profile_unlock' : 'chat_unlock',
+          },
+          occurred_at: now,
+          available_at: now,
+          published_at: null,
+          last_error_code: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          correlation_id: payment.id,
+          causation_id: payment.id,
+        })
+        .execute();
+      await this.insertTerminalPaymentEvent(
+        transaction,
+        input.paymentTerminalEventId,
+        payment.id,
+        'billing.payment-fulfilled.v1',
+        now,
+      );
+      return {
+        paymentRecordId: payment.id,
+        outcome: 'fulfilled',
+        featureUnlockId: unlock.id,
+        replayed: false,
+      };
+    });
+  }
+
   /** Claims due work with SKIP LOCKED. The fence token rejects an expired former owner. */
   public async claimFulfillments(
     input: PaymentFulfillmentClaim,
@@ -690,6 +915,34 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
       .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
       .executeTakeFirst();
     return updated.numUpdatedRows === 1n;
+  }
+
+  private async insertTerminalPaymentEvent(
+    database: NakhDatabase,
+    eventId: string,
+    paymentRecordId: string,
+    eventType: 'billing.payment-fulfilled.v1' | 'billing.payment-correction-required.v1',
+    occurredAt: Date,
+  ): Promise<void> {
+    await database
+      .insertInto('platform.outbox_events')
+      .values({
+        id: eventId,
+        aggregate_type: 'payment_record',
+        aggregate_id: paymentRecordId,
+        event_type: eventType,
+        schema_version: 1,
+        payload: { paymentRecordId },
+        occurred_at: occurredAt,
+        available_at: occurredAt,
+        published_at: null,
+        last_error_code: null,
+        lease_owner: null,
+        lease_expires_at: null,
+        correlation_id: paymentRecordId,
+        causation_id: paymentRecordId,
+      })
+      .execute();
   }
 
   private validateLease(input: PaymentFulfillmentLease): void {

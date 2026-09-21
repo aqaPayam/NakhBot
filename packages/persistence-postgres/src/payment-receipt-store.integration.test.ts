@@ -102,11 +102,26 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     starsAmount: bigint;
   }> {
     const user = await createUser(database);
+    return preparePaymentFor(user, { type: 'credit_package', packageCode: 'starter' });
+  }
+
+  async function preparePaymentFor(
+    user: Readonly<{ userId: string; telegramUserId: string }>,
+    target:
+      | Readonly<{ type: 'credit_package'; packageCode: 'starter' }>
+      | Readonly<{ type: 'match'; targetId: string }>,
+  ): Promise<{
+    paymentRecordId: string;
+    userId: string;
+    telegramUserId: string;
+    payload: ProtectedInvoicePayload;
+    starsAmount: bigint;
+  }> {
     const intent = await funding.createFundingIntent({
       intentId: randomUUID(),
       userId: user.userId,
       funding: 'stars',
-      target: { type: 'credit_package', packageCode: 'starter' },
+      target,
       idempotencyKey: `receipt-intent:${randomUUID()}`,
     });
     const payload = issuePayload();
@@ -127,6 +142,101 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       payload,
       starsAmount: attempt.starsAmount,
     };
+  }
+
+  async function createActiveMatch(firstUserId: string, secondUserId: string): Promise<string> {
+    const [userLowId, userHighId] = [firstUserId, secondUserId].sort();
+    const firstLikeId = randomUUID();
+    const secondLikeId = randomUUID();
+    const matchId = randomUUID();
+    const chatSessionId = randomUUID();
+    const now = new Date();
+    await database.transaction().execute(async (transaction) => {
+      await transaction
+        .insertInto('interaction.likes')
+        .values([
+          {
+            id: firstLikeId,
+            sender_user_id: firstUserId,
+            receiver_user_id: secondUserId,
+            status: 'closed_by_match',
+            created_at: now,
+            closed_at: now,
+          },
+          {
+            id: secondLikeId,
+            sender_user_id: secondUserId,
+            receiver_user_id: firstUserId,
+            status: 'closed_by_match',
+            created_at: now,
+            closed_at: now,
+          },
+        ])
+        .execute();
+      await transaction
+        .insertInto('interaction.user_pair_states')
+        .values({
+          user_low_id: userLowId!,
+          user_high_id: userHighId!,
+          state: 'matched',
+          reason_code: 'mutual_like',
+          changed_at: now,
+        })
+        .execute();
+      await transaction
+        .insertInto('matching.matches')
+        .values({
+          id: matchId,
+          user_low_id: userLowId!,
+          user_high_id: userHighId!,
+          source: 'mutual_like',
+          source_like_a_id: firstLikeId,
+          source_like_b_id: secondLikeId,
+          source_nakh_id: null,
+          status: 'active',
+          created_at: now,
+          closed_at: null,
+        })
+        .execute();
+      await transaction
+        .insertInto('matching.match_participants')
+        .values([
+          { match_id: matchId, user_id: firstUserId, joined_at: now },
+          { match_id: matchId, user_id: secondUserId, joined_at: now },
+        ])
+        .execute();
+      await transaction
+        .insertInto('chat.chat_sessions')
+        .values({
+          id: chatSessionId,
+          match_id: matchId,
+          status: 'active',
+          created_at: now,
+          closed_at: null,
+          closed_reason: null,
+        })
+        .execute();
+      await transaction
+        .insertInto('chat.chat_participants')
+        .values([
+          {
+            chat_session_id: chatSessionId,
+            user_id: firstUserId,
+            last_read_at: null,
+            muted_at: null,
+            unlock_safety_warning_shown_at: null,
+          },
+          {
+            chat_session_id: chatSessionId,
+            user_id: secondUserId,
+            last_read_at: null,
+            muted_at: null,
+            unlock_safety_warning_shown_at: null,
+          },
+        ])
+        .execute();
+    });
+    return matchId;
   }
 
   it('persists and replays a strict pre-checkout decision while quarantining changed facts', async () => {
@@ -303,5 +413,63 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
         delayMs: 0,
       }),
     ).toBe(false);
+  });
+
+  it('fulfills a direct Stars Match unlock once without touching either credit balance', async () => {
+    const payer = await createUser(database);
+    const other = await createUser(database);
+    const matchId = await createActiveMatch(payer.userId, other.userId);
+    const payment = await preparePaymentFor(payer, { type: 'match', targetId: matchId });
+    const eventId = `direct-payment:${randomUUID()}`;
+    await receipts.recordSuccessfulPayment({
+      providerEventId: eventId,
+      telegramUserId: payer.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount,
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      telegramChargeId: `telegram:${randomUUID()}`,
+      evidence: evidence(eventId),
+    });
+    const claim = (
+      await receipts.claimFulfillments({ owner: 'direct-worker', leaseMs: 60_000, limit: 100 })
+    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
+    expect(claim).toBeDefined();
+    const fulfillmentWrite = {
+      paymentRecordId: payment.paymentRecordId,
+      owner: 'direct-worker',
+      fenceToken: claim!.fenceToken,
+      featureUnlockId: randomUUID(),
+      featureUnlockedEventId: randomUUID(),
+      paymentTerminalEventId: randomUUID(),
+    };
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => receipts.fulfillDirectPaidAction(fulfillmentWrite)),
+    );
+    expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
+    expect(results.filter(({ replayed }) => replayed)).toHaveLength(19);
+    expect(new Set(results.map(({ featureUnlockId }) => featureUnlockId))).toEqual(
+      new Set([fulfillmentWrite.featureUnlockId]),
+    );
+    expect(
+      await database
+        .selectFrom('interaction.feature_unlocks')
+        .select(['payer_user_id', 'feature_type', 'match_id', 'payment_record_id'])
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({
+      payer_user_id: payer.userId,
+      feature_type: 'chat_unlock',
+      match_id: matchId,
+      payment_record_id: payment.paymentRecordId,
+    });
+    expect(
+      await database
+        .selectFrom('billing.credit_accounts')
+        .select('balance')
+        .where('user_id', 'in', [payer.userId, other.userId])
+        .execute(),
+    ).toEqual([{ balance: '0' }, { balance: '0' }]);
   });
 });
