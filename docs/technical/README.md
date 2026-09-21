@@ -57,6 +57,7 @@ Any product behavior change requires a domain-document update first. Any persist
 | [`20-m2-acceptance-evidence.md`](20-m2-acceptance-evidence.md) | M2 automated evidence, external blockers, and staging handoff ledger |
 | [`21-m3-execution-guide.md`](21-m3-execution-guide.md) | Exact M3 discovery, interaction, delivery, concurrency, query-plan, and acceptance sequence |
 | [`22-m3-acceptance-evidence.md`](22-m3-acceptance-evidence.md) | M3 automated evidence, external blockers, and staging handoff ledger |
+| [`23-m4-execution-guide.md`](23-m4-execution-guide.md) | Exact M4 billing, Stars, paid-unlock, correction, reconciliation, and acceptance sequence |
 
 ## Locked baseline
 

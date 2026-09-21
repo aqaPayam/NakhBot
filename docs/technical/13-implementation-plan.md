@@ -70,6 +70,8 @@ Exit gate: `ACC-014..019`, property and production-volume query-plan tests pass.
 
 Deliver CreditAccount/ledger/packages, PendingPayment/PaymentRecord/provider events, Stars invoice/pre-checkout/success, corrections/refunds, Liked By and chat FeatureUnlocks, reconciliation.
 
+Execution guide: [`23-m4-execution-guide.md`](23-m4-execution-guide.md).
+
 Exit gate: `ACC-020`, `ACC-032..033`, `ACC-036..038`, callback replay/crash/concurrency/property tests and payment runbooks pass.
 
 ### M5 — Nakh
