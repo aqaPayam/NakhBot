@@ -1,7 +1,7 @@
 CREATE SCHEMA IF NOT EXISTS nakh;
 
 CREATE TABLE platform.user_counters (
-  user_id uuid PRIMARY KEY REFERENCES identity.users(id) ON DELETE RESTRICT,
+  user_id uuid PRIMARY KEY REFERENCES identity.users(id) ON DELETE CASCADE,
   pending_nakh_count integer NOT NULL DEFAULT 0 CHECK (pending_nakh_count BETWEEN 0 AND 5),
   version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
   updated_at timestamptz NOT NULL DEFAULT transaction_timestamp()
