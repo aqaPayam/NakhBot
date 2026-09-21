@@ -27,6 +27,15 @@ export type StoredNotification = Readonly<{
   replayed: boolean;
 }>;
 
+export type FeatureUnlockNotificationWrite = Readonly<{
+  featureUnlockId: string;
+  featureType: 'liked_by_profile_unlock' | 'chat_unlock';
+  payerUserId: string;
+  matchId?: string;
+  correlationId: string;
+  causationId: string;
+}>;
+
 function samePayload(
   left: Readonly<Record<string, unknown>>,
   right: Readonly<Record<string, unknown>>,
@@ -150,6 +159,80 @@ export async function insertNotification(
     })
     .execute();
   return { notificationId: inserted.id, telegramDeliveryId: deliveryId, replayed: false };
+}
+
+/** Records the complete recipient set for a committed Like or Match entitlement. */
+export async function insertFeatureUnlockNotifications(
+  database: NakhDatabase,
+  write: FeatureUnlockNotificationWrite,
+): Promise<void> {
+  if (write.featureType === 'liked_by_profile_unlock') {
+    await insertNotification(database, {
+      userId: write.payerUserId,
+      type: 'liked_by_profile_unlocked',
+      titleKey: 'notification.liked_by_profile_unlocked.title',
+      bodyKey: 'notification.liked_by_profile_unlocked.body',
+      payload: { featureUnlockId: write.featureUnlockId },
+      deduplicationKey: `feature-unlock:${write.featureUnlockId}:${write.payerUserId}:unlocked`,
+      correlationId: write.correlationId,
+      causationId: write.causationId,
+    });
+    return;
+  }
+
+  if (write.matchId === undefined)
+    throw new ApplicationError('invalid_request', 'error.notification.match_scope_missing', 400);
+  const participants = await database
+    .selectFrom('matching.match_participants')
+    .select('user_id')
+    .where('match_id', '=', write.matchId)
+    .orderBy('user_id', 'asc')
+    .execute();
+  if (participants.length !== 2)
+    throw new ApplicationError('conflict', 'error.notification.match_participants_invalid', 409);
+  for (const participant of participants) {
+    await insertNotification(database, {
+      userId: participant.user_id,
+      type: 'chat_unlocked',
+      titleKey: 'notification.chat_unlocked.title',
+      bodyKey: 'notification.chat_unlocked.body',
+      payload: { featureUnlockId: write.featureUnlockId },
+      deduplicationKey: `feature-unlock:${write.featureUnlockId}:${participant.user_id}:unlocked`,
+      correlationId: write.correlationId,
+      causationId: write.causationId,
+    });
+    await insertNotification(database, {
+      userId: participant.user_id,
+      type: 'safety_notice',
+      titleKey: 'notification.chat_unlock_safety.title',
+      bodyKey: 'notification.chat_unlock_safety.body',
+      payload: { featureUnlockId: write.featureUnlockId },
+      deduplicationKey: `feature-unlock:${write.featureUnlockId}:${participant.user_id}:safety`,
+      correlationId: write.correlationId,
+      causationId: write.causationId,
+    });
+  }
+}
+
+/** Records the payer-only critical notice for a completed Stars payment. */
+export async function insertPaymentSuccessNotification(
+  database: NakhDatabase,
+  write: Readonly<{
+    paymentRecordId: string;
+    userId: string;
+    payload: Readonly<Record<string, unknown>>;
+  }>,
+): Promise<void> {
+  await insertNotification(database, {
+    userId: write.userId,
+    type: 'payment_success',
+    titleKey: 'notification.payment_success.title',
+    bodyKey: 'notification.payment_success.body',
+    payload: { paymentRecordId: write.paymentRecordId, ...write.payload },
+    deduplicationKey: `payment:${write.paymentRecordId}:${write.userId}:success`,
+    correlationId: write.paymentRecordId,
+    causationId: write.paymentRecordId,
+  });
 }
 
 export class PostgresNotificationStore {

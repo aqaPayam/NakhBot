@@ -15,8 +15,11 @@ export {
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 export {
+  insertFeatureUnlockNotifications,
   insertNotification,
+  insertPaymentSuccessNotification,
   PostgresNotificationStore,
+  type FeatureUnlockNotificationWrite,
   type NotificationWrite,
   type StoredNotification,
 } from './notification-store.js';

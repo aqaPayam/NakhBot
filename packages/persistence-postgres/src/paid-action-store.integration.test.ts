@@ -36,6 +36,10 @@ async function createActiveUser(database: NakhDatabase): Promise<string> {
     .values({ user_id: userId, created_at: now, updated_at: now })
     .execute();
   await database
+    .insertInto('notification.notification_preferences')
+    .values({ user_id: userId, created_at: now, updated_at: now })
+    .execute();
+  await database
     .insertInto('profile.profiles')
     .values({
       id: profileId,
@@ -163,6 +167,14 @@ describe.skipIf(databaseUrl === undefined)('M4 credit-funded feature unlocks', (
       amount: '-4',
       feature_unlock_id: first.id,
     });
+    expect(
+      await database
+        .selectFrom('notification.notifications')
+        .select(['notification_type', 'category'])
+        .where('user_id', '=', receiverUserId)
+        .where('notification_type', '=', 'liked_by_profile_unlocked')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ notification_type: 'liked_by_profile_unlocked', category: 'like' });
   });
 
   it('converges simultaneous participants on one Match unlock and charges only the winner', async () => {
@@ -280,5 +292,13 @@ describe.skipIf(databaseUrl === undefined)('M4 credit-funded feature unlocks', (
         .where('match_id', '=', matchId)
         .executeTakeFirstOrThrow(),
     ).toEqual({ count: '1' });
+    expect(
+      await database
+        .selectFrom('notification.notifications')
+        .select(['notification_type'])
+        .where('user_id', 'in', [firstUserId, secondUserId])
+        .where('notification_type', 'in', ['chat_unlocked', 'safety_notice'])
+        .execute(),
+    ).toHaveLength(4);
   });
 });

@@ -15,6 +15,10 @@ import type {
 import { ApplicationError, calculateCreditBalance, type IdGenerator } from '@nakh/domain';
 
 import { actionableLikedByFrom } from './liked-by-store.js';
+import {
+  insertFeatureUnlockNotifications,
+  insertPaymentSuccessNotification,
+} from './notification-store.js';
 import { lockAndValidatePaidActionTarget } from './paid-action-store.js';
 import type { NakhDatabase } from './database.js';
 
@@ -610,6 +614,15 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           },
         ])
         .execute();
+      await insertPaymentSuccessNotification(transaction, {
+        paymentRecordId: payment.id,
+        userId: payment.user_id,
+        payload: {
+          creditTransactionId: input.creditTransactionId,
+          creditsAdded: amount.toString(),
+          balanceAfter: balanceAfter.toString(),
+        },
+      });
       return {
         paymentRecordId: payment.id,
         creditTransactionId: input.creditTransactionId,
@@ -819,6 +832,19 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         'billing.payment-fulfilled.v1',
         now,
       );
+      await insertPaymentSuccessNotification(transaction, {
+        paymentRecordId: payment.id,
+        userId: payment.user_id,
+        payload: { featureUnlockId: unlock.id },
+      });
+      await insertFeatureUnlockNotifications(transaction, {
+        featureUnlockId: unlock.id,
+        featureType: target.type === 'like' ? 'liked_by_profile_unlock' : 'chat_unlock',
+        payerUserId: payment.user_id,
+        ...(target.type === 'match' ? { matchId: target.targetId } : {}),
+        correlationId: payment.id,
+        causationId: payment.id,
+      });
       return {
         paymentRecordId: payment.id,
         outcome: 'fulfilled',

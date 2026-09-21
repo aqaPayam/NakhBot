@@ -11,6 +11,7 @@ import type {
 import { ApplicationError, calculateCreditBalance, getPaidActionPrice } from '@nakh/domain';
 
 import { actionableLikedByFrom } from './liked-by-store.js';
+import { insertFeatureUnlockNotifications } from './notification-store.js';
 import { lockUserPair } from './pair-lock.js';
 import type { NakhDatabase } from './database.js';
 
@@ -229,6 +230,14 @@ export class PostgresPaidActionStore implements PaidActionStore {
           causation_id: write.correlationId,
         })
         .execute();
+      await insertFeatureUnlockNotifications(transaction, {
+        featureUnlockId: unlock.id,
+        featureType,
+        payerUserId: write.userId,
+        ...(write.target.type === 'match' ? { matchId: write.target.targetId } : {}),
+        correlationId: write.correlationId,
+        causationId: write.correlationId,
+      });
       return result(unlock, false);
     });
   }

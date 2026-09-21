@@ -70,6 +70,10 @@ async function createUser(database: NakhDatabase): Promise<{
     .insertInto('billing.credit_accounts')
     .values({ user_id: userId, created_at: now, updated_at: now })
     .execute();
+  await database
+    .insertInto('notification.notification_preferences')
+    .values({ user_id: userId, created_at: now, updated_at: now })
+    .execute();
   return { userId, telegramUserId };
 }
 
@@ -352,6 +356,14 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
         .where('payment_record_id', '=', payment.paymentRecordId)
         .executeTakeFirstOrThrow(),
     ).toEqual({ count: '1' });
+    expect(
+      await database
+        .selectFrom('notification.notifications')
+        .select(['notification_type', 'category'])
+        .where('user_id', '=', payment.userId)
+        .where('notification_type', '=', 'payment_success')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ notification_type: 'payment_success', category: 'payment' });
   });
 
   it('never grants on wrong payment facts and fences a former fulfillment owner', async () => {
@@ -471,5 +483,15 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
         .where('user_id', 'in', [payer.userId, other.userId])
         .execute(),
     ).toEqual([{ balance: '0' }, { balance: '0' }]);
+    const notifications = await database
+      .selectFrom('notification.notifications')
+      .select(['user_id', 'notification_type'])
+      .where('user_id', 'in', [payer.userId, other.userId])
+      .where('notification_type', 'in', ['payment_success', 'chat_unlocked', 'safety_notice'])
+      .execute();
+    expect(notifications).toHaveLength(5);
+    expect(
+      notifications.filter(({ notification_type }) => notification_type === 'payment_success'),
+    ).toEqual([{ user_id: payer.userId, notification_type: 'payment_success' }]);
   });
 });
