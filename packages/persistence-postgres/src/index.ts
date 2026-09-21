@@ -16,6 +16,12 @@ export {
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 export { PostgresFundingStore } from './funding-store.js';
 export {
+  PostgresTelegramStarsReceiptStore,
+  type ClaimedPaymentFulfillment,
+  type PaymentFulfillmentClaim,
+  type PaymentFulfillmentLease,
+} from './payment-receipt-store.js';
+export {
   PostgresCreditLedgerStore,
   type AppendCreditTransactionInput,
   type CreditPackageRecord,

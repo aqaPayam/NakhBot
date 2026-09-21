@@ -1,0 +1,665 @@
+import { createHash } from 'node:crypto';
+
+import { sql } from 'kysely';
+
+import type {
+  EncryptedProviderEvidence,
+  InvoicePayloadProtector,
+  TelegramPaymentReceiptResult,
+  TelegramPreCheckoutDecision,
+  TelegramPreCheckoutWrite,
+  TelegramStarsReceiptStore,
+  TelegramSuccessfulPaymentWrite,
+} from '@nakh/application';
+import { ApplicationError, type IdGenerator } from '@nakh/domain';
+
+import { actionableLikedByFrom } from './liked-by-store.js';
+import type { NakhDatabase } from './database.js';
+
+const SHA256 = /^[a-f0-9]{64}$/u;
+const PROVIDER_ID = /^(?:[1-9][0-9]{0,19})$/u;
+const KEY_ID = /^[A-Za-z0-9_-]{1,32}$/u;
+const OWNER = /^[\x20-\x7e]{1,128}$/u;
+const EXTERNAL_ID = /^[\x21-\x7e]{1,256}$/u;
+
+type StoredPayment = Readonly<{
+  id: string;
+  user_id: string;
+  pending_payment_id: string;
+  status: 'pending' | 'paid' | 'failed' | 'cancelled' | 'expired' | 'refunded';
+  stars_amount: string;
+  provider_environment: 'local' | 'test' | 'staging' | 'production';
+  provider_bot_id_digest: string;
+  provider_payment_id: string | null;
+  version: number;
+  intent_status: 'pending' | 'paid' | 'failed' | 'cancelled' | 'expired';
+  reason: 'send_nakh' | 'unlock_chat' | 'unlock_liked_by_profile' | 'buy_credit_package';
+  target_type: 'credit_package' | 'like' | 'match' | 'pending_nakh';
+  target_id: string;
+  expires_at: Date;
+  intent_version: number;
+}>;
+
+export type PaymentFulfillmentClaim = Readonly<{
+  owner: string;
+  leaseMs: number;
+  limit: number;
+}>;
+
+export type ClaimedPaymentFulfillment = Readonly<{
+  paymentRecordId: string;
+  attemptCount: number;
+  fenceToken: bigint;
+}>;
+
+export type PaymentFulfillmentLease = Readonly<{
+  paymentRecordId: string;
+  owner: string;
+  fenceToken: bigint;
+}>;
+
+function factHash(value: Readonly<Record<string, string>>): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function validateEvidence(evidence: EncryptedProviderEvidence): void {
+  if (
+    !SHA256.test(evidence.digest) ||
+    !(evidence.ciphertext instanceof Uint8Array) ||
+    evidence.ciphertext.byteLength < 32 ||
+    evidence.ciphertext.byteLength > 65_536 ||
+    !KEY_ID.test(evidence.keyId) ||
+    !Number.isSafeInteger(evidence.schemaVersion) ||
+    evidence.schemaVersion < 1
+  )
+    throw new ApplicationError('invalid_request', 'error.billing.provider_callback_invalid', 400);
+}
+
+function validateCommon(write: TelegramPreCheckoutWrite): void {
+  validateEvidence(write.evidence);
+  if (
+    !EXTERNAL_ID.test(write.providerEventId) ||
+    !PROVIDER_ID.test(write.telegramUserId) ||
+    typeof write.invoicePayload !== 'string' ||
+    write.invoicePayload.length < 1 ||
+    write.invoicePayload.length > 256 ||
+    typeof write.currency !== 'string' ||
+    write.currency.length < 1 ||
+    write.currency.length > 8 ||
+    typeof write.totalAmount !== 'bigint' ||
+    write.totalAmount <= 0n ||
+    !['local', 'test', 'staging', 'production'].includes(write.providerEnvironment) ||
+    !SHA256.test(write.providerBotIdDigest)
+  )
+    throw new ApplicationError('invalid_request', 'error.billing.provider_callback_invalid', 400);
+}
+
+function commonFacts(write: TelegramPreCheckoutWrite, eventType: string): Record<string, string> {
+  return {
+    eventType,
+    telegramUserId: write.telegramUserId,
+    invoicePayload: write.invoicePayload,
+    currency: write.currency,
+    totalAmount: write.totalAmount.toString(),
+    providerEnvironment: write.providerEnvironment,
+    providerBotIdDigest: write.providerBotIdDigest,
+  };
+}
+
+function reasonForPayment(
+  payment: StoredPayment | undefined,
+  payerUserId: string | undefined,
+  write: TelegramPreCheckoutWrite,
+  now: Date,
+): TelegramPreCheckoutDecision['reasonCode'] | undefined {
+  if (payment === undefined || payment.status !== 'pending' || payment.intent_status !== 'pending')
+    return 'payment_unavailable';
+  if (payment.expires_at <= now) return 'payment_expired';
+  if (payerUserId !== payment.user_id) return 'payer_mismatch';
+  if (
+    payment.provider_environment !== write.providerEnvironment ||
+    payment.provider_bot_id_digest !== write.providerBotIdDigest
+  )
+    return 'provider_mismatch';
+  if (write.currency !== 'XTR') return 'currency_mismatch';
+  if (BigInt(payment.stars_amount) !== write.totalAmount) return 'amount_mismatch';
+  return undefined;
+}
+
+export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptStore {
+  public constructor(
+    private readonly database: NakhDatabase,
+    private readonly ids: IdGenerator,
+    private readonly payloads: Pick<InvoicePayloadProtector, 'digest'>,
+  ) {}
+
+  public async validatePreCheckout(
+    write: TelegramPreCheckoutWrite,
+  ): Promise<TelegramPreCheckoutDecision> {
+    validateCommon(write);
+    const incomingFactHash = factHash(commonFacts(write, 'pre_checkout'));
+    return this.database.transaction().execute(async (transaction) => {
+      await this.lockProviderEvent(transaction, write.providerEventId);
+      const replay = await transaction
+        .selectFrom('billing.payment_provider_events')
+        .select(['id', 'fact_hash', 'decision', 'reason_code'])
+        .where('provider', '=', 'telegram_stars')
+        .where('provider_event_id', '=', write.providerEventId)
+        .executeTakeFirst();
+      if (replay !== undefined) {
+        if (replay.fact_hash !== incomingFactHash) {
+          await this.recordConflict(
+            transaction,
+            write,
+            incomingFactHash,
+            replay.fact_hash,
+            null,
+            'event_fact_conflict',
+          );
+          return { allowed: false, reasonCode: 'callback_conflict', replayed: true };
+        }
+        if (replay.reason_code === null)
+          return { allowed: replay.decision === 'allow', replayed: true };
+        return {
+          allowed: replay.decision === 'allow',
+          reasonCode: replay.reason_code as NonNullable<TelegramPreCheckoutDecision['reasonCode']>,
+          replayed: true,
+        };
+      }
+
+      const payment = await this.findPayment(transaction, write.invoicePayload, false);
+      const payerUserId = await this.findPayer(transaction, write.telegramUserId);
+      const clock = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(
+        transaction,
+      );
+      let reason = reasonForPayment(payment, payerUserId, write, clock.rows[0]!.now);
+      if (reason === undefined && payment !== undefined) {
+        const available = await this.targetAvailable(transaction, payment);
+        if (!available) reason = 'target_unavailable';
+      }
+      const allowed = reason === undefined;
+      await this.insertProviderEvent(transaction, {
+        write,
+        incomingFactHash,
+        eventType: 'pre_checkout',
+        ...(payment === undefined ? {} : { paymentRecordId: payment.id }),
+        ...(payerUserId === undefined ? {} : { payerUserId }),
+        decision: allowed ? 'allow' : 'deny',
+        ...(reason === undefined ? {} : { reasonCode: reason }),
+      });
+      return { allowed, ...(reason === undefined ? {} : { reasonCode: reason }), replayed: false };
+    });
+  }
+
+  public async recordSuccessfulPayment(
+    write: TelegramSuccessfulPaymentWrite,
+  ): Promise<TelegramPaymentReceiptResult> {
+    validateCommon(write);
+    if (
+      !EXTERNAL_ID.test(write.telegramChargeId) ||
+      (write.providerChargeId !== undefined && !EXTERNAL_ID.test(write.providerChargeId))
+    )
+      throw new ApplicationError('invalid_request', 'error.billing.provider_callback_invalid', 400);
+    const incomingFactHash = factHash({
+      ...commonFacts(write, 'successful_payment'),
+      telegramChargeId: write.telegramChargeId,
+      providerChargeId: write.providerChargeId ?? '',
+    });
+    return this.database.transaction().execute(async (transaction) => {
+      await this.lockProviderEvent(transaction, write.providerEventId);
+      const existingEvent = await transaction
+        .selectFrom('billing.payment_provider_events')
+        .select(['fact_hash', 'decision', 'payment_record_id', 'reason_code'])
+        .where('provider', '=', 'telegram_stars')
+        .where('provider_event_id', '=', write.providerEventId)
+        .executeTakeFirst();
+      if (existingEvent !== undefined) {
+        if (existingEvent.fact_hash !== incomingFactHash) {
+          await this.recordConflict(
+            transaction,
+            write,
+            incomingFactHash,
+            existingEvent.fact_hash,
+            existingEvent.payment_record_id,
+            'event_fact_conflict',
+          );
+          return { outcome: 'quarantined', reasonCode: 'callback_conflict' };
+        }
+        return existingEvent.decision === 'receipt_recorded'
+          ? {
+              outcome: 'replayed',
+              ...(existingEvent.payment_record_id === null
+                ? {}
+                : { paymentRecordId: existingEvent.payment_record_id }),
+            }
+          : {
+              outcome: 'quarantined',
+              reasonCode:
+                existingEvent.reason_code === 'charge_conflict'
+                  ? 'charge_conflict'
+                  : 'payment_fact_mismatch',
+            };
+      }
+
+      const payment = await this.findPayment(transaction, write.invoicePayload, true);
+      const payerUserId = await this.findPayer(transaction, write.telegramUserId);
+      const factsMatch =
+        payment !== undefined &&
+        payerUserId === payment.user_id &&
+        payment.provider_environment === write.providerEnvironment &&
+        payment.provider_bot_id_digest === write.providerBotIdDigest &&
+        write.currency === 'XTR' &&
+        BigInt(payment.stars_amount) === write.totalAmount;
+      if (!factsMatch) {
+        await this.insertProviderEvent(transaction, {
+          write,
+          incomingFactHash,
+          eventType: 'successful_payment',
+          ...(payment === undefined ? {} : { paymentRecordId: payment.id }),
+          ...(payerUserId === undefined ? {} : { payerUserId }),
+          decision: 'quarantined',
+          reasonCode: 'payment_fact_mismatch',
+        });
+        await this.recordConflict(
+          transaction,
+          write,
+          incomingFactHash,
+          null,
+          payment?.id ?? null,
+          'payment_fact_mismatch',
+        );
+        return { outcome: 'quarantined', reasonCode: 'payment_fact_mismatch' };
+      }
+
+      const chargeOwner = await transaction
+        .selectFrom('billing.telegram_stars_receipts')
+        .selectAll()
+        .where((expression) =>
+          expression.or([
+            expression('payment_record_id', '=', payment.id),
+            expression('telegram_charge_id', '=', write.telegramChargeId),
+            ...(write.providerChargeId === undefined
+              ? []
+              : [expression('provider_charge_id', '=', write.providerChargeId)]),
+          ]),
+        )
+        .executeTakeFirst();
+      if (chargeOwner !== undefined) {
+        const exact =
+          chargeOwner.payment_record_id === payment.id &&
+          chargeOwner.telegram_charge_id === write.telegramChargeId &&
+          chargeOwner.provider_charge_id === (write.providerChargeId ?? null) &&
+          chargeOwner.payer_user_id === payment.user_id &&
+          BigInt(chargeOwner.stars_amount) === write.totalAmount;
+        if (!exact) {
+          await this.insertProviderEvent(transaction, {
+            write,
+            incomingFactHash,
+            eventType: 'successful_payment',
+            paymentRecordId: payment.id,
+            payerUserId,
+            decision: 'quarantined',
+            reasonCode: 'charge_conflict',
+          });
+          await this.recordConflict(
+            transaction,
+            write,
+            incomingFactHash,
+            null,
+            payment.id,
+            'charge_conflict',
+          );
+          return { outcome: 'quarantined', reasonCode: 'charge_conflict' };
+        }
+      }
+
+      await this.insertProviderEvent(transaction, {
+        write,
+        incomingFactHash,
+        eventType: 'successful_payment',
+        paymentRecordId: payment.id,
+        payerUserId,
+        decision: 'receipt_recorded',
+      });
+      if (chargeOwner !== undefined) return { outcome: 'replayed', paymentRecordId: payment.id };
+
+      await transaction
+        .insertInto('billing.telegram_stars_receipts')
+        .values({
+          payment_record_id: payment.id,
+          provider_event_id: write.providerEventId,
+          telegram_charge_id: write.telegramChargeId,
+          provider_charge_id: write.providerChargeId ?? null,
+          payer_user_id: payment.user_id,
+          stars_amount: write.totalAmount.toString(),
+        })
+        .execute();
+
+      if (payment.status === 'pending') {
+        await transaction
+          .updateTable('billing.payment_records')
+          .set((expression) => ({
+            status: 'paid',
+            provider_payment_id: write.telegramChargeId,
+            paid_at: sql<Date>`transaction_timestamp()`,
+            version: expression('version', '+', 1),
+          }))
+          .where('id', '=', payment.id)
+          .where('status', '=', 'pending')
+          .where('version', '=', payment.version)
+          .executeTakeFirstOrThrow();
+        if (payment.intent_status === 'pending')
+          await transaction
+            .updateTable('billing.pending_payments')
+            .set((expression) => ({
+              status: 'paid',
+              resolved_at: sql<Date>`transaction_timestamp()`,
+              version: expression('version', '+', 1),
+            }))
+            .where('id', '=', payment.pending_payment_id)
+            .where('status', '=', 'pending')
+            .where('version', '=', payment.intent_version)
+            .executeTakeFirstOrThrow();
+      }
+
+      const correctionRequired =
+        payment.status !== 'pending' || payment.intent_status !== 'pending';
+      await transaction
+        .insertInto('billing.payment_fulfillments')
+        .values({
+          payment_record_id: payment.id,
+          state: correctionRequired ? 'correction_required' : 'receipt_recorded',
+          lease_owner: null,
+          lease_expires_at: null,
+          last_error_code: correctionRequired ? 'payment_state_conflict' : null,
+          fulfilled_at: null,
+          correction_required_at: correctionRequired ? sql<Date>`transaction_timestamp()` : null,
+          corrected_at: null,
+        })
+        .execute();
+      const outboxId = this.ids.uuid();
+      await transaction
+        .insertInto('platform.outbox_events')
+        .values({
+          id: outboxId,
+          aggregate_type: 'payment_record',
+          aggregate_id: payment.id,
+          event_type: correctionRequired
+            ? 'billing.payment-correction-required.v1'
+            : 'billing.payment-receipt-recorded.v1',
+          schema_version: 1,
+          payload: { paymentRecordId: payment.id },
+          occurred_at: sql<Date>`transaction_timestamp()`,
+          available_at: sql<Date>`transaction_timestamp()`,
+          published_at: null,
+          last_error_code: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          correlation_id: outboxId,
+          causation_id: outboxId,
+        })
+        .execute();
+      return { outcome: 'receipt_recorded', paymentRecordId: payment.id };
+    });
+  }
+
+  /** Claims due work with SKIP LOCKED. The fence token rejects an expired former owner. */
+  public async claimFulfillments(
+    input: PaymentFulfillmentClaim,
+  ): Promise<ClaimedPaymentFulfillment[]> {
+    if (
+      !OWNER.test(input.owner) ||
+      !Number.isSafeInteger(input.leaseMs) ||
+      input.leaseMs < 30_000 ||
+      input.leaseMs > 900_000 ||
+      !Number.isSafeInteger(input.limit) ||
+      input.limit < 1 ||
+      input.limit > 100
+    )
+      throw new ApplicationError('invalid_request', 'error.billing.fulfillment_lease_invalid', 400);
+    return this.database.transaction().execute(async (transaction) => {
+      const due = await transaction
+        .selectFrom('billing.payment_fulfillments')
+        .select('payment_record_id')
+        .where('state', 'in', ['receipt_recorded', 'fulfillment_pending'])
+        .where('available_at', '<=', sql<Date>`clock_timestamp()`)
+        .where((expression) =>
+          expression.or([
+            expression('lease_expires_at', 'is', null),
+            expression('lease_expires_at', '<', sql<Date>`clock_timestamp()`),
+          ]),
+        )
+        .orderBy('available_at', 'asc')
+        .orderBy('payment_record_id', 'asc')
+        .limit(input.limit)
+        .forUpdate()
+        .skipLocked()
+        .execute();
+      if (due.length === 0) return [];
+      const claimed = await transaction
+        .updateTable('billing.payment_fulfillments')
+        .set((expression) => ({
+          state: 'fulfillment_pending',
+          attempt_count: expression('attempt_count', '+', 1),
+          fence_token: expression('fence_token', '+', sql<string>`1`),
+          lease_owner: input.owner,
+          lease_expires_at: sql<Date>`clock_timestamp() + (${input.leaseMs} * interval '1 millisecond')`,
+          updated_at: sql<Date>`clock_timestamp()`,
+          version: expression('version', '+', 1),
+        }))
+        .where(
+          'payment_record_id',
+          'in',
+          due.map(({ payment_record_id: id }) => id),
+        )
+        .returning(['payment_record_id', 'attempt_count', 'fence_token'])
+        .execute();
+      return claimed.map((row) => ({
+        paymentRecordId: row.payment_record_id,
+        attemptCount: row.attempt_count,
+        fenceToken: BigInt(row.fence_token),
+      }));
+    });
+  }
+
+  public async releaseFulfillmentForRetry(
+    input: PaymentFulfillmentLease & Readonly<{ errorCode: string; delayMs: number }>,
+  ): Promise<boolean> {
+    this.validateLease(input);
+    if (
+      !/^[a-z][a-z0-9_]{0,79}$/u.test(input.errorCode) ||
+      !Number.isSafeInteger(input.delayMs) ||
+      input.delayMs < 0 ||
+      input.delayMs > 3_600_000
+    )
+      throw new ApplicationError('invalid_request', 'error.billing.fulfillment_lease_invalid', 400);
+    const updated = await this.database
+      .updateTable('billing.payment_fulfillments')
+      .set((expression) => ({
+        lease_owner: null,
+        lease_expires_at: null,
+        last_error_code: input.errorCode,
+        available_at: sql<Date>`clock_timestamp() + (${input.delayMs} * interval '1 millisecond')`,
+        updated_at: sql<Date>`clock_timestamp()`,
+        version: expression('version', '+', 1),
+      }))
+      .where('payment_record_id', '=', input.paymentRecordId)
+      .where('state', '=', 'fulfillment_pending')
+      .where('lease_owner', '=', input.owner)
+      .where('fence_token', '=', input.fenceToken.toString())
+      .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+      .executeTakeFirst();
+    return updated.numUpdatedRows === 1n;
+  }
+
+  private validateLease(input: PaymentFulfillmentLease): void {
+    if (
+      !/^[0-9a-f-]{36}$/u.test(input.paymentRecordId) ||
+      !OWNER.test(input.owner) ||
+      input.fenceToken < 1n
+    )
+      throw new ApplicationError('invalid_request', 'error.billing.fulfillment_lease_invalid', 400);
+  }
+
+  private async lockProviderEvent(database: NakhDatabase, providerEventId: string): Promise<void> {
+    await sql`SELECT pg_advisory_xact_lock(hashtextextended(${'telegram-stars:'} || ${providerEventId}, 0))`.execute(
+      database,
+    );
+  }
+
+  private async findPayer(
+    database: NakhDatabase,
+    telegramUserId: string,
+  ): Promise<string | undefined> {
+    const row = await database
+      .selectFrom('identity.telegram_identities')
+      .select('user_id')
+      .where('telegram_user_id', '=', telegramUserId)
+      .executeTakeFirst();
+    return row?.user_id;
+  }
+
+  private async findPayment(
+    database: NakhDatabase,
+    invoicePayload: string,
+    lock: boolean,
+  ): Promise<StoredPayment | undefined> {
+    let digest: string;
+    try {
+      digest = this.payloads.digest(invoicePayload);
+    } catch {
+      return undefined;
+    }
+    let query = database
+      .selectFrom('billing.payment_records as payment')
+      .innerJoin('billing.pending_payments as intent', 'intent.id', 'payment.pending_payment_id')
+      .select([
+        'payment.id',
+        'payment.user_id',
+        'payment.pending_payment_id',
+        'payment.status',
+        'payment.stars_amount',
+        'payment.provider_environment',
+        'payment.provider_bot_id_digest',
+        'payment.provider_payment_id',
+        'payment.version',
+        'intent.status as intent_status',
+        'intent.reason',
+        'intent.target_type',
+        'intent.target_id',
+        'intent.expires_at',
+        'intent.version as intent_version',
+      ])
+      .where('payment.invoice_payload_digest', '=', digest);
+    if (lock) query = query.forUpdate();
+    return query.executeTakeFirst();
+  }
+
+  private async targetAvailable(database: NakhDatabase, payment: StoredPayment): Promise<boolean> {
+    if (payment.reason === 'buy_credit_package') {
+      const packageRow = await database
+        .selectFrom('billing.credit_packages')
+        .select('id')
+        .where('id', '=', payment.target_id)
+        .where('is_active', '=', true)
+        .executeTakeFirst();
+      const account = await database
+        .selectFrom('identity.accounts')
+        .select('user_id')
+        .where('user_id', '=', payment.user_id)
+        .where('state', '=', 'active')
+        .executeTakeFirst();
+      return packageRow !== undefined && account !== undefined;
+    }
+    if (payment.reason === 'unlock_liked_by_profile') {
+      const actionable = await sql<{ id: string }>`
+        SELECT incoming.id ${actionableLikedByFrom(payment.user_id)}
+        AND incoming.id = ${payment.target_id}::uuid
+      `.execute(database);
+      return actionable.rows.length === 1;
+    }
+    if (payment.reason === 'unlock_chat') {
+      const match = await database
+        .selectFrom('matching.matches as match')
+        .innerJoin('matching.match_participants as participant', 'participant.match_id', 'match.id')
+        .innerJoin('chat.chat_sessions as chat', 'chat.match_id', 'match.id')
+        .innerJoin('interaction.user_pair_states as pair', (join) =>
+          join
+            .onRef('pair.user_low_id', '=', 'match.user_low_id')
+            .onRef('pair.user_high_id', '=', 'match.user_high_id'),
+        )
+        .select('match.id')
+        .where('match.id', '=', payment.target_id)
+        .where('participant.user_id', '=', payment.user_id)
+        .where('match.status', '=', 'active')
+        .where('chat.status', '=', 'active')
+        .where('pair.state', '=', 'matched')
+        .executeTakeFirst();
+      return match !== undefined;
+    }
+    return false;
+  }
+
+  private async insertProviderEvent(
+    database: NakhDatabase,
+    input: Readonly<{
+      write: TelegramPreCheckoutWrite;
+      incomingFactHash: string;
+      eventType: 'pre_checkout' | 'successful_payment';
+      paymentRecordId?: string;
+      payerUserId?: string;
+      decision: 'allow' | 'deny' | 'receipt_recorded' | 'quarantined';
+      reasonCode?: string;
+    }>,
+  ): Promise<void> {
+    await database
+      .insertInto('billing.payment_provider_events')
+      .values({
+        id: this.ids.uuid(),
+        provider: 'telegram_stars',
+        provider_event_id: input.write.providerEventId,
+        event_type: input.eventType,
+        payment_record_id: input.paymentRecordId ?? null,
+        payer_user_id: input.payerUserId ?? null,
+        fact_hash: input.incomingFactHash,
+        raw_payload_digest: input.write.evidence.digest,
+        raw_payload_ciphertext: Uint8Array.from(input.write.evidence.ciphertext),
+        raw_payload_key_id: input.write.evidence.keyId,
+        raw_payload_schema_version: input.write.evidence.schemaVersion,
+        decision: input.decision,
+        reason_code: input.reasonCode ?? null,
+      })
+      .execute();
+  }
+
+  private async recordConflict(
+    database: NakhDatabase,
+    write: TelegramPreCheckoutWrite,
+    incomingFactHash: string,
+    existingFactHash: string | null,
+    paymentRecordId: string | null,
+    reasonCode: 'event_fact_conflict' | 'payment_fact_mismatch' | 'charge_conflict',
+  ): Promise<void> {
+    await database
+      .insertInto('billing.payment_provider_conflicts')
+      .values({
+        id: this.ids.uuid(),
+        provider: 'telegram_stars',
+        provider_event_id: write.providerEventId,
+        payment_record_id: paymentRecordId,
+        existing_fact_hash: existingFactHash,
+        incoming_fact_hash: incomingFactHash,
+        reason_code: reasonCode,
+        raw_payload_digest: write.evidence.digest,
+        raw_payload_ciphertext: Uint8Array.from(write.evidence.ciphertext),
+        raw_payload_key_id: write.evidence.keyId,
+        raw_payload_schema_version: write.evidence.schemaVersion,
+      })
+      .onConflict((conflict) =>
+        conflict
+          .columns(['provider', 'provider_event_id', 'incoming_fact_hash', 'reason_code'])
+          .doNothing(),
+      )
+      .execute();
+  }
+}

@@ -8,6 +8,7 @@ import type { Clock, IdGenerator } from '@nakh/domain';
 export * from './identity/store.js';
 export * from './billing/funding.js';
 export * from './billing/invoice-payload.js';
+export * from './billing/provider-receipts.js';
 export * from './identity/register-telegram-identity.js';
 export * from './identity/start-router.js';
 export * from './identity/change-settings.js';

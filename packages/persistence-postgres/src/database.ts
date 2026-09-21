@@ -437,6 +437,67 @@ export interface PaymentRecordTable {
   version: Generated<number>;
 }
 
+export interface PaymentProviderEventTable {
+  id: string;
+  provider: 'telegram_stars';
+  provider_event_id: string;
+  event_type: 'pre_checkout' | 'successful_payment';
+  payment_record_id: string | null;
+  payer_user_id: string | null;
+  fact_hash: string;
+  raw_payload_digest: string;
+  raw_payload_ciphertext: ColumnType<Uint8Array, Uint8Array, never>;
+  raw_payload_key_id: string;
+  raw_payload_schema_version: number;
+  decision: 'allow' | 'deny' | 'receipt_recorded' | 'quarantined';
+  reason_code: string | null;
+  received_at: Generated<Date>;
+}
+
+export interface PaymentProviderConflictTable {
+  id: string;
+  provider: 'telegram_stars';
+  provider_event_id: string;
+  payment_record_id: string | null;
+  existing_fact_hash: string | null;
+  incoming_fact_hash: string;
+  reason_code: 'event_fact_conflict' | 'payment_fact_mismatch' | 'charge_conflict';
+  raw_payload_digest: string;
+  raw_payload_ciphertext: ColumnType<Uint8Array, Uint8Array, never>;
+  raw_payload_key_id: string;
+  raw_payload_schema_version: number;
+  detected_at: Generated<Date>;
+}
+
+export interface TelegramStarsReceiptTable {
+  payment_record_id: string;
+  provider_event_id: string;
+  telegram_charge_id: string;
+  provider_charge_id: string | null;
+  payer_user_id: string;
+  stars_amount: string;
+  received_at: Generated<Date>;
+}
+
+export interface PaymentFulfillmentTable {
+  payment_record_id: string;
+  state: Generated<
+    'receipt_recorded' | 'fulfillment_pending' | 'fulfilled' | 'correction_required' | 'corrected'
+  >;
+  attempt_count: Generated<number>;
+  fence_token: Generated<string>;
+  available_at: Generated<Date>;
+  lease_owner: string | null;
+  lease_expires_at: Date | null;
+  last_error_code: string | null;
+  fulfilled_at: Date | null;
+  correction_required_at: Date | null;
+  corrected_at: Date | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface NotificationPreferenceTable {
   user_id: string;
   chat_enabled: Generated<boolean>;
@@ -616,6 +677,10 @@ export interface DatabaseSchema {
   'billing.credit_transactions': CreditTransactionTable;
   'billing.pending_payments': PendingPaymentTable;
   'billing.payment_records': PaymentRecordTable;
+  'billing.payment_provider_events': PaymentProviderEventTable;
+  'billing.payment_provider_conflicts': PaymentProviderConflictTable;
+  'billing.telegram_stars_receipts': TelegramStarsReceiptTable;
+  'billing.payment_fulfillments': PaymentFulfillmentTable;
   'notification.notification_preferences': NotificationPreferenceTable;
   'platform.audit_logs': AuditLogTable;
   'profile.profiles': ProfileTable;
