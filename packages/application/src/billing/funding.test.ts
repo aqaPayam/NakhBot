@@ -71,6 +71,7 @@ function parts(): Parts {
       ciphertext: Uint8Array.from({ length: 32 }, (_, index) => index),
       keyId: 'billing-v1',
     }),
+    digest: vi.fn().mockReturnValue('a'.repeat(64)),
     reveal,
   };
   return {

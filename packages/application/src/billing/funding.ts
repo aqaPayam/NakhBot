@@ -72,6 +72,7 @@ export interface PaidActionReferenceResolver {
 
 export interface InvoicePayloadProtector {
   issue(): ProtectedInvoicePayload;
+  digest(cleartext: string): string;
   reveal(ciphertext: Uint8Array, keyId: string): string;
 }
 
