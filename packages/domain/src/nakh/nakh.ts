@@ -32,8 +32,6 @@ export const DELIVERED_NAKH_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
 export const PENDING_NAKH_REMINDER_INTERVAL_MS = 48 * 60 * 60 * 1000;
 export const MAX_PENDING_NAKH_REMINDERS = 6;
 
-const unsafeControlCharacter = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u;
-
 function timestamp(value: Date): number {
   const result = value.getTime();
   if (!Number.isFinite(result))
@@ -53,12 +51,27 @@ function containsLoneSurrogate(value: string): boolean {
   return false;
 }
 
+function containsUnsafeControlCharacter(value: string): boolean {
+  for (const scalar of value) {
+    const codePoint = scalar.codePointAt(0)!;
+    if (
+      codePoint <= 0x08 ||
+      codePoint === 0x0b ||
+      codePoint === 0x0c ||
+      (codePoint >= 0x0e && codePoint <= 0x1f) ||
+      (codePoint >= 0x7f && codePoint <= 0x9f)
+    )
+      return true;
+  }
+  return false;
+}
+
 /** Returns the original prose unchanged after validating the authoritative scalar-value limit. */
 export function validateNakhText(text: string): string {
   if (
     text.trim().length === 0 ||
     [...text].length > NAKH_TEXT_MAX_SCALARS ||
-    unsafeControlCharacter.test(text) ||
+    containsUnsafeControlCharacter(text) ||
     containsLoneSurrogate(text)
   )
     throw new ApplicationError('nakh_text_invalid', 'error.nakh.text_invalid', 400);

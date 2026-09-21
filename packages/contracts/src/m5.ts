@@ -145,21 +145,19 @@ export const SettlePendingNakhesCommandSchema = commandSchema(
 );
 export type SettlePendingNakhesCommand = Static<typeof SettlePendingNakhesCommandSchema>;
 
-function deliveredActionSchema<TType extends string>(commandType: TType) {
-  return commandSchema(
-    commandType,
-    Type.Object(
-      { nakhId: UuidSchema, expectedVersion: Type.Integer({ minimum: 1 }) },
-      { additionalProperties: false },
-    ),
-  );
-}
+const DeliveredNakhActionDataSchema = Type.Object(
+  { nakhId: UuidSchema, expectedVersion: Type.Integer({ minimum: 1 }) },
+  { additionalProperties: false },
+);
 
-export const ViewNakhProfileCommandSchema = deliveredActionSchema('nakh.view-profile');
+export const ViewNakhProfileCommandSchema = commandSchema(
+  'nakh.view-profile',
+  DeliveredNakhActionDataSchema,
+);
 export type ViewNakhProfileCommand = Static<typeof ViewNakhProfileCommandSchema>;
-export const AcceptNakhCommandSchema = deliveredActionSchema('nakh.accept');
+export const AcceptNakhCommandSchema = commandSchema('nakh.accept', DeliveredNakhActionDataSchema);
 export type AcceptNakhCommand = Static<typeof AcceptNakhCommandSchema>;
-export const RejectNakhCommandSchema = deliveredActionSchema('nakh.reject');
+export const RejectNakhCommandSchema = commandSchema('nakh.reject', DeliveredNakhActionDataSchema);
 export type RejectNakhCommand = Static<typeof RejectNakhCommandSchema>;
 
 export const SendPendingNakhReminderCommandSchema = commandSchema(
@@ -189,23 +187,35 @@ const NakhCursorSchema = Type.String({
   maxLength: 320,
 });
 
-function pageQuerySchema(cursor: TSchema) {
-  return Type.Object(
-    {
-      actor: ActorSchema,
-      requestId: UuidSchema,
-      limit: Type.Integer({ minimum: 1, maximum: 50 }),
-      cursor: Type.Optional(cursor),
-    },
-    { additionalProperties: false },
-  );
-}
-
-export const GetPendingNakhPageQuerySchema = pageQuerySchema(PendingNakhCursorSchema);
+export const GetPendingNakhPageQuerySchema = Type.Object(
+  {
+    actor: ActorSchema,
+    requestId: UuidSchema,
+    limit: Type.Integer({ minimum: 1, maximum: 50 }),
+    cursor: Type.Optional(PendingNakhCursorSchema),
+  },
+  { additionalProperties: false },
+);
 export type GetPendingNakhPageQuery = Static<typeof GetPendingNakhPageQuerySchema>;
-export const GetSentNakhStatusPageQuerySchema = pageQuerySchema(NakhCursorSchema);
+export const GetSentNakhStatusPageQuerySchema = Type.Object(
+  {
+    actor: ActorSchema,
+    requestId: UuidSchema,
+    limit: Type.Integer({ minimum: 1, maximum: 50 }),
+    cursor: Type.Optional(NakhCursorSchema),
+  },
+  { additionalProperties: false },
+);
 export type GetSentNakhStatusPageQuery = Static<typeof GetSentNakhStatusPageQuerySchema>;
-export const GetReceivedNakhPageQuerySchema = pageQuerySchema(NakhCursorSchema);
+export const GetReceivedNakhPageQuerySchema = Type.Object(
+  {
+    actor: ActorSchema,
+    requestId: UuidSchema,
+    limit: Type.Integer({ minimum: 1, maximum: 50 }),
+    cursor: Type.Optional(NakhCursorSchema),
+  },
+  { additionalProperties: false },
+);
 export type GetReceivedNakhPageQuery = Static<typeof GetReceivedNakhPageQuerySchema>;
 
 export const GetNakhDetailQuerySchema = Type.Object(
