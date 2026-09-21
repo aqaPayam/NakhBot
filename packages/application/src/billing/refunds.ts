@@ -45,6 +45,41 @@ export interface TelegramStarsRefundProvider {
   ): Promise<StarsRefundProviderResult>;
 }
 
+export type AmbiguousStarsRefundResolution = Readonly<{
+  actor: Actor;
+  refundRecordId: string;
+  observedOutcome: 'refunded' | 'not_refunded' | 'terminal_failure';
+  evidenceDigest: string;
+  requestId: string;
+  commandId: string;
+  auditId: string;
+  eventId: string;
+}>;
+
+export type AmbiguousStarsRefundResolutionResult = Readonly<{
+  outcome: 'corrected' | 'retry_scheduled' | 'terminal_failure';
+  replayed: boolean;
+}>;
+
+export interface AmbiguousStarsRefundResolutionStore {
+  resolveAmbiguousStarsRefund(
+    input: AmbiguousStarsRefundResolution,
+  ): Promise<AmbiguousStarsRefundResolutionResult>;
+}
+
+/** Requires an authenticated admin; the store validates active operator membership and evidence. */
+export class ResolveAmbiguousStarsRefundHandler {
+  public constructor(private readonly store: AmbiguousStarsRefundResolutionStore) {}
+
+  public execute(
+    input: AmbiguousStarsRefundResolution,
+  ): Promise<AmbiguousStarsRefundResolutionResult> {
+    if (input.actor.kind !== 'admin')
+      throw new ApplicationError('forbidden', 'error.billing.refund_resolution_forbidden', 403);
+    return this.store.resolveAmbiguousStarsRefund(input);
+  }
+}
+
 export type ProcessStarsRefundResult = Readonly<{
   outcome:
     | 'processed'
@@ -104,3 +139,4 @@ export class ProcessTelegramStarsRefundHandler {
     return { outcome: 'reconciliation_required' };
   }
 }
+import { ApplicationError, type Actor } from '@nakh/domain';

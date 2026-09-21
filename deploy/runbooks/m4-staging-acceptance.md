@@ -75,9 +75,9 @@ Record pass/fail, UTC time, an aggregate metric/audit reference, and reviewer in
    reclaim it, and `stars_refund_outcome_uncertain` is quarantined by reconciliation.
 4. In protected provider tooling, determine whether Telegram applied the refund. Do not infer the
    result from timeout text and do not send another refund while the outcome is unknown.
-5. Use the reviewed idempotent reconciliation command for the observed provider result. Until that
-   operator command is implemented and reviewed, leave the item quarantined and keep invoice
-   creation disabled if the backlog is material.
+5. Invoke `ResolveAmbiguousStarsRefundHandler` through the protected operator harness with an active
+   admin identity, a digest of the independently retained provider evidence, and the observed
+   outcome. The command is idempotent and appends an audit fact; never paste the evidence itself.
 6. Verify the known-success path produces one `paid -> refunded` payment transition, one
    `correction_required -> corrected` fulfillment transition, one critical payer notice, and no
    second provider call.

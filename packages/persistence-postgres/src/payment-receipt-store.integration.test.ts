@@ -750,5 +750,91 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       .executeTakeFirstOrThrow();
     expect(completedRun.status).toBe('succeeded');
     expect(completedRun.finished_at).toBeInstanceOf(Date);
+
+    const operator = await createUser(database);
+    const adminId = randomUUID();
+    await database
+      .insertInto('administration.admin_users')
+      .values({
+        id: adminId,
+        user_id: operator.userId,
+        telegram_user_id: operator.telegramUserId,
+        disabled_at: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      })
+      .execute();
+    const notRefundedResolution = {
+      actor: { kind: 'admin' as const, userId: operator.userId },
+      refundRecordId,
+      observedOutcome: 'not_refunded' as const,
+      evidenceDigest: digest(`not-refunded:${refundRecordId}`),
+      requestId: randomUUID(),
+      commandId: randomUUID(),
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+    };
+    await expect(refunds.resolveAmbiguousStarsRefund(notRefundedResolution)).resolves.toEqual({
+      outcome: 'retry_scheduled',
+      replayed: false,
+    });
+    await expect(refunds.resolveAmbiguousStarsRefund(notRefundedResolution)).resolves.toEqual({
+      outcome: 'retry_scheduled',
+      replayed: true,
+    });
+    const retryClaim = (
+      await refunds.claimStarsRefunds({
+        owner: 'verified-retry-worker',
+        leaseMs: 60_000,
+        limit: 100,
+      })
+    ).find((candidate) => candidate.refundRecordId === refundRecordId);
+    expect(retryClaim).toBeDefined();
+    await expect(refunds.beginProviderCall(retryClaim!)).resolves.toBe(true);
+    await expect(
+      refunds.recordProviderFailure({
+        ...retryClaim!,
+        kind: 'ambiguous',
+        errorCode: 'provider_outcome_unknown',
+      }),
+    ).resolves.toBe(true);
+    const refundedResolution = {
+      actor: { kind: 'admin' as const, userId: operator.userId },
+      refundRecordId,
+      observedOutcome: 'refunded' as const,
+      evidenceDigest: digest(`refunded:${refundRecordId}`),
+      requestId: randomUUID(),
+      commandId: randomUUID(),
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+    };
+    await expect(refunds.resolveAmbiguousStarsRefund(refundedResolution)).resolves.toEqual({
+      outcome: 'corrected',
+      replayed: false,
+    });
+    const finalRefund = await database
+      .selectFrom('billing.refund_records')
+      .select(['status', 'provider_progress'])
+      .where('id', '=', refundRecordId)
+      .executeTakeFirstOrThrow();
+    expect(finalRefund).toEqual({ status: 'processed', provider_progress: 'refund_confirmed' });
+    const finalPayment = await database
+      .selectFrom('billing.payment_records')
+      .select('status')
+      .where('id', '=', payment.paymentRecordId)
+      .executeTakeFirstOrThrow();
+    expect(finalPayment.status).toBe('refunded');
+    const audit = await database
+      .selectFrom('platform.audit_logs')
+      .select(['actor_admin_id', 'result_code'])
+      .where('subject_type', '=', 'refund_record')
+      .where('subject_id', '=', refundRecordId)
+      .where('event_type', '=', 'billing.ambiguous-refund-resolved.v1')
+      .orderBy('occurred_at', 'asc')
+      .execute();
+    expect(audit).toEqual([
+      { actor_admin_id: adminId, result_code: 'not_refunded' },
+      { actor_admin_id: adminId, result_code: 'refunded' },
+    ]);
   });
 });

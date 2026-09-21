@@ -2,6 +2,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
   ProcessTelegramStarsRefundHandler,
+  ResolveAmbiguousStarsRefundHandler,
   type ClaimedStarsRefund,
   type StarsRefundStore,
   type TelegramStarsRefundProvider,
@@ -99,5 +100,31 @@ describe('M4 Telegram Stars refund processor', () => {
       errorCode: 'provider_outcome_unknown',
     });
     expect(completeStarsRefund).not.toHaveBeenCalled();
+  });
+
+  it('allows only an admin actor to submit verified ambiguous-outcome evidence', async () => {
+    const resolveAmbiguousStarsRefund = vi.fn().mockResolvedValue({
+      outcome: 'corrected',
+      replayed: false,
+    });
+    const handler = new ResolveAmbiguousStarsRefundHandler({ resolveAmbiguousStarsRefund });
+    const input = {
+      actor: { kind: 'admin' as const, userId: refund.userId },
+      refundRecordId: refund.refundRecordId,
+      observedOutcome: 'refunded' as const,
+      evidenceDigest: 'a'.repeat(64),
+      requestId: '57c53579-165d-4412-b14e-7531d815afb0',
+      commandId: '31f32428-68af-49f6-a6ff-05d6f4ce6961',
+      auditId: 'ef3539f8-7cbf-405a-b188-94ea4cae02ac',
+      eventId: 'b07881c9-9034-44a2-a29c-b551c075a952',
+    };
+    await expect(handler.execute(input)).resolves.toEqual({
+      outcome: 'corrected',
+      replayed: false,
+    });
+    expect(resolveAmbiguousStarsRefund).toHaveBeenCalledWith(input);
+    expect(() => handler.execute({ ...input, actor: { ...input.actor, kind: 'user' } })).toThrow(
+      'error.billing.refund_resolution_forbidden',
+    );
   });
 });

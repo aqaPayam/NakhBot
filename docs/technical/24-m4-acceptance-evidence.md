@@ -1,9 +1,9 @@
 # M4 Acceptance Evidence and Traceability
 
-Status: automated implementation is present through internal checkpoint 10 (reconciliation,
-operations, and production-shaped query-plan gates). Operator-assisted ambiguous-refund resolution
-and real Telegram Stars staging evidence remain release blockers. Green CI is necessary but is not
-provider or staging evidence.
+Status: provider-neutral implementation is present through internal checkpoint 10 (reconciliation,
+audited ambiguous-refund resolution, operations, and production-shaped query-plan gates). Real
+Telegram Stars staging evidence remains a release blocker. Green CI is necessary but is not provider
+or staging evidence.
 
 ## Acceptance ledger
 
@@ -24,6 +24,7 @@ provider or staging evidence.
 | Verified provider receipt | Telegram Stars receipt store and encrypted evidence/payload ports | bot/environment/payer/payload/currency/amount negatives, identifier conflicts, replay races |
 | Entitlement authority | paid-action coordinator, target lock, FeatureUnlock and effective-access reads | Like/Match concurrency, current-scope authorization, stale token/media denial |
 | Safe correction | refund handler/store and payment/fulfillment lifecycle guards | call-start durability, known-success completion, stale fence, replay, ambiguous outcome quarantine |
+| Verified ambiguous outcome | admin-only resolution handler/store and append-only audit | confirmed-not-refunded retry, confirmed-refunded correction, command replay, evidence-digest binding |
 | Reconciliation | resumable batch handler/store and scheduler | durable cursor/run facts, append-only anomaly, uncertain-refund and stuck-fulfillment classification |
 | Operational visibility | finite M4 metric registry and billing scheduler logs | metric-label unit test, identity-free aggregate outcomes, staging runbook alert requirements |
 | Query scalability | M4 exact operational query plan gate | 5,000-row fulfillment, refund, provider dedupe, unlock, notification, and payment-reconciliation plans |
@@ -50,10 +51,10 @@ operations, security, and product reviewers. Do not record secrets or financial/
 - attach the successful M4 query-plan artifact for the exact candidate and approve its budgets;
 - run callback replay/conflict, worker termination, provider outage, ambiguous refund, reconciliation,
   mute-policy, rollback, and key-rotation drills;
-- implement and review the operator command that resolves an ambiguous refund from a verified
-  provider result; normal workers must remain unable to retry it blindly;
+- execute the admin-only ambiguous-refund command through a protected staging operator harness and
+  verify evidence-digest/audit handling; normal workers remain unable to retry blindly;
 - complete [`m4-staging-acceptance.md`](../../deploy/runbooks/m4-staging-acceptance.md) and obtain all
   required sign-offs.
 
-Until these blockers close, M4 is **internal checkpoint 10 complete / release blocked**, not
-production-ready, and live invoice creation must remain disabled.
+Until these blockers close, M4 is **code complete / staging blocked**, not production-ready, and live
+invoice creation must remain disabled.

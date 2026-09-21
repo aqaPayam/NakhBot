@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 
 import type {
+  AmbiguousStarsRefundResolution,
+  AmbiguousStarsRefundResolutionResult,
+  AmbiguousStarsRefundResolutionStore,
   ClaimedStarsRefund,
   StarsRefundCompletion,
   StarsRefundFailure,
@@ -49,7 +52,7 @@ function validateFailure(input: StarsRefundFailure): void {
 }
 
 /** Durable, fenced persistence for automatic Telegram Stars corrections. */
-export class PostgresRefundStore implements StarsRefundStore {
+export class PostgresRefundStore implements StarsRefundStore, AmbiguousStarsRefundResolutionStore {
   public constructor(private readonly database: NakhDatabase) {}
 
   /** Claims only requests for which Telegram has definitely not been contacted. */
@@ -300,5 +303,208 @@ export class PostgresRefundStore implements StarsRefundStore {
       .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
       .executeTakeFirst();
     return updated.numUpdatedRows === 1n;
+  }
+
+  public async resolveAmbiguousStarsRefund(
+    input: AmbiguousStarsRefundResolution,
+  ): Promise<AmbiguousStarsRefundResolutionResult> {
+    if (
+      input.actor.kind !== 'admin' ||
+      !UUID.test(input.actor.userId) ||
+      !UUID.test(input.refundRecordId) ||
+      !UUID.test(input.requestId) ||
+      !UUID.test(input.commandId) ||
+      !UUID.test(input.auditId) ||
+      !UUID.test(input.eventId) ||
+      !/^[a-f0-9]{64}$/u.test(input.evidenceDigest) ||
+      !['refunded', 'not_refunded', 'terminal_failure'].includes(input.observedOutcome)
+    )
+      invalidRequest();
+
+    return this.database.transaction().execute(async (transaction) => {
+      const admin = await transaction
+        .selectFrom('administration.admin_users')
+        .select('id')
+        .where('user_id', '=', input.actor.userId)
+        .where('is_active', '=', true)
+        .executeTakeFirst();
+      if (admin === undefined)
+        throw new ApplicationError('forbidden', 'error.billing.refund_resolution_forbidden', 403);
+
+      const refund = await transaction
+        .selectFrom('billing.refund_records')
+        .selectAll()
+        .select(sql<Date>`transaction_timestamp()`.as('database_now'))
+        .where('id', '=', input.refundRecordId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (refund === undefined)
+        throw new ApplicationError('not_found', 'error.billing.refund_not_found', 404);
+
+      const priorAudit = await transaction
+        .selectFrom('platform.audit_logs')
+        .select(['actor_admin_id', 'subject_id', 'result_code', 'metadata'])
+        .where('command_id', '=', input.commandId)
+        .where('event_type', '=', 'billing.ambiguous-refund-resolved.v1')
+        .executeTakeFirst();
+      if (priorAudit !== undefined) {
+        const metadata = priorAudit.metadata;
+        if (
+          priorAudit.actor_admin_id !== admin.id ||
+          priorAudit.subject_id !== input.refundRecordId ||
+          priorAudit.result_code !== input.observedOutcome ||
+          metadata.evidenceDigest !== input.evidenceDigest
+        )
+          throw new ApplicationError(
+            'idempotency_conflict',
+            'error.command.idempotency_conflict',
+            409,
+          );
+        return {
+          outcome:
+            input.observedOutcome === 'refunded'
+              ? 'corrected'
+              : input.observedOutcome === 'not_refunded'
+                ? 'retry_scheduled'
+                : 'terminal_failure',
+          replayed: true,
+        };
+      }
+
+      if (
+        refund.funding_type !== 'telegram_stars' ||
+        refund.status !== 'failed_retryable' ||
+        refund.provider_progress !== 'call_started' ||
+        refund.lease_owner !== null ||
+        refund.payment_record_id === null
+      )
+        throw new ApplicationError('conflict', 'error.billing.refund_not_ambiguous', 409);
+
+      const now = refund.database_now;
+      let outcome: AmbiguousStarsRefundResolutionResult['outcome'];
+      if (input.observedOutcome === 'refunded') {
+        const payment = await transaction
+          .selectFrom('billing.payment_records')
+          .select(['id', 'user_id', 'status'])
+          .where('id', '=', refund.payment_record_id)
+          .forUpdate()
+          .executeTakeFirst();
+        const fulfillment = await transaction
+          .selectFrom('billing.payment_fulfillments')
+          .select('state')
+          .where('payment_record_id', '=', refund.payment_record_id)
+          .forUpdate()
+          .executeTakeFirst();
+        if (
+          payment === undefined ||
+          payment.user_id !== refund.user_id ||
+          payment.status !== 'paid' ||
+          fulfillment?.state !== 'correction_required'
+        )
+          throw new ApplicationError('conflict', 'error.billing.refund_state_invalid', 409);
+        await transaction
+          .updateTable('billing.refund_records')
+          .set((expression) => ({
+            status: 'processed',
+            provider_progress: 'refund_confirmed',
+            last_error_code: null,
+            processed_at: now,
+            failed_at: null,
+            updated_at: now,
+            version: expression('version', '+', 1),
+          }))
+          .where('id', '=', refund.id)
+          .executeTakeFirstOrThrow();
+        await transaction
+          .updateTable('billing.payment_records')
+          .set((expression) => ({
+            status: 'refunded',
+            refunded_at: now,
+            version: expression('version', '+', 1),
+          }))
+          .where('id', '=', payment.id)
+          .where('status', '=', 'paid')
+          .executeTakeFirstOrThrow();
+        await transaction
+          .updateTable('billing.payment_fulfillments')
+          .set((expression) => ({
+            state: 'corrected',
+            corrected_at: now,
+            last_error_code: null,
+            updated_at: now,
+            version: expression('version', '+', 1),
+          }))
+          .where('payment_record_id', '=', payment.id)
+          .where('state', '=', 'correction_required')
+          .executeTakeFirstOrThrow();
+        await transaction
+          .insertInto('platform.outbox_events')
+          .values({
+            id: input.eventId,
+            aggregate_type: 'payment_record',
+            aggregate_id: payment.id,
+            event_type: 'billing.payment-corrected.v1',
+            schema_version: 1,
+            payload: { paymentRecordId: payment.id, refundRecordId: refund.id },
+            occurred_at: now,
+            available_at: now,
+            published_at: null,
+            last_error_code: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            correlation_id: input.requestId,
+            causation_id: input.commandId,
+          })
+          .execute();
+        await insertPaymentCorrectionNotification(transaction, {
+          paymentRecordId: payment.id,
+          refundRecordId: refund.id,
+          userId: payment.user_id,
+        });
+        outcome = 'corrected';
+      } else {
+        const terminal = input.observedOutcome === 'terminal_failure';
+        await transaction
+          .updateTable('billing.refund_records')
+          .set((expression) => ({
+            status: terminal ? 'failed_terminal' : 'failed_retryable',
+            provider_progress: terminal ? 'call_started' : 'not_started',
+            available_at: now,
+            last_error_code: terminal
+              ? 'provider_refund_rejected'
+              : 'provider_confirmed_not_refunded',
+            failed_at: now,
+            updated_at: now,
+            version: expression('version', '+', 1),
+          }))
+          .where('id', '=', refund.id)
+          .executeTakeFirstOrThrow();
+        outcome = terminal ? 'terminal_failure' : 'retry_scheduled';
+      }
+
+      await transaction
+        .insertInto('platform.audit_logs')
+        .values({
+          id: input.auditId,
+          category: 'admin',
+          event_type: 'billing.ambiguous-refund-resolved.v1',
+          actor_type: 'admin',
+          actor_user_id: null,
+          actor_admin_id: admin.id,
+          subject_type: 'refund_record',
+          subject_id: refund.id,
+          result_code: input.observedOutcome,
+          metadata_schema_version: 1,
+          metadata: {
+            observedOutcome: input.observedOutcome,
+            evidenceDigest: input.evidenceDigest,
+          },
+          request_id: input.requestId,
+          command_id: input.commandId,
+          occurred_at: now,
+        })
+        .execute();
+      return { outcome, replayed: false };
+    });
   }
 }
