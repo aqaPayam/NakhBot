@@ -296,7 +296,10 @@ export async function explainCandidatePool(
 /** Refreshes only the planner statistics used by the M3 production-shaped CI gate. */
 export async function analyzeM3QueryTables(database: NakhDatabase): Promise<void> {
   await sql`
-    ANALYZE identity.accounts, identity.user_settings, profile.profiles,
+    ANALYZE catalog.countries, catalog.cities, catalog.gender_options,
+      catalog.gender_preferences, catalog.gender_preference_members,
+      catalog.relationship_goals,
+      identity.accounts, identity.user_settings, profile.profiles,
       media.media_assets, media.profile_photos, media.photo_variants,
       interaction.likes, interaction.not_interested, interaction.user_pair_states,
       discovery.explore_consumptions
