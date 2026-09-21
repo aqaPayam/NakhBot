@@ -355,6 +355,10 @@ PR 1 foundation:
   Liked By count/page statements under `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, rejects missing
   supporting indexes, unbounded candidate sorts/function scans, latency/block budget regressions,
   and retains only a privacy-safe structural plan artifact;
+- [x] the same 5,000-row gate distributes received Likes across actionable controls and every
+  prohibited account, Profile, Like, pair, rejection, photo, asset, and thumbnail state; exact
+  count/keyset results must contain only the controls, and receiver capability denial is checked
+  for every non-active account state, hidden visibility, and invalid Profile;
 - [x] the M3 acceptance ledger and staging/incident runbooks separate automated evidence from
   private-edge, provider, production-volume query-plan, fault-injection, and reviewer evidence;
 - [x] migration `000021` seeds verified English M3 text and exact variable declarations;

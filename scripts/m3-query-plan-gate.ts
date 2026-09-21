@@ -7,6 +7,7 @@ import {
   createDatabase,
   explainCandidatePool,
   explainLikedByQueries,
+  PostgresLikedByStore,
   runMigrations,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -33,6 +34,35 @@ const provinceId = '20000000-0000-4000-8000-000000000111';
 const cityId = '20000000-0000-4000-8000-000000000121';
 const batchSize = 250;
 
+const likedByMatrixCases = [
+  'actionable',
+  'account_guest',
+  'account_incomplete',
+  'account_restricted',
+  'account_banned',
+  'account_deleted',
+  'profile_incomplete',
+  'profile_invalid',
+  'like_closed_by_match',
+  'like_closed_by_not_interested',
+  'like_closed_by_unmatch',
+  'like_cancelled_by_system',
+  'pair_matched',
+  'pair_unmatched',
+  'pair_blocked',
+  'receiver_rejected_liker',
+  'photo_hidden',
+  'photo_deleted',
+  'photo_missing',
+  'asset_deleted',
+  'asset_storage_deleted',
+  'thumbnail_deleted',
+  'thumbnail_storage_deleted',
+  'thumbnail_missing',
+] as const;
+
+type LikedByMatrixCase = (typeof likedByMatrixCases)[number];
+
 type CandidateFixture = Readonly<{
   userId: string;
   profileId: string;
@@ -41,6 +71,7 @@ type CandidateFixture = Readonly<{
   variantId: string;
   likeId: string;
   likeReceiverId: string;
+  likedByMatrixCase?: LikedByMatrixCase;
 }>;
 
 interface PlanNode {
@@ -176,6 +207,293 @@ function requirePlan(
     throw new Error(`${plan.name} introduced a function scan.`);
 }
 
+function fixturesInCase(
+  fixtures: readonly CandidateFixture[],
+  matrixCase: LikedByMatrixCase,
+): readonly CandidateFixture[] {
+  return fixtures.filter((fixture) => fixture.likedByMatrixCase === matrixCase);
+}
+
+function accountState(
+  matrixCase: LikedByMatrixCase | undefined,
+): 'guest' | 'incomplete' | 'active' | 'restricted' | 'banned' | 'deleted' {
+  switch (matrixCase) {
+    case 'account_guest':
+      return 'guest' as const;
+    case 'account_incomplete':
+      return 'incomplete' as const;
+    case 'account_restricted':
+      return 'restricted' as const;
+    case 'account_banned':
+      return 'banned' as const;
+    case 'account_deleted':
+      return 'deleted' as const;
+    default:
+      return 'active' as const;
+  }
+}
+
+function normalizedPair(left: string, right: string): readonly [string, string] {
+  return left < right ? [left, right] : [right, left];
+}
+
+async function applyLikedByMatrix(
+  database: NakhDatabase,
+  receiverUserId: string,
+  fixtures: readonly CandidateFixture[],
+  now: Date,
+): Promise<void> {
+  for (const [matrixCase, status] of [
+    ['like_closed_by_match', 'closed_by_match'],
+    ['like_closed_by_not_interested', 'closed_by_not_interested'],
+    ['like_closed_by_unmatch', 'closed_by_unmatch'],
+    ['like_cancelled_by_system', 'cancelled_by_system'],
+  ] as const) {
+    const ids = fixturesInCase(fixtures, matrixCase).map(({ likeId }) => likeId);
+    if (ids.length > 0)
+      await database
+        .updateTable('interaction.likes')
+        .set({ status, closed_at: now, version: 2 })
+        .where('id', 'in', ids)
+        .execute();
+  }
+
+  const initialPairs = [
+    ...fixturesInCase(fixtures, 'pair_matched').map((fixture) => ({
+      fixture,
+      state: 'matched' as const,
+      reasonCode: 'matrix_matched',
+    })),
+    ...fixturesInCase(fixtures, 'pair_unmatched').map((fixture) => ({
+      fixture,
+      state: 'matched' as const,
+      reasonCode: 'matrix_before_unmatch',
+    })),
+    ...fixturesInCase(fixtures, 'pair_blocked').map((fixture) => ({
+      fixture,
+      state: 'blocked' as const,
+      reasonCode: 'matrix_blocked',
+    })),
+  ];
+  if (initialPairs.length > 0)
+    await database
+      .insertInto('interaction.user_pair_states')
+      .values(
+        initialPairs.map(({ fixture, state, reasonCode }) => {
+          const [userLowId, userHighId] = normalizedPair(fixture.userId, receiverUserId);
+          return {
+            user_low_id: userLowId,
+            user_high_id: userHighId,
+            state,
+            reason_code: reasonCode,
+            changed_at: now,
+          };
+        }),
+      )
+      .execute();
+  for (const fixture of fixturesInCase(fixtures, 'pair_unmatched')) {
+    const [userLowId, userHighId] = normalizedPair(fixture.userId, receiverUserId);
+    await database
+      .updateTable('interaction.user_pair_states')
+      .set({ state: 'unmatched', reason_code: 'matrix_unmatched', changed_at: now, version: 2 })
+      .where('user_low_id', '=', userLowId)
+      .where('user_high_id', '=', userHighId)
+      .execute();
+  }
+
+  const rejected = fixturesInCase(fixtures, 'receiver_rejected_liker');
+  if (rejected.length > 0)
+    await database
+      .insertInto('interaction.not_interested')
+      .values(
+        rejected.map(({ userId }) => ({
+          id: randomUUID(),
+          sender_user_id: receiverUserId,
+          receiver_user_id: userId,
+          source: 'liked_by' as const,
+          created_at: now,
+        })),
+      )
+      .execute();
+
+  const hiddenPhotos = fixturesInCase(fixtures, 'photo_hidden').map(({ photoId }) => photoId);
+  if (hiddenPhotos.length > 0)
+    await database
+      .updateTable('media.profile_photos')
+      .set({ status: 'hidden', is_primary: false, hidden_at: now, updated_at: now, version: 2 })
+      .where('id', 'in', hiddenPhotos)
+      .execute();
+  const deletedPhotos = fixturesInCase(fixtures, 'photo_deleted').map(({ photoId }) => photoId);
+  if (deletedPhotos.length > 0)
+    await database
+      .updateTable('media.profile_photos')
+      .set({ status: 'deleted', is_primary: false, deleted_at: now, updated_at: now, version: 2 })
+      .where('id', 'in', deletedPhotos)
+      .execute();
+  const missingPhotos = fixturesInCase(fixtures, 'photo_missing').map(({ photoId }) => photoId);
+  if (missingPhotos.length > 0)
+    await database.deleteFrom('media.profile_photos').where('id', 'in', missingPhotos).execute();
+
+  const deletedAssets = fixturesInCase(fixtures, 'asset_deleted').map(({ assetId }) => assetId);
+  if (deletedAssets.length > 0)
+    await database
+      .updateTable('media.media_assets')
+      .set({ deleted_at: now, updated_at: now, version: 2 })
+      .where('id', 'in', deletedAssets)
+      .execute();
+  const storageDeletedAssets = fixturesInCase(fixtures, 'asset_storage_deleted').map(
+    ({ assetId }) => assetId,
+  );
+  if (storageDeletedAssets.length > 0)
+    await database
+      .updateTable('media.media_assets')
+      .set({ deleted_at: now, storage_deleted_at: now, updated_at: now, version: 2 })
+      .where('id', 'in', storageDeletedAssets)
+      .execute();
+
+  const deletedThumbnails = fixturesInCase(fixtures, 'thumbnail_deleted').map(
+    ({ variantId }) => variantId,
+  );
+  if (deletedThumbnails.length > 0)
+    await database
+      .updateTable('media.photo_variants')
+      .set({ deleted_at: now })
+      .where('id', 'in', deletedThumbnails)
+      .execute();
+  const storageDeletedThumbnails = fixturesInCase(fixtures, 'thumbnail_storage_deleted').map(
+    ({ variantId }) => variantId,
+  );
+  if (storageDeletedThumbnails.length > 0)
+    await database
+      .updateTable('media.photo_variants')
+      .set({ deleted_at: now, storage_deleted_at: now })
+      .where('id', 'in', storageDeletedThumbnails)
+      .execute();
+  const missingThumbnails = fixturesInCase(fixtures, 'thumbnail_missing').map(
+    ({ variantId }) => variantId,
+  );
+  if (missingThumbnails.length > 0)
+    await database
+      .deleteFrom('media.photo_variants')
+      .where('id', 'in', missingThumbnails)
+      .execute();
+}
+
+function isCapabilityDenied(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'capability_denied'
+  );
+}
+
+async function requireReceiverDenied(
+  store: PostgresLikedByStore,
+  receiverUserId: string,
+): Promise<void> {
+  try {
+    await store.readActionablePage({
+      actor: { kind: 'user', userId: receiverUserId },
+      requestId: randomUUID(),
+      limit: 50,
+    });
+  } catch (error) {
+    if (isCapabilityDenied(error)) return;
+    throw error;
+  }
+  throw new Error('ACC-019 receiver authorization unexpectedly permitted Liked By access.');
+}
+
+async function verifyLikedByMatrix(
+  database: NakhDatabase,
+  receiverUserId: string,
+  fixtures: readonly CandidateFixture[],
+): Promise<Readonly<{ expectedActionable: number; returnedActionable: number; cases: object }>> {
+  const store = new PostgresLikedByStore(database);
+  const expectedIds = new Set(fixturesInCase(fixtures, 'actionable').map(({ likeId }) => likeId));
+  const returnedIds = new Set<string>();
+  let after: Readonly<{ createdAt: Date; likeId: string }> | undefined;
+  let reportedTotal: number | undefined;
+  for (;;) {
+    const page = await store.readActionablePage(
+      {
+        actor: { kind: 'user', userId: receiverUserId },
+        requestId: randomUUID(),
+        limit: 50,
+      },
+      after,
+    );
+    reportedTotal ??= page.totalCount;
+    if (page.totalCount !== reportedTotal)
+      throw new Error('ACC-019 total changed while reading the stable matrix fixture.');
+    for (const row of page.rows) {
+      if (returnedIds.has(row.likeId))
+        throw new Error('ACC-019 pagination returned a duplicate Like.');
+      returnedIds.add(row.likeId);
+    }
+    if (!page.hasMore) break;
+    const last = page.rows.at(-1);
+    if (last === undefined) throw new Error('ACC-019 returned an empty page with hasMore=true.');
+    after = { createdAt: last.createdAt, likeId: last.likeId };
+  }
+  if (reportedTotal !== expectedIds.size || returnedIds.size !== expectedIds.size)
+    throw new Error(
+      `ACC-019 expected ${expectedIds.size} actionable Likes but count/page returned ${reportedTotal}/${returnedIds.size}.`,
+    );
+  for (const likeId of expectedIds)
+    if (!returnedIds.has(likeId)) throw new Error('ACC-019 omitted an actionable control Like.');
+  for (const likeId of returnedIds)
+    if (!expectedIds.has(likeId)) throw new Error('ACC-019 exposed a prohibited Like.');
+
+  const now = new Date();
+  for (const state of ['guest', 'incomplete', 'restricted', 'banned', 'deleted'] as const) {
+    await database
+      .updateTable('identity.accounts')
+      .set({ state, state_changed_at: now })
+      .where('user_id', '=', receiverUserId)
+      .execute();
+    await requireReceiverDenied(store, receiverUserId);
+  }
+  await database
+    .updateTable('identity.accounts')
+    .set({ state: 'active', state_changed_at: now })
+    .where('user_id', '=', receiverUserId)
+    .execute();
+  await database
+    .updateTable('identity.user_settings')
+    .set({ visibility_enabled: false })
+    .where('user_id', '=', receiverUserId)
+    .execute();
+  await requireReceiverDenied(store, receiverUserId);
+  await database
+    .updateTable('identity.user_settings')
+    .set({ visibility_enabled: true })
+    .where('user_id', '=', receiverUserId)
+    .execute();
+  await database
+    .updateTable('profile.profiles')
+    .set({ completion_status: 'invalid', updated_at: now })
+    .where('user_id', '=', receiverUserId)
+    .execute();
+  await requireReceiverDenied(store, receiverUserId);
+  await database
+    .updateTable('profile.profiles')
+    .set({ completion_status: 'complete', updated_at: now })
+    .where('user_id', '=', receiverUserId)
+    .execute();
+
+  const cases = Object.fromEntries(
+    likedByMatrixCases.map((matrixCase) => [
+      matrixCase,
+      fixturesInCase(fixtures, matrixCase).length,
+    ]),
+  );
+  if (Object.values(cases).some((count) => count === 0))
+    throw new Error('ACC-019 matrix did not seed every prohibited state and actionable control.');
+  return { expectedActionable: expectedIds.size, returnedActionable: returnedIds.size, cases };
+}
+
 async function seedUsers(
   database: NakhDatabase,
   viewerUserId: string,
@@ -267,9 +585,9 @@ async function seedUsers(
     await database
       .insertInto('identity.accounts')
       .values(
-        batch.map(({ userId }) => ({
+        batch.map(({ userId, likedByMatrixCase }) => ({
           user_id: userId,
-          state: 'active' as const,
+          state: accountState(likedByMatrixCase),
           state_reason: null,
           state_changed_at: now,
         })),
@@ -282,25 +600,32 @@ async function seedUsers(
     await database
       .insertInto('profile.profiles')
       .values(
-        batch.map(({ userId, profileId }) => ({
-          id: profileId,
-          user_id: userId,
-          name: 'Synthetic plan candidate',
-          birth_year: now.getUTCFullYear() - 30,
-          gender_option_id: womanGenderId,
-          gender_preference_id: menPreferenceId,
-          relationship_goal_id: relationshipGoalId,
-          country_id: countryId,
-          province_id: provinceId,
-          city_id: cityId,
-          highlight: 'Synthetic plan candidate',
-          bio: null,
-          completion_status: 'complete' as const,
-          ever_completed: true,
-          completed_at: now,
-          created_at: now,
-          updated_at: now,
-        })),
+        batch.map(({ userId, profileId, likedByMatrixCase }) => {
+          const incomplete = likedByMatrixCase === 'profile_incomplete';
+          return {
+            id: profileId,
+            user_id: userId,
+            name: 'Synthetic plan candidate',
+            birth_year: now.getUTCFullYear() - 30,
+            gender_option_id: womanGenderId,
+            gender_preference_id: menPreferenceId,
+            relationship_goal_id: relationshipGoalId,
+            country_id: countryId,
+            province_id: provinceId,
+            city_id: cityId,
+            highlight: 'Synthetic plan candidate',
+            bio: null,
+            completion_status: incomplete
+              ? ('incomplete' as const)
+              : likedByMatrixCase === 'profile_invalid'
+                ? ('invalid' as const)
+                : ('complete' as const),
+            ever_completed: !incomplete,
+            completed_at: incomplete ? null : now,
+            created_at: now,
+            updated_at: now,
+          };
+        }),
       )
       .execute();
     await database
@@ -399,6 +724,7 @@ async function seedUsers(
       )
       .execute();
   }
+  await applyLikedByMatrix(database, receiverUserId, fixtures, now);
 }
 
 await runMigrations(databaseUrl, resolve(process.cwd(), 'migrations'));
@@ -413,15 +739,21 @@ try {
   const viewerUserId = randomUUID();
   const receiverUserId = randomUUID();
   const actionableLikeCount = Math.max(500, Math.floor(configuredVolume / 10));
-  const fixtures: CandidateFixture[] = Array.from({ length: configuredVolume }, (_, index) => ({
-    userId: randomUUID(),
-    profileId: randomUUID(),
-    assetId: randomUUID(),
-    photoId: randomUUID(),
-    variantId: randomUUID(),
-    likeId: randomUUID(),
-    likeReceiverId: index < actionableLikeCount ? receiverUserId : viewerUserId,
-  }));
+  const fixtures: CandidateFixture[] = Array.from({ length: configuredVolume }, (_, index) => {
+    const received = index < actionableLikeCount;
+    return {
+      userId: randomUUID(),
+      profileId: randomUUID(),
+      assetId: randomUUID(),
+      photoId: randomUUID(),
+      variantId: randomUUID(),
+      likeId: randomUUID(),
+      likeReceiverId: received ? receiverUserId : viewerUserId,
+      ...(received
+        ? { likedByMatrixCase: likedByMatrixCases[index % likedByMatrixCases.length]! }
+        : {}),
+    };
+  });
   await seedUsers(database, viewerUserId, receiverUserId, fixtures);
   await analyzeM3QueryTables(database);
 
@@ -438,9 +770,14 @@ try {
     summarizePlan('liked_by_count', likedBy.count),
     summarizePlan('liked_by_page', likedBy.page),
   ];
+  const likedByMatrix = await verifyLikedByMatrix(database, receiverUserId, fixtures);
   const artifact = {
     schemaVersion: 1,
-    fixture: { candidateCount: configuredVolume, actionableLikeCount },
+    fixture: {
+      candidateCount: configuredVolume,
+      receivedLikeCount: actionableLikeCount,
+      likedByMatrix,
+    },
     budgets: {
       candidateMaximumExecutionMs: 1_500,
       likedByCountMaximumExecutionMs: 2_000,
@@ -477,7 +814,7 @@ try {
     requiredIndexes: ['likes_receiver_status_time_idx'],
   });
   process.stdout.write(
-    `${JSON.stringify({ scenario: 'M3-PRODUCTION-QUERY-PLAN', volume: configuredVolume, plans: plans.map(({ name, executionTimeMs }) => ({ name, executionTimeMs })) })}\n`,
+    `${JSON.stringify({ scenarios: ['M3-PRODUCTION-QUERY-PLAN', 'ACC-019/M3-LIKED-BY-MATRIX'], volume: configuredVolume, likedByMatrix, plans: plans.map(({ name, executionTimeMs }) => ({ name, executionTimeMs })) })}\n`,
   );
 } finally {
   await database.destroy();

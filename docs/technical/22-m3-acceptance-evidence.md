@@ -16,7 +16,7 @@ immutable staging release. It must not be used to enable M3 before every externa
 | `ACC-016/M3-CONSUMPTION-RACE` | complete | integration tests plus `scripts/m3-load-smoke.ts` make 50 simultaneous reservations converge, complete one delivery under 25 replays, and select a different candidate afterward | terminate a staging delivery worker before and after provider acceptance and prove convergence |
 | `ACC-017/M3-MUTUAL-LIKE-RACE` | complete | integration test proves one pair race; load smoke races 20 independent opposite-Like pairs and requires one Match, one Chat, and two memberships per pair | run the same burst at the launch profile and inspect invariant alarms |
 | `ACC-018/M3-IRREVERSIBILITY` | complete | domain transition tests and PostgreSQL interaction tests prove Like/Not Interested replay, permanent consumption, silent closure, and no reopen path | verify user-visible silence and replay through Telegram |
-| `ACC-019/M3-LIKED-BY-MATRIX` | component complete | shared PostgreSQL actionable predicate excludes restricted accounts, pair state, rejection, stale/foreign media, and unauthorized receivers; count/page share one snapshot | complete the production-shaped exclusion matrix and real private-edge denial observations |
+| `ACC-019/M3-LIKED-BY-MATRIX` | automated complete | the 5,000-row production-shaped gate distributes received Likes across actionable controls and every prohibited account, Profile, Like, pair, rejection, photo, asset, and thumbnail state; exact count/keyset results expose only controls, while receiver account/visibility/Profile denial is verified | observe the same denials through the real private edge in staging |
 
 ## Rule-to-code traceability
 
@@ -56,7 +56,6 @@ Record for the staging candidate:
 - inject the Telegram, action-token, media-signing, audience, and scoped R2 secrets by reference;
 - attach the successful production-shaped candidate and Liked By query-plan artifact from the exact
   immutable candidate CI run and confirm its latency/block budgets are still approved;
-- complete the remaining `ACC-019` prohibited-state matrix at production-shaped volume;
 - run provider-success-before-receipt, worker termination, throttling, timeout, key rotation, and
   rollback drills against real staging services;
 - complete [`m3-staging-acceptance.md`](../../deploy/runbooks/m3-staging-acceptance.md), attach only
