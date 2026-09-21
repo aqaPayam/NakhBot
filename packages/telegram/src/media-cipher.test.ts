@@ -33,7 +33,7 @@ describe('TelegramMediaTransportCipher', () => {
     const assetId = randomUUID();
     const encrypted = await cipher.encrypt('file', assetId);
     const changed = Buffer.from(encrypted);
-    changed[changed.length - 5] = 65;
+    changed[changed.length - 5] = changed[changed.length - 5]! ^ 1;
     for (const bytes of [changed, Buffer.from('{}'), Buffer.alloc(2049)])
       await expect(cipher.decrypt(bytes, assetId)).rejects.toThrow('media_transport_invalid');
     const wrong = new TelegramMediaTransportCipher(
