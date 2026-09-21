@@ -100,15 +100,15 @@ describe.skipIf(databaseUrl === undefined)('M4 PostgreSQL credit ledger', () => 
       correlationId: randomUUID(),
     });
     const attempts = await Promise.allSettled(
-      [randomUUID(), randomUUID()].map((featureUnlockId) =>
+      [randomUUID(), randomUUID()].map((nakhId) =>
         store.append({
           transactionId: randomUUID(),
           userId,
-          transactionType: 'spend_chat_unlock',
+          transactionType: 'spend_nakh',
           amount: -4n,
-          idempotencyKey: `chat-unlock:${featureUnlockId}`,
+          idempotencyKey: `nakh-spend:${nakhId}`,
           correlationId: randomUUID(),
-          reference: { featureUnlockId },
+          reference: { nakhId },
         }),
       ),
     );
