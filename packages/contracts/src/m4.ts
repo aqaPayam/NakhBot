@@ -70,6 +70,7 @@ export const M4EventTypeSchema = Type.Union([
   Type.Literal('billing.payment-receipt-recorded.v1'),
   Type.Literal('billing.payment-fulfilled.v1'),
   Type.Literal('billing.payment-correction-required.v1'),
+  Type.Literal('billing.payment-corrected.v1'),
   Type.Literal('billing.credit-increased.v1'),
   Type.Literal('entitlement.feature-unlocked.v1'),
   Type.Literal('notification.delivery-requested.v1'),

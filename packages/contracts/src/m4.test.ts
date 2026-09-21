@@ -116,6 +116,7 @@ describe('M4 billing and entitlement contracts', () => {
   it('locks M4 event names to explicit versioned values', () => {
     const validate = validator(M4EventTypeSchema);
     expect(validate('billing.credit-increased.v1')).toBe(true);
+    expect(validate('billing.payment-corrected.v1')).toBe(true);
     expect(validate('entitlement.feature-unlocked.v1')).toBe(true);
     expect(validate('billing.credit-increased')).toBe(false);
     expect(validate('billing.balance-set.v1')).toBe(false);

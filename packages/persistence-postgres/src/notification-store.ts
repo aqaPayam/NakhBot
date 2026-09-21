@@ -235,6 +235,27 @@ export async function insertPaymentSuccessNotification(
   });
 }
 
+/** Records the payer-only critical notice after a captured payment is corrected. */
+export async function insertPaymentCorrectionNotification(
+  database: NakhDatabase,
+  write: Readonly<{ paymentRecordId: string; refundRecordId: string; userId: string }>,
+): Promise<void> {
+  await insertNotification(database, {
+    userId: write.userId,
+    type: 'payment_failure',
+    titleKey: 'notification.payment_corrected.title',
+    bodyKey: 'notification.payment_corrected.body',
+    payload: {
+      paymentRecordId: write.paymentRecordId,
+      refundRecordId: write.refundRecordId,
+      outcome: 'corrected',
+    },
+    deduplicationKey: `payment:${write.paymentRecordId}:${write.userId}:corrected`,
+    correlationId: write.paymentRecordId,
+    causationId: write.refundRecordId,
+  });
+}
+
 export class PostgresNotificationStore {
   public constructor(private readonly database: NakhDatabase) {}
 

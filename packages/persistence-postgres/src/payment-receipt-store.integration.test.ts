@@ -13,6 +13,7 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresFundingStore } from './funding-store.js';
 import { runMigrations } from './migrations.js';
 import { PostgresTelegramStarsReceiptStore } from './payment-receipt-store.js';
+import { PostgresRefundStore } from './refund-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const botDigest = 'b'.repeat(64);
@@ -81,6 +82,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
   let database: NakhDatabase;
   let funding: PostgresFundingStore;
   let receipts: PostgresTelegramStarsReceiptStore;
+  let refunds: PostgresRefundStore;
 
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
@@ -92,6 +94,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     });
     funding = new PostgresFundingStore(database);
     receipts = new PostgresTelegramStarsReceiptStore(database, ids, { digest });
+    refunds = new PostgresRefundStore(database);
   });
 
   afterAll(async () => {
@@ -564,5 +567,147 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
         .where('payment_record_id', '=', payment.paymentRecordId)
         .executeTakeFirstOrThrow(),
     ).toEqual({ count: '0' });
+
+    const refundClaim = (
+      await refunds.claimStarsRefunds({ owner: 'refund-worker', leaseMs: 60_000, limit: 100 })
+    ).find(({ refundRecordId }) => refundRecordId === write.refundRecordId);
+    expect(refundClaim).toBeDefined();
+    await expect(refunds.beginProviderCall(refundClaim!)).resolves.toBe(true);
+    const completions = await Promise.all(
+      Array.from({ length: 20 }, () => refunds.completeStarsRefund(refundClaim!)),
+    );
+    expect(completions.filter((outcome) => outcome === 'processed')).toHaveLength(1);
+    expect(completions.filter((outcome) => outcome === 'replayed')).toHaveLength(19);
+    expect(
+      await database
+        .selectFrom('billing.refund_records')
+        .select(['status', 'provider_progress', 'attempt_count', 'processed_at'])
+        .where('id', '=', write.refundRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({
+      status: 'processed',
+      provider_progress: 'refund_confirmed',
+      attempt_count: 1,
+      processed_at: expect.any(Date),
+    });
+    expect(
+      await database
+        .selectFrom('billing.payment_records')
+        .select(['status', 'refunded_at'])
+        .where('id', '=', payment.paymentRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({ status: 'refunded', refunded_at: expect.any(Date) });
+    expect(
+      await database
+        .selectFrom('billing.payment_fulfillments')
+        .select(['state', 'corrected_at'])
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({ state: 'corrected', corrected_at: expect.any(Date) });
+    expect(
+      await database
+        .selectFrom('notification.notifications')
+        .select(['notification_type', 'title_key'])
+        .where(
+          'deduplication_key',
+          '=',
+          `payment:${payment.paymentRecordId}:${payer.userId}:corrected`,
+        )
+        .executeTakeFirstOrThrow(),
+    ).toEqual({
+      notification_type: 'payment_failure',
+      title_key: 'notification.payment_corrected.title',
+    });
+    expect(
+      (
+        await refunds.claimStarsRefunds({
+          owner: 'second-refund-worker',
+          leaseMs: 60_000,
+          limit: 100,
+        })
+      ).find(({ refundRecordId }) => refundRecordId === write.refundRecordId),
+    ).toBeUndefined();
+  });
+
+  it('quarantines an ambiguous provider outcome from normal refund retry', async () => {
+    const payer = await createUser(database);
+    const other = await createUser(database);
+    const matchId = await createActiveMatch(payer.userId, other.userId);
+    const payment = await preparePaymentFor(payer, { type: 'match', targetId: matchId });
+    const eventId = `ambiguous-refund:${randomUUID()}`;
+    await receipts.recordSuccessfulPayment({
+      providerEventId: eventId,
+      telegramUserId: payer.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount,
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      telegramChargeId: `telegram:${randomUUID()}`,
+      evidence: evidence(eventId),
+    });
+    await database
+      .updateTable('matching.matches')
+      .set((expression) => ({
+        status: 'closed',
+        closed_at: new Date(),
+        version: expression('version', '+', 1),
+      }))
+      .where('id', '=', matchId)
+      .executeTakeFirstOrThrow();
+    const fulfillmentClaim = (
+      await receipts.claimFulfillments({
+        owner: 'ambiguous-fulfillment-worker',
+        leaseMs: 60_000,
+        limit: 100,
+      })
+    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
+    expect(fulfillmentClaim).toBeDefined();
+    const refundRecordId = randomUUID();
+    await receipts.fulfillDirectPaidAction({
+      paymentRecordId: payment.paymentRecordId,
+      owner: 'ambiguous-fulfillment-worker',
+      fenceToken: fulfillmentClaim!.fenceToken,
+      featureUnlockId: randomUUID(),
+      refundRecordId,
+      featureUnlockedEventId: randomUUID(),
+      paymentTerminalEventId: randomUUID(),
+    });
+    const claim = (
+      await refunds.claimStarsRefunds({
+        owner: 'ambiguous-refund-worker',
+        leaseMs: 60_000,
+        limit: 100,
+      })
+    ).find((candidate) => candidate.refundRecordId === refundRecordId);
+    expect(claim).toBeDefined();
+    await expect(refunds.beginProviderCall(claim!)).resolves.toBe(true);
+    await expect(
+      refunds.recordProviderFailure({
+        ...claim!,
+        kind: 'ambiguous',
+        errorCode: 'provider_outcome_unknown',
+      }),
+    ).resolves.toBe(true);
+    expect(
+      await database
+        .selectFrom('billing.refund_records')
+        .select(['status', 'provider_progress', 'lease_owner', 'last_error_code'])
+        .where('id', '=', refundRecordId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({
+      status: 'failed_retryable',
+      provider_progress: 'call_started',
+      lease_owner: null,
+      last_error_code: 'provider_outcome_unknown',
+    });
+    const reclaim = await refunds.claimStarsRefunds({
+      owner: 'must-not-call-provider-again',
+      leaseMs: 60_000,
+      limit: 100,
+    });
+    expect(
+      reclaim.find((candidate) => candidate.refundRecordId === refundRecordId),
+    ).toBeUndefined();
   });
 });
