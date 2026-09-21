@@ -16,7 +16,7 @@ encrypted evidence, internal user/payment/refund IDs, callback bodies, or raw pr
 
 Stop unless all are true:
 
-- migrations `000025` through `000029`, verification, replay, restore smoke, integration tests, and
+- migrations `000025` through `000030`, verification, replay, restore smoke, integration tests, and
   the M4 production-volume query-plan gate passed for the exact release;
 - staging uses a different bot, database, encryption key ring, webhook secret, and telemetry scope
   from production;

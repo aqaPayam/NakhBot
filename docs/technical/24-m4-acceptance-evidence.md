@@ -28,7 +28,7 @@ or staging evidence.
 | Reconciliation | resumable batch handler/store and scheduler | durable cursor/run facts, append-only anomaly, uncertain-refund and stuck-fulfillment classification |
 | Operational visibility | finite M4 metric registry and billing scheduler logs | metric-label unit test, identity-free aggregate outcomes, staging runbook alert requirements |
 | Query scalability | M4 exact operational query plan gate | 5,000-row fulfillment, refund, provider dedupe, unlock, notification, and payment-reconciliation plans |
-| Migration/recovery safety | migrations `000025..000029` and verification SQL | empty/upgrade/replay CI, integration suites, container migration artifact, restore smoke |
+| Migration/recovery safety | migrations `000025..000030` and verification SQL | empty/upgrade/replay CI, complete English catalog checks, integration suites, container migration artifact, restore smoke |
 
 ## Default-branch automated gate
 

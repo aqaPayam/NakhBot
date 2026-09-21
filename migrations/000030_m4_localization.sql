@@ -1,0 +1,73 @@
+-- English source text for M4 billing, entitlements, refunds, and critical notifications.
+WITH seed(text_key, category, body, variables) AS (
+  VALUES
+    ('billing.package.starter.title', 'payment', 'Starter · 10 credits', '[]'),
+    ('billing.package.plus.title', 'payment', 'Plus · 25 credits', '[]'),
+    ('billing.package.best_value.title', 'payment', 'Best value · 50 credits', '[]'),
+    ('billing.package.ultimate.title', 'payment', 'Ultimate · 100 credits', '[]'),
+    ('billing.package.badge.popular', 'payment', 'Popular', '[]'),
+    ('billing.package.badge.best_value', 'payment', 'Best value', '[]'),
+    ('billing.balance.title', 'payment', 'Credits', '[]'),
+    ('billing.balance.available', 'payment', 'Available credits: {balance}', '["balance"]'),
+    ('billing.packages.title', 'payment', 'Buy credits', '[]'),
+    ('billing.invoice.open', 'button', 'Pay with Telegram Stars', '[]'),
+    ('billing.payment.pending', 'payment', 'Waiting for payment confirmation.', '[]'),
+    ('billing.payment.success', 'payment', 'Payment confirmed.', '[]'),
+    ('billing.payment.correction_pending', 'payment', 'We are correcting this payment.', '[]'),
+    ('billing.unlock.liked_by.success', 'message', 'Profile unlocked.', '[]'),
+    ('billing.unlock.chat.success', 'message', 'Chat unlocked for this Match.', '[]'),
+    ('notification.liked_by_profile_unlocked.title', 'notification', 'Profile unlocked', '[]'),
+    ('notification.liked_by_profile_unlocked.body', 'notification', 'You can now view this Profile.', '[]'),
+    ('notification.chat_unlocked.title', 'notification', 'Chat unlocked', '[]'),
+    ('notification.chat_unlocked.body', 'notification', 'Text chat is now available for this Match.', '[]'),
+    ('notification.chat_unlock_safety.title', 'safety', 'Stay safe', '[]'),
+    ('notification.chat_unlock_safety.body', 'safety', 'Keep personal and financial information private.', '[]'),
+    ('notification.payment_success.title', 'notification', 'Payment confirmed', '[]'),
+    ('notification.payment_success.body', 'notification', 'Your payment was completed successfully.', '[]'),
+    ('notification.payment_corrected.title', 'notification', 'Payment corrected', '[]'),
+    ('notification.payment_corrected.body', 'notification', 'Your payment was refunded after delivery could not be completed.', '[]'),
+    ('error.billing.attempt_limit', 'error', 'Too many payment attempts. Please try again later.', '[]'),
+    ('error.billing.credit_account_not_found', 'error', 'Your credit account is unavailable.', '[]'),
+    ('error.billing.credit_transaction_invalid', 'error', 'This credit change is invalid.', '[]'),
+    ('error.billing.fulfillment_lease_invalid', 'error', 'This payment task is invalid.', '[]'),
+    ('error.billing.fulfillment_lease_lost', 'error', 'This payment task is already being handled.', '[]'),
+    ('error.billing.fulfillment_not_found', 'error', 'This payment task was not found.', '[]'),
+    ('error.billing.idempotency_conflict', 'error', 'This payment request conflicts with an earlier request.', '[]'),
+    ('error.billing.insufficient_credits', 'error', 'You do not have enough credits.', '[]'),
+    ('error.billing.package_requires_stars', 'error', 'This package must be paid with Telegram Stars.', '[]'),
+    ('error.billing.package_unavailable', 'error', 'This credit package is unavailable.', '[]'),
+    ('error.billing.payment_expired', 'error', 'This payment attempt expired.', '[]'),
+    ('error.billing.payment_mismatch', 'error', 'This payment could not be verified.', '[]'),
+    ('error.billing.payment_not_found', 'error', 'This payment was not found.', '[]'),
+    ('error.billing.payment_pending', 'error', 'This payment is still pending.', '[]'),
+    ('error.billing.payment_unavailable', 'error', 'This payment is no longer available.', '[]'),
+    ('error.billing.payment_version_conflict', 'error', 'This payment changed. Refresh and try again.', '[]'),
+    ('error.billing.provider_callback_invalid', 'error', 'This payment update is invalid.', '[]'),
+    ('error.billing.reconciliation_complete', 'error', 'This reconciliation run is already complete.', '[]'),
+    ('error.billing.reconciliation_cursor_invalid', 'error', 'This reconciliation cursor is invalid.', '[]'),
+    ('error.billing.reconciliation_invalid', 'error', 'This reconciliation request is invalid.', '[]'),
+    ('error.billing.reconciliation_not_found', 'error', 'This reconciliation run was not found.', '[]'),
+    ('error.billing.refund_invalid', 'error', 'This refund request is invalid.', '[]'),
+    ('error.billing.refund_not_ambiguous', 'error', 'This refund is not awaiting verified resolution.', '[]'),
+    ('error.billing.refund_not_found', 'error', 'This refund was not found.', '[]'),
+    ('error.billing.refund_resolution_forbidden', 'error', 'You cannot resolve this refund.', '[]'),
+    ('error.billing.refund_shape_invalid', 'error', 'This refund record is invalid.', '[]'),
+    ('error.billing.refund_state_invalid', 'error', 'This refund cannot be completed in its current state.', '[]'),
+    ('error.billing.stars_not_selected', 'error', 'Telegram Stars was not selected for this payment.', '[]'),
+    ('error.billing.time_invalid', 'error', 'This billing time value is invalid.', '[]'),
+    ('error.billing.unlock_invalid', 'error', 'This unlock request is invalid.', '[]'),
+    ('error.billing.unlock_unavailable', 'error', 'This unlock is no longer available.', '[]'),
+    ('error.notification.idempotency_conflict', 'error', 'This notification conflicts with an earlier request.', '[]'),
+    ('error.notification.match_participants_invalid', 'error', 'This Match notification is unavailable.', '[]'),
+    ('error.notification.match_scope_missing', 'error', 'This Match notification is invalid.', '[]'),
+    ('error.notification.preferences_not_found', 'error', 'Notification settings are unavailable.', '[]')
+)
+INSERT INTO catalog.ui_texts (
+  id, locale_code, text_key, value, category, variables, is_active, created_at, updated_at
+)
+SELECT md5('en:' || text_key)::uuid, 'en', text_key, body, category, variables::jsonb, true,
+  '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+FROM seed;
+
+COMMENT ON TABLE billing.reconciliation_runs IS
+  'M4 billing reconciliation progress; user-facing outcomes use the versioned localization catalog.';
