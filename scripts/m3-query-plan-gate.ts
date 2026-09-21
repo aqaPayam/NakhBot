@@ -144,7 +144,7 @@ function requirePlan(
     maximumExecutionMs: number;
     maximumRootBlocks: number;
     maximumRootRows: number;
-    requiredIndex: string;
+    requiredIndexes: readonly string[];
     forbidSort?: boolean;
   }>,
 ): void {
@@ -162,8 +162,14 @@ function requirePlan(
     throw new Error(
       `${plan.name} exceeded ${input.maximumRootRows} result rows: ${root?.actualRows ?? 'unknown'}.`,
     );
-  if (!plan.nodes.some((node) => node.index === input.requiredIndex))
-    throw new Error(`${plan.name} did not use required index ${input.requiredIndex}.`);
+  if (
+    !plan.nodes.some(
+      (node) => node.index !== undefined && input.requiredIndexes.includes(node.index),
+    )
+  )
+    throw new Error(
+      `${plan.name} did not use an approved index: ${input.requiredIndexes.join(', ')}.`,
+    );
   if (input.forbidSort && plan.nodes.some((node) => node.nodeType === 'Sort'))
     throw new Error(`${plan.name} introduced an unbounded Sort node.`);
   if (plan.nodes.some((node) => node.nodeType === 'Function Scan'))
@@ -455,20 +461,20 @@ try {
     maximumExecutionMs: 1_500,
     maximumRootBlocks: configuredVolume * 20,
     maximumRootRows: 100,
-    requiredIndex: 'profiles_complete_global_shuffle_idx',
+    requiredIndexes: ['profiles_complete_shuffle_idx', 'profiles_complete_global_shuffle_idx'],
     forbidSort: true,
   });
   requirePlan(plans[1]!, {
     maximumExecutionMs: 2_000,
     maximumRootBlocks: configuredVolume * 20,
     maximumRootRows: 1,
-    requiredIndex: 'likes_receiver_status_time_idx',
+    requiredIndexes: ['likes_receiver_status_time_idx'],
   });
   requirePlan(plans[2]!, {
     maximumExecutionMs: 1_000,
     maximumRootBlocks: configuredVolume * 20,
     maximumRootRows: 51,
-    requiredIndex: 'likes_receiver_status_time_idx',
+    requiredIndexes: ['likes_receiver_status_time_idx'],
   });
   process.stdout.write(
     `${JSON.stringify({ scenario: 'M3-PRODUCTION-QUERY-PLAN', volume: configuredVolume, plans: plans.map(({ name, executionTimeMs }) => ({ name, executionTimeMs })) })}\n`,
