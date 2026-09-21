@@ -30,6 +30,7 @@ export const PAID_ACTION_PRICES: Readonly<
 
 export const PROVIDER_ATTEMPT_LIMIT = 10;
 export const PROVIDER_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+export const FUNDING_INTENT_TTL_MS = 15 * 60 * 1000;
 
 export function getCreditPackageDefinition(
   code: string,

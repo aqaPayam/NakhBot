@@ -14,6 +14,7 @@ export {
   type InboxProcessingHooks,
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
+export { PostgresFundingStore } from './funding-store.js';
 export {
   PostgresCreditLedgerStore,
   type AppendCreditTransactionInput,

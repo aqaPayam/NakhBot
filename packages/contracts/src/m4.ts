@@ -76,7 +76,11 @@ export const M4EventTypeSchema = Type.Union([
 ]);
 export type M4EventType = Static<typeof M4EventTypeSchema>;
 
-const OpaquePaidActionTokenSchema = Type.String({
+const LikedByActionTokenSchema = Type.String({
+  pattern: '^v1\\.lb\\.[A-Za-z0-9_-]{16}\\.[A-Za-z0-9_-]{16}$',
+  maxLength: 64,
+});
+const ChatActionTokenSchema = Type.String({
   pattern: '^v1\\.pa\\.[A-Za-z0-9_-]{16,128}\\.[A-Za-z0-9_-]{16,128}$',
   maxLength: 320,
 });
@@ -86,11 +90,11 @@ const PackageFundingTargetSchema = Type.Object(
   { additionalProperties: false },
 );
 const LikedByFundingTargetSchema = Type.Object(
-  { type: Type.Literal('liked_by_profile_unlock'), actionToken: OpaquePaidActionTokenSchema },
+  { type: Type.Literal('liked_by_profile_unlock'), actionToken: LikedByActionTokenSchema },
   { additionalProperties: false },
 );
 const ChatFundingTargetSchema = Type.Object(
-  { type: Type.Literal('chat_unlock'), actionToken: OpaquePaidActionTokenSchema },
+  { type: Type.Literal('chat_unlock'), actionToken: ChatActionTokenSchema },
   { additionalProperties: false },
 );
 

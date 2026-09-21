@@ -32,7 +32,8 @@ const envelope = {
   occurredAt: '2026-09-21T00:00:00.000Z',
   locale: 'en',
 };
-const actionToken = `v1.pa.${'a'.repeat(16)}.${'b'.repeat(16)}`;
+const likedByActionToken = `v1.lb.${'a'.repeat(16)}.${'b'.repeat(16)}`;
+const chatActionToken = `v1.pa.${'a'.repeat(16)}.${'b'.repeat(16)}`;
 
 describe('M4 billing and entitlement contracts', () => {
   it('allows packages only through Stars and locks package codes', () => {
@@ -57,7 +58,7 @@ describe('M4 billing and entitlement contracts', () => {
     const command = {
       ...envelope,
       commandType: 'billing.spend-credits-for-action',
-      data: { target: { type: 'liked_by_profile_unlock', actionToken } },
+      data: { target: { type: 'liked_by_profile_unlock', actionToken: likedByActionToken } },
     };
     expect(validate(command)).toBe(true);
     expect(validate({ ...command, data: { target: { ...command.data.target, price: 1 } } })).toBe(
@@ -69,6 +70,12 @@ describe('M4 billing and entitlement contracts', () => {
         data: { target: { type: 'liked_by_profile_unlock', actionToken: fundingIntentId } },
       }),
     ).toBe(false);
+    expect(
+      validate({
+        ...command,
+        data: { target: { type: 'chat_unlock', actionToken: chatActionToken } },
+      }),
+    ).toBe(true);
   });
 
   it('requires a versioned funding intent to create an invoice', () => {

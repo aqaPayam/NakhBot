@@ -388,6 +388,55 @@ export interface CreditTransactionTable {
   created_at: Generated<Date>;
 }
 
+export interface PendingPaymentTable {
+  id: string;
+  user_id: string;
+  reason: 'send_nakh' | 'unlock_chat' | 'unlock_liked_by_profile' | 'buy_credit_package';
+  target_type: 'credit_package' | 'like' | 'match' | 'pending_nakh';
+  target_id: string;
+  funding_type: 'credits' | 'telegram_stars';
+  required_credits: string | null;
+  required_stars: string | null;
+  package_code_snapshot: string | null;
+  package_credit_amount_snapshot: string | null;
+  status: Generated<'pending' | 'paid' | 'failed' | 'cancelled' | 'expired'>;
+  idempotency_key: string;
+  request_hash: string;
+  created_at: Generated<Date>;
+  expires_at: Date;
+  resolved_at: Date | null;
+  version: Generated<number>;
+}
+
+export interface PaymentRecordTable {
+  id: string;
+  user_id: string;
+  pending_payment_id: string;
+  payment_type: 'buy_credit_package' | 'direct_paid_action' | 'pay_pending_action';
+  paid_action_reason: 'send_nakh' | 'unlock_chat' | 'unlock_liked_by_profile' | null;
+  credit_package_id: string | null;
+  package_code_snapshot: string | null;
+  package_credit_amount_snapshot: string | null;
+  status: Generated<'pending' | 'paid' | 'failed' | 'cancelled' | 'expired' | 'refunded'>;
+  stars_amount: string;
+  provider: 'telegram_stars';
+  provider_environment: 'local' | 'test' | 'staging' | 'production';
+  provider_bot_id_digest: string;
+  invoice_payload_digest: string;
+  invoice_payload_ciphertext: ColumnType<Uint8Array, Uint8Array, never>;
+  invoice_payload_key_id: string;
+  provider_payment_id: string | null;
+  idempotency_key: string;
+  request_hash: string;
+  created_at: Generated<Date>;
+  paid_at: Date | null;
+  failed_at: Date | null;
+  cancelled_at: Date | null;
+  expired_at: Date | null;
+  refunded_at: Date | null;
+  version: Generated<number>;
+}
+
 export interface NotificationPreferenceTable {
   user_id: string;
   chat_enabled: Generated<boolean>;
@@ -565,6 +614,8 @@ export interface DatabaseSchema {
   'billing.credit_accounts': CreditAccountTable;
   'billing.credit_packages': CreditPackageTable;
   'billing.credit_transactions': CreditTransactionTable;
+  'billing.pending_payments': PendingPaymentTable;
+  'billing.payment_records': PaymentRecordTable;
   'notification.notification_preferences': NotificationPreferenceTable;
   'platform.audit_logs': AuditLogTable;
   'profile.profiles': ProfileTable;
