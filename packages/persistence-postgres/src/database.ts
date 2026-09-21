@@ -527,6 +527,112 @@ export interface NotificationPreferenceTable {
   updated_at: Date;
 }
 
+export interface NotificationTable {
+  id: string;
+  user_id: string;
+  notification_type:
+    | 'like_received'
+    | 'nakh_received'
+    | 'match_created'
+    | 'new_chat_message'
+    | 'chat_unlocked'
+    | 'liked_by_profile_unlocked'
+    | 'report_result'
+    | 'restriction_warning'
+    | 'ban_warning'
+    | 'payment_success'
+    | 'payment_failure'
+    | 'pending_nakh_payment_reminder'
+    | 'admin_notice'
+    | 'safety_notice'
+    | 'chat_closed';
+  category:
+    'chat' | 'like' | 'nakh' | 'match' | 'safety' | 'payment' | 'admin' | 'ban' | 'restriction';
+  title_key: string;
+  body_key: string;
+  payload: ColumnType<JsonObject, object, object>;
+  payload_schema_version: Generated<number>;
+  status: Generated<'unread' | 'read'>;
+  deduplication_key: string | null;
+  created_at: Generated<Date>;
+  read_at: Date | null;
+  version: Generated<number>;
+}
+
+export interface NotificationDeliveryTable {
+  id: string;
+  notification_id: string;
+  channel: 'telegram' | 'in_app';
+  status: Generated<'pending' | 'sent' | 'failed_retryable' | 'failed_terminal'>;
+  attempt_number: Generated<number>;
+  next_attempt_at: Generated<Date | null>;
+  sent_at: Date | null;
+  failed_at: Date | null;
+  failure_code: string | null;
+  provider_delivery_key: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface RefundRecordTable {
+  id: string;
+  user_id: string;
+  funding_type: 'credits' | 'telegram_stars';
+  payment_record_id: string | null;
+  original_credit_transaction_id: string | null;
+  refund_credit_transaction_id: string | null;
+  telegram_charge_id: string | null;
+  reason_code: 'target_unavailable' | 'system_failure' | 'duplicate_capture';
+  stars_amount: string | null;
+  credits_amount: string | null;
+  status: Generated<'pending' | 'processed' | 'failed_retryable' | 'failed_terminal'>;
+  provider_progress: Generated<'not_started' | 'call_started' | 'refund_confirmed'>;
+  attempt_count: Generated<number>;
+  fence_token: Generated<string>;
+  available_at: Generated<Date>;
+  lease_owner: string | null;
+  lease_expires_at: Date | null;
+  last_error_code: string | null;
+  idempotency_key: string;
+  created_at: Generated<Date>;
+  processed_at: Date | null;
+  failed_at: Date | null;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface ReconciliationRunTable {
+  id: string;
+  run_type: Generated<'billing'>;
+  status: 'started' | 'succeeded' | 'failed';
+  cursor: ColumnType<JsonObject, object, object>;
+  scanned_count: Generated<string>;
+  anomaly_count: Generated<string>;
+  failure_code: string | null;
+  started_at: Generated<Date>;
+  finished_at: Date | null;
+}
+
+export interface ReconciliationAnomalyTable {
+  id: string;
+  run_id: string;
+  anomaly_type: string;
+  entity_type:
+    | 'payment_record'
+    | 'payment_fulfillment'
+    | 'credit_account'
+    | 'credit_transaction'
+    | 'feature_unlock'
+    | 'refund_record'
+    | 'provider_event';
+  entity_id: string;
+  disposition: 'repair_scheduled' | 'quarantined';
+  safe_detail: ColumnType<JsonObject, object, object>;
+  idempotency_key: string;
+  detected_at: Generated<Date>;
+}
+
 export interface AuditLogTable {
   id: string;
   category: 'product' | 'account' | 'security' | 'admin';
@@ -699,7 +805,12 @@ export interface DatabaseSchema {
   'billing.payment_provider_conflicts': PaymentProviderConflictTable;
   'billing.telegram_stars_receipts': TelegramStarsReceiptTable;
   'billing.payment_fulfillments': PaymentFulfillmentTable;
+  'billing.refund_records': RefundRecordTable;
+  'billing.reconciliation_runs': ReconciliationRunTable;
+  'billing.reconciliation_anomalies': ReconciliationAnomalyTable;
   'notification.notification_preferences': NotificationPreferenceTable;
+  'notification.notifications': NotificationTable;
+  'notification.notification_deliveries': NotificationDeliveryTable;
   'platform.audit_logs': AuditLogTable;
   'profile.profiles': ProfileTable;
   'profile.profile_optional_details': ProfileOptionalDetailsTable;

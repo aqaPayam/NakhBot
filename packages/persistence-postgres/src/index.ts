@@ -14,6 +14,12 @@ export {
   type InboxProcessingHooks,
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
+export {
+  insertNotification,
+  PostgresNotificationStore,
+  type NotificationWrite,
+  type StoredNotification,
+} from './notification-store.js';
 export { PostgresFundingStore } from './funding-store.js';
 export { lockAndValidatePaidActionTarget, PostgresPaidActionStore } from './paid-action-store.js';
 export {
