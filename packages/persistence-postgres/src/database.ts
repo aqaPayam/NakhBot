@@ -498,6 +498,24 @@ export interface PaymentFulfillmentTable {
   version: Generated<number>;
 }
 
+export interface FeatureUnlockTable {
+  id: string;
+  payer_user_id: string;
+  feature_type: 'liked_by_profile_unlock' | 'chat_unlock';
+  like_id: string | null;
+  match_id: string | null;
+  payment_record_id: string | null;
+  credit_transaction_id: string | null;
+  status: Generated<'active' | 'revoked' | 'expired'>;
+  unlocked_at: Generated<Date>;
+  expires_at: Date | null;
+  revoked_at: Date | null;
+  revoked_reason: string | null;
+  revoked_by_admin_id: string | null;
+  expired_at: Date | null;
+  version: Generated<number>;
+}
+
 export interface NotificationPreferenceTable {
   user_id: string;
   chat_enabled: Generated<boolean>;
@@ -697,6 +715,7 @@ export interface DatabaseSchema {
   'discovery.candidate_deliveries': CandidateDeliveryTable;
   'interaction.likes': LikeTable;
   'interaction.not_interested': NotInterestedTable;
+  'interaction.feature_unlocks': FeatureUnlockTable;
   'interaction.user_pair_states': UserPairStateTable;
   'matching.matches': MatchTable;
   'matching.match_participants': MatchParticipantTable;

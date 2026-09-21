@@ -15,6 +15,7 @@ export {
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 export { PostgresFundingStore } from './funding-store.js';
+export { PostgresPaidActionStore } from './paid-action-store.js';
 export {
   PostgresTelegramStarsReceiptStore,
   type ClaimedPaymentFulfillment,
