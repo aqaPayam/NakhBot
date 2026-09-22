@@ -151,6 +151,27 @@ describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => 
     expect(payments).toHaveLength(1);
     expect(payments[0]!.expires_at).toEqual(pending[0]!.expires_at);
     expect(notifications).toHaveLength(0);
+
+    const [senderPage, receiverPage] = await Promise.all([
+      store.readSenderPage({
+        actor: { kind: 'user', userId: senderUserId },
+        requestId: randomUUID(),
+        limit: 10,
+      }),
+      store.readSenderPage({
+        actor: { kind: 'user', userId: receiverUserId },
+        requestId: randomUUID(),
+        limit: 10,
+      }),
+    ]);
+    expect(senderPage.totalCount).toBe(1);
+    expect(senderPage.rows).toHaveLength(1);
+    expect(senderPage.rows[0]).toMatchObject({
+      pendingNakhId: pending[0]!.id,
+      text: replayedCommand.data.text,
+    });
+    expect(JSON.stringify(senderPage)).not.toContain(receiverUserId);
+    expect(receiverPage).toEqual({ totalCount: 0, rows: [], hasMore: false });
   });
 
   it('ACC-021 permits only one permanent flow across distinct concurrent commands', async () => {

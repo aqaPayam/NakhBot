@@ -32,6 +32,8 @@ export * from './media/cache-revocation.js';
 export * from './media/cleanup.js';
 export * from './media/orphan-reconciliation.js';
 export * from './nakh/pending.js';
+export * from './nakh/pending-page.js';
+export * from './nakh/pending-tokens.js';
 export * from './discovery/discovery.js';
 export * from './interaction/interaction.js';
 export * from './interaction/liked-by.js';

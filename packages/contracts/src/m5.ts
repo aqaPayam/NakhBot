@@ -197,6 +197,31 @@ export const GetPendingNakhPageQuerySchema = Type.Object(
   { additionalProperties: false },
 );
 export type GetPendingNakhPageQuery = Static<typeof GetPendingNakhPageQuerySchema>;
+
+export const PendingNakhPageSchema = Type.Object(
+  {
+    totalCount: Type.Integer({ minimum: 0 }),
+    items: Type.Array(
+      Type.Object(
+        {
+          pendingNakhId: UuidSchema,
+          targetName: Type.String({ minLength: 1, maxLength: 80 }),
+          text: NakhTextSchema,
+          status: Type.Literal('pending_payment'),
+          createdAt: UtcTimestampSchema,
+          expiresAt: UtcTimestampSchema,
+          version: Type.Integer({ minimum: 1 }),
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 50 },
+    ),
+    nextCursor: Type.Optional(PendingNakhCursorSchema),
+  },
+  { additionalProperties: false },
+);
+export type PendingNakhPage = Static<typeof PendingNakhPageSchema>;
+
 export const GetSentNakhStatusPageQuerySchema = Type.Object(
   {
     actor: ActorSchema,

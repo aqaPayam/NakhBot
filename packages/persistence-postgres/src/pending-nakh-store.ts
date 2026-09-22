@@ -2,8 +2,18 @@ import { createHash } from 'node:crypto';
 
 import { sql } from 'kysely';
 
-import type { CreatePendingNakhWrite, PendingNakhStore } from '@nakh/application';
-import type { CreatePendingNakhCommand, PendingNakhResult } from '@nakh/contracts';
+import type {
+  CreatePendingNakhWrite,
+  PendingNakhKeyset,
+  PendingNakhReadStore,
+  PendingNakhStore,
+  SenderPendingNakhReadPage,
+} from '@nakh/application';
+import type {
+  CreatePendingNakhCommand,
+  GetPendingNakhPageQuery,
+  PendingNakhResult,
+} from '@nakh/contracts';
 import {
   ApplicationError,
   MAX_PENDING_NAKHES_PER_SENDER,
@@ -37,8 +47,87 @@ function replayResult(value: Readonly<Record<string, unknown>>): PendingNakhResu
   };
 }
 
-export class PostgresPendingNakhStore implements PendingNakhStore {
+export class PostgresPendingNakhStore implements PendingNakhStore, PendingNakhReadStore {
   public constructor(private readonly database: NakhDatabase) {}
+
+  public readSenderPage(
+    query: GetPendingNakhPageQuery,
+    after?: PendingNakhKeyset,
+  ): Promise<SenderPendingNakhReadPage> {
+    if (query.actor.kind !== 'user')
+      return Promise.reject(
+        new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
+      );
+    if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 50)
+      return Promise.reject(
+        new ApplicationError('invalid_request', 'error.nakh.page_limit_invalid', 400),
+      );
+    return this.database
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (transaction) => {
+        const sender = await transaction
+          .selectFrom('identity.accounts')
+          .select('state')
+          .where('user_id', '=', query.actor.userId)
+          .executeTakeFirst();
+        if (sender?.state !== 'active')
+          throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+
+        const countRow = await transaction
+          .selectFrom('nakh.pending_nakhes')
+          .select((expression) => expression.fn.countAll<string>().as('count'))
+          .where('sender_user_id', '=', query.actor.userId)
+          .where('status', '=', 'pending_payment')
+          .executeTakeFirstOrThrow();
+        const totalCount = Number(countRow.count);
+        if (!Number.isSafeInteger(totalCount))
+          throw new ApplicationError('internal_error', 'error.internal', 500);
+
+        let pageQuery = transaction
+          .selectFrom('nakh.pending_nakhes as pending')
+          .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+          .innerJoin('profile.profiles as target', 'target.user_id', 'flow.receiver_user_id')
+          .select([
+            'pending.id as pending_nakh_id',
+            'target.name as target_name',
+            'pending.text',
+            'pending.created_at',
+            'pending.expires_at',
+            'pending.version',
+          ])
+          .where('pending.sender_user_id', '=', query.actor.userId)
+          .where('pending.status', '=', 'pending_payment');
+        if (after !== undefined)
+          pageQuery = pageQuery.where((expression) =>
+            expression.or([
+              expression('pending.created_at', '<', after.createdAt),
+              expression.and([
+                expression('pending.created_at', '=', after.createdAt),
+                expression('pending.id', '<', after.pendingNakhId),
+              ]),
+            ]),
+          );
+        const rows = await pageQuery
+          .orderBy('pending.created_at', 'desc')
+          .orderBy('pending.id', 'desc')
+          .limit(query.limit + 1)
+          .execute();
+        return {
+          totalCount,
+          rows: rows.slice(0, query.limit).map((row) => ({
+            pendingNakhId: row.pending_nakh_id,
+            targetName: row.target_name,
+            text: row.text,
+            createdAt: row.created_at,
+            expiresAt: row.expires_at,
+            version: row.version,
+          })),
+          hasMore: rows.length > query.limit,
+        };
+      });
+  }
 
   public async createPending(write: CreatePendingNakhWrite): Promise<PendingNakhResult> {
     const { command } = write;
