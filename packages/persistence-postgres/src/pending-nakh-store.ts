@@ -186,6 +186,7 @@ export class PostgresPendingNakhStore implements PendingNakhStore {
           id: write.flowId,
           sender_user_id: senderUserId,
           receiver_user_id: targetUserId,
+          created_at: now,
         })
         .execute();
       await transaction
@@ -213,6 +214,7 @@ export class PostgresPendingNakhStore implements PendingNakhStore {
           package_credit_amount_snapshot: null,
           idempotency_key: `nakh-payment:${write.pendingNakhId}`,
           request_hash: requestHash,
+          created_at: now,
           expires_at: expiresAt,
           resolved_at: null,
         })
@@ -228,6 +230,7 @@ export class PostgresPendingNakhStore implements PendingNakhStore {
           auto_settle_authorized_at: now,
           authorization_source: 'explore',
           authorized_at: now,
+          created_at: now,
           expires_at: expiresAt,
           paid_at: null,
           cancelled_at: null,
