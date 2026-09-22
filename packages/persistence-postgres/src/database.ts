@@ -709,7 +709,10 @@ export interface ReconciliationAnomalyTable {
     | 'credit_transaction'
     | 'feature_unlock'
     | 'refund_record'
-    | 'provider_event';
+    | 'provider_event'
+    | 'nakh_flow'
+    | 'pending_nakh'
+    | 'nakh';
   entity_id: string;
   disposition: 'repair_scheduled' | 'quarantined';
   safe_detail: ColumnType<JsonObject, object, object>;
