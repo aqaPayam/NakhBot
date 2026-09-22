@@ -60,6 +60,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000032_m5_pending_nakhes.sql',
         '000033_m5_delivered_nakhes.sql',
         '000034_m5_billing_matching.sql',
+        '000035_m5_localization.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -88,9 +89,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000032_m5_pending_nakhes.sql');
       expect(verified).toContain('000033_m5_delivered_nakhes.sql');
       expect(verified).toContain('000034_m5_billing_matching.sql');
+      expect(verified).toContain('000035_m5_localization.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(34);
+      expect(replay.existing).toHaveLength(35);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
