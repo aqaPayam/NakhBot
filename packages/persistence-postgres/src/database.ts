@@ -391,6 +391,50 @@ export interface PendingNakhTable {
   version: Generated<number>;
 }
 
+export type DeliveredNakhStatus = 'sent' | 'seen' | 'accepted' | 'rejected' | 'expired' | 'closed';
+
+export interface NakhTable {
+  id: string;
+  nakh_flow_id: string;
+  sender_user_id: string;
+  receiver_user_id: string;
+  text: string;
+  funding_type: 'credits' | 'telegram_stars';
+  credit_transaction_id: string | null;
+  payment_record_id: string | null;
+  status: Generated<DeliveredNakhStatus>;
+  sent_at: Generated<Date>;
+  expires_at: Date;
+  seen_at: Date | null;
+  accepted_at: Date | null;
+  rejected_at: Date | null;
+  expired_at: Date | null;
+  closed_at: Date | null;
+  version: Generated<number>;
+}
+
+export interface NakhStatusHistoryTable {
+  id: string;
+  nakh_id: string;
+  nakh_version: number;
+  from_status: DeliveredNakhStatus | null;
+  to_status: DeliveredNakhStatus;
+  reason_code: string;
+  changed_by_user_id: string | null;
+  request_id: string;
+  changed_at: Generated<Date>;
+}
+
+export interface NakhReceiverActionTable {
+  id: string;
+  nakh_id: string;
+  receiver_user_id: string;
+  action_type: 'view_profile' | 'accept' | 'reject' | 'report';
+  idempotency_key: string;
+  request_id: string;
+  created_at: Generated<Date>;
+}
+
 export interface CreditPackageTable {
   id: string;
   code: 'starter' | 'plus' | 'best_value' | 'ultimate';
@@ -840,6 +884,9 @@ export interface DatabaseSchema {
   'platform.user_counters': UserCounterTable;
   'nakh.nakh_flows': NakhFlowTable;
   'nakh.pending_nakhes': PendingNakhTable;
+  'nakh.nakhes': NakhTable;
+  'nakh.nakh_status_history': NakhStatusHistoryTable;
+  'nakh.nakh_receiver_actions': NakhReceiverActionTable;
   'billing.credit_packages': CreditPackageTable;
   'billing.credit_transactions': CreditTransactionTable;
   'billing.pending_payments': PendingPaymentTable;
