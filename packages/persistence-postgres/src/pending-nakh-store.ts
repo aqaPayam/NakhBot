@@ -175,9 +175,7 @@ export class PostgresPendingNakhStore implements PendingNakhStore {
       if (counter.pending_nakh_count >= MAX_PENDING_NAKHES_PER_SENDER)
         throw new ApplicationError('nakh_quota_reached', 'error.nakh.quota_reached', 409);
 
-      const time = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(
-        transaction,
-      );
+      const time = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);
       const now = time.rows[0]!.now;
       const expiresAt = new Date(now.getTime() + PENDING_NAKH_LIFETIME_MS);
       await transaction
