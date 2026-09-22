@@ -89,7 +89,7 @@ describe.skipIf(databaseUrl === undefined)('M4 PostgreSQL credit ledger', () => 
     ).rejects.toThrow();
   });
 
-  it('serializes exact-balance spends so only one can commit', async () => {
+  it('serializes exact-balance debits so only one can commit', async () => {
     const userId = await createCreditUser(database);
     await store.append({
       transactionId: randomUUID(),
@@ -100,15 +100,14 @@ describe.skipIf(databaseUrl === undefined)('M4 PostgreSQL credit ledger', () => 
       correlationId: randomUUID(),
     });
     const attempts = await Promise.allSettled(
-      [randomUUID(), randomUUID()].map((nakhId) =>
+      [randomUUID(), randomUUID()].map((debitId) =>
         store.append({
           transactionId: randomUUID(),
           userId,
-          transactionType: 'spend_nakh',
+          transactionType: 'admin_adjustment',
           amount: -4n,
-          idempotencyKey: `nakh-spend:${nakhId}`,
+          idempotencyKey: `test-debit:${debitId}`,
           correlationId: randomUUID(),
-          reference: { nakhId },
         }),
       ),
     );
