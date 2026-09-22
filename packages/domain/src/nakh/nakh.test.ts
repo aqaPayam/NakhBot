@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
+import { PAIR_STATES } from '../discovery/discovery.js';
+import {
+  ACCOUNT_STATES,
+  PROFILE_COMPLETION_STATUSES,
+  type AccountState,
+  type ProfileCompletionStatus,
+} from '../identity/account.js';
+
 import {
   DELIVERED_NAKH_LIFETIME_MS,
   MAX_PENDING_NAKHES_PER_SENDER,
@@ -91,31 +99,47 @@ describe('M5 Nakh policy', () => {
     expect(isPendingNakhReminderDue({ ...input, status: 'cancelled', now: expiresAt })).toBe(false);
   });
 
-  it('ignores visibility only for delayed delivery and denies every unsafe pair shape', () => {
-    const participant = {
-      accountState: 'active' as const,
-      profileCompletion: 'complete' as const,
-      visibilityEnabled: false,
-    };
-    expect(isDelayedNakhDeliveryEligible({ sender: participant, receiver: participant })).toBe(
-      true,
+  it('ACC-026 exhaustively ignores visibility and denies every unsafe delayed-delivery shape', () => {
+    const participantShapes: ReadonlyArray<{
+      accountState: AccountState;
+      profileCompletion: ProfileCompletionStatus;
+      visibilityEnabled: boolean;
+    }> = ACCOUNT_STATES.flatMap((accountState) =>
+      PROFILE_COMPLETION_STATUSES.flatMap((profileCompletion) =>
+        [true, false].map((visibilityEnabled) => ({
+          accountState,
+          profileCompletion,
+          visibilityEnabled,
+        })),
+      ),
     );
-    for (const pairState of ['matched', 'unmatched', 'blocked'] as const)
-      expect(
-        isDelayedNakhDeliveryEligible({ sender: participant, receiver: participant, pairState }),
-      ).toBe(false);
-    expect(
-      isDelayedNakhDeliveryEligible({
-        sender: { ...participant, accountState: 'restricted' },
-        receiver: participant,
-      }),
-    ).toBe(false);
-    expect(
-      isDelayedNakhDeliveryEligible({
-        sender: participant,
-        receiver: { ...participant, profileCompletion: 'invalid' },
-      }),
-    ).toBe(false);
+    const pairShapes = [undefined, ...PAIR_STATES] as const;
+    let eligibleShapes = 0;
+
+    for (const sender of participantShapes) {
+      for (const receiver of participantShapes) {
+        for (const pairState of pairShapes) {
+          const expected =
+            sender.accountState === 'active' &&
+            receiver.accountState === 'active' &&
+            sender.profileCompletion === 'complete' &&
+            receiver.profileCompletion === 'complete' &&
+            pairState === undefined;
+          expect(
+            isDelayedNakhDeliveryEligible({
+              sender,
+              receiver,
+              ...(pairState === undefined ? {} : { pairState }),
+            }),
+            JSON.stringify({ sender, receiver, pairState }),
+          ).toBe(expected);
+          if (expected) eligibleShapes += 1;
+        }
+      }
+    }
+
+    // Both visibility flags vary independently; no other participant or pair shape is eligible.
+    expect(eligibleShapes).toBe(4);
   });
 
   it('closes ineligible rows, spends FIFO, and stops without skipping', () => {
