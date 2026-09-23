@@ -4,6 +4,7 @@ import {
   DeletePhotoMediaObjects,
   DownloadTelegramPhotoToQuarantine,
   RevokePhotoDeliveryCache,
+  SettlePendingNakhesHandler,
   ValidateQuarantinedPhoto,
 } from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
@@ -19,6 +20,7 @@ import {
   PostgresMediaStore,
   PostgresMediaValidationStore,
   PostgresOutboxStore,
+  PostgresPendingNakhSettlementStore,
   PostgresTelegramStarsReceiptStore,
   SystemIdGenerator,
 } from '@nakh/persistence-postgres';
@@ -157,6 +159,7 @@ const eventProcessor = new WorkerEventProcessor(
   validationHandler,
   cacheRevocationHandler,
   mediaCleanupHandler,
+  new SettlePendingNakhesHandler(new PostgresPendingNakhSettlementStore(database), ids),
 );
 const eventWorker = createDomainEventWorker(workerConnection, config.redis.queuePrefix, (event) =>
   eventProcessor.process(event),
@@ -174,6 +177,7 @@ const dispatch = async (): Promise<void> => {
       limit: 50,
       eventTypes: [
         'platform.sample-effect-created.v1',
+        'billing.credit-increased.v1',
         ...(config.media.ingestionEnabled
           ? ['media.ingestion-requested.v1', 'media.quarantine-uploaded.v1']
           : []),

@@ -60,6 +60,131 @@ describe('WorkerEventProcessor', () => {
     expect(recordIngestion).toHaveBeenCalledWith('quarantined', 0);
   });
 
+  it('routes a validated credit increase into FIFO Pending Nakh settlement', async () => {
+    const settle = vi.fn().mockResolvedValue({
+      deliveredCount: 1,
+      closedCount: 0,
+      stopped: 'queue_empty',
+    });
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      Date.now,
+      undefined,
+      undefined,
+      undefined,
+      { execute: settle },
+    );
+    const creditTransactionId = '50000000-0000-4000-8000-000000000050';
+    const increased: DomainEvent = {
+      ...event,
+      eventType: 'billing.credit-increased.v1',
+      aggregateType: 'credit_account',
+      aggregateId: '60000000-0000-4000-8000-000000000060',
+      payload: { creditTransactionId, amount: '10', balanceAfter: '10' },
+    };
+    await processor.process(increased);
+    expect(settle).toHaveBeenCalledWith({
+      senderUserId: increased.aggregateId,
+      triggerCreditTransactionId: creditTransactionId,
+      causationId: increased.id,
+    });
+  });
+
+  it('rejects forged credit-increase facts before settlement', async () => {
+    const settle = vi.fn();
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      Date.now,
+      undefined,
+      undefined,
+      undefined,
+      { execute: settle },
+    );
+    await expect(
+      processor.process({
+        ...event,
+        eventType: 'billing.credit-increased.v1',
+        aggregateType: 'credit_account',
+        payload: {
+          creditTransactionId: event.id,
+          amount: '-10',
+          balanceAfter: '10',
+        },
+      }),
+    ).rejects.toThrow('invalid_credit_increase_event');
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it('retries settlement when a concurrent Stars capture wins the oldest row', async () => {
+    const settle = vi.fn().mockResolvedValue({
+      deliveredCount: 0,
+      closedCount: 0,
+      stopped: 'external_funding',
+    });
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      Date.now,
+      undefined,
+      undefined,
+      undefined,
+      { execute: settle },
+    );
+    await expect(
+      processor.process({
+        ...event,
+        eventType: 'billing.credit-increased.v1',
+        aggregateType: 'credit_account',
+        aggregateId: '60000000-0000-4000-8000-000000000060',
+        payload: {
+          creditTransactionId: '50000000-0000-4000-8000-000000000050',
+          amount: '10',
+          balanceAfter: '10',
+        },
+      }),
+    ).rejects.toThrow('pending_nakh_external_funding_in_progress');
+  });
+
+  it('retries a bounded pass so concurrently admitted rows receive another wake-up', async () => {
+    const settle = vi.fn().mockResolvedValue({
+      deliveredCount: 5,
+      closedCount: 0,
+      stopped: 'queue_bound',
+    });
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      Date.now,
+      undefined,
+      undefined,
+      undefined,
+      { execute: settle },
+    );
+    await expect(
+      processor.process({
+        ...event,
+        eventType: 'billing.credit-increased.v1',
+        aggregateType: 'credit_account',
+        aggregateId: '60000000-0000-4000-8000-000000000060',
+        payload: {
+          creditTransactionId: '50000000-0000-4000-8000-000000000050',
+          amount: '10',
+          balanceAfter: '10',
+        },
+      }),
+    ).rejects.toThrow('pending_nakh_settlement_pass_incomplete');
+  });
+
   it('rejects forged media event payloads before invoking the handler', async () => {
     const execute = vi.fn();
     const processor = new WorkerEventProcessor({ processSampleEvent: vi.fn() }, 'worker-instance', {

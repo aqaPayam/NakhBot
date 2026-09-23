@@ -2,6 +2,7 @@ import type {
   DeletePhotoMediaObjects,
   DownloadTelegramPhotoToQuarantine,
   RevokePhotoDeliveryCache,
+  SettlePendingNakhesHandler,
   ValidateQuarantinedPhoto,
 } from '@nakh/application';
 import type { DomainEvent } from '@nakh/contracts';
@@ -12,6 +13,7 @@ type MediaHandler = Pick<DownloadTelegramPhotoToQuarantine, 'execute'>;
 type ValidationHandler = Pick<ValidateQuarantinedPhoto, 'execute'>;
 type CacheRevocationHandler = Pick<RevokePhotoDeliveryCache, 'execute'>;
 type MediaCleanupHandler = Pick<DeletePhotoMediaObjects, 'execute'>;
+type PendingNakhSettlementHandler = Pick<SettlePendingNakhesHandler, 'execute'>;
 type MediaMetrics = Pick<M2Metrics, 'recordIngestion' | 'recordQuarantineBytes'> &
   Partial<Pick<M2Metrics, 'recordCleanup'>>;
 
@@ -54,6 +56,28 @@ function lifecyclePhotoId(event: DomainEvent): string {
   return event.payload.photoId;
 }
 
+function creditIncrease(event: DomainEvent): Readonly<{
+  senderUserId: string;
+  triggerCreditTransactionId: string;
+}> {
+  if (
+    event.aggregateType !== 'credit_account' ||
+    !uuid.test(event.aggregateId) ||
+    Object.keys(event.payload).sort().join(',') !== 'amount,balanceAfter,creditTransactionId' ||
+    typeof event.payload.creditTransactionId !== 'string' ||
+    !uuid.test(event.payload.creditTransactionId) ||
+    typeof event.payload.amount !== 'string' ||
+    !/^[1-9][0-9]*$/u.test(event.payload.amount) ||
+    typeof event.payload.balanceAfter !== 'string' ||
+    !/^(?:0|[1-9][0-9]*)$/u.test(event.payload.balanceAfter)
+  )
+    throw new Error('invalid_credit_increase_event');
+  return {
+    senderUserId: event.aggregateId,
+    triggerCreditTransactionId: event.payload.creditTransactionId,
+  };
+}
+
 export class WorkerEventProcessor {
   public constructor(
     private readonly inbox: Pick<PostgresInboxStore, 'processSampleEvent'>,
@@ -64,11 +88,26 @@ export class WorkerEventProcessor {
     private readonly validation?: ValidationHandler,
     private readonly cacheRevocation?: CacheRevocationHandler,
     private readonly mediaCleanup?: MediaCleanupHandler,
+    private readonly pendingNakhSettlement?: PendingNakhSettlementHandler,
   ) {}
 
   public async process(event: DomainEvent): Promise<void> {
     if (event.eventType === 'platform.sample-effect-created.v1') {
       await this.inbox.processSampleEvent(event);
+      return;
+    }
+    if (
+      event.eventType === 'billing.credit-increased.v1' &&
+      this.pendingNakhSettlement !== undefined
+    ) {
+      const result = await this.pendingNakhSettlement.execute({
+        ...creditIncrease(event),
+        causationId: event.id,
+      });
+      if (result.stopped === 'external_funding')
+        throw new Error('pending_nakh_external_funding_in_progress');
+      if (result.stopped === 'queue_bound')
+        throw new Error('pending_nakh_settlement_pass_incomplete');
       return;
     }
     if (event.eventType === 'media.quarantine-uploaded.v1' && this.validation !== undefined) {

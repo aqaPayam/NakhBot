@@ -8,6 +8,7 @@ import type {
   CreatePendingNakhWrite,
   EditPendingNakhWrite,
 } from '@nakh/application';
+import { SettlePendingNakhesHandler } from '@nakh/application';
 import type {
   CancelPendingNakhCommand,
   CreatePendingNakhCommand,
@@ -19,6 +20,7 @@ import { ApplicationError } from '@nakh/domain';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresPendingNakhStore } from './pending-nakh-store.js';
+import { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const manGenderId = '20000000-0000-4000-8000-000000000001';
@@ -155,6 +157,51 @@ function cancelWrite(value: CancelPendingNakhCommand): CancelPendingNakhWrite {
 
 function errorCode(reason: unknown): string | undefined {
   return reason instanceof ApplicationError ? reason.code : undefined;
+}
+
+async function increaseCredits(
+  database: NakhDatabase,
+  userId: string,
+  amount: bigint,
+): Promise<string> {
+  const transactionId = randomUUID();
+  await database.transaction().execute(async (transaction) => {
+    const account = await transaction
+      .selectFrom('billing.credit_accounts')
+      .select(['balance', 'version'])
+      .where('user_id', '=', userId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    const balanceBefore = BigInt(account.balance);
+    const balanceAfter = balanceBefore + amount;
+    const version = account.version + 1;
+    await transaction
+      .insertInto('billing.credit_transactions')
+      .values({
+        id: transactionId,
+        credit_account_id: userId,
+        user_id: userId,
+        account_version: version,
+        transaction_type: 'admin_adjustment',
+        amount: amount.toString(),
+        balance_before: balanceBefore.toString(),
+        balance_after: balanceAfter.toString(),
+        payment_record_id: null,
+        pending_payment_id: null,
+        feature_unlock_id: null,
+        nakh_id: null,
+        idempotency_key: `test-credit:${transactionId}`,
+        correlation_id: transactionId,
+      })
+      .execute();
+    await transaction
+      .updateTable('billing.credit_accounts')
+      .set({ balance: balanceAfter.toString(), version, updated_at: new Date() })
+      .where('user_id', '=', userId)
+      .where('version', '=', account.version)
+      .executeTakeFirstOrThrow();
+  });
+  return transactionId;
 }
 
 describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => {
@@ -628,5 +675,120 @@ describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => 
     expect(nakhes).toHaveLength(0);
     expect(notifications).toHaveLength(0);
     expect(counter.pending_nakh_count).toBe(0);
+  });
+
+  it('ACC-024 settles strictly FIFO across duplicate workers without spending on an invalid oldest row', async () => {
+    const senderUserId = await createActiveUser(database);
+    const receiverUserIds = await Promise.all(
+      Array.from({ length: 3 }, () => createActiveUser(database)),
+    );
+    const pending = [];
+    for (const receiverUserId of receiverUserIds) {
+      pending.push(await store.createPending(write(command(senderUserId, receiverUserId))));
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+    }
+
+    await database
+      .updateTable('identity.accounts')
+      .set({
+        state: 'restricted',
+        state_reason: 'test_restriction',
+        state_changed_at: new Date(),
+        version: 2,
+      })
+      .where('user_id', '=', receiverUserIds[0]!)
+      .executeTakeFirstOrThrow();
+    const triggerCreditTransactionId = await increaseCredits(database, senderUserId, 2n);
+    const settlement = new SettlePendingNakhesHandler(
+      new PostgresPendingNakhSettlementStore(database),
+      { uuid: randomUUID },
+    );
+    const causationId = randomUUID();
+    await Promise.all(
+      Array.from({ length: 20 }, () =>
+        settlement.execute({ senderUserId, triggerCreditTransactionId, causationId }),
+      ),
+    );
+
+    const [rows, intents, delivered, spends, account, counter, receiverNotifications] =
+      await Promise.all([
+        database
+          .selectFrom('nakh.pending_nakhes')
+          .select(['id', 'pending_payment_id', 'status'])
+          .where(
+            'id',
+            'in',
+            pending.map(({ pendingNakhId }) => pendingNakhId),
+          )
+          .execute(),
+        database
+          .selectFrom('billing.pending_payments')
+          .select(['target_id', 'status'])
+          .where(
+            'target_id',
+            'in',
+            pending.map(({ pendingNakhId }) => pendingNakhId),
+          )
+          .execute(),
+        database
+          .selectFrom('nakh.nakhes')
+          .select(['nakh_flow_id', 'receiver_user_id', 'funding_type'])
+          .where('sender_user_id', '=', senderUserId)
+          .execute(),
+        database
+          .selectFrom('billing.credit_transactions')
+          .select(['pending_payment_id', 'amount'])
+          .where('user_id', '=', senderUserId)
+          .where('transaction_type', '=', 'spend_nakh')
+          .execute(),
+        database
+          .selectFrom('billing.credit_accounts')
+          .select('balance')
+          .where('user_id', '=', senderUserId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('platform.user_counters')
+          .select('pending_nakh_count')
+          .where('user_id', '=', senderUserId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('notification.notifications')
+          .select(['user_id', 'notification_type'])
+          .where('user_id', 'in', receiverUserIds)
+          .where('notification_type', '=', 'nakh_received')
+          .execute(),
+      ]);
+    const statusById = new Map(rows.map((row) => [row.id, row.status]));
+    const intentByTarget = new Map(intents.map((row) => [row.target_id, row.status]));
+    expect(pending.map(({ pendingNakhId }) => statusById.get(pendingNakhId))).toEqual([
+      'closed_by_system',
+      'paid_and_sent',
+      'pending_payment',
+    ]);
+    expect(pending.map(({ pendingNakhId }) => intentByTarget.get(pendingNakhId))).toEqual([
+      'cancelled',
+      'paid',
+      'pending',
+    ]);
+    expect(delivered).toEqual([
+      expect.objectContaining({
+        receiver_user_id: receiverUserIds[1],
+        funding_type: 'credits',
+      }),
+    ]);
+    expect(spends).toEqual([{ pending_payment_id: pending[1]!.fundingIntentId, amount: '-2' }]);
+    expect(account.balance).toBe('0');
+    expect(counter.pending_nakh_count).toBe(1);
+    expect(receiverNotifications).toEqual([
+      { user_id: receiverUserIds[1], notification_type: 'nakh_received' },
+    ]);
+
+    await expect(
+      settlement.execute({ senderUserId, triggerCreditTransactionId, causationId }),
+    ).resolves.toMatchObject({
+      deliveredCount: 0,
+      closedCount: 0,
+      stopped: 'insufficient_credits',
+    });
   });
 });
