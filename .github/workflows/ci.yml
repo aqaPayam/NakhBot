@@ -103,6 +103,8 @@ jobs:
         run: pnpm test:m3-query-plan
       - name: M4 production-shaped query-plan gate
         run: pnpm test:m4-query-plan
+      - name: M5 production-shaped query-plan gate
+        run: pnpm test:m5-query-plan
       - name: Retain privacy-safe M3 query plans
         if: always()
         uses: actions/upload-artifact@v6
@@ -117,6 +119,14 @@ jobs:
         with:
           name: m4-query-plans-${{ github.sha }}
           path: artifacts/m4-query-plans.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain privacy-safe M5 query plans
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: m5-query-plans-${{ github.sha }}
+          path: artifacts/m5-query-plans.json
           if-no-files-found: error
           retention-days: 14
       - name: Migration immutability replay

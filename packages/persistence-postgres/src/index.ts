@@ -82,6 +82,11 @@ export { PostgresPendingNakhStore } from './pending-nakh-store.js';
 export { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
 export { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
 export { PostgresNakhReconciliationStore } from './nakh-reconciliation-store.js';
+export {
+  analyzeM5QueryTables,
+  explainM5Queries,
+  withM5SyntheticPlanSession,
+} from './m5-query-plans.js';
 export { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 export { PostgresDirectNakhStore } from './direct-nakh-store.js';
 export { analyzeM3QueryTables, explainCandidatePool } from './candidate-reservation-store.js';
