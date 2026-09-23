@@ -108,7 +108,7 @@ async function databaseTime(database: NakhDatabase): Promise<Date> {
   return result.rows[0]!.now;
 }
 
-async function loadCapability(
+export async function loadChatCapability(
   database: NakhDatabase,
   input: Readonly<{ userId: string; matchId?: string; chatSessionId?: string }>,
 ): Promise<StoredChatCapability> {
@@ -316,11 +316,11 @@ export class PostgresChatStore
   public constructor(private readonly database: NakhDatabase) {}
 
   public loadForMatch(userId: string, matchId: string): Promise<StoredChatCapability> {
-    return loadCapability(this.database, { userId, matchId });
+    return loadChatCapability(this.database, { userId, matchId });
   }
 
   public loadForSession(userId: string, chatSessionId: string): Promise<StoredChatCapability> {
-    return loadCapability(this.database, { userId, chatSessionId });
+    return loadChatCapability(this.database, { userId, chatSessionId });
   }
 
   public markSafetyWarningShown(input: {
@@ -338,10 +338,10 @@ export class PostgresChatStore
         .executeTakeFirst();
       if (participant === undefined) unavailable();
       if (participant.unlock_safety_warning_shown_at !== null)
-        return loadCapability(transaction, input);
+        return loadChatCapability(transaction, input);
       if (participant.version !== input.expectedVersion)
         throw new ApplicationError('conflict', 'error.chat.version_conflict', 409);
-      const before = await loadCapability(transaction, input);
+      const before = await loadChatCapability(transaction, input);
       if (!before.mustShowSafetyWarning) unavailable();
       const occurredAt = await databaseTime(transaction);
       await transaction
@@ -354,7 +354,7 @@ export class PostgresChatStore
         .where('user_id', '=', input.userId)
         .where('version', '=', participant.version)
         .executeTakeFirstOrThrow();
-      return loadCapability(transaction, input);
+      return loadChatCapability(transaction, input);
     });
   }
 

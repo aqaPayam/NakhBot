@@ -4,12 +4,15 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type {
+  ChangeChatMuteCommand,
+  MarkChatReadCommand,
   SendPredefinedAnswerCommand,
   SendPredefinedQuestionCommand,
   SendTextMessageCommand,
 } from '@nakh/contracts';
 
 import { PostgresChatStore } from './chat-store.js';
+import { PostgresChatStateStore } from './chat-state-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -102,6 +105,45 @@ function textCommand(actorUserId: string): SendTextMessageCommand {
     data: {
       chatActionToken: `v1.ch.${'e'.repeat(16)}.${'f'.repeat(16)}`,
       text: 'Café\nhello',
+    },
+  };
+}
+
+function markReadCommand(actorUserId: string, sequenceNumber: string): MarkChatReadCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'chat.mark-read',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: actorUserId },
+    requestId: randomUUID(),
+    idempotencyKey: `chat-read:${randomUUID()}`,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: {
+      chatActionToken: `v1.ch.${'g'.repeat(16)}.${'h'.repeat(16)}`,
+      throughSequenceNumber: sequenceNumber,
+    },
+  };
+}
+
+function muteCommand(
+  actorUserId: string,
+  muted: boolean,
+  expectedVersion: number,
+): ChangeChatMuteCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'chat.change-mute',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: actorUserId },
+    requestId: randomUUID(),
+    idempotencyKey: `chat-mute:${randomUUID()}`,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: {
+      chatActionToken: `v1.ch.${'i'.repeat(16)}.${'j'.repeat(16)}`,
+      muted,
+      expectedVersion,
     },
   };
 }
@@ -719,5 +761,99 @@ describe.skipIf(databaseUrl === undefined)('M6 chat catalog and message foundati
       .executeTakeFirstOrThrow();
     expect(JSON.stringify(notification.payload)).not.toContain('Café');
     expect(JSON.stringify(event.payload)).not.toContain('Café');
+  });
+
+  it('pages only within the newest 50 messages using a sequence keyset', async () => {
+    const fixture = await createChatFixture(database);
+    const question = await database
+      .selectFrom('chat.predefined_questions')
+      .select('id')
+      .where('is_active', '=', true)
+      .orderBy('display_order')
+      .executeTakeFirstOrThrow();
+    for (let sequence = 1; sequence <= 55; sequence += 1)
+      await reserveAndInsert(database, {
+        chatSessionId: fixture.chatSessionId,
+        senderUserId: sequence % 2 === 0 ? fixture.firstUserId : fixture.secondUserId,
+        messageId: randomUUID(),
+        messageType: 'predefined_question',
+        sequenceNumber: String(sequence),
+        questionId: question.id,
+      });
+    const store = new PostgresChatStateStore(database);
+    const first = await store.readPage({
+      userId: fixture.firstUserId,
+      chatSessionId: fixture.chatSessionId,
+      limit: 20,
+    });
+    const second = await store.readPage({
+      userId: fixture.firstUserId,
+      chatSessionId: fixture.chatSessionId,
+      limit: 20,
+      beforeSequenceNumber: first.items.at(-1)!.sequenceNumber,
+    });
+    const third = await store.readPage({
+      userId: fixture.firstUserId,
+      chatSessionId: fixture.chatSessionId,
+      limit: 20,
+      beforeSequenceNumber: second.items.at(-1)!.sequenceNumber,
+    });
+    expect(
+      [...first.items, ...second.items, ...third.items].map((item) => item.sequenceNumber),
+    ).toEqual(Array.from({ length: 50 }, (_, index) => String(55 - index)));
+    expect([first.hasMore, second.hasMore, third.hasMore]).toEqual([true, true, false]);
+    const outsiderId = await createUser(database);
+    await expect(
+      store.readPage({ userId: outsiderId, chatSessionId: fixture.chatSessionId, limit: 20 }),
+    ).rejects.toMatchObject({ code: 'chat_unavailable' });
+  });
+
+  it('advances read state monotonically and changes mute under participant version', async () => {
+    const fixture = await createChatFixture(database);
+    const question = await database
+      .selectFrom('chat.predefined_questions')
+      .select('id')
+      .where('is_active', '=', true)
+      .orderBy('display_order')
+      .executeTakeFirstOrThrow();
+    for (const sequenceNumber of ['1', '2'])
+      await reserveAndInsert(database, {
+        chatSessionId: fixture.chatSessionId,
+        senderUserId: fixture.secondUserId,
+        messageId: randomUUID(),
+        messageType: 'predefined_question',
+        sequenceNumber,
+        questionId: question.id,
+      });
+    const store = new PostgresChatStateStore(database);
+    const firstWrite = {
+      command: markReadCommand(fixture.firstUserId, '2'),
+      chatSessionId: fixture.chatSessionId,
+      eventId: randomUUID(),
+    } as const;
+    const first = await store.markRead(firstWrite);
+    const replay = await store.markRead({ ...firstWrite, eventId: randomUUID() });
+    const lower = await store.markRead({
+      command: markReadCommand(fixture.firstUserId, '1'),
+      chatSessionId: fixture.chatSessionId,
+      eventId: randomUUID(),
+    });
+    expect(first).toMatchObject({ throughSequenceNumber: '2', replayed: false });
+    expect(replay).toMatchObject({ throughSequenceNumber: '2', replayed: true });
+    expect(lower).toMatchObject({ throughSequenceNumber: '2', replayed: false });
+
+    const muted = await store.changeMute({
+      command: muteCommand(fixture.firstUserId, true, 2),
+      chatSessionId: fixture.chatSessionId,
+      eventId: randomUUID(),
+    });
+    expect(muted).toMatchObject({ muted: true, version: 3, replayed: false });
+    await expect(
+      store.changeMute({
+        command: muteCommand(fixture.firstUserId, false, 2),
+        chatSessionId: fixture.chatSessionId,
+        eventId: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: 'conflict' });
   });
 });
