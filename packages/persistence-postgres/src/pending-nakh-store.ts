@@ -4,13 +4,16 @@ import { sql } from 'kysely';
 
 import type {
   CreatePendingNakhWrite,
+  EditPendingNakhWrite,
   PendingNakhKeyset,
+  PendingNakhEditStore,
   PendingNakhReadStore,
   PendingNakhStore,
   SenderPendingNakhReadPage,
 } from '@nakh/application';
 import type {
   CreatePendingNakhCommand,
+  EditPendingNakhCommand,
   GetPendingNakhPageQuery,
   PendingNakhResult,
 } from '@nakh/contracts';
@@ -24,7 +27,7 @@ import {
 import type { NakhDatabase } from './database.js';
 import { lockUserPair } from './pair-lock.js';
 
-function commandHash(command: CreatePendingNakhCommand): string {
+function commandHash(command: CreatePendingNakhCommand | EditPendingNakhCommand): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -47,7 +50,9 @@ function replayResult(value: Readonly<Record<string, unknown>>): PendingNakhResu
   };
 }
 
-export class PostgresPendingNakhStore implements PendingNakhStore, PendingNakhReadStore {
+export class PostgresPendingNakhStore
+  implements PendingNakhStore, PendingNakhReadStore, PendingNakhEditStore
+{
   public constructor(private readonly database: NakhDatabase) {}
 
   public readSenderPage(
@@ -127,6 +132,136 @@ export class PostgresPendingNakhStore implements PendingNakhStore, PendingNakhRe
           hasMore: rows.length > query.limit,
         };
       });
+  }
+
+  public async editPending(write: EditPendingNakhWrite): Promise<PendingNakhResult> {
+    const { command } = write;
+    const senderUserId = command.actor.userId;
+    const requestHash = commandHash(command);
+    return this.database.transaction().execute(async (transaction) => {
+      const counter = await transaction
+        .selectFrom('platform.user_counters')
+        .select('user_id')
+        .where('user_id', '=', senderUserId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (counter === undefined)
+        throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
+
+      const claimed = await transaction
+        .insertInto('platform.idempotency_records')
+        .values({
+          id: command.commandId,
+          actor_user_id: senderUserId,
+          scope: command.commandType,
+          idempotency_key: command.idempotencyKey,
+          request_hash: requestHash,
+          status: 'processing',
+          response_json: null,
+          expires_at: new Date(Date.parse(command.occurredAt) + 86_400_000),
+          created_at: new Date(command.occurredAt),
+          updated_at: new Date(command.occurredAt),
+        })
+        .onConflict((conflict) => conflict.doNothing())
+        .returning('id')
+        .executeTakeFirst();
+      if (claimed === undefined) {
+        const existing = await transaction
+          .selectFrom('platform.idempotency_records')
+          .select(['request_hash', 'status', 'response_json'])
+          .where('actor_user_id', '=', senderUserId)
+          .where('scope', '=', command.commandType)
+          .where('idempotency_key', '=', command.idempotencyKey)
+          .executeTakeFirst();
+        if (existing === undefined || existing.request_hash !== requestHash)
+          throw new ApplicationError(
+            'idempotency_conflict',
+            'error.command.idempotency_conflict',
+            409,
+          );
+        if (existing.status !== 'completed' || existing.response_json === null)
+          throw new ApplicationError('conflict', 'error.command.in_progress', 409);
+        return replayResult(existing.response_json);
+      }
+
+      const locator = await transaction
+        .selectFrom('nakh.pending_nakhes')
+        .select('nakh_flow_id')
+        .where('id', '=', command.data.pendingNakhId)
+        .where('sender_user_id', '=', senderUserId)
+        .executeTakeFirst();
+      if (locator === undefined)
+        throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
+      const flow = await transaction
+        .selectFrom('nakh.nakh_flows')
+        .select('id')
+        .where('id', '=', locator.nakh_flow_id)
+        .where('sender_user_id', '=', senderUserId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (flow === undefined) throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
+      const pending = await transaction
+        .selectFrom('nakh.pending_nakhes')
+        .select(['id', 'text', 'status', 'expires_at', 'version'])
+        .where('id', '=', command.data.pendingNakhId)
+        .where('sender_user_id', '=', senderUserId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (pending === undefined)
+        throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
+      if (pending.status !== 'pending_payment')
+        throw new ApplicationError('nakh_terminal', 'error.nakh.terminal', 409);
+      if (pending.version !== command.data.expectedVersion)
+        throw new ApplicationError('version_conflict', 'error.nakh.version_conflict', 409);
+
+      const time = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);
+      const now = time.rows[0]!.now;
+      let version = pending.version;
+      if (pending.text !== command.data.text) {
+        const updated = await transaction
+          .updateTable('nakh.pending_nakhes')
+          .set({ text: command.data.text, version: sql<number>`version + 1` })
+          .where('id', '=', pending.id)
+          .where('status', '=', 'pending_payment')
+          .where('version', '=', pending.version)
+          .returning('version')
+          .executeTakeFirstOrThrow();
+        version = updated.version;
+        await transaction
+          .insertInto('platform.outbox_events')
+          .values({
+            id: write.pendingEventId,
+            aggregate_type: 'pending_nakh',
+            aggregate_id: pending.id,
+            event_type: 'nakh.pending-updated.v1',
+            schema_version: 1,
+            payload: { pendingNakhId: pending.id, senderUserId },
+            occurred_at: now,
+            available_at: now,
+            published_at: null,
+            last_error_code: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            correlation_id: command.requestId,
+            causation_id: command.commandId,
+          })
+          .execute();
+      }
+
+      const result: PendingNakhResult = {
+        pendingNakhId: pending.id,
+        status: 'pending_payment',
+        expiresAt: pending.expires_at.toISOString(),
+        version,
+        replayed: false,
+      };
+      await transaction
+        .updateTable('platform.idempotency_records')
+        .set({ status: 'completed', response_json: result, updated_at: now })
+        .where('id', '=', command.commandId)
+        .executeTakeFirstOrThrow();
+      return result;
+    });
   }
 
   public async createPending(write: CreatePendingNakhWrite): Promise<PendingNakhResult> {

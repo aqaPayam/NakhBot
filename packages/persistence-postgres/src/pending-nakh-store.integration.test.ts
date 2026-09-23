@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { CreatePendingNakhWrite } from '@nakh/application';
-import type { CreatePendingNakhCommand } from '@nakh/contracts';
+import type { CreatePendingNakhWrite, EditPendingNakhWrite } from '@nakh/application';
+import type { CreatePendingNakhCommand, EditPendingNakhCommand } from '@nakh/contracts';
 import { ApplicationError } from '@nakh/domain';
 
 import { createDatabase, type NakhDatabase } from './database.js';
@@ -86,6 +86,29 @@ function write(value: CreatePendingNakhCommand): CreatePendingNakhWrite {
     flowEventId: randomUUID(),
     pendingEventId: randomUUID(),
   };
+}
+
+function editCommand(
+  senderUserId: string,
+  pendingNakhId: string,
+  expectedVersion: number,
+  text: string,
+): EditPendingNakhCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'nakh.edit-pending',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: senderUserId },
+    requestId: randomUUID(),
+    idempotencyKey: `edit:${randomUUID()}`,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: { pendingNakhId, text, expectedVersion },
+  };
+}
+
+function editWrite(value: EditPendingNakhCommand): EditPendingNakhWrite {
+  return { command: value, pendingEventId: randomUUID() };
 }
 
 function errorCode(reason: unknown): string | undefined {
@@ -232,5 +255,93 @@ describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => 
       .execute();
     expect(counter.pending_nakh_count).toBe(5);
     expect(pending).toHaveLength(5);
+  });
+
+  it('edits once across command replay without changing payment, deadline, quota, or receiver facts', async () => {
+    const senderUserId = await createActiveUser(database);
+    const receiverUserId = await createActiveUser(database);
+    const created = await store.createPending(write(command(senderUserId, receiverUserId)));
+    const before = await database
+      .selectFrom('nakh.pending_nakhes')
+      .selectAll()
+      .where('id', '=', created.pendingNakhId)
+      .executeTakeFirstOrThrow();
+    const replayedCommand = editCommand(
+      senderUserId,
+      created.pendingNakhId,
+      1,
+      'Edited private hello 🌲',
+    );
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => store.editPending(editWrite(replayedCommand))),
+    );
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(results.filter((result) => result.replayed)).toHaveLength(19);
+    expect(new Set(results.map((result) => result.version))).toEqual(new Set([2]));
+
+    const [after, payment, counter, notifications, events] = await Promise.all([
+      database
+        .selectFrom('nakh.pending_nakhes')
+        .selectAll()
+        .where('id', '=', created.pendingNakhId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('billing.pending_payments')
+        .selectAll()
+        .where('id', '=', before.pending_payment_id)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('platform.user_counters')
+        .select('pending_nakh_count')
+        .where('user_id', '=', senderUserId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('notification.notifications')
+        .select('id')
+        .where('user_id', '=', receiverUserId)
+        .execute(),
+      database
+        .selectFrom('platform.outbox_events')
+        .select('id')
+        .where('aggregate_id', '=', created.pendingNakhId)
+        .where('event_type', '=', 'nakh.pending-updated.v1')
+        .execute(),
+    ]);
+    expect(after).toMatchObject({ text: 'Edited private hello 🌲', version: 2 });
+    expect(after.expires_at).toEqual(before.expires_at);
+    expect(after.pending_payment_id).toBe(before.pending_payment_id);
+    expect(payment.expires_at).toEqual(before.expires_at);
+    expect(counter.pending_nakh_count).toBe(1);
+    expect(notifications).toHaveLength(0);
+    expect(events).toHaveLength(1);
+  });
+
+  it('serializes stale concurrent edits and preserves sender ownership', async () => {
+    const senderUserId = await createActiveUser(database);
+    const receiverUserId = await createActiveUser(database);
+    const strangerUserId = await createActiveUser(database);
+    const created = await store.createPending(write(command(senderUserId, receiverUserId)));
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 20 }, (_, index) =>
+        store.editPending(
+          editWrite(
+            editCommand(senderUserId, created.pendingNakhId, 1, `Concurrent edit ${index}`),
+          ),
+        ),
+      ),
+    );
+    expect(attempts.filter((attempt) => attempt.status === 'fulfilled')).toHaveLength(1);
+    const failures = attempts.filter(
+      (attempt): attempt is PromiseRejectedResult => attempt.status === 'rejected',
+    );
+    expect(failures).toHaveLength(19);
+    expect(failures.every((failure) => errorCode(failure.reason) === 'version_conflict')).toBe(
+      true,
+    );
+    await expect(
+      store.editPending(
+        editWrite(editCommand(strangerUserId, created.pendingNakhId, 2, 'Forged edit')),
+      ),
+    ).rejects.toMatchObject({ code: 'not_found' });
   });
 });
