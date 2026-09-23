@@ -64,6 +64,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000036_m5_reconciliation.sql',
         '000037_m5_query_plans.sql',
         '000038_m5_flow_lookup.sql',
+        '000039_m5_ordered_flow_lookup.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -96,9 +97,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000036_m5_reconciliation.sql');
       expect(verified).toContain('000037_m5_query_plans.sql');
       expect(verified).toContain('000038_m5_flow_lookup.sql');
+      expect(verified).toContain('000039_m5_ordered_flow_lookup.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(38);
+      expect(replay.existing).toHaveLength(39);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
