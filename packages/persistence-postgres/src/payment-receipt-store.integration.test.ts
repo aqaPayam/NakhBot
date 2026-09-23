@@ -452,6 +452,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       await receipts.claimFulfillments({ owner: 'package-worker', leaseMs: 60_000, limit: 100 })
     ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
     expect(claimed).toBeDefined();
+    expect(claimed?.paymentType).toBe('buy_credit_package');
     const fulfillmentWrite = {
       paymentRecordId: payment.paymentRecordId,
       owner: 'package-worker',
@@ -528,6 +529,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       await receipts.claimFulfillments({ owner: 'nakh-worker', leaseMs: 60_000, limit: 100 })
     ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
     expect(claim).toBeDefined();
+    expect(claim?.paymentType).toBe('pay_pending_action');
     const write = {
       paymentRecordId: payment.paymentRecordId,
       owner: 'nakh-worker',
@@ -636,6 +638,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       await receipts.claimFulfillments({ owner: 'nakh-correction', leaseMs: 60_000, limit: 100 })
     ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
     expect(claim).toBeDefined();
+    expect(claim?.paymentType).toBe('pay_pending_action');
     const write = {
       paymentRecordId: payment.paymentRecordId,
       owner: 'nakh-correction',
@@ -869,6 +872,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       await receipts.claimFulfillments({ owner: 'direct-worker', leaseMs: 60_000, limit: 100 })
     ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
     expect(claim).toBeDefined();
+    expect(claim?.paymentType).toBe('direct_paid_action');
     const fulfillmentWrite = {
       paymentRecordId: payment.paymentRecordId,
       owner: 'direct-worker',

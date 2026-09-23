@@ -19,6 +19,7 @@ import {
   PostgresMediaStore,
   PostgresMediaValidationStore,
   PostgresOutboxStore,
+  PostgresTelegramStarsReceiptStore,
   SystemIdGenerator,
 } from '@nakh/persistence-postgres';
 import {
@@ -31,6 +32,7 @@ import { TelegramMediaTransportCipher, TelegramPhotoDownloadAdapter } from '@nak
 import { WorkerEventProcessor } from './event-processor.js';
 import { createTelegramLikedByDeliveryRuntime } from './liked-by-delivery-runtime.js';
 import { SharpPhotoTransformer } from './media/image-transformer.js';
+import { PaymentFulfillmentProcessor } from './payment-fulfillment-processor.js';
 
 function transportKey(reference: string): Uint8Array {
   const encoded = resolveSecretReference(reference);
@@ -70,8 +72,14 @@ const workerConnection = createRedisConnection(config.redis.url);
 await Promise.all([publisherConnection.connect(), workerConnection.connect()]);
 const publisher = new BullMqOutboxPublisher(publisherConnection, config.redis.queuePrefix);
 const outbox = new PostgresOutboxStore(database);
-const inbox = new PostgresInboxStore(database, new SystemIdGenerator());
+const ids = new SystemIdGenerator();
+const inbox = new PostgresInboxStore(database, ids);
 const owner = `${config.serviceName}-${randomUUID()}`;
+const paymentFulfillment = new PaymentFulfillmentProcessor(
+  PostgresTelegramStarsReceiptStore.forFulfillment(database),
+  ids,
+  `payment-fulfillment-${randomUUID()}`,
+);
 const likedByDelivery = createTelegramLikedByDeliveryRuntime({
   config,
   database,
@@ -237,6 +245,37 @@ const dispatchLikedBy = async (): Promise<void> => {
   }
 };
 
+let paymentFulfillmentDispatching = false;
+const dispatchPaymentFulfillment = async (): Promise<void> => {
+  if (paymentFulfillmentDispatching) return;
+  paymentFulfillmentDispatching = true;
+  try {
+    const result = await paymentFulfillment.processNext();
+    if (result.outcome === 'retry_scheduled')
+      logger.warn(
+        {
+          operation: 'billing.payment_fulfilling',
+          outcome: result.outcome,
+          paymentType: result.paymentType,
+          reasonCode: result.reasonCode,
+        },
+        'payment fulfillment retry scheduled',
+      );
+    else if (result.outcome === 'lease_lost')
+      logger.warn(
+        { operation: 'billing.payment_fulfilling', outcome: result.outcome },
+        'payment fulfillment lease was lost',
+      );
+  } catch (error) {
+    logger.error(
+      { err: error, operation: 'billing.payment_fulfilling' },
+      'payment fulfillment polling failed',
+    );
+  } finally {
+    paymentFulfillmentDispatching = false;
+  }
+};
+
 let likedByBacklogSampling = false;
 const sampleLikedByBacklog = async (): Promise<void> => {
   if (likedByDelivery === undefined || likedByBacklogSampling) return;
@@ -255,8 +294,14 @@ const sampleLikedByBacklog = async (): Promise<void> => {
   }
 };
 
-await Promise.all([dispatch(), dispatchLikedBy(), sampleLikedByBacklog()]);
+await Promise.all([
+  dispatch(),
+  dispatchLikedBy(),
+  dispatchPaymentFulfillment(),
+  sampleLikedByBacklog(),
+]);
 const timer = setInterval(() => void dispatch(), 250);
+const paymentFulfillmentTimer = setInterval(() => void dispatchPaymentFulfillment(), 250);
 const likedByTimer =
   likedByDelivery === undefined ? undefined : setInterval(() => void dispatchLikedBy(), 250);
 const likedByBacklogTimer =
@@ -273,6 +318,7 @@ logger.info(
 
 const shutdown = async (): Promise<void> => {
   clearInterval(timer);
+  clearInterval(paymentFulfillmentTimer);
   if (likedByTimer !== undefined) clearInterval(likedByTimer);
   if (likedByBacklogTimer !== undefined) clearInterval(likedByBacklogTimer);
   await eventWorker.close();

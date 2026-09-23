@@ -62,6 +62,7 @@ export type PaymentFulfillmentClaim = Readonly<{
 
 export type ClaimedPaymentFulfillment = Readonly<{
   paymentRecordId: string;
+  paymentType: 'buy_credit_package' | 'direct_paid_action' | 'pay_pending_action';
   attemptCount: number;
   fenceToken: bigint;
 }>;
@@ -190,9 +191,14 @@ function reasonForPayment(
 export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptStore {
   public constructor(
     private readonly database: NakhDatabase,
-    private readonly ids: IdGenerator,
-    private readonly payloads: Pick<InvoicePayloadProtector, 'digest'>,
+    private readonly ids?: IdGenerator,
+    private readonly payloads?: Pick<InvoicePayloadProtector, 'digest'>,
   ) {}
+
+  /** Creates the worker-side capability without loading callback-only cryptographic dependencies. */
+  public static forFulfillment(database: NakhDatabase): PostgresTelegramStarsReceiptStore {
+    return new PostgresTelegramStarsReceiptStore(database);
+  }
 
   public async validatePreCheckout(
     write: TelegramPreCheckoutWrite,
@@ -429,7 +435,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         await transaction
           .insertInto('billing.refund_records')
           .values({
-            id: this.ids.uuid(),
+            id: this.receiptIds().uuid(),
             user_id: payment.user_id,
             funding_type: 'telegram_stars',
             payment_record_id: payment.id,
@@ -460,7 +466,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           corrected_at: null,
         })
         .execute();
-      const outboxId = this.ids.uuid();
+      const outboxId = this.receiptIds().uuid();
       await transaction
         .insertInto('platform.outbox_events')
         .values({
@@ -1360,11 +1366,27 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         )
         .returning(['payment_record_id', 'attempt_count', 'fence_token'])
         .execute();
-      return claimed.map((row) => ({
-        paymentRecordId: row.payment_record_id,
-        attemptCount: row.attempt_count,
-        fenceToken: BigInt(row.fence_token),
-      }));
+      const paymentTypes = await transaction
+        .selectFrom('billing.payment_records')
+        .select(['id', 'payment_type'])
+        .where(
+          'id',
+          'in',
+          claimed.map(({ payment_record_id: id }) => id),
+        )
+        .execute();
+      const typeByPayment = new Map(paymentTypes.map((row) => [row.id, row.payment_type]));
+      return claimed.map((row) => {
+        const paymentType = typeByPayment.get(row.payment_record_id);
+        if (paymentType === undefined)
+          throw new Error('Claimed payment fulfillment has no authoritative payment record.');
+        return {
+          paymentRecordId: row.payment_record_id,
+          paymentType,
+          attemptCount: row.attempt_count,
+          fenceToken: BigInt(row.fence_token),
+        };
+      });
     });
   }
 
@@ -1435,6 +1457,18 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
       throw new ApplicationError('invalid_request', 'error.billing.fulfillment_lease_invalid', 400);
   }
 
+  private receiptIds(): IdGenerator {
+    if (this.ids === undefined)
+      throw new Error('Telegram Stars receipt ID generation is unavailable in fulfillment mode.');
+    return this.ids;
+  }
+
+  private payloadDigest(cleartext: string): string {
+    if (this.payloads === undefined)
+      throw new Error('Telegram Stars payload verification is unavailable in fulfillment mode.');
+    return this.payloads.digest(cleartext);
+  }
+
   private async lockProviderEvent(database: NakhDatabase, providerEventId: string): Promise<void> {
     await sql`SELECT pg_advisory_xact_lock(hashtextextended(${'telegram-stars:'} || ${providerEventId}, 0))`.execute(
       database,
@@ -1460,7 +1494,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
   ): Promise<StoredPayment | undefined> {
     let digest: string;
     try {
-      digest = this.payloads.digest(invoicePayload);
+      digest = this.payloadDigest(invoicePayload);
     } catch {
       return undefined;
     }
@@ -1587,7 +1621,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
     await database
       .insertInto('billing.payment_provider_events')
       .values({
-        id: this.ids.uuid(),
+        id: this.receiptIds().uuid(),
         provider: 'telegram_stars',
         provider_event_id: input.write.providerEventId,
         event_type: input.eventType,
@@ -1615,7 +1649,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
     await database
       .insertInto('billing.payment_provider_conflicts')
       .values({
-        id: this.ids.uuid(),
+        id: this.receiptIds().uuid(),
         provider: 'telegram_stars',
         provider_event_id: write.providerEventId,
         payment_record_id: paymentRecordId,
