@@ -845,8 +845,58 @@ export interface ChatParticipantTable {
   chat_session_id: string;
   user_id: string;
   last_read_at: Date | null;
+  last_read_sequence_number: string | null;
   muted_at: Date | null;
   unlock_safety_warning_shown_at: Date | null;
+  version: Generated<number>;
+}
+
+export interface PredefinedQuestionSetTable {
+  id: string;
+  code: string;
+  title_key: string;
+  is_active: Generated<boolean>;
+  display_order: number;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface PredefinedQuestionTable {
+  id: string;
+  question_set_id: string;
+  code: string;
+  text_key: string;
+  is_active: Generated<boolean>;
+  display_order: number;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface PredefinedAnswerTable {
+  id: string;
+  question_id: string;
+  code: string;
+  text_key: string;
+  is_active: Generated<boolean>;
+  display_order: number;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface ChatMessageTable {
+  id: string;
+  chat_session_id: string;
+  sender_user_id: string | null;
+  message_type: 'predefined_question' | 'predefined_answer' | 'text' | 'system';
+  text: string | null;
+  predefined_question_id: string | null;
+  predefined_answer_id: string | null;
+  system_arguments: ColumnType<JsonObject | null, object | null, never>;
+  sequence_number: string;
+  created_at: Generated<Date>;
 }
 
 export interface DatabaseSchema {
@@ -926,6 +976,10 @@ export interface DatabaseSchema {
   'matching.match_participants': MatchParticipantTable;
   'chat.chat_sessions': ChatSessionTable;
   'chat.chat_participants': ChatParticipantTable;
+  'chat.predefined_question_sets': PredefinedQuestionSetTable;
+  'chat.predefined_questions': PredefinedQuestionTable;
+  'chat.predefined_answers': PredefinedAnswerTable;
+  'chat.chat_messages': ChatMessageTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;
