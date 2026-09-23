@@ -25,6 +25,7 @@ describe('CancelPendingNakhHandler', () => {
   it('supplies every server-owned identity needed for either atomic resolution', async () => {
     const cancelPending = vi.fn<PendingNakhCancelStore['cancelPending']>().mockResolvedValue({
       pendingNakhId: command.data.pendingNakhId,
+      fundingIntentId: '10000000-0000-4000-8000-000000000013',
       status: 'cancelled',
       expiresAt: '2026-10-07T00:00:00.000Z',
       version: 2,

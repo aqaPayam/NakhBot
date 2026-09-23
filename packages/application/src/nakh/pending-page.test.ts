@@ -15,6 +15,7 @@ const query: GetPendingNakhPageQuery = {
 const createdAt = new Date('2026-09-22T00:00:00.000Z');
 const row = {
   pendingNakhId,
+  fundingIntentId: '20000000-0000-4000-8000-000000000002',
   targetName: 'Receiver',
   text: 'Private hello',
   createdAt,
@@ -42,6 +43,7 @@ describe('GetPendingNakhPageHandler', () => {
       items: [
         {
           pendingNakhId,
+          fundingIntentId: row.fundingIntentId,
           targetName: 'Receiver',
           text: 'Private hello',
           status: 'pending_payment',

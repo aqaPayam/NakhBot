@@ -8,6 +8,7 @@ export type PendingNakhKeyset = Readonly<{ createdAt: Date; pendingNakhId: strin
 /** Internal sender-owned projection. Receiver identifiers never cross the application boundary. */
 export type SenderPendingNakhRow = Readonly<{
   pendingNakhId: string;
+  fundingIntentId: string;
   targetName: string;
   text: string;
   createdAt: Date;
@@ -48,6 +49,7 @@ export class GetPendingNakhPageHandler {
     const page = await this.store.readSenderPage(query, after);
     const items = page.rows.map((row) => ({
       pendingNakhId: row.pendingNakhId,
+      fundingIntentId: row.fundingIntentId,
       targetName: row.targetName,
       text: row.text,
       status: 'pending_payment' as const,

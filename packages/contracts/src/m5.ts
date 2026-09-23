@@ -205,6 +205,7 @@ export const PendingNakhPageSchema = Type.Object(
       Type.Object(
         {
           pendingNakhId: UuidSchema,
+          fundingIntentId: UuidSchema,
           targetName: Type.String({ minLength: 1, maxLength: 80 }),
           text: NakhTextSchema,
           status: Type.Literal('pending_payment'),
@@ -264,6 +265,7 @@ export type DirectNakhResult = Static<typeof DirectNakhResultSchema>;
 export const PendingNakhResultSchema = Type.Object(
   {
     pendingNakhId: UuidSchema,
+    fundingIntentId: UuidSchema,
     status: PendingNakhStatusSchema,
     expiresAt: UtcTimestampSchema,
     version: Type.Integer({ minimum: 1 }),

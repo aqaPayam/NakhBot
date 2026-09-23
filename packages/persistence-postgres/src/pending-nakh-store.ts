@@ -48,6 +48,7 @@ function commandHash(
 function replayResult(value: Readonly<Record<string, unknown>>): PendingNakhResult {
   return {
     pendingNakhId: String(value.pendingNakhId),
+    fundingIntentId: String(value.fundingIntentId),
     status: String(value.status) as PendingNakhResult['status'],
     expiresAt: String(value.expiresAt),
     version: Number(value.version),
@@ -101,6 +102,7 @@ export class PostgresPendingNakhStore
           .innerJoin('profile.profiles as target', 'target.user_id', 'flow.receiver_user_id')
           .select([
             'pending.id as pending_nakh_id',
+            'pending.pending_payment_id as funding_intent_id',
             'target.name as target_name',
             'pending.text',
             'pending.created_at',
@@ -128,6 +130,7 @@ export class PostgresPendingNakhStore
           totalCount,
           rows: rows.slice(0, query.limit).map((row) => ({
             pendingNakhId: row.pending_nakh_id,
+            fundingIntentId: row.funding_intent_id,
             targetName: row.target_name,
             text: row.text,
             createdAt: row.created_at,
@@ -207,7 +210,7 @@ export class PostgresPendingNakhStore
       if (flow === undefined) throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
       const pending = await transaction
         .selectFrom('nakh.pending_nakhes')
-        .select(['id', 'text', 'status', 'expires_at', 'version'])
+        .select(['id', 'text', 'status', 'pending_payment_id', 'expires_at', 'version'])
         .where('id', '=', command.data.pendingNakhId)
         .where('sender_user_id', '=', senderUserId)
         .forUpdate()
@@ -255,6 +258,7 @@ export class PostgresPendingNakhStore
 
       const result: PendingNakhResult = {
         pendingNakhId: pending.id,
+        fundingIntentId: pending.pending_payment_id,
         status: 'pending_payment',
         expiresAt: pending.expires_at.toISOString(),
         version,
@@ -681,16 +685,6 @@ export class PostgresPendingNakhStore
       }
 
       await transaction
-        .updateTable('billing.payment_records')
-        .set({
-          status: 'cancelled',
-          cancelled_at: now,
-          version: sql<number>`version + 1`,
-        })
-        .where('pending_payment_id', '=', payment.id)
-        .where('status', '=', 'pending')
-        .execute();
-      await transaction
         .updateTable('billing.pending_payments')
         .set({ status: 'cancelled', resolved_at: now, version: sql<number>`version + 1` })
         .where('id', '=', payment.id)
@@ -765,6 +759,7 @@ export class PostgresPendingNakhStore
 
       const result: PendingNakhResult = {
         pendingNakhId: pending.id,
+        fundingIntentId: pending.pending_payment_id,
         status: 'cancelled',
         expiresAt: pending.expires_at.toISOString(),
         version: updated.version,
@@ -1029,6 +1024,7 @@ export class PostgresPendingNakhStore
         .execute();
       const result: PendingNakhResult = {
         pendingNakhId: pending.id,
+        fundingIntentId: write.pendingPaymentId,
         status: pending.status,
         expiresAt: pending.expires_at.toISOString(),
         version: pending.version,

@@ -191,6 +191,7 @@ export class PostgresFundingStore implements BillingFundingStore {
         throw new ApplicationError('payment_attempt_limit', 'error.billing.attempt_limit', 429);
 
       const packagePayment = intent.reason === 'buy_credit_package';
+      const pendingNakhPayment = intent.reason === 'send_nakh';
       const paidActionReason = intent.reason === 'buy_credit_package' ? null : intent.reason;
       const inserted = await transaction
         .insertInto('billing.payment_records')
@@ -198,7 +199,11 @@ export class PostgresFundingStore implements BillingFundingStore {
           id: write.paymentRecordId,
           user_id: write.userId,
           pending_payment_id: intent.id,
-          payment_type: packagePayment ? 'buy_credit_package' : 'direct_paid_action',
+          payment_type: packagePayment
+            ? 'buy_credit_package'
+            : pendingNakhPayment
+              ? 'pay_pending_action'
+              : 'direct_paid_action',
           paid_action_reason: paidActionReason,
           credit_package_id: packagePayment ? intent.target_id : null,
           package_code_snapshot: intent.package_code_snapshot,

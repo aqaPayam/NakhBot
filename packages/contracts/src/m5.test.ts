@@ -136,13 +136,14 @@ describe('M5 Nakh contracts', () => {
     expect(validate({ ...query, limit: 51 })).toBe(false);
   });
 
-  it('returns a bounded sender-safe pending page without receiver identifiers or payment facts', () => {
+  it('returns a bounded sender-safe pending page with only an opaque funding reference', () => {
     const validate = validator(PendingNakhPageSchema);
     const page = {
       totalCount: 1,
       items: [
         {
           pendingNakhId: entityId,
+          fundingIntentId: targetUserId,
           targetName: 'Nakh receiver',
           text: 'Hello 🌳',
           status: 'pending_payment',
@@ -176,6 +177,7 @@ describe('M5 Nakh contracts', () => {
     expect(
       validator(PendingNakhResultSchema)({
         pendingNakhId: entityId,
+        fundingIntentId: targetUserId,
         status: 'pending_payment',
         expiresAt: '2026-10-06T00:00:00.000Z',
         version: 1,

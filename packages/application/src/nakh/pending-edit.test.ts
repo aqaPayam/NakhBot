@@ -25,6 +25,7 @@ describe('EditPendingNakhHandler', () => {
   it('validates prose and supplies a server-owned outbox identity', async () => {
     const editPending = vi.fn<PendingNakhEditStore['editPending']>().mockResolvedValue({
       pendingNakhId: command.data.pendingNakhId,
+      fundingIntentId: '10000000-0000-4000-8000-000000000006',
       status: 'pending_payment',
       expiresAt: '2026-10-06T00:00:00.000Z',
       version: 2,

@@ -12,13 +12,21 @@ import type {
   TelegramStarsReceiptStore,
   TelegramSuccessfulPaymentWrite,
 } from '@nakh/application';
-import { ApplicationError, calculateCreditBalance, type IdGenerator } from '@nakh/domain';
+import {
+  ApplicationError,
+  calculateCreditBalance,
+  DELIVERED_NAKH_LIFETIME_MS,
+  NAKH_STARS_COST,
+  type IdGenerator,
+} from '@nakh/domain';
 
 import { actionableLikedByFrom } from './liked-by-store.js';
 import {
   insertFeatureUnlockNotifications,
+  insertNotification,
   insertPaymentSuccessNotification,
 } from './notification-store.js';
+import { lockUserPair } from './pair-lock.js';
 import { lockAndValidatePaidActionTarget } from './paid-action-store.js';
 import type { NakhDatabase } from './database.js';
 
@@ -90,6 +98,23 @@ export type DirectPaidActionFulfillmentResult = Readonly<{
   paymentRecordId: string;
   outcome: 'fulfilled' | 'correction_required';
   featureUnlockId?: string;
+  refundRecordId?: string;
+  replayed: boolean;
+}>;
+
+export type PendingNakhStarsFulfillmentWrite = PaymentFulfillmentLease &
+  Readonly<{
+    nakhId: string;
+    historyId: string;
+    refundRecordId: string;
+    deliveredEventId: string;
+    paymentTerminalEventId: string;
+  }>;
+
+export type PendingNakhStarsFulfillmentResult = Readonly<{
+  paymentRecordId: string;
+  outcome: 'fulfilled' | 'correction_required';
+  nakhId?: string;
   refundRecordId?: string;
   replayed: boolean;
 }>;
@@ -400,6 +425,29 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
 
       const correctionRequired =
         payment.status !== 'pending' || payment.intent_status !== 'pending';
+      if (correctionRequired)
+        await transaction
+          .insertInto('billing.refund_records')
+          .values({
+            id: this.ids.uuid(),
+            user_id: payment.user_id,
+            funding_type: 'telegram_stars',
+            payment_record_id: payment.id,
+            original_credit_transaction_id: null,
+            refund_credit_transaction_id: null,
+            telegram_charge_id: write.telegramChargeId,
+            reason_code: 'target_unavailable',
+            stars_amount: payment.stars_amount,
+            credits_amount: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            last_error_code: null,
+            idempotency_key: `stars-refund:${payment.id}`,
+            processed_at: null,
+            failed_at: null,
+          })
+          .onConflict((conflict) => conflict.column('payment_record_id').doNothing())
+          .execute();
       await transaction
         .insertInto('billing.payment_fulfillments')
         .values({
@@ -886,6 +934,382 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
     });
   }
 
+  /** Delivers one captured Pending Nakh or creates one fenced Stars correction. */
+  public async fulfillPendingNakh(
+    input: PendingNakhStarsFulfillmentWrite,
+  ): Promise<PendingNakhStarsFulfillmentResult> {
+    this.validateLease(input);
+    return this.database.transaction().execute(async (transaction) => {
+      const fulfillment = await transaction
+        .selectFrom('billing.payment_fulfillments')
+        .selectAll()
+        .select(sql<Date>`transaction_timestamp()`.as('database_now'))
+        .where('payment_record_id', '=', input.paymentRecordId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (fulfillment === undefined)
+        throw new ApplicationError('not_found', 'error.billing.fulfillment_not_found', 404);
+      if (fulfillment.state === 'fulfilled') {
+        const delivered = await transaction
+          .selectFrom('nakh.nakhes')
+          .select('id')
+          .where('payment_record_id', '=', input.paymentRecordId)
+          .executeTakeFirstOrThrow();
+        return {
+          paymentRecordId: input.paymentRecordId,
+          outcome: 'fulfilled',
+          nakhId: delivered.id,
+          replayed: true,
+        };
+      }
+      if (fulfillment.state === 'correction_required') {
+        const correction = await transaction
+          .selectFrom('billing.refund_records')
+          .select('id')
+          .where('payment_record_id', '=', input.paymentRecordId)
+          .executeTakeFirstOrThrow();
+        return {
+          paymentRecordId: input.paymentRecordId,
+          outcome: 'correction_required',
+          refundRecordId: correction.id,
+          replayed: true,
+        };
+      }
+      if (
+        fulfillment.state !== 'fulfillment_pending' ||
+        fulfillment.lease_owner !== input.owner ||
+        BigInt(fulfillment.fence_token) !== input.fenceToken ||
+        fulfillment.lease_expires_at === null ||
+        fulfillment.lease_expires_at <= fulfillment.database_now
+      )
+        throw new ApplicationError('conflict', 'error.billing.fulfillment_lease_lost', 409);
+
+      const locator = await transaction
+        .selectFrom('billing.payment_records as payment')
+        .innerJoin('billing.pending_payments as intent', 'intent.id', 'payment.pending_payment_id')
+        .innerJoin('nakh.pending_nakhes as pending', 'pending.id', 'intent.target_id')
+        .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+        .select([
+          'payment.user_id',
+          'pending.id as pending_nakh_id',
+          'flow.id as flow_id',
+          'flow.receiver_user_id',
+        ])
+        .where('payment.id', '=', input.paymentRecordId)
+        .executeTakeFirst();
+      if (locator === undefined)
+        throw new ApplicationError(
+          'payment_verification_failed',
+          'error.billing.payment_mismatch',
+          409,
+        );
+
+      const counter = await transaction
+        .selectFrom('platform.user_counters')
+        .select(['user_id', 'pending_nakh_count'])
+        .where('user_id', '=', locator.user_id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const pair = await lockUserPair(transaction, locator.user_id, locator.receiver_user_id);
+      const users = await transaction
+        .selectFrom('identity.users as user')
+        .innerJoin('identity.accounts as account', 'account.user_id', 'user.id')
+        .innerJoin('profile.profiles as profile', 'profile.user_id', 'user.id')
+        .select(['user.id', 'account.state', 'profile.completion_status'])
+        .where('user.id', 'in', [pair.userLowId, pair.userHighId])
+        .orderBy('user.id')
+        .forUpdate()
+        .execute();
+      const pairState = await transaction
+        .selectFrom('interaction.user_pair_states')
+        .select('state')
+        .where('user_low_id', '=', pair.userLowId)
+        .where('user_high_id', '=', pair.userHighId)
+        .executeTakeFirst();
+      const flow = await transaction
+        .selectFrom('nakh.nakh_flows')
+        .select(['id', 'sender_user_id', 'receiver_user_id'])
+        .where('id', '=', locator.flow_id)
+        .where('sender_user_id', '=', locator.user_id)
+        .where('receiver_user_id', '=', locator.receiver_user_id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const pending = await transaction
+        .selectFrom('nakh.pending_nakhes')
+        .selectAll()
+        .where('id', '=', locator.pending_nakh_id)
+        .where('nakh_flow_id', '=', flow.id)
+        .where('sender_user_id', '=', locator.user_id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const payment = await transaction
+        .selectFrom('billing.payment_records as payment')
+        .innerJoin('billing.pending_payments as intent', 'intent.id', 'payment.pending_payment_id')
+        .innerJoin(
+          'billing.telegram_stars_receipts as receipt',
+          'receipt.payment_record_id',
+          'payment.id',
+        )
+        .select([
+          'payment.id',
+          'payment.user_id',
+          'payment.payment_type',
+          'payment.paid_action_reason',
+          'payment.status',
+          'payment.stars_amount',
+          'intent.id as intent_id',
+          'intent.status as intent_status',
+          'intent.reason',
+          'intent.target_type',
+          'intent.target_id',
+          'intent.required_stars',
+          'receipt.stars_amount as receipt_stars_amount',
+          'receipt.telegram_charge_id',
+        ])
+        .where('payment.id', '=', input.paymentRecordId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        payment === undefined ||
+        payment.user_id !== pending.sender_user_id ||
+        payment.payment_type !== 'pay_pending_action' ||
+        payment.paid_action_reason !== 'send_nakh' ||
+        payment.status !== 'paid' ||
+        payment.intent_status !== 'paid' ||
+        payment.reason !== 'send_nakh' ||
+        payment.target_type !== 'pending_nakh' ||
+        payment.target_id !== pending.id ||
+        payment.intent_id !== pending.pending_payment_id ||
+        payment.required_stars === null ||
+        BigInt(payment.required_stars) !== NAKH_STARS_COST ||
+        payment.stars_amount !== payment.receipt_stars_amount
+      )
+        throw new ApplicationError(
+          'payment_verification_failed',
+          'error.billing.payment_mismatch',
+          409,
+        );
+
+      const now = fulfillment.database_now;
+      const eligible =
+        pending.status === 'pending_payment' &&
+        counter.pending_nakh_count > 0 &&
+        users.length === 2 &&
+        users.every((user) => user.state === 'active' && user.completion_status === 'complete') &&
+        pairState === undefined;
+      if (!eligible) {
+        if (pending.status === 'pending_payment') {
+          await transaction
+            .updateTable('nakh.pending_nakhes')
+            .set({
+              status: 'closed_by_system',
+              closed_at: now,
+              version: sql<number>`version + 1`,
+            })
+            .where('id', '=', pending.id)
+            .where('status', '=', 'pending_payment')
+            .where('version', '=', pending.version)
+            .executeTakeFirstOrThrow();
+          await transaction
+            .updateTable('platform.user_counters')
+            .set({
+              pending_nakh_count: sql<number>`pending_nakh_count - 1`,
+              version: sql<number>`version + 1`,
+              updated_at: now,
+            })
+            .where('user_id', '=', pending.sender_user_id)
+            .where('pending_nakh_count', '>', 0)
+            .executeTakeFirstOrThrow();
+        }
+        await transaction
+          .insertInto('billing.refund_records')
+          .values({
+            id: input.refundRecordId,
+            user_id: payment.user_id,
+            funding_type: 'telegram_stars',
+            payment_record_id: payment.id,
+            original_credit_transaction_id: null,
+            refund_credit_transaction_id: null,
+            telegram_charge_id: payment.telegram_charge_id,
+            reason_code: 'target_unavailable',
+            stars_amount: payment.stars_amount,
+            credits_amount: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            last_error_code: null,
+            idempotency_key: `stars-refund:${payment.id}`,
+            processed_at: null,
+            failed_at: null,
+          })
+          .execute();
+        await transaction
+          .updateTable('billing.payment_fulfillments')
+          .set((expression) => ({
+            state: 'correction_required',
+            lease_owner: null,
+            lease_expires_at: null,
+            last_error_code: 'target_unavailable',
+            correction_required_at: now,
+            updated_at: now,
+            version: expression('version', '+', 1),
+          }))
+          .where('payment_record_id', '=', payment.id)
+          .where('state', '=', 'fulfillment_pending')
+          .where('lease_owner', '=', input.owner)
+          .where('fence_token', '=', input.fenceToken.toString())
+          .executeTakeFirstOrThrow();
+        await transaction
+          .insertInto('platform.outbox_events')
+          .values({
+            id: input.deliveredEventId,
+            aggregate_type: 'pending_nakh',
+            aggregate_id: pending.id,
+            event_type: 'nakh.status-changed.v1',
+            schema_version: 1,
+            payload: { pendingNakhId: pending.id, status: 'closed_by_system' },
+            occurred_at: now,
+            available_at: now,
+            published_at: null,
+            last_error_code: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            correlation_id: payment.id,
+            causation_id: payment.id,
+          })
+          .execute();
+        await this.insertTerminalPaymentEvent(
+          transaction,
+          input.paymentTerminalEventId,
+          payment.id,
+          'billing.payment-correction-required.v1',
+          now,
+        );
+        return {
+          paymentRecordId: payment.id,
+          outcome: 'correction_required',
+          refundRecordId: input.refundRecordId,
+          replayed: false,
+        };
+      }
+
+      const expiresAt = new Date(now.getTime() + DELIVERED_NAKH_LIFETIME_MS);
+      await transaction
+        .insertInto('nakh.nakhes')
+        .values({
+          id: input.nakhId,
+          nakh_flow_id: flow.id,
+          sender_user_id: flow.sender_user_id,
+          receiver_user_id: flow.receiver_user_id,
+          text: pending.text,
+          funding_type: 'telegram_stars',
+          credit_transaction_id: null,
+          payment_record_id: payment.id,
+          sent_at: now,
+          expires_at: expiresAt,
+          seen_at: null,
+          accepted_at: null,
+          rejected_at: null,
+          expired_at: null,
+          closed_at: null,
+        })
+        .execute();
+      await transaction
+        .insertInto('nakh.nakh_status_history')
+        .values({
+          id: input.historyId,
+          nakh_id: input.nakhId,
+          nakh_version: 1,
+          from_status: null,
+          to_status: 'sent',
+          reason_code: 'telegram_stars_funded',
+          changed_by_user_id: payment.user_id,
+          request_id: payment.id,
+          changed_at: now,
+        })
+        .execute();
+      await transaction
+        .updateTable('nakh.pending_nakhes')
+        .set({ status: 'paid_and_sent', paid_at: now, version: sql<number>`version + 1` })
+        .where('id', '=', pending.id)
+        .where('status', '=', 'pending_payment')
+        .where('version', '=', pending.version)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable('platform.user_counters')
+        .set({
+          pending_nakh_count: sql<number>`pending_nakh_count - 1`,
+          version: sql<number>`version + 1`,
+          updated_at: now,
+        })
+        .where('user_id', '=', pending.sender_user_id)
+        .where('pending_nakh_count', '>', 0)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable('billing.payment_fulfillments')
+        .set((expression) => ({
+          state: 'fulfilled',
+          lease_owner: null,
+          lease_expires_at: null,
+          last_error_code: null,
+          fulfilled_at: now,
+          updated_at: now,
+          version: expression('version', '+', 1),
+        }))
+        .where('payment_record_id', '=', payment.id)
+        .where('state', '=', 'fulfillment_pending')
+        .where('lease_owner', '=', input.owner)
+        .where('fence_token', '=', input.fenceToken.toString())
+        .executeTakeFirstOrThrow();
+      await insertNotification(transaction, {
+        userId: flow.receiver_user_id,
+        type: 'nakh_received',
+        titleKey: 'notification.nakh_received.title',
+        bodyKey: 'notification.nakh_received.body',
+        payload: { nakhId: input.nakhId },
+        deduplicationKey: `nakh-received:${input.nakhId}`,
+        correlationId: payment.id,
+        causationId: payment.id,
+      });
+      await transaction
+        .insertInto('platform.outbox_events')
+        .values({
+          id: input.deliveredEventId,
+          aggregate_type: 'nakh',
+          aggregate_id: input.nakhId,
+          event_type: 'nakh.delivered.v1',
+          schema_version: 1,
+          payload: { nakhId: input.nakhId, receiverUserId: flow.receiver_user_id },
+          occurred_at: now,
+          available_at: now,
+          published_at: null,
+          last_error_code: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          correlation_id: payment.id,
+          causation_id: payment.id,
+        })
+        .execute();
+      await this.insertTerminalPaymentEvent(
+        transaction,
+        input.paymentTerminalEventId,
+        payment.id,
+        'billing.payment-fulfilled.v1',
+        now,
+      );
+      await insertPaymentSuccessNotification(transaction, {
+        paymentRecordId: payment.id,
+        userId: payment.user_id,
+        payload: { nakhId: input.nakhId },
+      });
+      return {
+        paymentRecordId: payment.id,
+        outcome: 'fulfilled',
+        nakhId: input.nakhId,
+        replayed: false,
+      };
+    });
+  }
+
   /** Claims due work with SKIP LOCKED. The fence token rejects an expired former owner. */
   public async claimFulfillments(
     input: PaymentFulfillmentClaim,
@@ -1107,6 +1531,44 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         .where('pair.state', '=', 'matched')
         .executeTakeFirst();
       return match !== undefined;
+    }
+    if (payment.reason === 'send_nakh' && payment.target_type === 'pending_nakh') {
+      const pending = await database
+        .selectFrom('nakh.pending_nakhes as pending')
+        .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+        .innerJoin('identity.accounts as sender', 'sender.user_id', 'pending.sender_user_id')
+        .innerJoin('profile.profiles as sender_profile', 'sender_profile.user_id', 'sender.user_id')
+        .innerJoin('identity.accounts as receiver', 'receiver.user_id', 'flow.receiver_user_id')
+        .innerJoin(
+          'profile.profiles as receiver_profile',
+          'receiver_profile.user_id',
+          'receiver.user_id',
+        )
+        .leftJoin('interaction.user_pair_states as pair', (join) =>
+          join
+            .on(
+              'pair.user_low_id',
+              '=',
+              sql<string>`LEAST(flow.sender_user_id, flow.receiver_user_id)`,
+            )
+            .on(
+              'pair.user_high_id',
+              '=',
+              sql<string>`GREATEST(flow.sender_user_id, flow.receiver_user_id)`,
+            ),
+        )
+        .select('pending.id')
+        .where('pending.id', '=', payment.target_id)
+        .where('pending.pending_payment_id', '=', payment.pending_payment_id)
+        .where('pending.sender_user_id', '=', payment.user_id)
+        .where('pending.status', '=', 'pending_payment')
+        .where('sender.state', '=', 'active')
+        .where('sender_profile.completion_status', '=', 'complete')
+        .where('receiver.state', '=', 'active')
+        .where('receiver_profile.completion_status', '=', 'complete')
+        .where('pair.state', 'is', null)
+        .executeTakeFirst();
+      return pending !== undefined;
     }
     return false;
   }

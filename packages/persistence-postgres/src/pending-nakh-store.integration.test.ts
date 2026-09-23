@@ -496,8 +496,8 @@ describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => 
     });
     expect(terminal.cancelled_at).not.toBeNull();
     expect(intent).toMatchObject({ status: 'cancelled', version: 2 });
-    expect(invoice).toMatchObject({ status: 'cancelled', version: 2 });
-    expect(invoice.cancelled_at).not.toBeNull();
+    expect(invoice).toMatchObject({ status: 'pending', version: 1 });
+    expect(invoice.cancelled_at).toBeNull();
     expect(counter.pending_nakh_count).toBe(0);
     expect(likes).toHaveLength(1);
     expect(rejections).toHaveLength(0);

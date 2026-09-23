@@ -25,6 +25,7 @@ describe('CreatePendingNakhHandler', () => {
   it('validates prose and supplies only server-generated persistence identities', async () => {
     const createPending = vi.fn<PendingNakhStore['createPending']>().mockResolvedValue({
       pendingNakhId: '10000000-0000-4000-8000-000000000006',
+      fundingIntentId: '10000000-0000-4000-8000-000000000007',
       status: 'pending_payment',
       expiresAt: '2026-10-06T00:00:00.000Z',
       version: 1,

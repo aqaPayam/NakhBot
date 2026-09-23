@@ -38,6 +38,8 @@ export {
   type DirectPaidActionFulfillmentWrite,
   type PaymentFulfillmentClaim,
   type PaymentFulfillmentLease,
+  type PendingNakhStarsFulfillmentResult,
+  type PendingNakhStarsFulfillmentWrite,
 } from './payment-receipt-store.js';
 export {
   PostgresCreditLedgerStore,

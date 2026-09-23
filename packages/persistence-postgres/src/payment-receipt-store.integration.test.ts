@@ -4,21 +4,31 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type {
+  CancelPendingNakhWrite,
+  CreatePendingNakhWrite,
   EncryptedProviderEvidence,
   ProtectedInvoicePayload,
   TelegramSuccessfulPaymentWrite,
 } from '@nakh/application';
+import type { CancelPendingNakhCommand, CreatePendingNakhCommand } from '@nakh/contracts';
 
 import { PostgresBillingReconciliationStore } from './billing-reconciliation-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresFundingStore } from './funding-store.js';
 import { runMigrations } from './migrations.js';
 import { PostgresTelegramStarsReceiptStore } from './payment-receipt-store.js';
+import { PostgresPendingNakhStore } from './pending-nakh-store.js';
 import { PostgresRefundStore } from './refund-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const botDigest = 'b'.repeat(64);
 const ids = { uuid: randomUUID };
+const manGenderId = '20000000-0000-4000-8000-000000000001';
+const everyonePreferenceId = '20000000-0000-4000-8000-000000000013';
+const relationshipGoalId = '20000000-0000-4000-8000-000000000021';
+const countryId = '20000000-0000-4000-8000-000000000101';
+const provinceId = '20000000-0000-4000-8000-000000000111';
+const cityId = '20000000-0000-4000-8000-000000000121';
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -69,6 +79,32 @@ async function createUser(database: NakhDatabase): Promise<{
     })
     .execute();
   await database
+    .insertInto('identity.user_settings')
+    .values({ user_id: userId, created_at: now, updated_at: now })
+    .execute();
+  await database
+    .insertInto('profile.profiles')
+    .values({
+      id: randomUUID(),
+      user_id: userId,
+      name: 'Stars Nakh fixture',
+      birth_year: new Date().getUTCFullYear() - 30,
+      gender_option_id: manGenderId,
+      gender_preference_id: everyonePreferenceId,
+      relationship_goal_id: relationshipGoalId,
+      country_id: countryId,
+      province_id: provinceId,
+      city_id: cityId,
+      highlight: 'Stars Nakh fixture',
+      bio: null,
+      completion_status: 'complete',
+      ever_completed: true,
+      completed_at: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .execute();
+  await database
     .insertInto('billing.credit_accounts')
     .values({ user_id: userId, created_at: now, updated_at: now })
     .execute();
@@ -79,12 +115,56 @@ async function createUser(database: NakhDatabase): Promise<{
   return { userId, telegramUserId };
 }
 
+function pendingCommand(senderUserId: string, receiverUserId: string): CreatePendingNakhCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'nakh.create-pending',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: senderUserId },
+    requestId: randomUUID(),
+    idempotencyKey: `stars-nakh:${randomUUID()}`,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: {
+      targetUserId: receiverUserId,
+      text: 'A captured private hello 🌳',
+      autoSettleAuthorized: true,
+    },
+  };
+}
+
+function pendingWrite(command: CreatePendingNakhCommand): CreatePendingNakhWrite {
+  return {
+    command,
+    flowId: randomUUID(),
+    pendingNakhId: randomUUID(),
+    pendingPaymentId: randomUUID(),
+    flowEventId: randomUUID(),
+    pendingEventId: randomUUID(),
+  };
+}
+
+function cancellationWrite(command: CancelPendingNakhCommand): CancelPendingNakhWrite {
+  return {
+    command,
+    interactionId: randomUUID(),
+    matchId: randomUUID(),
+    chatSessionId: randomUUID(),
+    interactionEventId: randomUUID(),
+    likeClosedEventId: randomUUID(),
+    matchEventId: randomUUID(),
+    pendingEventId: randomUUID(),
+    auditId: randomUUID(),
+  };
+}
+
 describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts', () => {
   let database: NakhDatabase;
   let funding: PostgresFundingStore;
   let receipts: PostgresTelegramStarsReceiptStore;
   let refunds: PostgresRefundStore;
   let reconciliation: PostgresBillingReconciliationStore;
+  let pendingNakhes: PostgresPendingNakhStore;
 
   beforeAll(async () => {
     await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
@@ -98,6 +178,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     receipts = new PostgresTelegramStarsReceiptStore(database, ids, { digest });
     refunds = new PostgresRefundStore(database);
     reconciliation = new PostgresBillingReconciliationStore(database);
+    pendingNakhes = new PostgresPendingNakhStore(database);
   });
 
   afterAll(async () => {
@@ -149,6 +230,42 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       paymentRecordId: attempt.paymentRecordId,
       userId: user.userId,
       telegramUserId: user.telegramUserId,
+      payload,
+      starsAmount: attempt.starsAmount,
+    };
+  }
+
+  async function preparePendingNakhPayment(): Promise<{
+    sender: Readonly<{ userId: string; telegramUserId: string }>;
+    receiver: Readonly<{ userId: string; telegramUserId: string }>;
+    pendingNakhId: string;
+    fundingIntentId: string;
+    paymentRecordId: string;
+    payload: ProtectedInvoicePayload;
+    starsAmount: bigint;
+  }> {
+    const sender = await createUser(database);
+    const receiver = await createUser(database);
+    const created = await pendingNakhes.createPending(
+      pendingWrite(pendingCommand(sender.userId, receiver.userId)),
+    );
+    const payload = issuePayload();
+    const attempt = await funding.prepareStarsAttempt({
+      paymentRecordId: randomUUID(),
+      fundingIntentId: created.fundingIntentId,
+      expectedVersion: 1,
+      userId: sender.userId,
+      idempotencyKey: `nakh-invoice:${randomUUID()}`,
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      payload,
+    });
+    return {
+      sender,
+      receiver,
+      pendingNakhId: created.pendingNakhId,
+      fundingIntentId: created.fundingIntentId,
+      paymentRecordId: attempt.paymentRecordId,
       payload,
       starsAmount: attempt.starsAmount,
     };
@@ -370,6 +487,304 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
         .where('notification_type', '=', 'payment_success')
         .executeTakeFirstOrThrow(),
     ).toEqual({ notification_type: 'payment_success', category: 'payment' });
+  });
+
+  it('ACC-025 delivers one Stars-funded Pending Nakh across callback and worker replays', async () => {
+    const payment = await preparePendingNakhPayment();
+    const preCheckoutId = `nakh-pre-checkout:${randomUUID()}`;
+    await expect(
+      receipts.validatePreCheckout({
+        providerEventId: preCheckoutId,
+        telegramUserId: payment.sender.telegramUserId,
+        invoicePayload: payment.payload.cleartext,
+        currency: 'XTR',
+        totalAmount: payment.starsAmount,
+        providerEnvironment: 'test',
+        providerBotIdDigest: botDigest,
+        evidence: evidence(preCheckoutId),
+      }),
+    ).resolves.toEqual({ allowed: true, replayed: false });
+
+    const callbackId = `nakh-success:${randomUUID()}`;
+    const callback: TelegramSuccessfulPaymentWrite = {
+      providerEventId: callbackId,
+      telegramUserId: payment.sender.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount,
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      telegramChargeId: `telegram:${randomUUID()}`,
+      providerChargeId: `provider:${randomUUID()}`,
+      evidence: evidence(callbackId),
+    };
+    const callbacks = await Promise.all(
+      Array.from({ length: 100 }, () => receipts.recordSuccessfulPayment(callback)),
+    );
+    expect(callbacks.filter(({ outcome }) => outcome === 'receipt_recorded')).toHaveLength(1);
+    expect(callbacks.filter(({ outcome }) => outcome === 'replayed')).toHaveLength(99);
+
+    const claim = (
+      await receipts.claimFulfillments({ owner: 'nakh-worker', leaseMs: 60_000, limit: 100 })
+    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
+    expect(claim).toBeDefined();
+    const write = {
+      paymentRecordId: payment.paymentRecordId,
+      owner: 'nakh-worker',
+      fenceToken: claim!.fenceToken,
+      nakhId: randomUUID(),
+      historyId: randomUUID(),
+      refundRecordId: randomUUID(),
+      deliveredEventId: randomUUID(),
+      paymentTerminalEventId: randomUUID(),
+    };
+    const fulfilled = await Promise.all(
+      Array.from({ length: 20 }, () => receipts.fulfillPendingNakh(write)),
+    );
+    expect(fulfilled.filter(({ replayed }) => !replayed)).toHaveLength(1);
+    expect(fulfilled.filter(({ replayed }) => replayed)).toHaveLength(19);
+    expect(new Set(fulfilled.map(({ nakhId }) => nakhId))).toEqual(new Set([write.nakhId]));
+
+    const [pending, intent, paymentRecord, delivered, history, counter, receiverFacts] =
+      await Promise.all([
+        database
+          .selectFrom('nakh.pending_nakhes')
+          .select(['status', 'paid_at', 'version'])
+          .where('id', '=', payment.pendingNakhId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('billing.pending_payments')
+          .select(['status', 'version'])
+          .where('id', '=', payment.fundingIntentId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('billing.payment_records')
+          .select(['payment_type', 'paid_action_reason', 'status'])
+          .where('id', '=', payment.paymentRecordId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('nakh.nakhes')
+          .selectAll()
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .execute(),
+        database
+          .selectFrom('nakh.nakh_status_history')
+          .select(['to_status', 'reason_code'])
+          .where('nakh_id', '=', write.nakhId)
+          .execute(),
+        database
+          .selectFrom('platform.user_counters')
+          .select('pending_nakh_count')
+          .where('user_id', '=', payment.sender.userId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('notification.notifications')
+          .select(['notification_type', 'user_id'])
+          .where('notification_type', '=', 'nakh_received')
+          .where('user_id', '=', payment.receiver.userId)
+          .execute(),
+      ]);
+    expect(pending.status).toBe('paid_and_sent');
+    expect(pending.paid_at).toBeInstanceOf(Date);
+    expect(pending.version).toBe(2);
+    expect(intent).toEqual({ status: 'paid', version: 2 });
+    expect(paymentRecord).toEqual({
+      payment_type: 'pay_pending_action',
+      paid_action_reason: 'send_nakh',
+      status: 'paid',
+    });
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toMatchObject({
+      id: write.nakhId,
+      text: 'A captured private hello 🌳',
+      funding_type: 'telegram_stars',
+      status: 'sent',
+    });
+    expect(history).toEqual([{ to_status: 'sent', reason_code: 'telegram_stars_funded' }]);
+    expect(counter.pending_nakh_count).toBe(0);
+    expect(receiverFacts).toEqual([
+      { notification_type: 'nakh_received', user_id: payment.receiver.userId },
+    ]);
+  });
+
+  it('creates one correction when the pair becomes terminal after Stars capture', async () => {
+    const payment = await preparePendingNakhPayment();
+    const callbackId = `nakh-invalid:${randomUUID()}`;
+    await receipts.recordSuccessfulPayment({
+      providerEventId: callbackId,
+      telegramUserId: payment.sender.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount,
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      telegramChargeId: `telegram:${randomUUID()}`,
+      evidence: evidence(callbackId),
+    });
+    const [userLowId, userHighId] = [payment.sender.userId, payment.receiver.userId].sort();
+    await database
+      .insertInto('interaction.user_pair_states')
+      .values({
+        user_low_id: userLowId!,
+        user_high_id: userHighId!,
+        state: 'blocked',
+        reason_code: 'safety_block',
+        changed_at: new Date(),
+      })
+      .execute();
+    const claim = (
+      await receipts.claimFulfillments({ owner: 'nakh-correction', leaseMs: 60_000, limit: 100 })
+    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
+    expect(claim).toBeDefined();
+    const write = {
+      paymentRecordId: payment.paymentRecordId,
+      owner: 'nakh-correction',
+      fenceToken: claim!.fenceToken,
+      nakhId: randomUUID(),
+      historyId: randomUUID(),
+      refundRecordId: randomUUID(),
+      deliveredEventId: randomUUID(),
+      paymentTerminalEventId: randomUUID(),
+    };
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => receipts.fulfillPendingNakh(write)),
+    );
+    expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
+    expect(results.filter(({ replayed }) => replayed)).toHaveLength(19);
+    expect(new Set(results.map(({ refundRecordId }) => refundRecordId))).toEqual(
+      new Set([write.refundRecordId]),
+    );
+    const [pending, refund, fulfillment, delivered, receiverFacts, counter] = await Promise.all([
+      database
+        .selectFrom('nakh.pending_nakhes')
+        .select(['status', 'closed_at', 'version'])
+        .where('id', '=', payment.pendingNakhId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('billing.refund_records')
+        .select(['id', 'status', 'reason_code'])
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('billing.payment_fulfillments')
+        .select('state')
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('nakh.nakhes')
+        .select('id')
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .execute(),
+      database
+        .selectFrom('notification.notifications')
+        .select('id')
+        .where('notification_type', '=', 'nakh_received')
+        .where('user_id', '=', payment.receiver.userId)
+        .execute(),
+      database
+        .selectFrom('platform.user_counters')
+        .select('pending_nakh_count')
+        .where('user_id', '=', payment.sender.userId)
+        .executeTakeFirstOrThrow(),
+    ]);
+    expect(pending.status).toBe('closed_by_system');
+    expect(pending.closed_at).toBeInstanceOf(Date);
+    expect(pending.version).toBe(2);
+    expect(refund).toEqual({
+      id: write.refundRecordId,
+      status: 'pending',
+      reason_code: 'target_unavailable',
+    });
+    expect(fulfillment.state).toBe('correction_required');
+    expect(delivered).toHaveLength(0);
+    expect(receiverFacts).toHaveLength(0);
+    expect(counter.pending_nakh_count).toBe(0);
+  });
+
+  it('ACC-027 refunds a late capture after cancellation without delivering a Nakh', async () => {
+    const payment = await preparePendingNakhPayment();
+    const cancellation: CancelPendingNakhCommand = {
+      commandId: randomUUID(),
+      commandType: 'nakh.cancel-pending',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId: payment.sender.userId },
+      requestId: randomUUID(),
+      idempotencyKey: `cancel-before-capture:${randomUUID()}`,
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        pendingNakhId: payment.pendingNakhId,
+        resolution: 'converted_to_not_interested',
+        expectedVersion: 1,
+      },
+    };
+    await pendingNakhes.cancelPending(cancellationWrite(cancellation));
+    const callbackId = `late-capture:${randomUUID()}`;
+    const callback: TelegramSuccessfulPaymentWrite = {
+      providerEventId: callbackId,
+      telegramUserId: payment.sender.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount,
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      telegramChargeId: `telegram:${randomUUID()}`,
+      evidence: evidence(callbackId),
+    };
+    const outcomes = await Promise.all(
+      Array.from({ length: 20 }, () => receipts.recordSuccessfulPayment(callback)),
+    );
+    expect(outcomes.filter(({ outcome }) => outcome === 'receipt_recorded')).toHaveLength(1);
+    expect(outcomes.filter(({ outcome }) => outcome === 'replayed')).toHaveLength(19);
+    const [pending, intent, invoice, fulfillment, refundsFound, delivered, receiverFacts] =
+      await Promise.all([
+        database
+          .selectFrom('nakh.pending_nakhes')
+          .select(['status', 'cancel_resolution'])
+          .where('id', '=', payment.pendingNakhId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('billing.pending_payments')
+          .select('status')
+          .where('id', '=', payment.fundingIntentId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('billing.payment_records')
+          .select('status')
+          .where('id', '=', payment.paymentRecordId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('billing.payment_fulfillments')
+          .select('state')
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('billing.refund_records')
+          .select('id')
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .execute(),
+        database
+          .selectFrom('nakh.nakhes')
+          .select('id')
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .execute(),
+        database
+          .selectFrom('notification.notifications')
+          .select('id')
+          .where('notification_type', '=', 'nakh_received')
+          .where('user_id', '=', payment.receiver.userId)
+          .execute(),
+      ]);
+    expect(pending).toEqual({
+      status: 'cancelled',
+      cancel_resolution: 'converted_to_not_interested',
+    });
+    expect(intent.status).toBe('cancelled');
+    expect(invoice.status).toBe('paid');
+    expect(fulfillment.state).toBe('correction_required');
+    expect(refundsFound).toHaveLength(1);
+    expect(delivered).toHaveLength(0);
+    expect(receiverFacts).toHaveLength(0);
   });
 
   it('never grants on wrong payment facts and fences a former fulfillment owner', async () => {
