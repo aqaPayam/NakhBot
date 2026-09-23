@@ -4,11 +4,13 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  AcceptNakhHandler,
   type CreateDirectNakhWrite,
   RejectNakhHandler,
   ViewNakhProfileHandler,
 } from '@nakh/application';
 import type {
+  AcceptNakhCommand,
   CreateDirectNakhCommand,
   RejectNakhCommand,
   ViewNakhProfileCommand,
@@ -145,6 +147,25 @@ function rejectCommand(
   return {
     commandId: randomUUID(),
     commandType: 'nakh.reject',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: receiverUserId },
+    requestId: randomUUID(),
+    idempotencyKey,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: { nakhId, expectedVersion },
+  };
+}
+
+function acceptCommand(
+  receiverUserId: string,
+  nakhId: string,
+  expectedVersion = 1,
+  idempotencyKey = `accept-nakh:${randomUUID()}`,
+): AcceptNakhCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'nakh.accept',
     schemaVersion: 1,
     actor: { kind: 'user', userId: receiverUserId },
     requestId: randomUUID(),
@@ -428,5 +449,205 @@ describe.skipIf(databaseUrl === undefined)('M5 direct credit Nakh persistence', 
     expect(matches).toHaveLength(0);
     expect(chats).toHaveLength(0);
     expect(senderNotifications).toHaveLength(0);
+  });
+
+  it('accepts once across twenty replays and atomically creates one Nakh-origin Match and chat', async () => {
+    const senderUserId = await createActiveUser(database);
+    const receiverUserId = await createActiveUser(database);
+    await grantCredits(database, senderUserId, 2n);
+    const delivered = await store.createDirect(write(command(senderUserId, receiverUserId)));
+    const incompatibleLikeId = randomUUID();
+    await database
+      .insertInto('interaction.likes')
+      .values({
+        id: incompatibleLikeId,
+        sender_user_id: receiverUserId,
+        receiver_user_id: senderUserId,
+        status: 'active',
+        created_at: new Date(),
+        closed_at: null,
+      })
+      .execute();
+    const deliveredStore = new PostgresDeliveredNakhStore(database);
+    const handler = new AcceptNakhHandler(deliveredStore, { uuid: randomUUID });
+    const replayedCommand = acceptCommand(receiverUserId, delivered.nakhId);
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => handler.execute(replayedCommand)),
+    );
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(results.filter((result) => result.replayed)).toHaveLength(19);
+    expect(new Set(results.map((result) => result.matchId))).toHaveLength(1);
+    expect(new Set(results.map((result) => result.changedAt))).toHaveLength(1);
+    expect(results.every((result) => result.status === 'accepted')).toBe(true);
+    const matchId = results[0]!.matchId!;
+
+    const [
+      nakh,
+      actions,
+      history,
+      matches,
+      matchParticipants,
+      chats,
+      chatParticipants,
+      like,
+      notices,
+    ] = await Promise.all([
+      database
+        .selectFrom('nakh.nakhes')
+        .select(['status', 'accepted_at', 'version'])
+        .where('id', '=', delivered.nakhId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('nakh.nakh_receiver_actions')
+        .select('action_type')
+        .where('nakh_id', '=', delivered.nakhId)
+        .execute(),
+      database
+        .selectFrom('nakh.nakh_status_history')
+        .select(['nakh_version', 'from_status', 'to_status'])
+        .where('nakh_id', '=', delivered.nakhId)
+        .orderBy('nakh_version')
+        .execute(),
+      database
+        .selectFrom('matching.matches')
+        .select(['id', 'source', 'source_nakh_id', 'status'])
+        .where('source_nakh_id', '=', delivered.nakhId)
+        .execute(),
+      database
+        .selectFrom('matching.match_participants')
+        .select('user_id')
+        .where('match_id', '=', matchId)
+        .orderBy('user_id')
+        .execute(),
+      database
+        .selectFrom('chat.chat_sessions')
+        .select(['id', 'match_id', 'status'])
+        .where('match_id', '=', matchId)
+        .execute(),
+      database
+        .selectFrom('chat.chat_participants as participant')
+        .innerJoin('chat.chat_sessions as session', 'session.id', 'participant.chat_session_id')
+        .select('participant.user_id')
+        .where('session.match_id', '=', matchId)
+        .orderBy('participant.user_id')
+        .execute(),
+      database
+        .selectFrom('interaction.likes')
+        .select(['status', 'closed_at', 'version'])
+        .where('id', '=', incompatibleLikeId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('notification.notifications')
+        .select(['user_id', 'notification_type', 'payload'])
+        .where('notification_type', '=', 'match_created')
+        .where('user_id', 'in', [senderUserId, receiverUserId])
+        .orderBy('user_id')
+        .execute(),
+    ]);
+    const participantIds = [senderUserId, receiverUserId].sort();
+    expect(nakh).toMatchObject({ status: 'accepted', version: 2 });
+    expect(nakh.accepted_at).not.toBeNull();
+    expect(actions).toEqual([{ action_type: 'accept' }]);
+    expect(history).toEqual([
+      { nakh_version: 1, from_status: null, to_status: 'sent' },
+      { nakh_version: 2, from_status: 'sent', to_status: 'accepted' },
+    ]);
+    expect(matches).toEqual([
+      { id: matchId, source: 'nakh_accept', source_nakh_id: delivered.nakhId, status: 'active' },
+    ]);
+    expect(matchParticipants.map((participant) => participant.user_id)).toEqual(participantIds);
+    expect(chats).toHaveLength(1);
+    expect(chats[0]).toMatchObject({ match_id: matchId, status: 'active' });
+    expect(chatParticipants.map((participant) => participant.user_id)).toEqual(participantIds);
+    expect(like).toMatchObject({ status: 'closed_by_match', version: 2 });
+    expect(like.closed_at).not.toBeNull();
+    expect(notices).toHaveLength(2);
+    expect(notices.map((notice) => notice.user_id)).toEqual(participantIds);
+    expect(notices.every((notice) => notice.payload.matchId === matchId)).toBe(true);
+  });
+
+  it('allows only one terminal outcome across twenty racing accept, reject, and replay workers', async () => {
+    const senderUserId = await createActiveUser(database);
+    const receiverUserId = await createActiveUser(database);
+    await grantCredits(database, senderUserId, 2n);
+    const delivered = await store.createDirect(write(command(senderUserId, receiverUserId)));
+    const deliveredStore = new PostgresDeliveredNakhStore(database);
+    const acceptHandler = new AcceptNakhHandler(deliveredStore, { uuid: randomUUID });
+    const rejectHandler = new RejectNakhHandler(deliveredStore, { uuid: randomUUID });
+    const acceptance = acceptCommand(receiverUserId, delivered.nakhId);
+    const rejection = rejectCommand(receiverUserId, delivered.nakhId);
+
+    const attempts = await Promise.allSettled([
+      ...Array.from({ length: 10 }, () => acceptHandler.execute(acceptance)),
+      ...Array.from({ length: 10 }, () => rejectHandler.execute(rejection)),
+    ]);
+    const fulfilled = attempts.filter(
+      (
+        attempt,
+      ): attempt is PromiseFulfilledResult<Awaited<ReturnType<AcceptNakhHandler['execute']>>> =>
+        attempt.status === 'fulfilled',
+    );
+    const rejected = attempts.filter(
+      (attempt): attempt is PromiseRejectedResult => attempt.status === 'rejected',
+    );
+    expect(fulfilled).not.toHaveLength(0);
+    expect(fulfilled.length + rejected.length).toBe(20);
+    expect(new Set(fulfilled.map((attempt) => attempt.value.status)).size).toBe(1);
+    expect(rejected.every((attempt) => errorCode(attempt.reason) === 'nakh_terminal')).toBe(true);
+
+    const [nakh, terminalActions, matches, chats, matchParticipants, chatParticipants] =
+      await Promise.all([
+        database
+          .selectFrom('nakh.nakhes')
+          .select('status')
+          .where('id', '=', delivered.nakhId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('nakh.nakh_receiver_actions')
+          .select('action_type')
+          .where('nakh_id', '=', delivered.nakhId)
+          .where('action_type', 'in', ['accept', 'reject'])
+          .execute(),
+        database
+          .selectFrom('matching.matches')
+          .select('id')
+          .where('source_nakh_id', '=', delivered.nakhId)
+          .execute(),
+        database
+          .selectFrom('chat.chat_sessions as session')
+          .innerJoin('matching.matches as match', 'match.id', 'session.match_id')
+          .select('session.id')
+          .where('match.source_nakh_id', '=', delivered.nakhId)
+          .execute(),
+        database
+          .selectFrom('matching.match_participants as participant')
+          .innerJoin('matching.matches as match', 'match.id', 'participant.match_id')
+          .select('participant.user_id')
+          .where('match.source_nakh_id', '=', delivered.nakhId)
+          .execute(),
+        database
+          .selectFrom('chat.chat_participants as participant')
+          .innerJoin('chat.chat_sessions as session', 'session.id', 'participant.chat_session_id')
+          .innerJoin('matching.matches as match', 'match.id', 'session.match_id')
+          .select('participant.user_id')
+          .where('match.source_nakh_id', '=', delivered.nakhId)
+          .execute(),
+      ]);
+    expect(terminalActions).toHaveLength(1);
+    if (nakh.status === 'accepted') {
+      expect(terminalActions).toEqual([{ action_type: 'accept' }]);
+      expect(matches).toHaveLength(1);
+      expect(chats).toHaveLength(1);
+      expect(matchParticipants).toHaveLength(2);
+      expect(chatParticipants).toHaveLength(2);
+    } else {
+      expect(nakh.status).toBe('rejected');
+      expect(terminalActions).toEqual([{ action_type: 'reject' }]);
+      expect(matches).toHaveLength(0);
+      expect(chats).toHaveLength(0);
+      expect(matchParticipants).toHaveLength(0);
+      expect(chatParticipants).toHaveLength(0);
+    }
   });
 });
