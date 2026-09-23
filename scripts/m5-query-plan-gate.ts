@@ -230,6 +230,73 @@ async function seedFixtures(
   });
 }
 
+async function deleteFixtures(
+  database: NakhDatabase,
+  pending: readonly PendingFixture[],
+  delivered: readonly DeliveredFixture[],
+): Promise<void> {
+  await withM5SyntheticPlanSession(database, async (connection) => {
+    for (const batch of chunks(delivered)) {
+      await connection
+        .deleteFrom('nakh.nakh_status_history')
+        .where(
+          'id',
+          'in',
+          batch.map((fixture) => fixture.historyId),
+        )
+        .execute();
+      await connection
+        .deleteFrom('nakh.nakhes')
+        .where(
+          'id',
+          'in',
+          batch.map((fixture) => fixture.nakhId),
+        )
+        .execute();
+    }
+    for (const batch of chunks(pending)) {
+      await connection
+        .deleteFrom('nakh.pending_nakhes')
+        .where(
+          'id',
+          'in',
+          batch.map((fixture) => fixture.pendingNakhId),
+        )
+        .execute();
+      await connection
+        .deleteFrom('billing.pending_payments')
+        .where(
+          'id',
+          'in',
+          batch.map((fixture) => fixture.paymentId),
+        )
+        .execute();
+    }
+    for (const batch of chunks([...pending, ...delivered])) {
+      await connection
+        .deleteFrom('nakh.nakh_flows')
+        .where(
+          'id',
+          'in',
+          batch.map((fixture) => fixture.flowId),
+        )
+        .execute();
+    }
+    const userIds = [
+      ...new Set([
+        focalSenderId,
+        focalReceiverId,
+        ...pending.map((fixture) => fixture.receiverId),
+        ...delivered.map((fixture) => fixture.senderId),
+      ]),
+    ];
+    for (const batch of chunks(userIds)) {
+      await connection.deleteFrom('platform.user_counters').where('user_id', 'in', batch).execute();
+      await connection.deleteFrom('identity.users').where('id', 'in', batch).execute();
+    }
+  });
+}
+
 await runMigrations(databaseUrl, resolve(process.cwd(), 'migrations'));
 const database = createDatabase({
   url: databaseUrl,
@@ -238,35 +305,32 @@ const database = createDatabase({
   lockTimeoutMs: 10_000,
 });
 
+const pending: PendingFixture[] = Array.from({ length: volume }, (_, index) => {
+  const createdAt =
+    index < dueCount ? expiredCreatedAt : index < dueCount * 2 ? reminderCreatedAt : freshCreatedAt;
+  return {
+    flowId: randomUUID(),
+    pendingNakhId: randomUUID(),
+    paymentId: randomUUID(),
+    receiverId: index === 0 ? focalReceiverId : randomUUID(),
+    createdAt,
+    expiresAt: new Date(createdAt.getTime() + 14 * dayMs),
+  };
+});
+const delivered: DeliveredFixture[] = Array.from({ length: volume }, (_, index) => {
+  const sentAt = index < dueCount ? expiredCreatedAt : freshCreatedAt;
+  return {
+    flowId: randomUUID(),
+    nakhId: randomUUID(),
+    creditTransactionId: randomUUID(),
+    historyId: randomUUID(),
+    senderId: randomUUID(),
+    sentAt,
+    expiresAt: new Date(sentAt.getTime() + 14 * dayMs),
+  };
+});
+
 try {
-  const pending: PendingFixture[] = Array.from({ length: volume }, (_, index) => {
-    const createdAt =
-      index < dueCount
-        ? expiredCreatedAt
-        : index < dueCount * 2
-          ? reminderCreatedAt
-          : freshCreatedAt;
-    return {
-      flowId: randomUUID(),
-      pendingNakhId: randomUUID(),
-      paymentId: randomUUID(),
-      receiverId: index === 0 ? focalReceiverId : randomUUID(),
-      createdAt,
-      expiresAt: new Date(createdAt.getTime() + 14 * dayMs),
-    };
-  });
-  const delivered: DeliveredFixture[] = Array.from({ length: volume }, (_, index) => {
-    const sentAt = index < dueCount ? expiredCreatedAt : freshCreatedAt;
-    return {
-      flowId: randomUUID(),
-      nakhId: randomUUID(),
-      creditTransactionId: randomUUID(),
-      historyId: randomUUID(),
-      senderId: randomUUID(),
-      sentAt,
-      expiresAt: new Date(sentAt.getTime() + 14 * dayMs),
-    };
-  });
   await seedFixtures(database, pending, delivered);
   await analyzeM5QueryTables(database);
   const plans = await explainM5Queries(database, {
@@ -314,5 +378,9 @@ try {
     `${JSON.stringify({ scenario: 'M5-PRODUCTION-QUERY-PLAN', volume, dueCount, queries: Object.keys(requirements) })}\n`,
   );
 } finally {
-  await database.destroy();
+  try {
+    await deleteFixtures(database, pending, delivered);
+  } finally {
+    await database.destroy();
+  }
 }
