@@ -279,7 +279,7 @@ try {
     reconciliationCursor,
   });
   const requirements = {
-    flowLookup: 'nakh_flows_sender_user_id_receiver_user_id_key',
+    flowLookup: 'nakh_flows_direction_lookup_idx',
     settlementFifo: 'pending_nakhes_sender_fifo_idx',
     pendingSenderPage: 'pending_nakhes_sender_fifo_idx',
     receivedInbox: 'nakhes_receiver_inbox_idx',
