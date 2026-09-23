@@ -46,6 +46,10 @@ async function createActiveUser(database: NakhDatabase): Promise<string> {
     .values({ user_id: userId, created_at: now, updated_at: now })
     .execute();
   await database
+    .insertInto('billing.credit_accounts')
+    .values({ user_id: userId, created_at: now, updated_at: now })
+    .execute();
+  await database
     .insertInto('profile.profiles')
     .values({
       id: randomUUID(),
