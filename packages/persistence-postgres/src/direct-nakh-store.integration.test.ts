@@ -3,8 +3,16 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { type CreateDirectNakhWrite, ViewNakhProfileHandler } from '@nakh/application';
-import type { CreateDirectNakhCommand, ViewNakhProfileCommand } from '@nakh/contracts';
+import {
+  type CreateDirectNakhWrite,
+  RejectNakhHandler,
+  ViewNakhProfileHandler,
+} from '@nakh/application';
+import type {
+  CreateDirectNakhCommand,
+  RejectNakhCommand,
+  ViewNakhProfileCommand,
+} from '@nakh/contracts';
 import { ApplicationError, DELIVERED_NAKH_LIFETIME_MS } from '@nakh/domain';
 
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
@@ -125,6 +133,25 @@ function viewCommand(
     occurredAt: new Date().toISOString(),
     locale: 'en',
     data: { nakhId, expectedVersion: 1 },
+  };
+}
+
+function rejectCommand(
+  receiverUserId: string,
+  nakhId: string,
+  expectedVersion = 1,
+  idempotencyKey = `reject-nakh:${randomUUID()}`,
+): RejectNakhCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'nakh.reject',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: receiverUserId },
+    requestId: randomUUID(),
+    idempotencyKey,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: { nakhId, expectedVersion },
   };
 }
 
@@ -315,5 +342,91 @@ describe.skipIf(databaseUrl === undefined)('M5 direct credit Nakh persistence', 
       { nakh_version: 2, from_status: 'sent', to_status: 'seen' },
     ]);
     expect(events).toEqual([{ payload: { nakhId: delivered.nakhId, status: 'seen' } }]);
+  });
+
+  it('rejects a delivered Nakh once across twenty command replays without creating a match', async () => {
+    const senderUserId = await createActiveUser(database);
+    const receiverUserId = await createActiveUser(database);
+    await grantCredits(database, senderUserId, 2n);
+    const delivered = await store.createDirect(write(command(senderUserId, receiverUserId)));
+    const deliveredStore = new PostgresDeliveredNakhStore(database);
+    const handler = new RejectNakhHandler(deliveredStore, { uuid: randomUUID });
+    const replayedCommand = rejectCommand(receiverUserId, delivered.nakhId);
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => handler.execute(replayedCommand)),
+    );
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(results.filter((result) => result.replayed)).toHaveLength(19);
+    expect(new Set(results.map((result) => result.changedAt))).toHaveLength(1);
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+
+    const [nakh, actions, history, events, matches, chats, senderNotifications] = await Promise.all(
+      [
+        database
+          .selectFrom('nakh.nakhes')
+          .select(['status', 'rejected_at', 'seen_at', 'version'])
+          .where('id', '=', delivered.nakhId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('nakh.nakh_receiver_actions')
+          .select(['receiver_user_id', 'action_type'])
+          .where('nakh_id', '=', delivered.nakhId)
+          .execute(),
+        database
+          .selectFrom('nakh.nakh_status_history')
+          .select(['nakh_version', 'from_status', 'to_status', 'reason_code'])
+          .where('nakh_id', '=', delivered.nakhId)
+          .orderBy('nakh_version')
+          .execute(),
+        database
+          .selectFrom('platform.outbox_events')
+          .select('payload')
+          .where('aggregate_id', '=', delivered.nakhId)
+          .where('event_type', '=', 'nakh.status-changed.v1')
+          .execute(),
+        database
+          .selectFrom('matching.matches')
+          .select('id')
+          .where('source_nakh_id', '=', delivered.nakhId)
+          .execute(),
+        database
+          .selectFrom('chat.chat_sessions')
+          .select('id')
+          .where('match_id', 'in', (query) =>
+            query
+              .selectFrom('matching.matches')
+              .select('id')
+              .where('source_nakh_id', '=', delivered.nakhId),
+          )
+          .execute(),
+        database
+          .selectFrom('notification.notifications')
+          .select('id')
+          .where('user_id', '=', senderUserId)
+          .execute(),
+      ],
+    );
+    expect(nakh).toMatchObject({ status: 'rejected', seen_at: null, version: 2 });
+    expect(nakh.rejected_at).not.toBeNull();
+    expect(actions).toEqual([{ receiver_user_id: receiverUserId, action_type: 'reject' }]);
+    expect(history).toEqual([
+      {
+        nakh_version: 1,
+        from_status: null,
+        to_status: 'sent',
+        reason_code: 'credit_funded',
+      },
+      {
+        nakh_version: 2,
+        from_status: 'sent',
+        to_status: 'rejected',
+        reason_code: 'receiver_rejected',
+      },
+    ]);
+    expect(events).toEqual([{ payload: { nakhId: delivered.nakhId, status: 'rejected' } }]);
+    expect(matches).toHaveLength(0);
+    expect(chats).toHaveLength(0);
+    expect(senderNotifications).toHaveLength(0);
   });
 });
