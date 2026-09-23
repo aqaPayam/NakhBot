@@ -11,6 +11,7 @@ export * from './billing/invoice-payload.js';
 export * from './billing/provider-receipts.js';
 export * from './billing/refunds.js';
 export * from './billing/reconciliation.js';
+export * from './chat/predefined-message.js';
 export * from './entitlement/paid-action.js';
 export * from './identity/register-telegram-identity.js';
 export * from './identity/start-router.js';

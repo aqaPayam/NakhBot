@@ -19,6 +19,7 @@ export type NotificationWrite = Readonly<{
   deduplicationKey: string;
   correlationId: string;
   causationId: string;
+  telegramDeliveryAllowed?: boolean;
 }>;
 
 export type StoredNotification = Readonly<{
@@ -117,6 +118,7 @@ export async function insertNotification(
   if (preferences === undefined)
     throw new ApplicationError('not_found', 'error.notification.preferences_not_found', 404);
   if (
+    write.telegramDeliveryAllowed === false ||
     !shouldCreateTelegramDelivery(write.type, {
       chatEnabled: preferences.chat_enabled,
       likeEnabled: preferences.like_enabled,

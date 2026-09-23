@@ -64,6 +64,7 @@ export type ApplicationErrorCode =
   | 'nakh_terminal'
   | 'chat_text_invalid'
   | 'chat_state_invalid'
+  | 'chat_unavailable'
   | 'notification_delivery_invalid'
   | 'pending_profile_change_exists'
   | 'profile_change_invalid'

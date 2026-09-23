@@ -78,6 +78,7 @@ export { PostgresExploreFilterStore } from './explore-filter-store.js';
 export { PostgresCandidateReservationStore } from './candidate-reservation-store.js';
 export { PostgresCandidateDeliveryStore } from './candidate-delivery-store.js';
 export { PostgresInteractionStore } from './interaction-store.js';
+export { PostgresChatStore } from './chat-store.js';
 export { PostgresPendingNakhStore } from './pending-nakh-store.js';
 export { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
 export { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
