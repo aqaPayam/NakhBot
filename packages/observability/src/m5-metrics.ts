@@ -121,6 +121,9 @@ export class M5Metrics {
     'nakh.m5.reconciliation.anomalies',
   );
   private readonly callbackConflicts = meter.createCounter('nakh.m5.callback_conflicts');
+  private readonly operationalHealthFailures = meter.createCounter(
+    'nakh.m5.operational_health.failures',
+  );
 
   public recordCreation(
     outcome: M5CreationOutcome,
@@ -187,6 +190,10 @@ export class M5Metrics {
     this.paidUndeliveredOldestAge.record(health.paidUndeliveredOldestAgeSeconds);
     this.quotaDrift.record(health.quotaDriftCount);
     this.fundingInvariantMismatch.record(health.fundingInvariantMismatchCount);
+  }
+
+  public recordOperationalHealthFailure(): void {
+    this.operationalHealthFailures.add(1);
   }
 
   public recordReconciliation(

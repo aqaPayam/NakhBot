@@ -8,6 +8,7 @@ import { RunNakhReconciliationBatchHandler } from '@nakh/application';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
+import { PostgresNakhOperationalMetricsStore } from './nakh-operational-metrics-store.js';
 import { PostgresNakhReconciliationStore } from './nakh-reconciliation-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
@@ -98,5 +99,12 @@ describe.skipIf(databaseUrl === undefined)('M5 Nakh reconciliation', () => {
         safe_detail: { recordedCount: '1', actualCount: '0' },
       },
     ]);
+    const health = await new PostgresNakhOperationalMetricsStore(database).measure();
+    expect(health.quotaDriftCount).toBeGreaterThanOrEqual(1);
+    expect(health.settlementBacklogCount).toBeGreaterThanOrEqual(0);
+    expect(health.settlementOldestAgeSeconds).toBeGreaterThanOrEqual(0);
+    expect(health.paidUndeliveredCount).toBeGreaterThanOrEqual(0);
+    expect(health.paidUndeliveredOldestAgeSeconds).toBeGreaterThanOrEqual(0);
+    expect(health.fundingInvariantMismatchCount).toBeGreaterThanOrEqual(0);
   });
 });

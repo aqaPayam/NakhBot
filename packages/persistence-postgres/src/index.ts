@@ -83,6 +83,10 @@ export { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-st
 export { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
 export { PostgresNakhReconciliationStore } from './nakh-reconciliation-store.js';
 export {
+  PostgresNakhOperationalMetricsStore,
+  type NakhOperationalHealth,
+} from './nakh-operational-metrics-store.js';
+export {
   analyzeM5QueryTables,
   explainM5Queries,
   withM5SyntheticPlanSession,

@@ -14,6 +14,7 @@ import {
   PostgresBillingReconciliationStore,
   PostgresMediaObjectReferenceStore,
   PostgresNakhMaintenanceStore,
+  PostgresNakhOperationalMetricsStore,
   PostgresNakhReconciliationStore,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection, RedisLease } from '@nakh/queue-redis';
@@ -88,10 +89,12 @@ const nakhReconciliation = new RunNakhReconciliationBatchHandler(
   new PostgresNakhReconciliationStore(database),
 );
 const nakhMetrics = new M5Metrics();
+const nakhOperationalMetrics = new PostgresNakhOperationalMetricsStore(database);
 const nakhReconciliationIntervalMs = 15 * 60_000;
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
 let nextNakhReconciliationAt = 0;
+let nextNakhHealthSampleAt = 0;
 
 let ticking = false;
 const tick = async (): Promise<void> => {
@@ -229,6 +232,20 @@ const tick = async (): Promise<void> => {
           logger.error(
             { err: error, operation: 'nakh.reconciliation.batch' },
             'Nakh reconciliation batch failed',
+          );
+        }
+      }
+      if (Date.now() >= nextNakhHealthSampleAt) {
+        try {
+          const health = await nakhOperationalMetrics.measure();
+          nakhMetrics.recordOperationalHealth(health);
+          nextNakhHealthSampleAt = Date.now() + 30_000;
+        } catch (error) {
+          nakhMetrics.recordOperationalHealthFailure();
+          nextNakhHealthSampleAt = Date.now() + 30_000;
+          logger.error(
+            { err: error, operation: 'nakh.operational-health.measure' },
+            'Nakh operational health measurement failed',
           );
         }
       }

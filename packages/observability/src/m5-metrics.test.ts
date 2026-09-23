@@ -61,6 +61,7 @@ describe('M5 metric contract', () => {
         quotaDriftCount: 0,
         fundingInvariantMismatchCount: 0,
       });
+      metrics.recordOperationalHealthFailure();
       metrics.recordReconciliation('in_progress', 'pending', 40, 100, 2);
       metrics.recordCallbackConflict();
     }).not.toThrow();
