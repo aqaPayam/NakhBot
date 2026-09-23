@@ -36,15 +36,24 @@ describe.skipIf(databaseUrl === undefined)('M5 Nakh reconciliation', () => {
       .insertInto('identity.users')
       .values({ id: userId, last_activity_at: now, created_at: now, updated_at: now })
       .execute();
-    await database
-      .updateTable('platform.user_counters')
-      .set({
-        pending_nakh_count: 1,
-        version: sql<number>`version + 1`,
-        updated_at: sql<Date>`clock_timestamp()`,
-      })
-      .where('user_id', '=', userId)
-      .executeTakeFirstOrThrow();
+    // Reconciliation must detect out-of-band drift that ordinary writes cannot create.
+    // Keep the trigger bypass scoped to one dedicated database session.
+    await database.connection().execute(async (connection) => {
+      await sql`SET session_replication_role = replica`.execute(connection);
+      try {
+        await connection
+          .updateTable('platform.user_counters')
+          .set({
+            pending_nakh_count: 1,
+            version: sql<number>`version + 1`,
+            updated_at: sql<Date>`clock_timestamp()`,
+          })
+          .where('user_id', '=', userId)
+          .executeTakeFirstOrThrow();
+      } finally {
+        await sql`SET session_replication_role = origin`.execute(connection);
+      }
+    });
 
     const store = new PostgresNakhReconciliationStore(database);
     const proposedIds = Array.from({ length: 20 }, () => randomUUID());
