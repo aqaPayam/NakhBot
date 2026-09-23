@@ -269,9 +269,7 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
       if (nakh.version !== command.data.expectedVersion)
         throw new ApplicationError('version_conflict', 'error.command.stale_version', 409);
 
-      const time = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(
-        transaction,
-      );
+      const time = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);
       const now = time.rows[0]!.now;
       await transaction
         .insertInto('nakh.nakh_receiver_actions')

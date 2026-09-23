@@ -14,7 +14,7 @@ function validateLimit(limit: number): void {
 }
 
 async function databaseNow(database: NakhDatabase): Promise<Date> {
-  const result = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(database);
+  const result = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(database);
   return result.rows[0]!.now;
 }
 

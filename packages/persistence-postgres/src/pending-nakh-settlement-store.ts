@@ -128,9 +128,7 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
       if (intent.status === 'paid')
         return { outcome: 'stop_external_funding', pendingNakhId: pending.id };
 
-      const time = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(
-        transaction,
-      );
+      const time = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);
       const now = time.rows[0]!.now;
       const expired = pending.expires_at <= now;
       const sender = users.find((user) => user.id === flow.sender_user_id);
