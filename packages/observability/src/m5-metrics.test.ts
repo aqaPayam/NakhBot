@@ -52,6 +52,7 @@ describe('M5 metric contract', () => {
       metrics.recordDelivery('delivered', 'telegram_stars', 20);
       metrics.recordSettlement('queue_empty', 50, 4, 1);
       metrics.recordMaintenance('pending_expiry', 'completed', 30, 10, 2);
+      metrics.recordMaintenance('batch', 'failure', 30);
       metrics.recordReceiverAction('accept', 'completed', 15);
       metrics.recordOperationalHealth({
         settlementBacklogCount: 10,
@@ -63,6 +64,7 @@ describe('M5 metric contract', () => {
       });
       metrics.recordOperationalHealthFailure();
       metrics.recordReconciliation('in_progress', 'pending', 40, 100, 2);
+      metrics.recordReconciliation('failure', 'unknown', 40);
       metrics.recordCallbackConflict();
     }).not.toThrow();
   });

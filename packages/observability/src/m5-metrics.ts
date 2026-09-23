@@ -85,6 +85,7 @@ export class M5Metrics {
   });
   private readonly maintenanceExamined = meter.createCounter('nakh.m5.maintenance.examined');
   private readonly maintenanceChanged = meter.createCounter('nakh.m5.maintenance.changed');
+  private readonly maintenanceFailures = meter.createCounter('nakh.m5.maintenance.failures');
   private readonly receiverActions = meter.createCounter('nakh.m5.receiver_actions.count');
   private readonly receiverActionDuration = meter.createHistogram(
     'nakh.m5.receiver_actions.duration',
@@ -120,6 +121,7 @@ export class M5Metrics {
   private readonly reconciliationAnomalies = meter.createCounter(
     'nakh.m5.reconciliation.anomalies',
   );
+  private readonly reconciliationFailures = meter.createCounter('nakh.m5.reconciliation.failures');
   private readonly callbackConflicts = meter.createCounter('nakh.m5.callback_conflicts');
   private readonly operationalHealthFailures = meter.createCounter(
     'nakh.m5.operational_health.failures',
@@ -171,6 +173,7 @@ export class M5Metrics {
     this.maintenanceDuration.record(durationMs, labels);
     this.maintenanceExamined.add(examined, { operation });
     this.maintenanceChanged.add(changed, { operation });
+    if (outcome === 'failure') this.maintenanceFailures.add(1);
   }
 
   public recordReceiverAction(
@@ -208,6 +211,7 @@ export class M5Metrics {
     this.reconciliationDuration.record(durationMs, labels);
     this.reconciliationScanned.add(scannedCount, { phase });
     this.reconciliationAnomalies.add(anomalyCount, { phase });
+    if (outcome === 'failure') this.reconciliationFailures.add(1);
   }
 
   public recordCallbackConflict(): void {

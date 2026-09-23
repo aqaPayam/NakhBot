@@ -281,3 +281,80 @@ resource "aws_cloudwatch_metric_alarm" "telegram_liked_by" {
   alarm_actions       = [aws_sns_topic.operations.arn]
   ok_actions          = [aws_sns_topic.operations.arn]
 }
+
+locals {
+  nakh_lifecycle_alarms = {
+    settlement_backlog = {
+      description = "Pending Nakh settlement backlog is above the staging envelope. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.backlog.settlement_count"
+      statistic   = "Maximum"
+      threshold   = 100
+    }
+    settlement_oldest_age = {
+      description = "The oldest Pending Nakh has waited at least five minutes for settlement. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.backlog.settlement_oldest_age"
+      statistic   = "Maximum"
+      threshold   = 300
+    }
+    paid_undelivered_oldest_age = {
+      description = "A captured Stars Nakh has remained undelivered for at least two minutes. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.backlog.paid_undelivered_oldest_age"
+      statistic   = "Maximum"
+      threshold   = 120
+    }
+    quota_drift = {
+      description = "Pending Nakh quota counters disagree with source rows. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.integrity.quota_drift"
+      statistic   = "Maximum"
+      threshold   = 1
+    }
+    funding_invariant_mismatch = {
+      description = "Delivered Nakh funding evidence is inconsistent. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.integrity.funding_invariant_mismatch"
+      statistic   = "Maximum"
+      threshold   = 1
+    }
+    callback_conflict = {
+      description = "A conflicting callback reached the Nakh lifecycle. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.callback_conflicts"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    maintenance_failure = {
+      description = "Nakh reminder or expiry maintenance failed. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.maintenance.failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    reconciliation_failure = {
+      description = "Nakh reconciliation failed. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.reconciliation.failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    operational_health_failure = {
+      description = "Nakh backlog and integrity measurement failed. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      metric_name = "nakh.m5.operational_health.failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "nakh_lifecycle" {
+  for_each = local.nakh_lifecycle_alarms
+
+  alarm_name          = "${local.name}-nakh-${replace(each.key, "_", "-")}"
+  alarm_description   = each.value.description
+  namespace           = "Nakh/Platform"
+  metric_name         = each.value.metric_name
+  statistic           = each.value.statistic
+  period              = 300
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  threshold           = each.value.threshold
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.operations.arn]
+  ok_actions          = [aws_sns_topic.operations.arn]
+}

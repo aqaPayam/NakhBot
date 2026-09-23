@@ -60,6 +60,7 @@ Any product behavior change requires a domain-document update first. Any persist
 | [`23-m4-execution-guide.md`](23-m4-execution-guide.md) | Exact M4 billing, Stars, paid-unlock, correction, reconciliation, and acceptance sequence |
 | [`24-m4-acceptance-evidence.md`](24-m4-acceptance-evidence.md) | M4 automated evidence, operational gates, external blockers, and staging handoff ledger |
 | [`25-m5-execution-guide.md`](25-m5-execution-guide.md) | Exact M5 Nakh lifecycle, funding, FIFO settlement, receiver action, and acceptance sequence |
+| [`26-m5-acceptance-evidence.md`](26-m5-acceptance-evidence.md) | M5 automated evidence, operational gates, external blockers, and staging handoff ledger |
 
 ## Locked baseline
 
