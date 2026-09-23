@@ -3,17 +3,24 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { SendPredefinedAnswerCommand, SendPredefinedQuestionCommand } from '@nakh/contracts';
+import type {
+  SendPredefinedAnswerCommand,
+  SendPredefinedQuestionCommand,
+  SendTextMessageCommand,
+} from '@nakh/contracts';
 
 import { PostgresChatStore } from './chat-store.js';
+import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
+import { PostgresPaidActionStore } from './paid-action-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 type ChatFixture = Readonly<{
   firstUserId: string;
   secondUserId: string;
+  matchId: string;
   chatSessionId: string;
 }>;
 
@@ -30,6 +37,10 @@ async function createUser(database: NakhDatabase): Promise<string> {
     .execute();
   await database
     .insertInto('notification.notification_preferences')
+    .values({ user_id: userId, created_at: now, updated_at: now })
+    .execute();
+  await database
+    .insertInto('billing.credit_accounts')
     .values({ user_id: userId, created_at: now, updated_at: now })
     .execute();
   return userId;
@@ -74,6 +85,23 @@ function answerCommand(
       chatActionToken: `v1.ch.${'c'.repeat(16)}.${'d'.repeat(16)}`,
       questionId,
       answerId,
+    },
+  };
+}
+
+function textCommand(actorUserId: string): SendTextMessageCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'chat.send-text',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: actorUserId },
+    requestId: randomUUID(),
+    idempotencyKey: `chat-text:${randomUUID()}`,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: {
+      chatActionToken: `v1.ch.${'e'.repeat(16)}.${'f'.repeat(16)}`,
+      text: 'Café\nhello',
     },
   };
 }
@@ -175,7 +203,7 @@ async function createChatFixture(database: NakhDatabase): Promise<ChatFixture> {
       ])
       .execute();
   });
-  return { firstUserId, secondUserId, chatSessionId };
+  return { firstUserId, secondUserId, matchId, chatSessionId };
 }
 
 async function reserveAndInsert(
@@ -548,5 +576,87 @@ describe.skipIf(databaseUrl === undefined)('M6 chat catalog and message foundati
         eventId: randomUUID(),
       }),
     ).rejects.toMatchObject({ code: 'chat_unavailable' });
+  });
+
+  it('allows normalized text only after Match unlock and the actor safety warning', async () => {
+    const fixture = await createChatFixture(database);
+    const command = textCommand(fixture.firstUserId);
+    const write = {
+      command,
+      chatSessionId: fixture.chatSessionId,
+      normalizedText: 'Café\nhello',
+      messageId: randomUUID(),
+      eventId: randomUUID(),
+    } as const;
+    const store = new PostgresChatStore(database);
+
+    await expect(store.sendText(write)).rejects.toMatchObject({ code: 'chat_unavailable' });
+    await new PostgresCreditLedgerStore(database).append({
+      transactionId: randomUUID(),
+      userId: fixture.firstUserId,
+      transactionType: 'admin_adjustment',
+      amount: 10n,
+      idempotencyKey: `chat-funding:${randomUUID()}`,
+      correlationId: randomUUID(),
+    });
+    await new PostgresPaidActionStore(database).spendCredits({
+      featureUnlockId: randomUUID(),
+      creditTransactionId: randomUUID(),
+      outboxEventId: randomUUID(),
+      userId: fixture.firstUserId,
+      target: { type: 'match', targetId: fixture.matchId },
+      idempotencyKey: `chat-unlock:${randomUUID()}`,
+      correlationId: randomUUID(),
+    });
+    await expect(store.sendText(write)).rejects.toMatchObject({ code: 'chat_unavailable' });
+
+    await database
+      .updateTable('chat.chat_participants')
+      .set({ unlock_safety_warning_shown_at: new Date(), version: 2 })
+      .where('chat_session_id', '=', fixture.chatSessionId)
+      .where('user_id', '=', fixture.firstUserId)
+      .executeTakeFirstOrThrow();
+    const sent = await store.sendText(write);
+    const replay = await store.sendText({
+      ...write,
+      messageId: randomUUID(),
+      eventId: randomUUID(),
+    });
+    expect(sent).toMatchObject({
+      replayed: false,
+      message: {
+        messageType: 'text',
+        sequenceNumber: '1',
+        content: { text: 'Café\nhello' },
+      },
+    });
+    expect(replay).toMatchObject({
+      replayed: true,
+      message: { messageId: sent.message.messageId },
+    });
+
+    const persisted = await database
+      .selectFrom('chat.chat_messages')
+      .select(['text', 'message_type'])
+      .where('id', '=', sent.message.messageId)
+      .executeTakeFirstOrThrow();
+    expect(persisted).toEqual({ text: 'Café\nhello', message_type: 'text' });
+    const notification = await database
+      .selectFrom('notification.notifications')
+      .select('payload')
+      .where(
+        'deduplication_key',
+        '=',
+        `chat-message:${sent.message.messageId}:${fixture.secondUserId}`,
+      )
+      .executeTakeFirstOrThrow();
+    const event = await database
+      .selectFrom('platform.outbox_events')
+      .select('payload')
+      .where('aggregate_type', '=', 'chat_message')
+      .where('aggregate_id', '=', sent.message.messageId)
+      .executeTakeFirstOrThrow();
+    expect(JSON.stringify(notification.payload)).not.toContain('Café');
+    expect(JSON.stringify(event.payload)).not.toContain('Café');
   });
 });

@@ -6,8 +6,10 @@ import type {
   PredefinedChatMessageStore,
   SendPredefinedChatMessageCommand,
   SendPredefinedChatMessageWrite,
+  SendTextChatMessageWrite,
+  TextChatMessageStore,
 } from '@nakh/application';
-import type { ChatMessageResult } from '@nakh/contracts';
+import type { ChatMessageResult, SendTextMessageCommand } from '@nakh/contracts';
 import { ApplicationError } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
@@ -18,8 +20,22 @@ function unavailable(): never {
   throw new ApplicationError('chat_unavailable', 'error.chat.unavailable', 409);
 }
 
-function requestHash(write: SendPredefinedChatMessageWrite): string {
+type ChatMessageWrite = SendPredefinedChatMessageWrite | SendTextChatMessageWrite;
+type ChatMessageCommand = SendPredefinedChatMessageCommand | SendTextMessageCommand;
+
+function requestHash(write: ChatMessageWrite): string {
   const command = write.command;
+  const messageData =
+    'normalizedText' in write
+      ? {
+          normalizedTextDigest: createHash('sha256').update(write.normalizedText).digest('hex'),
+        }
+      : {
+          questionId: write.command.data.questionId,
+          ...(write.command.commandType === 'chat.send-predefined-answer'
+            ? { answerId: write.command.data.answerId }
+            : {}),
+        };
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -27,10 +43,7 @@ function requestHash(write: SendPredefinedChatMessageWrite): string {
         schemaVersion: command.schemaVersion,
         actor: command.actor,
         chatSessionId: write.chatSessionId,
-        questionId: command.data.questionId,
-        ...(command.commandType === 'chat.send-predefined-answer'
-          ? { answerId: command.data.answerId }
-          : {}),
+        ...messageData,
       }),
     )
     .digest('hex');
@@ -38,7 +51,7 @@ function requestHash(write: SendPredefinedChatMessageWrite): string {
 
 async function claimCommand(
   database: NakhDatabase,
-  write: SendPredefinedChatMessageWrite,
+  write: ChatMessageWrite,
   occurredAt: Date,
 ): Promise<ChatMessageResult | undefined> {
   const command = write.command;
@@ -77,7 +90,7 @@ async function claimCommand(
 
 async function completeCommand(
   database: NakhDatabase,
-  command: SendPredefinedChatMessageCommand,
+  command: ChatMessageCommand,
   result: ChatMessageResult,
   occurredAt: Date,
 ): Promise<void> {
@@ -94,8 +107,10 @@ async function databaseTime(database: NakhDatabase): Promise<Date> {
 }
 
 type LockedChat = Readonly<{
+  matchId: string;
   recipientUserId: string;
   recipientMuted: boolean;
+  actorSafetyWarningShown: boolean;
   nextSequenceNumber: string;
   sessionVersion: number;
 }>;
@@ -157,19 +172,22 @@ async function lockAuthorizedChat(
   if (session?.status !== 'active') unavailable();
   const participants = await database
     .selectFrom('chat.chat_participants')
-    .select(['user_id', 'muted_at'])
+    .select(['user_id', 'muted_at', 'unlock_safety_warning_shown_at'])
     .where('chat_session_id', '=', chatSessionId)
     .orderBy('user_id')
     .forUpdate()
     .execute();
   if (participants.length !== 2 || !participants.some(({ user_id }) => user_id === actorUserId))
     unavailable();
+  const actorParticipant = participants.find(({ user_id }) => user_id === actorUserId);
   const recipientParticipant = participants.find(({ user_id }) => user_id !== actorUserId);
   if (recipientParticipant === undefined || recipientParticipant.user_id !== recipient.user_id)
     unavailable();
   return {
+    matchId: identity.matchId,
     recipientUserId: recipientParticipant.user_id,
     recipientMuted: recipientParticipant.muted_at !== null,
+    actorSafetyWarningShown: actorParticipant!.unlock_safety_warning_shown_at !== null,
     nextSequenceNumber: session.next_sequence_number,
     sessionVersion: session.version,
   };
@@ -220,7 +238,7 @@ async function loadPrompt(
   return { questionId: answer.question_id, answerId: answer.id, textKey: answer.text_key };
 }
 
-export class PostgresChatStore implements PredefinedChatMessageStore {
+export class PostgresChatStore implements PredefinedChatMessageStore, TextChatMessageStore {
   public constructor(private readonly database: NakhDatabase) {}
 
   public sendPredefined(write: SendPredefinedChatMessageWrite): Promise<ChatMessageResult> {
@@ -310,6 +328,104 @@ export class PostgresChatStore implements PredefinedChatMessageStore {
             chatSessionId: write.chatSessionId,
             messageId: write.messageId,
             messageType: result.message.messageType,
+          },
+          occurred_at: occurredAt,
+          available_at: occurredAt,
+          published_at: null,
+          last_error_code: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          correlation_id: write.command.requestId,
+          causation_id: write.command.commandId,
+        })
+        .execute();
+      await completeCommand(transaction, write.command, result, occurredAt);
+      return result;
+    });
+  }
+
+  public sendText(write: SendTextChatMessageWrite): Promise<ChatMessageResult> {
+    if (write.command.actor.kind !== 'user')
+      return Promise.reject(
+        new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
+      );
+    return this.database.transaction().execute(async (transaction) => {
+      const occurredAt = await databaseTime(transaction);
+      const replay = await claimCommand(transaction, write, occurredAt);
+      if (replay !== undefined) return replay;
+      const locked = await lockAuthorizedChat(
+        transaction,
+        write.chatSessionId,
+        write.command.actor.userId,
+      );
+      const unlock = await transaction
+        .selectFrom('interaction.feature_unlocks')
+        .select('id')
+        .where('feature_type', '=', 'chat_unlock')
+        .where('match_id', '=', locked.matchId)
+        .where('status', '=', 'active')
+        .executeTakeFirst();
+      if (unlock === undefined || !locked.actorSafetyWarningShown)
+        throw new ApplicationError('chat_unavailable', 'error.chat.text_unavailable', 409);
+
+      const sequenceNumber = locked.nextSequenceNumber;
+      await transaction
+        .updateTable('chat.chat_sessions')
+        .set({
+          next_sequence_number: String(BigInt(sequenceNumber) + 1n),
+          version: locked.sessionVersion + 1,
+        })
+        .where('id', '=', write.chatSessionId)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .insertInto('chat.chat_messages')
+        .values({
+          id: write.messageId,
+          chat_session_id: write.chatSessionId,
+          sender_user_id: write.command.actor.userId,
+          message_type: 'text',
+          text: write.normalizedText,
+          predefined_question_id: null,
+          predefined_answer_id: null,
+          system_arguments: null,
+          sequence_number: sequenceNumber,
+          created_at: occurredAt,
+        })
+        .execute();
+      const result: ChatMessageResult = {
+        message: {
+          messageId: write.messageId,
+          sequenceNumber,
+          sender: 'self',
+          messageType: 'text',
+          content: { text: write.normalizedText },
+          createdAt: occurredAt.toISOString(),
+        },
+        replayed: false,
+      };
+      await insertNotification(transaction, {
+        userId: locked.recipientUserId,
+        type: 'new_chat_message',
+        titleKey: 'notification.new_chat_message.title',
+        bodyKey: 'notification.new_chat_message.body',
+        payload: { chatSessionId: write.chatSessionId, messageId: write.messageId },
+        deduplicationKey: `chat-message:${write.messageId}:${locked.recipientUserId}`,
+        correlationId: write.command.requestId,
+        causationId: write.command.commandId,
+        telegramDeliveryAllowed: !locked.recipientMuted,
+      });
+      await transaction
+        .insertInto('platform.outbox_events')
+        .values({
+          id: write.eventId,
+          aggregate_type: 'chat_message',
+          aggregate_id: write.messageId,
+          event_type: 'chat.message-created.v1',
+          schema_version: 1,
+          payload: {
+            chatSessionId: write.chatSessionId,
+            messageId: write.messageId,
+            messageType: 'text',
           },
           occurred_at: occurredAt,
           available_at: occurredAt,

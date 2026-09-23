@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   SendPredefinedAnswerHandler,
   SendPredefinedQuestionHandler,
+  SendTextMessageHandler,
 } from './predefined-message.js';
 
 const userId = '10000000-0000-4000-8000-000000000000';
@@ -73,5 +74,20 @@ describe('M6 predefined chat handlers', () => {
     await expect(
       handler.execute({ ...command, actor: { kind: 'system', userId } }),
     ).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+
+  it('normalizes free text before resolving and forwarding it', async () => {
+    const sendText = vi.fn().mockResolvedValue({});
+    const resolveChatAction = vi.fn().mockResolvedValue(chatSessionId);
+    const handler = new SendTextMessageHandler({ sendText }, { resolveChatAction }, ids);
+    const command = {
+      ...envelope,
+      commandType: 'chat.send-text' as const,
+      data: { chatActionToken: token, text: '  Cafe\u0301\r\nhello  ' },
+    };
+    await handler.execute(command);
+    expect(sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ command, chatSessionId, normalizedText: 'Café\nhello' }),
+    );
   });
 });
