@@ -267,8 +267,8 @@ Authorize either participant and acquire the pair lock. In one transaction creat
 UnmatchRecord, permanently change pair/Match state, close the ChatSession, close related Likes,
 invalidate effective scoped access through lifecycle, and create exactly one chat-closed history
 Notification for the other participant. Concurrent unmatch calls converge to one record; the
-winner's actor and timestamp remain immutable. The report capability is true through the exact
-deadline and false immediately after it.
+winner's actor and timestamp remain immutable. The report capability is true before the exact
+deadline and false at or after it.
 
 ### 8.6 Notification dispatch and retry
 
@@ -330,7 +330,7 @@ sessions, and unsupported updates return localized safe errors without side effe
 ## 11. Acceptance and fault matrix
 
 - `ACC-031`: simultaneous Unmatch/replay produces one permanent symmetric state, closes chat/Likes,
-  never creates NotInterested, and permits reporting at `deadline` but rejects after the exact
+  never creates NotInterested, and permits reporting before `deadline` but rejects at the exact
   24-hour boundary;
 - `ACC-032`: M4's concurrent unlock remains one charge/grant and both participants gain effective
   M6 text capability after their warning is shown;

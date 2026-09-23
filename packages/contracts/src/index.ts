@@ -7,6 +7,7 @@ export * from './m2.js';
 export * from './m3.js';
 export * from './m4.js';
 export * from './m5.js';
+export * from './m6.js';
 export * from './shared.js';
 
 export const CreateSampleEffectDataSchema = Type.Object(

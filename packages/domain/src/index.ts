@@ -1,5 +1,6 @@
 export * from './access/capability-policy.js';
 export * from './billing/billing.js';
+export * from './chat/chat.js';
 export * from './foundation.js';
 export * from './identity/account.js';
 export * from './identity/signup.js';
