@@ -62,6 +62,7 @@ export async function explainM5Queries(
           FROM nakh.nakh_flows
           WHERE sender_user_id = ${input.senderUserId}
             AND receiver_user_id = ${input.receiverUserId}
+          ORDER BY id
           LIMIT 1`,
     ),
     explain(

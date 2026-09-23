@@ -864,6 +864,7 @@ export class PostgresPendingNakhStore
           .select('id')
           .where('sender_user_id', '=', senderUserId)
           .where('receiver_user_id', '=', targetUserId)
+          .orderBy('id', 'asc')
           .executeTakeFirst(),
         transaction
           .selectFrom('interaction.likes')

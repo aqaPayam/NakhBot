@@ -132,6 +132,7 @@ export class PostgresDirectNakhStore implements DirectNakhStore {
           .select('id')
           .where('sender_user_id', '=', senderUserId)
           .where('receiver_user_id', '=', receiverUserId)
+          .orderBy('id', 'asc')
           .executeTakeFirst(),
         transaction
           .selectFrom('interaction.likes')
