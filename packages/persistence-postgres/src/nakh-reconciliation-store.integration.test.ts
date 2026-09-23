@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from 'kysely';
 
 import { RunNakhReconciliationBatchHandler } from '@nakh/application';
 
@@ -37,7 +38,11 @@ describe.skipIf(databaseUrl === undefined)('M5 Nakh reconciliation', () => {
       .execute();
     await database
       .updateTable('platform.user_counters')
-      .set({ pending_nakh_count: 1, updated_at: now })
+      .set({
+        pending_nakh_count: 1,
+        version: sql<number>`version + 1`,
+        updated_at: sql<Date>`clock_timestamp()`,
+      })
       .where('user_id', '=', userId)
       .executeTakeFirstOrThrow();
 
