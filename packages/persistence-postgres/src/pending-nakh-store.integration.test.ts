@@ -8,7 +8,7 @@ import type {
   CreatePendingNakhWrite,
   EditPendingNakhWrite,
 } from '@nakh/application';
-import { SettlePendingNakhesHandler } from '@nakh/application';
+import { RunNakhMaintenanceBatchHandler, SettlePendingNakhesHandler } from '@nakh/application';
 import type {
   CancelPendingNakhCommand,
   CreatePendingNakhCommand,
@@ -19,6 +19,7 @@ import { ApplicationError } from '@nakh/domain';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
+import { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
 import { PostgresPendingNakhStore } from './pending-nakh-store.js';
 import { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
 
@@ -210,6 +211,174 @@ async function increaseCredits(
       .executeTakeFirstOrThrow();
   });
   return transactionId;
+}
+
+async function insertPendingFixture(
+  database: NakhDatabase,
+  senderUserId: string,
+  receiverUserId: string,
+  createdAt: Date,
+): Promise<Readonly<{ pendingNakhId: string; pendingPaymentId: string }>> {
+  const flowId = randomUUID();
+  const pendingNakhId = randomUUID();
+  const pendingPaymentId = randomUUID();
+  const expiresAt = new Date(createdAt.getTime() + 14 * 24 * 60 * 60 * 1_000);
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .insertInto('nakh.nakh_flows')
+      .values({
+        id: flowId,
+        sender_user_id: senderUserId,
+        receiver_user_id: receiverUserId,
+        created_at: createdAt,
+      })
+      .execute();
+    await transaction
+      .insertInto('billing.pending_payments')
+      .values({
+        id: pendingPaymentId,
+        user_id: senderUserId,
+        reason: 'send_nakh',
+        target_type: 'pending_nakh',
+        target_id: pendingNakhId,
+        funding_type: 'telegram_stars',
+        required_credits: null,
+        required_stars: '2',
+        package_code_snapshot: null,
+        package_credit_amount_snapshot: null,
+        idempotency_key: `maintenance-payment:${pendingPaymentId}`,
+        request_hash: 'a'.repeat(64),
+        created_at: createdAt,
+        expires_at: expiresAt,
+        resolved_at: null,
+      })
+      .execute();
+    await transaction
+      .insertInto('nakh.pending_nakhes')
+      .values({
+        id: pendingNakhId,
+        nakh_flow_id: flowId,
+        sender_user_id: senderUserId,
+        text: 'A scheduled Pending Nakh',
+        pending_payment_id: pendingPaymentId,
+        auto_settle_authorized_at: createdAt,
+        authorization_source: 'explore',
+        authorized_at: createdAt,
+        created_at: createdAt,
+        expires_at: expiresAt,
+        paid_at: null,
+        cancelled_at: null,
+        expired_at: null,
+        closed_at: null,
+        cancel_resolution: null,
+        last_reminder_at: null,
+        idempotency_key: `maintenance-pending:${pendingNakhId}`,
+        request_hash: 'b'.repeat(64),
+      })
+      .execute();
+    await transaction
+      .updateTable('platform.user_counters')
+      .set({
+        pending_nakh_count: 1,
+        version: 2,
+        updated_at: new Date(),
+      })
+      .where('user_id', '=', senderUserId)
+      .where('pending_nakh_count', '=', 0)
+      .executeTakeFirstOrThrow();
+  });
+  return { pendingNakhId, pendingPaymentId };
+}
+
+async function insertDeliveredFixture(
+  database: NakhDatabase,
+  senderUserId: string,
+  receiverUserId: string,
+  sentAt: Date,
+): Promise<string> {
+  await increaseCredits(database, senderUserId, 2n);
+  const flowId = randomUUID();
+  const nakhId = randomUUID();
+  const creditTransactionId = randomUUID();
+  const expiresAt = new Date(sentAt.getTime() + 14 * 24 * 60 * 60 * 1_000);
+  await database.transaction().execute(async (transaction) => {
+    const account = await transaction
+      .selectFrom('billing.credit_accounts')
+      .select(['balance', 'version'])
+      .where('user_id', '=', senderUserId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    await transaction
+      .insertInto('nakh.nakh_flows')
+      .values({
+        id: flowId,
+        sender_user_id: senderUserId,
+        receiver_user_id: receiverUserId,
+        created_at: sentAt,
+      })
+      .execute();
+    await transaction
+      .insertInto('nakh.nakhes')
+      .values({
+        id: nakhId,
+        nakh_flow_id: flowId,
+        sender_user_id: senderUserId,
+        receiver_user_id: receiverUserId,
+        text: 'An independently expiring delivered Nakh',
+        funding_type: 'credits',
+        credit_transaction_id: creditTransactionId,
+        payment_record_id: null,
+        sent_at: sentAt,
+        expires_at: expiresAt,
+        seen_at: null,
+        accepted_at: null,
+        rejected_at: null,
+        expired_at: null,
+        closed_at: null,
+      })
+      .execute();
+    await transaction
+      .insertInto('nakh.nakh_status_history')
+      .values({
+        id: randomUUID(),
+        nakh_id: nakhId,
+        nakh_version: 1,
+        from_status: null,
+        to_status: 'sent',
+        reason_code: 'credit_funded',
+        changed_by_user_id: senderUserId,
+        request_id: randomUUID(),
+        changed_at: sentAt,
+      })
+      .execute();
+    await transaction
+      .insertInto('billing.credit_transactions')
+      .values({
+        id: creditTransactionId,
+        credit_account_id: senderUserId,
+        user_id: senderUserId,
+        account_version: account.version + 1,
+        transaction_type: 'spend_nakh',
+        amount: '-2',
+        balance_before: account.balance,
+        balance_after: '0',
+        payment_record_id: null,
+        pending_payment_id: null,
+        feature_unlock_id: null,
+        nakh_id: nakhId,
+        idempotency_key: `maintenance-spend:${nakhId}`,
+        correlation_id: randomUUID(),
+        created_at: sentAt,
+      })
+      .execute();
+    await transaction
+      .updateTable('billing.credit_accounts')
+      .set({ balance: '0', version: account.version + 1, updated_at: new Date() })
+      .where('user_id', '=', senderUserId)
+      .where('version', '=', account.version)
+      .executeTakeFirstOrThrow();
+  });
+  return nakhId;
 }
 
 describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => {
@@ -797,6 +966,137 @@ describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => 
       deliveredCount: 0,
       closedCount: 0,
       stopped: 'insufficient_credits',
+    });
+  });
+
+  it('ACC-029 independently expires both clocks and sends each due reminder once', async () => {
+    const now = Date.now();
+    const expiredPendingSender = await createActiveUser(database);
+    const expiredPendingReceiver = await createActiveUser(database);
+    const reminderSender = await createActiveUser(database);
+    const reminderReceiver = await createActiveUser(database);
+    const deliveredSender = await createActiveUser(database);
+    const deliveredReceiver = await createActiveUser(database);
+    const expiredPending = await insertPendingFixture(
+      database,
+      expiredPendingSender,
+      expiredPendingReceiver,
+      new Date(now - 15 * 24 * 60 * 60 * 1_000),
+    );
+    const reminderPending = await insertPendingFixture(
+      database,
+      reminderSender,
+      reminderReceiver,
+      new Date(now - 3 * 24 * 60 * 60 * 1_000),
+    );
+    const deliveredNakhId = await insertDeliveredFixture(
+      database,
+      deliveredSender,
+      deliveredReceiver,
+      new Date(now - 16 * 24 * 60 * 60 * 1_000),
+    );
+    const maintenance = new RunNakhMaintenanceBatchHandler(
+      new PostgresNakhMaintenanceStore(database),
+    );
+
+    await Promise.all(Array.from({ length: 10 }, () => maintenance.execute(100)));
+
+    const [pending, payment, counter, reminder, delivered, history, notifications, events] =
+      await Promise.all([
+        database
+          .selectFrom('nakh.pending_nakhes')
+          .select(['status', 'expired_at'])
+          .where('id', '=', expiredPending.pendingNakhId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('billing.pending_payments')
+          .select(['status', 'resolved_at'])
+          .where('id', '=', expiredPending.pendingPaymentId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('platform.user_counters')
+          .select('pending_nakh_count')
+          .where('user_id', '=', expiredPendingSender)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('nakh.pending_nakhes')
+          .select(['status', 'reminder_count', 'last_reminder_at'])
+          .where('id', '=', reminderPending.pendingNakhId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('nakh.nakhes')
+          .select(['status', 'expired_at'])
+          .where('id', '=', deliveredNakhId)
+          .executeTakeFirstOrThrow(),
+        database
+          .selectFrom('nakh.nakh_status_history')
+          .select(['nakh_version', 'from_status', 'to_status', 'reason_code'])
+          .where('nakh_id', '=', deliveredNakhId)
+          .orderBy('nakh_version')
+          .execute(),
+        database
+          .selectFrom('notification.notifications')
+          .select(['user_id', 'notification_type', 'payload'])
+          .where('notification_type', '=', 'pending_nakh_payment_reminder')
+          .where('user_id', 'in', [reminderSender, reminderReceiver])
+          .execute(),
+        database
+          .selectFrom('platform.outbox_events')
+          .select(['aggregate_id', 'event_type'])
+          .where('aggregate_id', 'in', [
+            expiredPending.pendingNakhId,
+            reminderPending.pendingNakhId,
+            deliveredNakhId,
+          ])
+          .where('event_type', 'in', [
+            'nakh.status-changed.v1',
+            'nakh.pending-reminder-requested.v1',
+          ])
+          .execute(),
+      ]);
+    expect(pending.status).toBe('expired');
+    expect(pending.expired_at).not.toBeNull();
+    expect(payment.status).toBe('expired');
+    expect(payment.resolved_at).not.toBeNull();
+    expect(counter.pending_nakh_count).toBe(0);
+    expect(reminder).toMatchObject({ status: 'pending_payment', reminder_count: 1 });
+    expect(reminder.last_reminder_at).not.toBeNull();
+    expect(delivered.status).toBe('expired');
+    expect(delivered.expired_at).not.toBeNull();
+    expect(history).toEqual([
+      expect.objectContaining({ nakh_version: 1, from_status: null, to_status: 'sent' }),
+      {
+        nakh_version: 2,
+        from_status: 'sent',
+        to_status: 'expired',
+        reason_code: 'deadline_elapsed',
+      },
+    ]);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      user_id: reminderSender,
+      notification_type: 'pending_nakh_payment_reminder',
+    });
+    expect(notifications[0]!.payload).toMatchObject({
+      pendingNakhId: reminderPending.pendingNakhId,
+      reminderNumber: 1,
+    });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        { aggregate_id: expiredPending.pendingNakhId, event_type: 'nakh.status-changed.v1' },
+        {
+          aggregate_id: reminderPending.pendingNakhId,
+          event_type: 'nakh.pending-reminder-requested.v1',
+        },
+        { aggregate_id: deliveredNakhId, event_type: 'nakh.status-changed.v1' },
+      ]),
+    );
+
+    await expect(maintenance.execute(100)).resolves.toEqual({
+      pendingExpired: { examined: 0, changed: 0 },
+      deliveredExpired: { examined: 0, changed: 0 },
+      remindersSent: { examined: 0, changed: 0 },
+      hasMore: false,
     });
   });
 });

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ReconcileMediaObjectCandidates,
   RunBillingReconciliationBatchHandler,
+  RunNakhMaintenanceBatchHandler,
 } from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
@@ -11,6 +12,7 @@ import {
   createDatabase,
   PostgresBillingReconciliationStore,
   PostgresMediaObjectReferenceStore,
+  PostgresNakhMaintenanceStore,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection, RedisLease } from '@nakh/queue-redis';
 
@@ -77,7 +79,11 @@ const billingReconciliation = new RunBillingReconciliationBatchHandler(
 );
 const billingMetrics = new M4Metrics();
 const billingReconciliationIntervalMs = 15 * 60_000;
+const nakhMaintenance = new RunNakhMaintenanceBatchHandler(
+  new PostgresNakhMaintenanceStore(database),
+);
 let nextBillingReconciliationAt = 0;
+let nextNakhMaintenanceAt = 0;
 
 let ticking = false;
 const tick = async (): Promise<void> => {
@@ -134,6 +140,27 @@ const tick = async (): Promise<void> => {
           logger.error(
             { err: error, operation: 'billing.reconciliation.batch' },
             'billing reconciliation batch failed',
+          );
+        }
+      }
+      if (Date.now() >= nextNakhMaintenanceAt) {
+        try {
+          const result = await nakhMaintenance.execute(100);
+          nextNakhMaintenanceAt = result.hasMore ? Date.now() : Date.now() + 30_000;
+          const changed =
+            result.pendingExpired.changed +
+            result.deliveredExpired.changed +
+            result.remindersSent.changed;
+          if (changed > 0 || result.hasMore)
+            logger.info(
+              { ...result, operation: 'nakh.maintenance.batch' },
+              'Nakh maintenance batch completed',
+            );
+        } catch (error) {
+          nextNakhMaintenanceAt = Date.now() + 5_000;
+          logger.error(
+            { err: error, operation: 'nakh.maintenance.batch' },
+            'Nakh maintenance batch failed',
           );
         }
       }

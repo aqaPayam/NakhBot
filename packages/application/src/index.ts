@@ -36,6 +36,7 @@ export * from './nakh/pending-edit.js';
 export * from './nakh/pending-cancel.js';
 export * from './nakh/direct.js';
 export * from './nakh/settlement.js';
+export * from './nakh/maintenance.js';
 export * from './nakh/pending-page.js';
 export * from './nakh/pending-tokens.js';
 export * from './discovery/discovery.js';

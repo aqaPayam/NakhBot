@@ -80,6 +80,7 @@ export { PostgresCandidateDeliveryStore } from './candidate-delivery-store.js';
 export { PostgresInteractionStore } from './interaction-store.js';
 export { PostgresPendingNakhStore } from './pending-nakh-store.js';
 export { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
+export { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
 export { PostgresDirectNakhStore } from './direct-nakh-store.js';
 export { analyzeM3QueryTables, explainCandidatePool } from './candidate-reservation-store.js';
 export { explainLikedByQueries, PostgresLikedByStore } from './liked-by-store.js';
