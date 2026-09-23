@@ -67,13 +67,14 @@ function planDocument(value: unknown): Readonly<Record<string, unknown>> {
   return candidate as Readonly<Record<string, unknown>>;
 }
 
-function requirePlan(name: string, value: unknown, requiredIndex: string): void {
+function planFailure(name: string, value: unknown, requiredIndex: string): string | undefined {
   const document = planDocument(value);
   const executionTime = document['Execution Time'];
   if (typeof executionTime !== 'number' || executionTime > 1_500)
-    throw new Error(`${name} exceeded its 1500 ms execution budget.`);
+    return `${name} exceeded its 1500 ms execution budget.`;
   if (!JSON.stringify(document).includes(`"Index Name":"${requiredIndex}"`))
-    throw new Error(`${name} did not use ${requiredIndex}.`);
+    return `${name} did not use ${requiredIndex}.`;
+  return undefined;
 }
 
 async function seedFixtures(
@@ -85,10 +86,12 @@ async function seedFixtures(
     // These are synthetic cardinality fixtures. Disabling trigger execution on this dedicated
     // session avoids exercising lifecycle work already covered by the integration suite.
     const userIds = [
-      focalSenderId,
-      focalReceiverId,
-      ...pending.map((fixture) => fixture.receiverId),
-      ...delivered.map((fixture) => fixture.senderId),
+      ...new Set([
+        focalSenderId,
+        focalReceiverId,
+        ...pending.map((fixture) => fixture.receiverId),
+        ...delivered.map((fixture) => fixture.senderId),
+      ]),
     ];
     for (const batch of chunks(userIds)) {
       await connection
@@ -247,7 +250,7 @@ try {
       flowId: randomUUID(),
       pendingNakhId: randomUUID(),
       paymentId: randomUUID(),
-      receiverId: randomUUID(),
+      receiverId: index === 0 ? focalReceiverId : randomUUID(),
       createdAt,
       expiresAt: new Date(createdAt.getTime() + 14 * dayMs),
     };
@@ -289,9 +292,6 @@ try {
     pendingReconciliation: 'pending_nakhes_pkey',
     deliveredReconciliation: 'nakhes_pkey',
   } as const;
-  for (const [name, requiredIndex] of Object.entries(requirements))
-    requirePlan(name, plans[name], requiredIndex);
-
   const artifact = {
     schemaVersion: 1,
     fixture: { pendingRows: volume, deliveredRows: volume, dueRowsPerLifecycle: dueCount },
@@ -305,6 +305,11 @@ try {
     `${JSON.stringify(artifact, null, 2)}\n`,
     'utf8',
   );
+  const failures = Object.entries(requirements).flatMap(([name, requiredIndex]) => {
+    const failure = planFailure(name, plans[name], requiredIndex);
+    return failure === undefined ? [] : [failure];
+  });
+  if (failures.length > 0) throw new Error(`M5 query-plan gate failed: ${failures.join(' ')}`);
   process.stdout.write(
     `${JSON.stringify({ scenario: 'M5-PRODUCTION-QUERY-PLAN', volume, dueCount, queries: Object.keys(requirements) })}\n`,
   );
