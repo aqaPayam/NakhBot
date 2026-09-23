@@ -446,7 +446,6 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
             processed_at: null,
             failed_at: null,
           })
-          .onConflict((conflict) => conflict.column('payment_record_id').doNothing())
           .execute();
       await transaction
         .insertInto('billing.payment_fulfillments')
