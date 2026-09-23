@@ -250,6 +250,55 @@ export const GetNakhDetailQuerySchema = Type.Object(
 );
 export type GetNakhDetailQuery = Static<typeof GetNakhDetailQuerySchema>;
 
+const NakhPageItemProperties = {
+  nakhId: UuidSchema,
+  counterpartyName: Type.String({ minLength: 1, maxLength: 80 }),
+  text: NakhTextSchema,
+  status: NakhStatusSchema,
+  sentAt: UtcTimestampSchema,
+  expiresAt: UtcTimestampSchema,
+  version: Type.Integer({ minimum: 1 }),
+};
+
+export const SentNakhStatusPageSchema = Type.Object(
+  {
+    totalCount: Type.Integer({ minimum: 0 }),
+    items: Type.Array(Type.Object(NakhPageItemProperties, { additionalProperties: false }), {
+      maxItems: 50,
+    }),
+    nextCursor: Type.Optional(NakhCursorSchema),
+  },
+  { additionalProperties: false },
+);
+export type SentNakhStatusPage = Static<typeof SentNakhStatusPageSchema>;
+
+export const ReceivedNakhPageSchema = Type.Object(
+  {
+    totalCount: Type.Integer({ minimum: 0 }),
+    items: Type.Array(Type.Object(NakhPageItemProperties, { additionalProperties: false }), {
+      maxItems: 50,
+    }),
+    nextCursor: Type.Optional(NakhCursorSchema),
+  },
+  { additionalProperties: false },
+);
+export type ReceivedNakhPage = Static<typeof ReceivedNakhPageSchema>;
+
+export const NakhDetailSchema = Type.Object(
+  {
+    nakhId: UuidSchema,
+    direction: Type.Union([Type.Literal('sent'), Type.Literal('received')]),
+    counterpartyName: Type.String({ minLength: 1, maxLength: 80 }),
+    text: NakhTextSchema,
+    status: NakhStatusSchema,
+    sentAt: UtcTimestampSchema,
+    expiresAt: UtcTimestampSchema,
+    version: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type NakhDetail = Static<typeof NakhDetailSchema>;
+
 export const DirectNakhResultSchema = Type.Object(
   {
     nakhId: UuidSchema,

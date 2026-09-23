@@ -13,8 +13,11 @@ import {
   GetPendingNakhPageQuerySchema,
   M5EventTypeSchema,
   NakhActionResultSchema,
+  NakhDetailSchema,
   PendingNakhPageSchema,
   PendingNakhResultSchema,
+  ReceivedNakhPageSchema,
+  SentNakhStatusPageSchema,
   SettlePendingNakhesCommandSchema,
 } from './index.js';
 
@@ -162,6 +165,33 @@ describe('M5 Nakh contracts', () => {
       }),
     ).toBe(false);
     expect(validate({ ...page, paymentRecordId: entityId })).toBe(false);
+  });
+
+  it('returns actor-safe delivered pages and detail without funding or provider facts', () => {
+    const item = {
+      nakhId: entityId,
+      counterpartyName: 'Nakh sender',
+      text: 'Hello 🌳',
+      status: 'seen',
+      sentAt: envelope.occurredAt,
+      expiresAt: '2026-10-06T00:00:00.000Z',
+      version: 2,
+    };
+    const page = {
+      totalCount: 1,
+      items: [item],
+      nextCursor: `v1.nk.${'a'.repeat(16)}.${'b'.repeat(16)}`,
+    };
+    expect(validator(ReceivedNakhPageSchema)(page)).toBe(true);
+    expect(validator(SentNakhStatusPageSchema)(page)).toBe(true);
+    expect(validator(NakhDetailSchema)({ ...item, direction: 'received' })).toBe(true);
+    expect(
+      validator(NakhDetailSchema)({
+        ...item,
+        direction: 'received',
+        paymentRecordId: targetUserId,
+      }),
+    ).toBe(false);
   });
 
   it('returns minimal actor-safe creation and action results', () => {

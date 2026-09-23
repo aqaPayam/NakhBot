@@ -3,12 +3,13 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { CreateDirectNakhWrite } from '@nakh/application';
-import type { CreateDirectNakhCommand } from '@nakh/contracts';
+import { type CreateDirectNakhWrite, ViewNakhProfileHandler } from '@nakh/application';
+import type { CreateDirectNakhCommand, ViewNakhProfileCommand } from '@nakh/contracts';
 import { ApplicationError, DELIVERED_NAKH_LIFETIME_MS } from '@nakh/domain';
 
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
+import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
 import { runMigrations } from './migrations.js';
 
@@ -106,6 +107,24 @@ function write(value: CreateDirectNakhCommand): CreateDirectNakhWrite {
     historyId: randomUUID(),
     flowEventId: randomUUID(),
     deliveredEventId: randomUUID(),
+  };
+}
+
+function viewCommand(
+  receiverUserId: string,
+  nakhId: string,
+  idempotencyKey = `view-nakh:${randomUUID()}`,
+): ViewNakhProfileCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'nakh.view-profile',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: receiverUserId },
+    requestId: randomUUID(),
+    idempotencyKey,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: { nakhId, expectedVersion: 1 },
   };
 }
 
@@ -223,5 +242,78 @@ describe.skipIf(databaseUrl === undefined)('M5 direct credit Nakh persistence', 
         .where('user_id', '=', senderUserId)
         .executeTakeFirstOrThrow(),
     ).toEqual({ balance: '0' });
+  });
+
+  it('returns only owner read models and records first receiver view once across replays', async () => {
+    const senderUserId = await createActiveUser(database);
+    const receiverUserId = await createActiveUser(database);
+    const strangerUserId = await createActiveUser(database);
+    await grantCredits(database, senderUserId, 2n);
+    const delivered = await store.createDirect(write(command(senderUserId, receiverUserId)));
+    const deliveredStore = new PostgresDeliveredNakhStore(database);
+
+    const [sentPage, receivedPage, senderDetail, receiverDetail] = await Promise.all([
+      deliveredStore.readPage(senderUserId, 'sent', 10),
+      deliveredStore.readPage(receiverUserId, 'received', 10),
+      deliveredStore.readDetail(senderUserId, delivered.nakhId),
+      deliveredStore.readDetail(receiverUserId, delivered.nakhId),
+    ]);
+    expect(sentPage).toMatchObject({
+      totalCount: 1,
+      rows: [{ nakhId: delivered.nakhId, direction: 'sent', status: 'sent' }],
+    });
+    expect(receivedPage).toMatchObject({
+      totalCount: 1,
+      rows: [{ nakhId: delivered.nakhId, direction: 'received', status: 'sent' }],
+    });
+    expect(senderDetail).toMatchObject({ nakhId: delivered.nakhId, direction: 'sent' });
+    expect(receiverDetail).toMatchObject({ nakhId: delivered.nakhId, direction: 'received' });
+    await expect(deliveredStore.readDetail(strangerUserId, delivered.nakhId)).rejects.toMatchObject(
+      {
+        code: 'not_found',
+      },
+    );
+
+    const handler = new ViewNakhProfileHandler(deliveredStore, { uuid: randomUUID });
+    const replayedCommand = viewCommand(receiverUserId, delivered.nakhId);
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => handler.execute(replayedCommand)),
+    );
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(results.filter((result) => result.replayed)).toHaveLength(19);
+    expect(new Set(results.map((result) => result.changedAt))).toHaveLength(1);
+
+    const [nakh, actions, history, events] = await Promise.all([
+      database
+        .selectFrom('nakh.nakhes')
+        .select(['status', 'seen_at', 'version'])
+        .where('id', '=', delivered.nakhId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom('nakh.nakh_receiver_actions')
+        .select(['receiver_user_id', 'action_type'])
+        .where('nakh_id', '=', delivered.nakhId)
+        .execute(),
+      database
+        .selectFrom('nakh.nakh_status_history')
+        .select(['nakh_version', 'from_status', 'to_status'])
+        .where('nakh_id', '=', delivered.nakhId)
+        .orderBy('nakh_version')
+        .execute(),
+      database
+        .selectFrom('platform.outbox_events')
+        .select('payload')
+        .where('aggregate_id', '=', delivered.nakhId)
+        .where('event_type', '=', 'nakh.status-changed.v1')
+        .execute(),
+    ]);
+    expect(nakh).toMatchObject({ status: 'seen', version: 2 });
+    expect(nakh.seen_at).not.toBeNull();
+    expect(actions).toEqual([{ receiver_user_id: receiverUserId, action_type: 'view_profile' }]);
+    expect(history).toEqual([
+      { nakh_version: 1, from_status: null, to_status: 'sent' },
+      { nakh_version: 2, from_status: 'sent', to_status: 'seen' },
+    ]);
+    expect(events).toEqual([{ payload: { nakhId: delivered.nakhId, status: 'seen' } }]);
   });
 });
