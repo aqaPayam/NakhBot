@@ -578,6 +578,67 @@ describe.skipIf(databaseUrl === undefined)('M6 chat catalog and message foundati
     ).rejects.toMatchObject({ code: 'chat_unavailable' });
   });
 
+  it('derives chat capability and advances the safety warning exactly once', async () => {
+    const fixture = await createChatFixture(database);
+    const outsiderId = await createUser(database);
+    const store = new PostgresChatStore(database);
+
+    await expect(store.loadForMatch(outsiderId, fixture.matchId)).rejects.toMatchObject({
+      code: 'chat_unavailable',
+    });
+    await expect(store.loadForMatch(fixture.firstUserId, fixture.matchId)).resolves.toMatchObject({
+      chatSessionId: fixture.chatSessionId,
+      matchId: fixture.matchId,
+      canRead: true,
+      canSendPredefined: true,
+      canSendText: false,
+      textUnlocked: false,
+      mustShowSafetyWarning: false,
+      version: 1,
+    });
+    await new PostgresCreditLedgerStore(database).append({
+      transactionId: randomUUID(),
+      userId: fixture.firstUserId,
+      transactionType: 'admin_adjustment',
+      amount: 10n,
+      idempotencyKey: `capability-funding:${randomUUID()}`,
+      correlationId: randomUUID(),
+    });
+    await new PostgresPaidActionStore(database).spendCredits({
+      featureUnlockId: randomUUID(),
+      creditTransactionId: randomUUID(),
+      outboxEventId: randomUUID(),
+      userId: fixture.firstUserId,
+      target: { type: 'match', targetId: fixture.matchId },
+      idempotencyKey: `capability-unlock:${randomUUID()}`,
+      correlationId: randomUUID(),
+    });
+    const pending = await store.loadForSession(fixture.secondUserId, fixture.chatSessionId);
+    expect(pending).toMatchObject({
+      textUnlocked: true,
+      mustShowSafetyWarning: true,
+      canSendText: false,
+      version: 1,
+    });
+    const shown = await store.markSafetyWarningShown({
+      userId: fixture.secondUserId,
+      chatSessionId: fixture.chatSessionId,
+      expectedVersion: pending.version,
+    });
+    const replay = await store.markSafetyWarningShown({
+      userId: fixture.secondUserId,
+      chatSessionId: fixture.chatSessionId,
+      expectedVersion: pending.version,
+    });
+    expect(shown).toMatchObject({
+      textUnlocked: true,
+      mustShowSafetyWarning: false,
+      canSendText: true,
+      version: 2,
+    });
+    expect(replay).toEqual(shown);
+  });
+
   it('allows normalized text only after Match unlock and the actor safety warning', async () => {
     const fixture = await createChatFixture(database);
     const command = textCommand(fixture.firstUserId);

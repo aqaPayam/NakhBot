@@ -248,6 +248,7 @@ export type GetChatPageQuery = Static<typeof GetChatPageQuerySchema>;
 
 export const ChatCapabilitySchema = Type.Object(
   {
+    chatActionToken: ChatActionTokenSchema,
     chatSessionId: UuidSchema,
     matchId: UuidSchema,
     status: Type.Union([Type.Literal('active'), Type.Literal('closed')]),

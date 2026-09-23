@@ -61,9 +61,14 @@ describe('M6 chat policy', () => {
       evaluateChatCapabilities({
         ...active,
         accountState: 'restricted',
-        safetyWarningShown: true,
+        safetyWarningShown: false,
       }),
-    ).toMatchObject({ canRead: true, canSendPredefined: false, canSendText: false });
+    ).toMatchObject({
+      canRead: true,
+      canSendPredefined: false,
+      canSendText: false,
+      mustShowSafetyWarning: false,
+    });
     expect(evaluateChatCapabilities({ ...active, featureUnlockStatus: 'revoked' })).toMatchObject({
       canSendPredefined: true,
       canSendText: false,

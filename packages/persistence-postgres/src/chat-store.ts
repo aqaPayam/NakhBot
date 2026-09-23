@@ -3,14 +3,16 @@ import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 
 import type {
+  ChatCapabilityStore,
   PredefinedChatMessageStore,
   SendPredefinedChatMessageCommand,
   SendPredefinedChatMessageWrite,
   SendTextChatMessageWrite,
+  StoredChatCapability,
   TextChatMessageStore,
 } from '@nakh/application';
 import type { ChatMessageResult, SendTextMessageCommand } from '@nakh/contracts';
-import { ApplicationError } from '@nakh/domain';
+import { ApplicationError, evaluateChatCapabilities } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
 import { insertNotification } from './notification-store.js';
@@ -104,6 +106,76 @@ async function completeCommand(
 async function databaseTime(database: NakhDatabase): Promise<Date> {
   const result = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(database);
   return result.rows[0]!.now;
+}
+
+async function loadCapability(
+  database: NakhDatabase,
+  input: Readonly<{ userId: string; matchId?: string; chatSessionId?: string }>,
+): Promise<StoredChatCapability> {
+  let query = database
+    .selectFrom('chat.chat_sessions as session')
+    .innerJoin('matching.matches as match', 'match.id', 'session.match_id')
+    .innerJoin('interaction.user_pair_states as pair', (join) =>
+      join
+        .onRef('pair.user_low_id', '=', 'match.user_low_id')
+        .onRef('pair.user_high_id', '=', 'match.user_high_id'),
+    )
+    .innerJoin('chat.chat_participants as participant', (join) =>
+      join
+        .onRef('participant.chat_session_id', '=', 'session.id')
+        .on('participant.user_id', '=', input.userId),
+    )
+    .innerJoin('identity.accounts as account', 'account.user_id', 'participant.user_id')
+    .leftJoin('identity.user_settings as settings', 'settings.user_id', 'account.user_id')
+    .leftJoin('profile.profiles as profile', 'profile.user_id', 'account.user_id')
+    .select([
+      'session.id as chatSessionId',
+      'session.status as chatStatus',
+      'match.id as matchId',
+      'match.status as matchStatus',
+      'pair.state as pairState',
+      'account.state as accountState',
+      'settings.visibility_enabled as visibilityEnabled',
+      'profile.completion_status as profileCompletion',
+      'participant.muted_at as mutedAt',
+      'participant.last_read_sequence_number as lastReadSequenceNumber',
+      'participant.unlock_safety_warning_shown_at as safetyWarningShownAt',
+      'participant.version as version',
+    ]);
+  if (input.matchId !== undefined) query = query.where('match.id', '=', input.matchId);
+  if (input.chatSessionId !== undefined)
+    query = query.where('session.id', '=', input.chatSessionId);
+  const row = await query.executeTakeFirst();
+  if (row === undefined) unavailable();
+  const unlock = await database
+    .selectFrom('interaction.feature_unlocks')
+    .select('status')
+    .where('feature_type', '=', 'chat_unlock')
+    .where('match_id', '=', row.matchId)
+    .where('status', '=', 'active')
+    .executeTakeFirst();
+  const capabilities = evaluateChatCapabilities({
+    accountState: row.accountState,
+    profileCompletion: row.profileCompletion,
+    visibilityEnabled: row.visibilityEnabled ?? false,
+    isParticipant: true,
+    matchStatus: row.matchStatus,
+    chatStatus: row.chatStatus,
+    pairState: row.pairState,
+    ...(unlock === undefined ? {} : { featureUnlockStatus: unlock.status }),
+    safetyWarningShown: row.safetyWarningShownAt !== null,
+  });
+  return {
+    chatSessionId: row.chatSessionId,
+    matchId: row.matchId,
+    status: row.chatStatus,
+    ...capabilities,
+    muted: row.mutedAt !== null,
+    ...(row.lastReadSequenceNumber === null
+      ? {}
+      : { lastReadSequenceNumber: row.lastReadSequenceNumber }),
+    version: row.version,
+  };
 }
 
 type LockedChat = Readonly<{
@@ -238,8 +310,53 @@ async function loadPrompt(
   return { questionId: answer.question_id, answerId: answer.id, textKey: answer.text_key };
 }
 
-export class PostgresChatStore implements PredefinedChatMessageStore, TextChatMessageStore {
+export class PostgresChatStore
+  implements PredefinedChatMessageStore, TextChatMessageStore, ChatCapabilityStore
+{
   public constructor(private readonly database: NakhDatabase) {}
+
+  public loadForMatch(userId: string, matchId: string): Promise<StoredChatCapability> {
+    return loadCapability(this.database, { userId, matchId });
+  }
+
+  public loadForSession(userId: string, chatSessionId: string): Promise<StoredChatCapability> {
+    return loadCapability(this.database, { userId, chatSessionId });
+  }
+
+  public markSafetyWarningShown(input: {
+    userId: string;
+    chatSessionId: string;
+    expectedVersion: number;
+  }): Promise<StoredChatCapability> {
+    return this.database.transaction().execute(async (transaction) => {
+      const participant = await transaction
+        .selectFrom('chat.chat_participants')
+        .select(['version', 'unlock_safety_warning_shown_at'])
+        .where('chat_session_id', '=', input.chatSessionId)
+        .where('user_id', '=', input.userId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (participant === undefined) unavailable();
+      if (participant.unlock_safety_warning_shown_at !== null)
+        return loadCapability(transaction, input);
+      if (participant.version !== input.expectedVersion)
+        throw new ApplicationError('conflict', 'error.chat.version_conflict', 409);
+      const before = await loadCapability(transaction, input);
+      if (!before.mustShowSafetyWarning) unavailable();
+      const occurredAt = await databaseTime(transaction);
+      await transaction
+        .updateTable('chat.chat_participants')
+        .set({
+          unlock_safety_warning_shown_at: occurredAt,
+          version: participant.version + 1,
+        })
+        .where('chat_session_id', '=', input.chatSessionId)
+        .where('user_id', '=', input.userId)
+        .where('version', '=', participant.version)
+        .executeTakeFirstOrThrow();
+      return loadCapability(transaction, input);
+    });
+  }
 
   public sendPredefined(write: SendPredefinedChatMessageWrite): Promise<ChatMessageResult> {
     if (write.command.actor.kind !== 'user')

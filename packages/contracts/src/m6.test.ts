@@ -150,6 +150,7 @@ describe('M6 chat and notification contracts', () => {
 
   it('returns capability and Unmatch state without payer or Telegram identity', () => {
     const capability = {
+      chatActionToken,
       chatSessionId: entityId,
       matchId: otherId,
       status: 'active',

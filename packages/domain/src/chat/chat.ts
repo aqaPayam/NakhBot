@@ -109,7 +109,7 @@ export function evaluateChatCapabilities(facts: ChatCapabilityFacts): ChatCapabi
   const accountCanSend =
     activeScope && evaluateCapability(accessContext, 'send_chat_message').allowed === true;
   const textUnlocked = activeScope && facts.featureUnlockStatus === 'active';
-  const mustShowSafetyWarning = canRead && textUnlocked && !facts.safetyWarningShown;
+  const mustShowSafetyWarning = accountCanSend && textUnlocked && !facts.safetyWarningShown;
   return {
     canRead,
     canSendPredefined: accountCanSend,
