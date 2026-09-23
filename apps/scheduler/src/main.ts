@@ -4,6 +4,7 @@ import {
   ReconcileMediaObjectCandidates,
   RunBillingReconciliationBatchHandler,
   RunNakhMaintenanceBatchHandler,
+  RunNakhReconciliationBatchHandler,
 } from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
@@ -13,6 +14,7 @@ import {
   PostgresBillingReconciliationStore,
   PostgresMediaObjectReferenceStore,
   PostgresNakhMaintenanceStore,
+  PostgresNakhReconciliationStore,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection, RedisLease } from '@nakh/queue-redis';
 
@@ -82,8 +84,13 @@ const billingReconciliationIntervalMs = 15 * 60_000;
 const nakhMaintenance = new RunNakhMaintenanceBatchHandler(
   new PostgresNakhMaintenanceStore(database),
 );
+const nakhReconciliation = new RunNakhReconciliationBatchHandler(
+  new PostgresNakhReconciliationStore(database),
+);
+const nakhReconciliationIntervalMs = 15 * 60_000;
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
+let nextNakhReconciliationAt = 0;
 
 let ticking = false;
 const tick = async (): Promise<void> => {
@@ -161,6 +168,33 @@ const tick = async (): Promise<void> => {
           logger.error(
             { err: error, operation: 'nakh.maintenance.batch' },
             'Nakh maintenance batch failed',
+          );
+        }
+      }
+      if (Date.now() >= nextNakhReconciliationAt) {
+        try {
+          const result = await nakhReconciliation.execute({
+            proposedRunId: randomUUID(),
+            limit: 100,
+          });
+          nextNakhReconciliationAt = result.completed
+            ? Date.now() + nakhReconciliationIntervalMs
+            : Date.now();
+          logger.info(
+            {
+              operation: 'nakh.reconciliation.batch',
+              phase: result.phase,
+              completed: result.completed,
+              scannedCount: result.scannedCount,
+              anomalyCount: result.anomalyCount,
+            },
+            'Nakh reconciliation batch completed',
+          );
+        } catch (error) {
+          nextNakhReconciliationAt = Date.now() + 60_000;
+          logger.error(
+            { err: error, operation: 'nakh.reconciliation.batch' },
+            'Nakh reconciliation batch failed',
           );
         }
       }
