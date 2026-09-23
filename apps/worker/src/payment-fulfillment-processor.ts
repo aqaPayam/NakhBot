@@ -14,7 +14,11 @@ type FulfillmentStore = Pick<
 >;
 
 export type PaymentFulfillmentPollResult =
-  | Readonly<{ outcome: 'idle' | 'lease_lost' }>
+  | Readonly<{ outcome: 'idle' }>
+  | Readonly<{
+      outcome: 'lease_lost';
+      paymentType: ClaimedPaymentFulfillment['paymentType'];
+    }>
   | Readonly<{
       outcome: 'fulfilled' | 'correction_required';
       paymentType: ClaimedPaymentFulfillment['paymentType'];
@@ -97,7 +101,8 @@ export class PaymentFulfillmentProcessor {
       });
       return { outcome: result.outcome, paymentType: fulfillment.paymentType };
     } catch (error) {
-      if (isLeaseLost(error)) return { outcome: 'lease_lost' };
+      if (isLeaseLost(error))
+        return { outcome: 'lease_lost', paymentType: fulfillment.paymentType };
       const reasonCode = failureCode(error);
       const released = await this.store.releaseFulfillmentForRetry({
         ...lease,
@@ -106,7 +111,7 @@ export class PaymentFulfillmentProcessor {
       });
       return released
         ? { outcome: 'retry_scheduled', paymentType: fulfillment.paymentType, reasonCode }
-        : { outcome: 'lease_lost' };
+        : { outcome: 'lease_lost', paymentType: fulfillment.paymentType };
     }
   }
 }

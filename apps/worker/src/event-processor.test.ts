@@ -66,16 +66,24 @@ describe('WorkerEventProcessor', () => {
       closedCount: 0,
       stopped: 'queue_empty',
     });
+    const recordSettlement = vi.fn();
+    const recordDelivery = vi.fn();
+    let now = 10;
     const processor = new WorkerEventProcessor(
       { processSampleEvent: vi.fn() },
       'worker-instance',
       undefined,
       undefined,
-      Date.now,
+      () => {
+        const value = now;
+        now += 5;
+        return value;
+      },
       undefined,
       undefined,
       undefined,
       { execute: settle },
+      { recordSettlement, recordDelivery },
     );
     const creditTransactionId = '50000000-0000-4000-8000-000000000050';
     const increased: DomainEvent = {
@@ -91,6 +99,8 @@ describe('WorkerEventProcessor', () => {
       triggerCreditTransactionId: creditTransactionId,
       causationId: increased.id,
     });
+    expect(recordSettlement).toHaveBeenCalledWith('queue_empty', 5, 1, 0);
+    expect(recordDelivery).toHaveBeenCalledWith('delivered', 'credits', 5, 1);
   });
 
   it('rejects forged credit-increase facts before settlement', async () => {

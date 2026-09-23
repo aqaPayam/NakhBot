@@ -12,6 +12,7 @@ export * from './m1-metrics.js';
 export * from './m2-metrics.js';
 export * from './m3-metrics.js';
 export * from './m4-metrics.js';
+export * from './m5-metrics.js';
 
 export type TelemetryConfig = Readonly<{
   enabled: boolean;

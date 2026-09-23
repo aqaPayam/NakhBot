@@ -11,7 +11,7 @@ import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { ClamdMalwareScanner } from '@nakh/media-clamav';
 import { CloudflareMediaCachePurger } from '@nakh/media-delivery';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
-import { createLogger, M2Metrics, M3Metrics, startTelemetry } from '@nakh/observability';
+import { createLogger, M2Metrics, M3Metrics, M5Metrics, startTelemetry } from '@nakh/observability';
 import {
   createDatabase,
   PostgresInboxStore,
@@ -75,6 +75,7 @@ await Promise.all([publisherConnection.connect(), workerConnection.connect()]);
 const publisher = new BullMqOutboxPublisher(publisherConnection, config.redis.queuePrefix);
 const outbox = new PostgresOutboxStore(database);
 const ids = new SystemIdGenerator();
+const nakhMetrics = new M5Metrics();
 const inbox = new PostgresInboxStore(database, ids);
 const owner = `${config.serviceName}-${randomUUID()}`;
 const paymentFulfillment = new PaymentFulfillmentProcessor(
@@ -160,6 +161,7 @@ const eventProcessor = new WorkerEventProcessor(
   cacheRevocationHandler,
   mediaCleanupHandler,
   new SettlePendingNakhesHandler(new PostgresPendingNakhSettlementStore(database), ids),
+  nakhMetrics,
 );
 const eventWorker = createDomainEventWorker(workerConnection, config.redis.queuePrefix, (event) =>
   eventProcessor.process(event),
@@ -253,8 +255,15 @@ let paymentFulfillmentDispatching = false;
 const dispatchPaymentFulfillment = async (): Promise<void> => {
   if (paymentFulfillmentDispatching) return;
   paymentFulfillmentDispatching = true;
+  const startedAt = performance.now();
   try {
     const result = await paymentFulfillment.processNext();
+    if (result.outcome !== 'idle' && result.paymentType === 'pay_pending_action')
+      nakhMetrics.recordDelivery(
+        result.outcome === 'fulfilled' ? 'delivered' : result.outcome,
+        'telegram_stars',
+        performance.now() - startedAt,
+      );
     if (result.outcome === 'retry_scheduled')
       logger.warn(
         {

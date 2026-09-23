@@ -134,7 +134,10 @@ describe('payment fulfillment processor', () => {
     store.fulfillPendingNakh.mockRejectedValue(
       new ApplicationError('conflict', 'error.billing.fulfillment_lease_lost', 409),
     );
-    await expect(processor.processNext()).resolves.toEqual({ outcome: 'lease_lost' });
+    await expect(processor.processNext()).resolves.toEqual({
+      outcome: 'lease_lost',
+      paymentType: 'pay_pending_action',
+    });
     expect(store.releaseFulfillmentForRetry).not.toHaveBeenCalled();
   });
 
@@ -144,6 +147,9 @@ describe('payment fulfillment processor', () => {
       new ApplicationError('payment_verification_failed', 'error.billing.payment_mismatch', 409),
     );
     store.releaseFulfillmentForRetry.mockResolvedValue(false);
-    await expect(processor.processNext()).resolves.toEqual({ outcome: 'lease_lost' });
+    await expect(processor.processNext()).resolves.toEqual({
+      outcome: 'lease_lost',
+      paymentType: 'direct_paid_action',
+    });
   });
 });

@@ -8,7 +8,7 @@ import {
 } from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
-import { createLogger, M2Metrics, M4Metrics, startTelemetry } from '@nakh/observability';
+import { createLogger, M2Metrics, M4Metrics, M5Metrics, startTelemetry } from '@nakh/observability';
 import {
   createDatabase,
   PostgresBillingReconciliationStore,
@@ -87,6 +87,7 @@ const nakhMaintenance = new RunNakhMaintenanceBatchHandler(
 const nakhReconciliation = new RunNakhReconciliationBatchHandler(
   new PostgresNakhReconciliationStore(database),
 );
+const nakhMetrics = new M5Metrics();
 const nakhReconciliationIntervalMs = 15 * 60_000;
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
@@ -151,8 +152,31 @@ const tick = async (): Promise<void> => {
         }
       }
       if (Date.now() >= nextNakhMaintenanceAt) {
+        const startedAt = performance.now();
         try {
           const result = await nakhMaintenance.execute(100);
+          const durationMs = performance.now() - startedAt;
+          nakhMetrics.recordMaintenance(
+            'pending_expiry',
+            'completed',
+            durationMs,
+            result.pendingExpired.examined,
+            result.pendingExpired.changed,
+          );
+          nakhMetrics.recordMaintenance(
+            'delivered_expiry',
+            'completed',
+            durationMs,
+            result.deliveredExpired.examined,
+            result.deliveredExpired.changed,
+          );
+          nakhMetrics.recordMaintenance(
+            'reminder',
+            'completed',
+            durationMs,
+            result.remindersSent.examined,
+            result.remindersSent.changed,
+          );
           nextNakhMaintenanceAt = result.hasMore ? Date.now() : Date.now() + 30_000;
           const changed =
             result.pendingExpired.changed +
@@ -164,6 +188,7 @@ const tick = async (): Promise<void> => {
               'Nakh maintenance batch completed',
             );
         } catch (error) {
+          nakhMetrics.recordMaintenance('batch', 'failure', performance.now() - startedAt);
           nextNakhMaintenanceAt = Date.now() + 5_000;
           logger.error(
             { err: error, operation: 'nakh.maintenance.batch' },
@@ -172,11 +197,19 @@ const tick = async (): Promise<void> => {
         }
       }
       if (Date.now() >= nextNakhReconciliationAt) {
+        const startedAt = performance.now();
         try {
           const result = await nakhReconciliation.execute({
             proposedRunId: randomUUID(),
             limit: 100,
           });
+          nakhMetrics.recordReconciliation(
+            result.completed ? 'completed' : 'in_progress',
+            result.phase,
+            performance.now() - startedAt,
+            result.scannedCount,
+            result.anomalyCount,
+          );
           nextNakhReconciliationAt = result.completed
             ? Date.now() + nakhReconciliationIntervalMs
             : Date.now();
@@ -191,6 +224,7 @@ const tick = async (): Promise<void> => {
             'Nakh reconciliation batch completed',
           );
         } catch (error) {
+          nakhMetrics.recordReconciliation('failure', 'unknown', performance.now() - startedAt);
           nextNakhReconciliationAt = Date.now() + 60_000;
           logger.error(
             { err: error, operation: 'nakh.reconciliation.batch' },

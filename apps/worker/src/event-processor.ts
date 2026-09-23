@@ -6,7 +6,7 @@ import type {
   ValidateQuarantinedPhoto,
 } from '@nakh/application';
 import type { DomainEvent } from '@nakh/contracts';
-import type { M2Metrics } from '@nakh/observability';
+import type { M2Metrics, M5Metrics } from '@nakh/observability';
 import type { PostgresInboxStore } from '@nakh/persistence-postgres';
 
 type MediaHandler = Pick<DownloadTelegramPhotoToQuarantine, 'execute'>;
@@ -16,6 +16,7 @@ type MediaCleanupHandler = Pick<DeletePhotoMediaObjects, 'execute'>;
 type PendingNakhSettlementHandler = Pick<SettlePendingNakhesHandler, 'execute'>;
 type MediaMetrics = Pick<M2Metrics, 'recordIngestion' | 'recordQuarantineBytes'> &
   Partial<Pick<M2Metrics, 'recordCleanup'>>;
+type NakhMetrics = Pick<M5Metrics, 'recordDelivery' | 'recordSettlement'>;
 
 function mediaAssetId(event: DomainEvent): string {
   if (
@@ -89,6 +90,7 @@ export class WorkerEventProcessor {
     private readonly cacheRevocation?: CacheRevocationHandler,
     private readonly mediaCleanup?: MediaCleanupHandler,
     private readonly pendingNakhSettlement?: PendingNakhSettlementHandler,
+    private readonly nakhMetrics?: NakhMetrics,
   ) {}
 
   public async process(event: DomainEvent): Promise<void> {
@@ -100,10 +102,28 @@ export class WorkerEventProcessor {
       event.eventType === 'billing.credit-increased.v1' &&
       this.pendingNakhSettlement !== undefined
     ) {
-      const result = await this.pendingNakhSettlement.execute({
-        ...creditIncrease(event),
-        causationId: event.id,
-      });
+      const startedAt = this.now();
+      let result;
+      try {
+        result = await this.pendingNakhSettlement.execute({
+          ...creditIncrease(event),
+          causationId: event.id,
+        });
+      } catch (error) {
+        this.nakhMetrics?.recordSettlement('failure', this.now() - startedAt);
+        throw error;
+      }
+      const durationMs = this.now() - startedAt;
+      this.nakhMetrics?.recordSettlement(
+        result.stopped,
+        durationMs,
+        result.deliveredCount,
+        result.closedCount,
+      );
+      if (result.deliveredCount > 0)
+        this.nakhMetrics?.recordDelivery('delivered', 'credits', durationMs, result.deliveredCount);
+      if (result.closedCount > 0)
+        this.nakhMetrics?.recordDelivery('closed', 'credits', durationMs, result.closedCount);
       if (result.stopped === 'external_funding')
         throw new Error('pending_nakh_external_funding_in_progress');
       if (result.stopped === 'queue_bound')
