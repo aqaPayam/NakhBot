@@ -36,9 +36,10 @@ describe.skipIf(databaseUrl === undefined)('M5 Nakh reconciliation', () => {
       .values({ id: userId, last_activity_at: now, created_at: now, updated_at: now })
       .execute();
     await database
-      .insertInto('platform.user_counters')
-      .values({ user_id: userId, pending_nakh_count: 1, updated_at: now })
-      .execute();
+      .updateTable('platform.user_counters')
+      .set({ pending_nakh_count: 1, updated_at: now })
+      .where('user_id', '=', userId)
+      .executeTakeFirstOrThrow();
 
     const store = new PostgresNakhReconciliationStore(database);
     const proposedIds = Array.from({ length: 20 }, () => randomUUID());
