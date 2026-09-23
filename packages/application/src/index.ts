@@ -33,6 +33,7 @@ export * from './media/cleanup.js';
 export * from './media/orphan-reconciliation.js';
 export * from './nakh/pending.js';
 export * from './nakh/pending-edit.js';
+export * from './nakh/pending-cancel.js';
 export * from './nakh/direct.js';
 export * from './nakh/pending-page.js';
 export * from './nakh/pending-tokens.js';

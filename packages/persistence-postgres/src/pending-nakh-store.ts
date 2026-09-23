@@ -3,15 +3,18 @@ import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 
 import type {
+  CancelPendingNakhWrite,
   CreatePendingNakhWrite,
   EditPendingNakhWrite,
   PendingNakhKeyset,
+  PendingNakhCancelStore,
   PendingNakhEditStore,
   PendingNakhReadStore,
   PendingNakhStore,
   SenderPendingNakhReadPage,
 } from '@nakh/application';
 import type {
+  CancelPendingNakhCommand,
   CreatePendingNakhCommand,
   EditPendingNakhCommand,
   GetPendingNakhPageQuery,
@@ -27,7 +30,9 @@ import {
 import type { NakhDatabase } from './database.js';
 import { lockUserPair } from './pair-lock.js';
 
-function commandHash(command: CreatePendingNakhCommand | EditPendingNakhCommand): string {
+function commandHash(
+  command: CreatePendingNakhCommand | EditPendingNakhCommand | CancelPendingNakhCommand,
+): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -51,7 +56,7 @@ function replayResult(value: Readonly<Record<string, unknown>>): PendingNakhResu
 }
 
 export class PostgresPendingNakhStore
-  implements PendingNakhStore, PendingNakhReadStore, PendingNakhEditStore
+  implements PendingNakhStore, PendingNakhReadStore, PendingNakhEditStore, PendingNakhCancelStore
 {
   public constructor(private readonly database: NakhDatabase) {}
 
@@ -253,6 +258,516 @@ export class PostgresPendingNakhStore
         status: 'pending_payment',
         expiresAt: pending.expires_at.toISOString(),
         version,
+        replayed: false,
+      };
+      await transaction
+        .updateTable('platform.idempotency_records')
+        .set({ status: 'completed', response_json: result, updated_at: now })
+        .where('id', '=', command.commandId)
+        .executeTakeFirstOrThrow();
+      return result;
+    });
+  }
+
+  public async cancelPending(write: CancelPendingNakhWrite): Promise<PendingNakhResult> {
+    const { command } = write;
+    const senderUserId = command.actor.userId;
+    const requestHash = commandHash(command);
+    return this.database.transaction().execute(async (transaction) => {
+      const counter = await transaction
+        .selectFrom('platform.user_counters')
+        .select(['user_id', 'pending_nakh_count'])
+        .where('user_id', '=', senderUserId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (counter === undefined)
+        throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
+
+      const claimed = await transaction
+        .insertInto('platform.idempotency_records')
+        .values({
+          id: command.commandId,
+          actor_user_id: senderUserId,
+          scope: command.commandType,
+          idempotency_key: command.idempotencyKey,
+          request_hash: requestHash,
+          status: 'processing',
+          response_json: null,
+          expires_at: new Date(Date.parse(command.occurredAt) + 86_400_000),
+          created_at: new Date(command.occurredAt),
+          updated_at: new Date(command.occurredAt),
+        })
+        .onConflict((conflict) => conflict.doNothing())
+        .returning('id')
+        .executeTakeFirst();
+      if (claimed === undefined) {
+        const existing = await transaction
+          .selectFrom('platform.idempotency_records')
+          .select(['request_hash', 'status', 'response_json'])
+          .where('actor_user_id', '=', senderUserId)
+          .where('scope', '=', command.commandType)
+          .where('idempotency_key', '=', command.idempotencyKey)
+          .executeTakeFirst();
+        if (existing === undefined || existing.request_hash !== requestHash)
+          throw new ApplicationError(
+            'idempotency_conflict',
+            'error.command.idempotency_conflict',
+            409,
+          );
+        if (existing.status !== 'completed' || existing.response_json === null)
+          throw new ApplicationError('conflict', 'error.command.in_progress', 409);
+        return replayResult(existing.response_json);
+      }
+
+      const locator = await transaction
+        .selectFrom('nakh.pending_nakhes as pending')
+        .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+        .select(['pending.nakh_flow_id', 'flow.receiver_user_id'])
+        .where('pending.id', '=', command.data.pendingNakhId)
+        .where('pending.sender_user_id', '=', senderUserId)
+        .executeTakeFirst();
+      if (locator === undefined)
+        throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
+
+      const receiverUserId = locator.receiver_user_id;
+      const pair = await lockUserPair(transaction, senderUserId, receiverUserId);
+      const users = await transaction
+        .selectFrom('identity.users as user')
+        .innerJoin('identity.accounts as account', 'account.user_id', 'user.id')
+        .innerJoin('profile.profiles as profile', 'profile.user_id', 'user.id')
+        .select(['user.id', 'account.state', 'profile.completion_status'])
+        .where('user.id', 'in', [pair.userLowId, pair.userHighId])
+        .orderBy('user.id')
+        .forUpdate()
+        .execute();
+      if (
+        users.length !== 2 ||
+        users.some((user) => user.state !== 'active' || user.completion_status !== 'complete')
+      )
+        throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
+
+      const pairState = await transaction
+        .selectFrom('interaction.user_pair_states')
+        .select('state')
+        .where('user_low_id', '=', pair.userLowId)
+        .where('user_high_id', '=', pair.userHighId)
+        .executeTakeFirst();
+      if (pairState !== undefined)
+        throw new ApplicationError('pair_unavailable', 'error.interaction.pair_unavailable', 409);
+
+      const flow = await transaction
+        .selectFrom('nakh.nakh_flows')
+        .select('id')
+        .where('id', '=', locator.nakh_flow_id)
+        .where('sender_user_id', '=', senderUserId)
+        .where('receiver_user_id', '=', receiverUserId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (flow === undefined) throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
+      const pending = await transaction
+        .selectFrom('nakh.pending_nakhes')
+        .select(['id', 'status', 'pending_payment_id', 'expires_at', 'version'])
+        .where('id', '=', command.data.pendingNakhId)
+        .where('nakh_flow_id', '=', flow.id)
+        .where('sender_user_id', '=', senderUserId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (pending === undefined)
+        throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
+      if (pending.status !== 'pending_payment')
+        throw new ApplicationError('nakh_terminal', 'error.nakh.terminal', 409);
+      if (pending.version !== command.data.expectedVersion)
+        throw new ApplicationError('version_conflict', 'error.nakh.version_conflict', 409);
+
+      const payment = await transaction
+        .selectFrom('billing.pending_payments')
+        .select(['id', 'status', 'version'])
+        .where('id', '=', pending.pending_payment_id)
+        .where('user_id', '=', senderUserId)
+        .where('reason', '=', 'send_nakh')
+        .where('target_type', '=', 'pending_nakh')
+        .where('target_id', '=', pending.id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (payment === undefined || payment.status !== 'pending')
+        throw new ApplicationError('nakh_terminal', 'error.nakh.terminal', 409);
+      const paymentAttempts = await transaction
+        .selectFrom('billing.payment_records')
+        .select(['id', 'status'])
+        .where('pending_payment_id', '=', payment.id)
+        .orderBy('id')
+        .forUpdate()
+        .execute();
+      if (paymentAttempts.some((attempt) => attempt.status === 'paid'))
+        throw new ApplicationError('nakh_terminal', 'error.nakh.terminal', 409);
+
+      const rejections = await transaction
+        .selectFrom('interaction.not_interested')
+        .select(['id', 'sender_user_id'])
+        .where((expression) =>
+          expression.or([
+            expression.and([
+              expression('sender_user_id', '=', senderUserId),
+              expression('receiver_user_id', '=', receiverUserId),
+            ]),
+            expression.and([
+              expression('sender_user_id', '=', receiverUserId),
+              expression('receiver_user_id', '=', senderUserId),
+            ]),
+          ]),
+        )
+        .execute();
+      if (rejections.length !== 0)
+        throw new ApplicationError('pair_unavailable', 'error.interaction.pair_unavailable', 409);
+      const likes = await transaction
+        .selectFrom('interaction.likes')
+        .select(['id', 'sender_user_id', 'status'])
+        .where((expression) =>
+          expression.or([
+            expression.and([
+              expression('sender_user_id', '=', senderUserId),
+              expression('receiver_user_id', '=', receiverUserId),
+            ]),
+            expression.and([
+              expression('sender_user_id', '=', receiverUserId),
+              expression('receiver_user_id', '=', senderUserId),
+            ]),
+          ]),
+        )
+        .orderBy('id')
+        .forUpdate()
+        .execute();
+      if (likes.some((like) => like.sender_user_id === senderUserId))
+        throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
+
+      const time = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);
+      const now = time.rows[0]!.now;
+      const reverseLike = likes.find(
+        (like) => like.sender_user_id === receiverUserId && like.status === 'active',
+      );
+      let auditSubjectType: 'like' | 'match' | 'not_interested';
+      let auditSubjectId: string;
+      let auditResult: 'liked' | 'matched' | 'rejected';
+
+      if (command.data.resolution === 'converted_to_like') {
+        await transaction
+          .insertInto('interaction.likes')
+          .values({
+            id: write.interactionId,
+            sender_user_id: senderUserId,
+            receiver_user_id: receiverUserId,
+            status: 'active',
+            created_at: now,
+            closed_at: null,
+          })
+          .execute();
+        await transaction
+          .insertInto('platform.outbox_events')
+          .values({
+            id: write.interactionEventId,
+            aggregate_type: 'like',
+            aggregate_id: write.interactionId,
+            event_type: 'interaction.like-created.v1',
+            schema_version: 1,
+            payload: {
+              likeId: write.interactionId,
+              senderUserId,
+              receiverUserId,
+              notificationEligible: reverseLike === undefined,
+              source: 'cancelled_pending_nakh',
+            },
+            occurred_at: now,
+            available_at: now,
+            published_at: null,
+            last_error_code: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            correlation_id: command.requestId,
+            causation_id: command.commandId,
+          })
+          .execute();
+        if (reverseLike === undefined) {
+          auditSubjectType = 'like';
+          auditSubjectId = write.interactionId;
+          auditResult = 'liked';
+        } else {
+          const likeIds = [write.interactionId, reverseLike.id].sort();
+          await transaction
+            .insertInto('matching.matches')
+            .values({
+              id: write.matchId,
+              user_low_id: pair.userLowId,
+              user_high_id: pair.userHighId,
+              source: 'mutual_like',
+              source_like_a_id: likeIds[0]!,
+              source_like_b_id: likeIds[1]!,
+              source_nakh_id: null,
+              status: 'active',
+              created_at: now,
+              closed_at: null,
+            })
+            .execute();
+          await transaction
+            .insertInto('matching.match_participants')
+            .values([
+              { match_id: write.matchId, user_id: pair.userLowId, joined_at: now },
+              { match_id: write.matchId, user_id: pair.userHighId, joined_at: now },
+            ])
+            .execute();
+          await transaction
+            .insertInto('interaction.user_pair_states')
+            .values({
+              user_low_id: pair.userLowId,
+              user_high_id: pair.userHighId,
+              state: 'matched',
+              reason_code: 'mutual_like',
+              changed_at: now,
+            })
+            .execute();
+          await transaction
+            .insertInto('chat.chat_sessions')
+            .values({
+              id: write.chatSessionId,
+              match_id: write.matchId,
+              status: 'active',
+              created_at: now,
+              closed_at: null,
+              closed_reason: null,
+            })
+            .execute();
+          await transaction
+            .insertInto('chat.chat_participants')
+            .values([
+              {
+                chat_session_id: write.chatSessionId,
+                user_id: pair.userLowId,
+                last_read_at: null,
+                muted_at: null,
+                unlock_safety_warning_shown_at: null,
+              },
+              {
+                chat_session_id: write.chatSessionId,
+                user_id: pair.userHighId,
+                last_read_at: null,
+                muted_at: null,
+                unlock_safety_warning_shown_at: null,
+              },
+            ])
+            .execute();
+          const closedLikes = await transaction
+            .updateTable('interaction.likes')
+            .set({ status: 'closed_by_match', closed_at: now, version: sql<number>`version + 1` })
+            .where('id', 'in', likeIds)
+            .where('status', '=', 'active')
+            .returning('id')
+            .execute();
+          if (closedLikes.length !== 2)
+            throw new ApplicationError('internal_error', 'error.internal', 500);
+          await transaction
+            .insertInto('platform.outbox_events')
+            .values([
+              {
+                id: write.likeClosedEventId,
+                aggregate_type: 'match',
+                aggregate_id: write.matchId,
+                event_type: 'interaction.like-closed.v1',
+                schema_version: 1,
+                payload: { likeIds, reason: 'matched', matchId: write.matchId },
+                occurred_at: now,
+                available_at: now,
+                published_at: null,
+                last_error_code: null,
+                lease_owner: null,
+                lease_expires_at: null,
+                correlation_id: command.requestId,
+                causation_id: command.commandId,
+              },
+              {
+                id: write.matchEventId,
+                aggregate_type: 'match',
+                aggregate_id: write.matchId,
+                event_type: 'matching.match-created.v1',
+                schema_version: 1,
+                payload: {
+                  matchId: write.matchId,
+                  userLowId: pair.userLowId,
+                  userHighId: pair.userHighId,
+                  source: 'mutual_like',
+                },
+                occurred_at: now,
+                available_at: now,
+                published_at: null,
+                last_error_code: null,
+                lease_owner: null,
+                lease_expires_at: null,
+                correlation_id: command.requestId,
+                causation_id: command.commandId,
+              },
+            ])
+            .execute();
+          auditSubjectType = 'match';
+          auditSubjectId = write.matchId;
+          auditResult = 'matched';
+        }
+      } else {
+        await transaction
+          .insertInto('interaction.not_interested')
+          .values({
+            id: write.interactionId,
+            sender_user_id: senderUserId,
+            receiver_user_id: receiverUserId,
+            source: 'cancelled_pending_nakh',
+            created_at: now,
+          })
+          .execute();
+        if (reverseLike !== undefined) {
+          await transaction
+            .updateTable('interaction.likes')
+            .set({
+              status: 'closed_by_not_interested',
+              closed_at: now,
+              version: sql<number>`version + 1`,
+            })
+            .where('id', '=', reverseLike.id)
+            .where('status', '=', 'active')
+            .executeTakeFirstOrThrow();
+          await transaction
+            .insertInto('platform.outbox_events')
+            .values({
+              id: write.likeClosedEventId,
+              aggregate_type: 'like',
+              aggregate_id: reverseLike.id,
+              event_type: 'interaction.like-closed.v1',
+              schema_version: 1,
+              payload: { likeId: reverseLike.id, reason: 'not_interested' },
+              occurred_at: now,
+              available_at: now,
+              published_at: null,
+              last_error_code: null,
+              lease_owner: null,
+              lease_expires_at: null,
+              correlation_id: command.requestId,
+              causation_id: command.commandId,
+            })
+            .execute();
+        }
+        await transaction
+          .insertInto('platform.outbox_events')
+          .values({
+            id: write.interactionEventId,
+            aggregate_type: 'not_interested',
+            aggregate_id: write.interactionId,
+            event_type: 'interaction.not-interested-created.v1',
+            schema_version: 1,
+            payload: {
+              rejectionId: write.interactionId,
+              senderUserId,
+              receiverUserId,
+              source: 'cancelled_pending_nakh',
+            },
+            occurred_at: now,
+            available_at: now,
+            published_at: null,
+            last_error_code: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            correlation_id: command.requestId,
+            causation_id: command.commandId,
+          })
+          .execute();
+        auditSubjectType = 'not_interested';
+        auditSubjectId = write.interactionId;
+        auditResult = 'rejected';
+      }
+
+      await transaction
+        .updateTable('billing.payment_records')
+        .set({
+          status: 'cancelled',
+          cancelled_at: now,
+          version: sql<number>`version + 1`,
+        })
+        .where('pending_payment_id', '=', payment.id)
+        .where('status', '=', 'pending')
+        .execute();
+      await transaction
+        .updateTable('billing.pending_payments')
+        .set({ status: 'cancelled', resolved_at: now, version: sql<number>`version + 1` })
+        .where('id', '=', payment.id)
+        .where('status', '=', 'pending')
+        .where('version', '=', payment.version)
+        .executeTakeFirstOrThrow();
+      const updated = await transaction
+        .updateTable('nakh.pending_nakhes')
+        .set({
+          status: 'cancelled',
+          cancelled_at: now,
+          cancel_resolution: command.data.resolution,
+          version: sql<number>`version + 1`,
+        })
+        .where('id', '=', pending.id)
+        .where('status', '=', 'pending_payment')
+        .where('version', '=', pending.version)
+        .returning('version')
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable('platform.user_counters')
+        .set({
+          pending_nakh_count: sql<number>`pending_nakh_count - 1`,
+          version: sql<number>`version + 1`,
+          updated_at: now,
+        })
+        .where('user_id', '=', senderUserId)
+        .where('pending_nakh_count', '>', 0)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .insertInto('platform.outbox_events')
+        .values({
+          id: write.pendingEventId,
+          aggregate_type: 'pending_nakh',
+          aggregate_id: pending.id,
+          event_type: 'nakh.cancelled.v1',
+          schema_version: 1,
+          payload: { pendingNakhId: pending.id, senderUserId, resolution: command.data.resolution },
+          occurred_at: now,
+          available_at: now,
+          published_at: null,
+          last_error_code: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          correlation_id: command.requestId,
+          causation_id: command.commandId,
+        })
+        .execute();
+      await transaction
+        .insertInto('platform.audit_logs')
+        .values({
+          id: write.auditId,
+          category: 'product',
+          event_type: 'nakh.cancelled.v1',
+          actor_type: 'user',
+          actor_user_id: senderUserId,
+          actor_admin_id: null,
+          subject_type: auditSubjectType,
+          subject_id: auditSubjectId,
+          result_code: auditResult,
+          metadata_schema_version: 1,
+          metadata: {
+            pendingNakhId: pending.id,
+            receiverUserId,
+            resolution: command.data.resolution,
+          },
+          request_id: command.requestId,
+          command_id: command.commandId,
+          occurred_at: now,
+        })
+        .execute();
+
+      const result: PendingNakhResult = {
+        pendingNakhId: pending.id,
+        status: 'cancelled',
+        expiresAt: pending.expires_at.toISOString(),
+        version: updated.version,
         replayed: false,
       };
       await transaction
