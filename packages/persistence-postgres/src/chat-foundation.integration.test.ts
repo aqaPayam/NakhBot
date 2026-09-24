@@ -9,6 +9,7 @@ import type {
   SendPredefinedAnswerCommand,
   SendPredefinedQuestionCommand,
   SendTextMessageCommand,
+  UnmatchCommand,
 } from '@nakh/contracts';
 
 import { PostgresChatStore } from './chat-store.js';
@@ -17,6 +18,7 @@ import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresPaidActionStore } from './paid-action-store.js';
+import { PostgresUnmatchStore } from './unmatch-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -144,6 +146,23 @@ function muteCommand(
       chatActionToken: `v1.ch.${'i'.repeat(16)}.${'j'.repeat(16)}`,
       muted,
       expectedVersion,
+    },
+  };
+}
+
+function unmatchCommand(actorUserId: string): UnmatchCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'matching.unmatch',
+    schemaVersion: 1,
+    actor: { kind: 'user', userId: actorUserId },
+    requestId: randomUUID(),
+    idempotencyKey: `unmatch:${randomUUID()}`,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: {
+      matchActionToken: `v1.mt.${'k'.repeat(16)}.${'l'.repeat(16)}`,
+      reasonCode: 'not_a_fit',
     },
   };
 }
@@ -855,5 +874,97 @@ describe.skipIf(databaseUrl === undefined)('M6 chat catalog and message foundati
         eventId: randomUUID(),
       }),
     ).rejects.toMatchObject({ code: 'conflict' });
+  });
+
+  it('converges concurrent Unmatch into one permanent symmetric closure', async () => {
+    const fixture = await createChatFixture(database);
+    const store = new PostgresUnmatchStore(database);
+    const writes = [fixture.firstUserId, fixture.secondUserId].map((actorUserId) => ({
+      command: unmatchCommand(actorUserId),
+      matchId: fixture.matchId,
+      eventId: randomUUID(),
+    }));
+    const results = await Promise.all(writes.map((write) => store.unmatch(write)));
+    expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
+    expect(results.filter(({ replayed }) => replayed)).toHaveLength(1);
+    expect(new Set(results.map(({ unmatchedAt }) => unmatchedAt)).size).toBe(1);
+    expect(new Set(results.map(({ reportWindowExpiresAt }) => reportWindowExpiresAt)).size).toBe(1);
+    expect(
+      new Date(results[0]!.reportWindowExpiresAt).getTime() -
+        new Date(results[0]!.unmatchedAt).getTime(),
+    ).toBe(24 * 60 * 60 * 1000);
+
+    const record = await database
+      .selectFrom('matching.unmatch_records')
+      .selectAll()
+      .where('match_id', '=', fixture.matchId)
+      .executeTakeFirstOrThrow();
+    expect([fixture.firstUserId, fixture.secondUserId]).toContain(record.actor_user_id);
+    expect(
+      await database
+        .selectFrom('matching.matches')
+        .select(['status', 'closed_at'])
+        .where('id', '=', fixture.matchId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({ status: 'unmatched', closed_at: record.unmatched_at });
+    expect(
+      await database
+        .selectFrom('interaction.user_pair_states')
+        .select(['state', 'changed_at'])
+        .where('user_low_id', '=', fixture.firstUserId)
+        .where('user_high_id', '=', fixture.secondUserId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({ state: 'unmatched', changed_at: record.unmatched_at });
+    expect(
+      await database
+        .selectFrom('chat.chat_sessions')
+        .select(['status', 'closed_reason', 'closed_at'])
+        .where('id', '=', fixture.chatSessionId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({ status: 'closed', closed_reason: 'unmatch', closed_at: record.unmatched_at });
+    expect(
+      await database
+        .selectFrom('interaction.likes')
+        .select('status')
+        .where('sender_user_id', 'in', [fixture.firstUserId, fixture.secondUserId])
+        .where('receiver_user_id', 'in', [fixture.firstUserId, fixture.secondUserId])
+        .execute(),
+    ).toEqual([{ status: 'closed_by_unmatch' }, { status: 'closed_by_unmatch' }]);
+    expect(
+      await database
+        .selectFrom('interaction.not_interested')
+        .select('id')
+        .where('sender_user_id', 'in', [fixture.firstUserId, fixture.secondUserId])
+        .where('receiver_user_id', 'in', [fixture.firstUserId, fixture.secondUserId])
+        .execute(),
+    ).toEqual([]);
+    expect(
+      await database
+        .selectFrom('notification.notifications')
+        .select(['user_id', 'notification_type'])
+        .where('deduplication_key', 'like', `unmatch:${fixture.matchId}:%`)
+        .execute(),
+    ).toEqual([
+      {
+        user_id:
+          record.actor_user_id === fixture.firstUserId ? fixture.secondUserId : fixture.firstUserId,
+        notification_type: 'chat_closed',
+      },
+    ]);
+    await expect(
+      database
+        .updateTable('matching.unmatch_records')
+        .set({ reason_code: 'changed' })
+        .where('match_id', '=', fixture.matchId)
+        .execute(),
+    ).rejects.toThrow(/immutable/u);
+    await expect(
+      new PostgresChatStore(database).sendPredefined({
+        command: questionCommand(fixture.firstUserId, randomUUID()),
+        chatSessionId: fixture.chatSessionId,
+        messageId: randomUUID(),
+        eventId: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: 'chat_unavailable' });
   });
 });

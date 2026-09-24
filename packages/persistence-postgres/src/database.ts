@@ -829,6 +829,16 @@ export interface MatchParticipantTable {
   joined_at: Date;
 }
 
+export interface UnmatchRecordTable {
+  match_id: string;
+  actor_user_id: string;
+  reason_code: string | null;
+  command_id: string;
+  idempotency_key: string;
+  unmatched_at: Date;
+  report_window_expires_at: Date;
+}
+
 export interface ChatSessionTable {
   id: string;
   match_id: string;
@@ -974,6 +984,7 @@ export interface DatabaseSchema {
   'interaction.user_pair_states': UserPairStateTable;
   'matching.matches': MatchTable;
   'matching.match_participants': MatchParticipantTable;
+  'matching.unmatch_records': UnmatchRecordTable;
   'chat.chat_sessions': ChatSessionTable;
   'chat.chat_participants': ChatParticipantTable;
   'chat.predefined_question_sets': PredefinedQuestionSetTable;

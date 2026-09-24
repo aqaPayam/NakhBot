@@ -14,6 +14,7 @@ export * from './billing/reconciliation.js';
 export * from './chat/predefined-message.js';
 export * from './chat/open-chat.js';
 export * from './chat/chat-state.js';
+export * from './chat/unmatch.js';
 export * from './entitlement/paid-action.js';
 export * from './identity/register-telegram-identity.js';
 export * from './identity/start-router.js';
