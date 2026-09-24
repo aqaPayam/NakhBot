@@ -63,7 +63,6 @@ BEGIN
   RETURN NEW;
 END $$;
 
-DROP INDEX notification.notification_deliveries_due_idx;
 CREATE INDEX notification_deliveries_due_claim_idx
   ON notification.notification_deliveries (next_attempt_at, id)
   WHERE status IN ('pending','failed_retryable') AND provider_progress = 'not_started';
