@@ -654,6 +654,11 @@ export interface NotificationDeliveryTable {
   failed_at: Date | null;
   failure_code: string | null;
   provider_delivery_key: string | null;
+  provider_progress: Generated<'not_started' | 'call_started' | 'settled' | 'ambiguous'>;
+  lease_owner: string | null;
+  lease_expires_at: Date | null;
+  fence_token: Generated<string>;
+  quarantined_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   version: Generated<number>;

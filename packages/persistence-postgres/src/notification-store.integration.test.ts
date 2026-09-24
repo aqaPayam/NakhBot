@@ -139,4 +139,82 @@ describe.skipIf(databaseUrl === undefined)('M4 durable notification classificati
         .executeTakeFirstOrThrow(),
     ).toEqual({ count: '1' });
   });
+
+  it('fences delivery claims and quarantines a possibly-sent provider call', async () => {
+    const userId = await createMutedUser(database);
+    const recorded = await store.record(notice(userId, 'safety_notice'));
+    const deliveryId = recorded.telegramDeliveryId!;
+    const leaseExpiresAt = new Date(Date.now() + 60_000);
+    await database
+      .updateTable('notification.notification_deliveries')
+      .set({
+        attempt_number: 1,
+        fence_token: '1',
+        lease_owner: 'worker:one',
+        lease_expires_at: leaseExpiresAt,
+        version: 2,
+      })
+      .where('id', '=', deliveryId)
+      .executeTakeFirstOrThrow();
+    await database
+      .updateTable('notification.notification_deliveries')
+      .set({ provider_progress: 'call_started', version: 3 })
+      .where('id', '=', deliveryId)
+      .executeTakeFirstOrThrow();
+    await expect(
+      database
+        .updateTable('notification.notification_deliveries')
+        .set({
+          attempt_number: 2,
+          fence_token: '2',
+          lease_owner: 'worker:two',
+          lease_expires_at: new Date(Date.now() + 120_000),
+          provider_progress: 'not_started',
+          version: 4,
+        })
+        .where('id', '=', deliveryId)
+        .execute(),
+    ).rejects.toThrow(/claim/u);
+
+    const quarantinedAt = new Date();
+    await database
+      .updateTable('notification.notification_deliveries')
+      .set({
+        status: 'failed_terminal',
+        next_attempt_at: null,
+        failed_at: quarantinedAt,
+        failure_code: 'ambiguous_result',
+        provider_progress: 'ambiguous',
+        lease_owner: null,
+        lease_expires_at: null,
+        quarantined_at: quarantinedAt,
+        updated_at: quarantinedAt,
+        version: 4,
+      })
+      .where('id', '=', deliveryId)
+      .executeTakeFirstOrThrow();
+    expect(
+      await database
+        .selectFrom('notification.notification_deliveries')
+        .select([
+          'status',
+          'attempt_number',
+          'fence_token',
+          'provider_progress',
+          'failure_code',
+          'lease_owner',
+          'quarantined_at',
+        ])
+        .where('id', '=', deliveryId)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({
+      status: 'failed_terminal',
+      attempt_number: 1,
+      fence_token: '1',
+      provider_progress: 'ambiguous',
+      failure_code: 'ambiguous_result',
+      lease_owner: null,
+      quarantined_at: quarantinedAt,
+    });
+  });
 });
