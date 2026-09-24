@@ -287,6 +287,8 @@ try {
             notification_id: fixture.notificationId,
             channel: 'telegram' as const,
             status: fixture.index < dueCount ? ('pending' as const) : ('sent' as const),
+            provider_progress:
+              fixture.index < dueCount ? ('not_started' as const) : ('settled' as const),
             next_attempt_at: fixture.index < dueCount ? old : null,
             sent_at: fixture.index < dueCount ? null : old,
             failed_at: null,
