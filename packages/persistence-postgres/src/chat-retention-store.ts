@@ -99,7 +99,12 @@ async function captureSnapshot(
       sender_user_id: message.sender_user_id,
       message_type: message.message_type,
       content,
-      original_created_at: message.created_at,
+      // Preserve PostgreSQL microseconds instead of round-tripping through JavaScript Date.
+      original_created_at: sql<Date>`(
+        SELECT created_at
+        FROM chat.chat_messages
+        WHERE id = ${message.id} AND chat_session_id = ${message.chat_session_id}
+      )`,
       integrity_sha256: integrity,
     })
     .onConflict((conflict) => conflict.columns(['report_id', 'original_message_id']).doNothing())
