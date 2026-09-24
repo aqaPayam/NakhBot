@@ -23,6 +23,9 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `chat.predefined_question_sets`, `chat.predefined_questions`, `chat.predefined_answers` | public reference data | retain | Stable localized prompt catalog; Chat/Localization |
 | `chat.chat_sessions`, `chat.chat_participants` | relationship and user preference state | purge during product deletion after required lifecycle/evidence handling | Ordinary product data; Chat/Matching |
 | `chat.chat_messages` | sensitive user prose and predefined-message history | remove from normal access on lifecycle closure; retain only newest 50 live messages; snapshot authorized evidence before cleanup, then purge ordinary rows | Chat/Privacy |
+| `chat.chat_message_snapshot_requests` | restricted report-context marker | retain until every required snapshot is verified, then purge with the governing Report under the M7/M8 evidence policy | Moderation/Privacy |
+| `chat.chat_message_snapshots` | immutable sensitive report evidence | never expose through normal chat reads; retain or purge only with the governing Report under the approved evidence policy | Moderation/Privacy |
+| `chat.chat_cleanup_checkpoints` | operational retention progress | purge with the ChatSession after cleanup and evidence obligations complete | Chat/Operations |
 | `matching.unmatch_records` | immutable relationship-closure and report-window metadata | retain through the safety/report and audit retention window; purge or minimize only under the M8 approved policy | Matching/Moderation |
 | `notification.notification_deliveries` | sanitized transport state, opaque provider message key, retry/lease/fence metadata | retain only for the operational delivery and deduplication window; purge independently from durable Notification history | Notification/Privacy |
 | `profile.profiles`, optional details, and selection joins | sensitive dating Profile | purge | Ordinary product data; Profile |

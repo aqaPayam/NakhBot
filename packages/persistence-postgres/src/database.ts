@@ -914,6 +914,36 @@ export interface ChatMessageTable {
   created_at: Generated<Date>;
 }
 
+export interface ChatMessageSnapshotRequestTable {
+  report_id: string;
+  chat_session_id: string;
+  original_message_id: string;
+  requested_at: Generated<Date>;
+  captured_at: Date | null;
+  version: Generated<number>;
+}
+
+export interface ChatMessageSnapshotTable {
+  id: string;
+  report_id: string;
+  chat_session_id: string;
+  original_message_id: string;
+  sender_user_id: string | null;
+  message_type: ChatMessageTable['message_type'];
+  content: ColumnType<JsonObject, object, never>;
+  original_created_at: Date;
+  snapshotted_at: Generated<Date>;
+  integrity_sha256: string;
+}
+
+export interface ChatCleanupCheckpointTable {
+  chat_session_id: string;
+  last_retained_sequence_number: string | null;
+  deleted_message_count: Generated<string>;
+  last_cleaned_at: Date;
+  version: Generated<number>;
+}
+
 export interface DatabaseSchema {
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;
@@ -996,6 +1026,9 @@ export interface DatabaseSchema {
   'chat.predefined_questions': PredefinedQuestionTable;
   'chat.predefined_answers': PredefinedAnswerTable;
   'chat.chat_messages': ChatMessageTable;
+  'chat.chat_message_snapshot_requests': ChatMessageSnapshotRequestTable;
+  'chat.chat_message_snapshots': ChatMessageSnapshotTable;
+  'chat.chat_cleanup_checkpoints': ChatCleanupCheckpointTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;

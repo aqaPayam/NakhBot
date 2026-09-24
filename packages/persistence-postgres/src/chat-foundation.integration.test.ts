@@ -4,7 +4,9 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type {
+  CaptureReportedMessagesCommand,
   ChangeChatMuteCommand,
+  CleanupChatCommand,
   MarkChatReadCommand,
   SendPredefinedAnswerCommand,
   SendPredefinedQuestionCommand,
@@ -12,6 +14,7 @@ import type {
   UnmatchCommand,
 } from '@nakh/contracts';
 
+import { PostgresChatRetentionStore } from './chat-retention-store.js';
 import { PostgresChatStore } from './chat-store.js';
 import { PostgresChatStateStore } from './chat-state-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
@@ -164,6 +167,38 @@ function unmatchCommand(actorUserId: string): UnmatchCommand {
       matchActionToken: `v1.mt.${'k'.repeat(16)}.${'l'.repeat(16)}`,
       reasonCode: 'not_a_fit',
     },
+  };
+}
+
+function captureMessagesCommand(
+  reportId: string,
+  chatSessionId: string,
+  messageIds: readonly string[],
+): CaptureReportedMessagesCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'chat.capture-reported-messages',
+    schemaVersion: 1,
+    actor: { kind: 'system', userId: '00000000-0000-4000-8000-000000000001' },
+    requestId: randomUUID(),
+    idempotencyKey: `chat-snapshot:${reportId}`,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: { reportId, chatSessionId, messageIds: [...messageIds] },
+  };
+}
+
+function cleanupChatCommand(chatSessionId: string): CleanupChatCommand {
+  return {
+    commandId: randomUUID(),
+    commandType: 'chat.cleanup',
+    schemaVersion: 1,
+    actor: { kind: 'system', userId: '00000000-0000-4000-8000-000000000001' },
+    requestId: randomUUID(),
+    idempotencyKey: `chat-cleanup:${randomUUID()}`,
+    occurredAt: new Date().toISOString(),
+    locale: 'en',
+    data: { chatSessionId, deleteBatchSize: 100 },
   };
 }
 
@@ -825,6 +860,101 @@ describe.skipIf(databaseUrl === undefined)('M6 chat catalog and message foundati
     await expect(
       store.readPage({ userId: outsiderId, chatSessionId: fixture.chatSessionId, limit: 20 }),
     ).rejects.toMatchObject({ code: 'chat_unavailable' });
+  });
+
+  it('preserves immutable report evidence while deleting only messages older than newest 50', async () => {
+    const fixture = await createChatFixture(database);
+    const question = await database
+      .selectFrom('chat.predefined_questions')
+      .select('id')
+      .where('is_active', '=', true)
+      .orderBy('display_order')
+      .executeTakeFirstOrThrow();
+    const messageIds = Array.from({ length: 55 }, () => randomUUID());
+    for (let sequence = 1; sequence <= messageIds.length; sequence += 1)
+      await reserveAndInsert(database, {
+        chatSessionId: fixture.chatSessionId,
+        senderUserId: sequence % 2 === 0 ? fixture.firstUserId : fixture.secondUserId,
+        messageId: messageIds[sequence - 1]!,
+        messageType: 'predefined_question',
+        sequenceNumber: String(sequence),
+        questionId: question.id,
+      });
+
+    const store = new PostgresChatRetentionStore(database);
+    const capturedReportId = randomUUID();
+    const capture = captureMessagesCommand(capturedReportId, fixture.chatSessionId, [
+      messageIds[0]!,
+    ]);
+    expect(await store.captureReportedMessages(capture)).toMatchObject({ replayed: false });
+    expect(await store.captureReportedMessages(capture)).toMatchObject({ replayed: true });
+
+    const pendingReportId = randomUUID();
+    await database
+      .insertInto('chat.chat_message_snapshot_requests')
+      .values({
+        report_id: pendingReportId,
+        chat_session_id: fixture.chatSessionId,
+        original_message_id: messageIds[1]!,
+        captured_at: null,
+      })
+      .execute();
+
+    expect(await store.findCleanupCandidates(10)).toContain(fixture.chatSessionId);
+    expect(await store.cleanupChat(cleanupChatCommand(fixture.chatSessionId))).toEqual({
+      chatSessionId: fixture.chatSessionId,
+      retainedCount: 50,
+      snapshotCount: 1,
+      deletedCount: 5,
+      hasMore: false,
+    });
+    const live = await database
+      .selectFrom('chat.chat_messages')
+      .select('sequence_number')
+      .where('chat_session_id', '=', fixture.chatSessionId)
+      .orderBy('sequence_number')
+      .execute();
+    expect(live.map(({ sequence_number }) => sequence_number)).toEqual(
+      Array.from({ length: 50 }, (_, index) => String(index + 6)),
+    );
+    const snapshots = await database
+      .selectFrom('chat.chat_message_snapshots')
+      .select(['id', 'report_id', 'original_message_id', 'content', 'integrity_sha256'])
+      .where('chat_session_id', '=', fixture.chatSessionId)
+      .orderBy('original_created_at')
+      .execute();
+    expect(snapshots).toHaveLength(2);
+    expect(new Set(snapshots.map(({ report_id }) => report_id))).toEqual(
+      new Set([capturedReportId, pendingReportId]),
+    );
+    expect(new Set(snapshots.map(({ original_message_id }) => original_message_id))).toEqual(
+      new Set(messageIds.slice(0, 2)),
+    );
+    expect(snapshots.every(({ integrity_sha256 }) => integrity_sha256.length === 64)).toBe(true);
+    expect(snapshots.every(({ content }) => content.predefinedQuestionId === question.id)).toBe(
+      true,
+    );
+    expect(
+      await database
+        .selectFrom('chat.chat_cleanup_checkpoints')
+        .select(['last_retained_sequence_number', 'deleted_message_count'])
+        .where('chat_session_id', '=', fixture.chatSessionId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ last_retained_sequence_number: '6', deleted_message_count: '5' });
+    expect(await store.findCleanupCandidates(10)).not.toContain(fixture.chatSessionId);
+    await expect(
+      database
+        .updateTable('chat.chat_message_snapshots')
+        .set({ integrity_sha256: '0'.repeat(64) })
+        .where('id', '=', snapshots[0]!.id)
+        .execute(),
+    ).rejects.toThrow(/immutable/u);
+    await expect(
+      database
+        .deleteFrom('chat.chat_message_snapshots')
+        .where('id', '=', snapshots[0]!.id)
+        .execute(),
+    ).rejects.toThrow(/immutable/u);
   });
 
   it('advances read state monotonically and changes mute under participant version', async () => {

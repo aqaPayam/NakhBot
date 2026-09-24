@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ReconcileMediaObjectCandidates,
   RunBillingReconciliationBatchHandler,
+  RunChatCleanupBatchHandler,
   RunNakhMaintenanceBatchHandler,
   RunNakhReconciliationBatchHandler,
 } from '@nakh/application';
@@ -12,6 +13,7 @@ import { createLogger, M2Metrics, M4Metrics, M5Metrics, startTelemetry } from '@
 import {
   createDatabase,
   PostgresBillingReconciliationStore,
+  PostgresChatRetentionStore,
   PostgresMediaObjectReferenceStore,
   PostgresNakhMaintenanceStore,
   PostgresNakhOperationalMetricsStore,
@@ -91,10 +93,16 @@ const nakhReconciliation = new RunNakhReconciliationBatchHandler(
 const nakhMetrics = new M5Metrics();
 const nakhOperationalMetrics = new PostgresNakhOperationalMetricsStore(database);
 const nakhReconciliationIntervalMs = 15 * 60_000;
+const chatCleanup = new RunChatCleanupBatchHandler(
+  new PostgresChatRetentionStore(database),
+  { uuid: randomUUID },
+  { now: () => new Date() },
+);
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
 let nextNakhReconciliationAt = 0;
 let nextNakhHealthSampleAt = 0;
+let nextChatCleanupAt = 0;
 
 let ticking = false;
 const tick = async (): Promise<void> => {
@@ -246,6 +254,23 @@ const tick = async (): Promise<void> => {
           logger.error(
             { err: error, operation: 'nakh.operational-health.measure' },
             'Nakh operational health measurement failed',
+          );
+        }
+      }
+      if (Date.now() >= nextChatCleanupAt) {
+        try {
+          const result = await chatCleanup.execute(10);
+          nextChatCleanupAt = result.hasMore ? Date.now() : Date.now() + 30_000;
+          if (result.deletedCount > 0 || result.snapshotCount > 0 || result.hasMore)
+            logger.info(
+              { ...result, operation: 'chat.retention.cleanup' },
+              'chat retention cleanup batch completed',
+            );
+        } catch (error) {
+          nextChatCleanupAt = Date.now() + 5_000;
+          logger.error(
+            { err: error, operation: 'chat.retention.cleanup' },
+            'chat retention cleanup batch failed',
           );
         }
       }
