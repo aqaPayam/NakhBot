@@ -38,10 +38,10 @@ CREATE TABLE chat.chat_message_snapshots (
   CONSTRAINT chat_snapshot_content_ck CHECK (
     (message_type = 'predefined_question' AND content - 'predefinedQuestionId' = '{}'::jsonb
       AND content ? 'predefinedQuestionId'
-      AND content->>'predefinedQuestionId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+      AND content->>'predefinedQuestionId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
     OR (message_type = 'predefined_answer' AND content - 'predefinedAnswerId' = '{}'::jsonb
       AND content ? 'predefinedAnswerId'
-      AND content->>'predefinedAnswerId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+      AND content->>'predefinedAnswerId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
     OR (message_type = 'text' AND content - 'text' = '{}'::jsonb
       AND content ? 'text' AND jsonb_typeof(content->'text') = 'string'
       AND char_length(content->>'text') BETWEEN 1 AND 1000)
