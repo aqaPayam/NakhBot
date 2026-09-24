@@ -24,6 +24,7 @@ export {
   type NotificationWrite,
   type StoredNotification,
 } from './notification-store.js';
+export { PostgresNotificationDeliveryStore } from './notification-delivery-store.js';
 export { PostgresRefundStore, type StarsRefundClaim } from './refund-store.js';
 export { PostgresBillingReconciliationStore } from './billing-reconciliation-store.js';
 export { analyzeM4QueryTables, explainM4Queries } from './m4-query-plans.js';

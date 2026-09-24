@@ -32,6 +32,7 @@ locals {
     { name = "NAKH_TELEGRAM_BOT_TOKEN_REF", value = "NAKH_TELEGRAM_BOT_TOKEN" },
     { name = "NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF", value = "NAKH_TELEGRAM_ACTION_TOKEN_KEY" },
     { name = "NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED", value = "false" },
+    { name = "NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED", value = "false" },
     { name = "NAKH_R2_ENDPOINT", value = "https://disabled-until-m2.invalid" },
     { name = "NAKH_R2_BUCKET", value = "disabled-until-m2" },
     { name = "NAKH_R2_ACCESS_KEY_REF", value = "disabled-until-m2" },

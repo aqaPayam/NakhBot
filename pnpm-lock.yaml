@@ -252,6 +252,9 @@ importers:
       '@nakh/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@nakh/localization':
+        specifier: workspace:*
+        version: link:../../packages/localization
       '@nakh/media-clamav':
         specifier: workspace:*
         version: link:../../packages/media-clamav

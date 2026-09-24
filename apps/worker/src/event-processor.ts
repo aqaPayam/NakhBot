@@ -17,6 +17,7 @@ type PendingNakhSettlementHandler = Pick<SettlePendingNakhesHandler, 'execute'>;
 type MediaMetrics = Pick<M2Metrics, 'recordIngestion' | 'recordQuarantineBytes'> &
   Partial<Pick<M2Metrics, 'recordCleanup'>>;
 type NakhMetrics = Pick<M5Metrics, 'recordDelivery' | 'recordSettlement'>;
+type NotificationWakeup = Readonly<{ processNext(): Promise<unknown> }>;
 
 function mediaAssetId(event: DomainEvent): string {
   if (
@@ -79,6 +80,20 @@ function creditIncrease(event: DomainEvent): Readonly<{
   };
 }
 
+function notificationDeliveryId(event: DomainEvent): string {
+  if (
+    event.aggregateType !== 'notification_delivery' ||
+    !uuid.test(event.aggregateId) ||
+    Object.keys(event.payload).sort().join(',') !== 'channel,deliveryId,notificationId' ||
+    event.payload.deliveryId !== event.aggregateId ||
+    typeof event.payload.notificationId !== 'string' ||
+    !uuid.test(event.payload.notificationId) ||
+    event.payload.channel !== 'telegram'
+  )
+    throw new Error('invalid_notification_delivery_event');
+  return event.aggregateId;
+}
+
 export class WorkerEventProcessor {
   public constructor(
     private readonly inbox: Pick<PostgresInboxStore, 'processSampleEvent'>,
@@ -91,11 +106,20 @@ export class WorkerEventProcessor {
     private readonly mediaCleanup?: MediaCleanupHandler,
     private readonly pendingNakhSettlement?: PendingNakhSettlementHandler,
     private readonly nakhMetrics?: NakhMetrics,
+    private readonly notificationWakeup?: NotificationWakeup,
   ) {}
 
   public async process(event: DomainEvent): Promise<void> {
     if (event.eventType === 'platform.sample-effect-created.v1') {
       await this.inbox.processSampleEvent(event);
+      return;
+    }
+    if (
+      event.eventType === 'notification.delivery-requested.v1' &&
+      this.notificationWakeup !== undefined
+    ) {
+      notificationDeliveryId(event);
+      await this.notificationWakeup.processNext();
       return;
     }
     if (

@@ -21,6 +21,12 @@ export {
   type TelegramLikedByProviderFailureCode,
 } from './liked-by-send-failure.js';
 export { TelegramLockedLikedByScreenRelay } from './liked-by-screen-relay.js';
+export {
+  renderTelegramNotification,
+  TelegramNotificationSender,
+  TelegramNotificationSendFailure,
+  type TelegramNotificationFailureCode,
+} from './notification-delivery.js';
 export { TelegramPhotoActionTokens, type TelegramPhotoActionTokenState } from './action-token.js';
 export {
   TelegramPhotoMenuPresenter,

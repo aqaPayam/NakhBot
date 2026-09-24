@@ -25,6 +25,7 @@ describe('configuration', () => {
     expect(config.http.port).toBe(3000);
     expect(config.telegram.actionTokenKeyRef).toBe('NAKH_TELEGRAM_ACTION_TOKEN_KEY');
     expect(config.telegram.likedByDeliveryEnabled).toBe(false);
+    expect(config.telegram.notificationDeliveryEnabled).toBe(false);
     expect(config.media).toMatchObject({
       ingestionEnabled: false,
       cachePurgeEnabled: false,
@@ -71,6 +72,18 @@ describe('configuration', () => {
     ).toBe(true);
     expect(() =>
       parseConfig({ ...validEnvironment, NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED: 'yes' }),
+    ).toThrow('boolean values');
+  });
+
+  it('enables Telegram notification delivery only through an explicit boolean switch', () => {
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED: 'true',
+      }).telegram.notificationDeliveryEnabled,
+    ).toBe(true);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED: 'yes' }),
     ).toThrow('boolean values');
   });
 

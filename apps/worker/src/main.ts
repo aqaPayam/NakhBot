@@ -34,6 +34,7 @@ import { TelegramMediaTransportCipher, TelegramPhotoDownloadAdapter } from '@nak
 import { WorkerEventProcessor } from './event-processor.js';
 import { createTelegramLikedByDeliveryRuntime } from './liked-by-delivery-runtime.js';
 import { SharpPhotoTransformer } from './media/image-transformer.js';
+import { createTelegramNotificationDeliveryRuntime } from './notification-delivery-runtime.js';
 import { PaymentFulfillmentProcessor } from './payment-fulfillment-processor.js';
 
 function transportKey(reference: string): Uint8Array {
@@ -90,6 +91,11 @@ const likedByDelivery = createTelegramLikedByDeliveryRuntime({
   owner: `telegram-liked-by-${randomUUID()}`,
 });
 const likedByMetrics = likedByDelivery === undefined ? undefined : new M3Metrics();
+const notificationDelivery = createTelegramNotificationDeliveryRuntime({
+  config,
+  database,
+  owner: `telegram-notification-${randomUUID()}`,
+});
 const mediaOwner = randomUUID();
 const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
 const mediaCipher = config.media.ingestionEnabled
@@ -162,6 +168,7 @@ const eventProcessor = new WorkerEventProcessor(
   mediaCleanupHandler,
   new SettlePendingNakhesHandler(new PostgresPendingNakhSettlementStore(database), ids),
   nakhMetrics,
+  notificationDelivery,
 );
 const eventWorker = createDomainEventWorker(workerConnection, config.redis.queuePrefix, (event) =>
   eventProcessor.process(event),
@@ -187,6 +194,7 @@ const dispatch = async (): Promise<void> => {
         ...(config.media.cachePurgeEnabled || config.media.cleanupEnabled
           ? ['media.photo-deleted.v1']
           : []),
+        ...(notificationDelivery === undefined ? [] : ['notification.delivery-requested.v1']),
       ],
     });
     for (const event of events) {
@@ -206,6 +214,40 @@ const dispatch = async (): Promise<void> => {
     logger.error({ err: error, operation: 'outbox.dispatch' }, 'outbox dispatch failed');
   } finally {
     dispatching = false;
+  }
+};
+
+let notificationDispatching = false;
+const dispatchNotification = async (): Promise<void> => {
+  if (notificationDelivery === undefined || notificationDispatching) return;
+  notificationDispatching = true;
+  try {
+    const result = await notificationDelivery.processNext();
+    if (
+      result.outcome === 'retry_scheduled' ||
+      result.outcome === 'failed' ||
+      result.outcome === 'quarantined'
+    )
+      logger.warn(
+        {
+          operation: 'telegram.notification.deliver',
+          outcome: result.outcome,
+          reasonCode: result.reasonCode,
+        },
+        'Telegram notification delivery did not complete',
+      );
+    else if (result.outcome === 'lease_lost')
+      logger.warn(
+        { operation: 'telegram.notification.deliver', outcome: result.outcome },
+        'Telegram notification delivery lease was lost',
+      );
+  } catch (error) {
+    logger.error(
+      { err: error, operation: 'telegram.notification.deliver' },
+      'Telegram notification delivery polling failed',
+    );
+  } finally {
+    notificationDispatching = false;
   }
 };
 
@@ -312,6 +354,7 @@ await Promise.all([
   dispatchLikedBy(),
   dispatchPaymentFulfillment(),
   sampleLikedByBacklog(),
+  dispatchNotification(),
 ]);
 const timer = setInterval(() => void dispatch(), 250);
 const paymentFulfillmentTimer = setInterval(() => void dispatchPaymentFulfillment(), 250);
@@ -321,10 +364,15 @@ const likedByBacklogTimer =
   likedByDelivery === undefined
     ? undefined
     : setInterval(() => void sampleLikedByBacklog(), 30_000);
+const notificationTimer =
+  notificationDelivery === undefined
+    ? undefined
+    : setInterval(() => void dispatchNotification(), 250);
 logger.info(
   {
     operation: 'service.started',
     telegramLikedByDeliveryEnabled: likedByDelivery !== undefined,
+    telegramNotificationDeliveryEnabled: notificationDelivery !== undefined,
   },
   'service started',
 );
@@ -334,6 +382,7 @@ const shutdown = async (): Promise<void> => {
   clearInterval(paymentFulfillmentTimer);
   if (likedByTimer !== undefined) clearInterval(likedByTimer);
   if (likedByBacklogTimer !== undefined) clearInterval(likedByBacklogTimer);
+  if (notificationTimer !== undefined) clearInterval(notificationTimer);
   await eventWorker.close();
   await publisher.close();
   await Promise.all([publisherConnection.quit(), workerConnection.quit()]);

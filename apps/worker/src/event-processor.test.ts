@@ -103,6 +103,43 @@ describe('WorkerEventProcessor', () => {
     expect(recordDelivery).toHaveBeenCalledWith('delivered', 'credits', 5, 1);
   });
 
+  it('validates a notification wake-up before polling the fenced delivery store', async () => {
+    const processNext = vi.fn().mockResolvedValue({ outcome: 'delivered' });
+    const processor = new WorkerEventProcessor(
+      { processSampleEvent: vi.fn() },
+      'worker-instance',
+      undefined,
+      undefined,
+      Date.now,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { processNext },
+    );
+    const notificationId = '60000000-0000-4000-8000-000000000060';
+    const requested: DomainEvent = {
+      ...event,
+      eventType: 'notification.delivery-requested.v1',
+      aggregateType: 'notification_delivery',
+      aggregateId: '50000000-0000-4000-8000-000000000050',
+      payload: {
+        deliveryId: '50000000-0000-4000-8000-000000000050',
+        notificationId,
+        channel: 'telegram',
+      },
+    };
+    await processor.process(requested);
+    expect(processNext).toHaveBeenCalledOnce();
+    await expect(
+      processor.process({
+        ...requested,
+        payload: { ...requested.payload, notificationId: event.id, unexpected: true },
+      }),
+    ).rejects.toThrow('invalid_notification_delivery_event');
+  });
+
   it('rejects forged credit-increase facts before settlement', async () => {
     const settle = vi.fn();
     const processor = new WorkerEventProcessor(
