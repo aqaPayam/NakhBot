@@ -4,6 +4,7 @@ import {
   ReconcileMediaObjectCandidates,
   RunBillingReconciliationBatchHandler,
   RunChatCleanupBatchHandler,
+  RunChatReconciliationBatchHandler,
   RunNakhMaintenanceBatchHandler,
   RunNakhReconciliationBatchHandler,
 } from '@nakh/application';
@@ -13,6 +14,7 @@ import { createLogger, M2Metrics, M4Metrics, M5Metrics, startTelemetry } from '@
 import {
   createDatabase,
   PostgresBillingReconciliationStore,
+  PostgresChatReconciliationStore,
   PostgresChatRetentionStore,
   PostgresMediaObjectReferenceStore,
   PostgresNakhMaintenanceStore,
@@ -98,11 +100,16 @@ const chatCleanup = new RunChatCleanupBatchHandler(
   { uuid: randomUUID },
   { now: () => new Date() },
 );
+const chatReconciliation = new RunChatReconciliationBatchHandler(
+  new PostgresChatReconciliationStore(database),
+);
+const chatReconciliationIntervalMs = 15 * 60_000;
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
 let nextNakhReconciliationAt = 0;
 let nextNakhHealthSampleAt = 0;
 let nextChatCleanupAt = 0;
+let nextChatReconciliationAt = 0;
 
 let ticking = false;
 const tick = async (): Promise<void> => {
@@ -271,6 +278,33 @@ const tick = async (): Promise<void> => {
           logger.error(
             { err: error, operation: 'chat.retention.cleanup' },
             'chat retention cleanup batch failed',
+          );
+        }
+      }
+      if (Date.now() >= nextChatReconciliationAt) {
+        try {
+          const result = await chatReconciliation.execute({
+            proposedRunId: randomUUID(),
+            limit: 100,
+          });
+          nextChatReconciliationAt = result.completed
+            ? Date.now() + chatReconciliationIntervalMs
+            : Date.now();
+          logger.info(
+            {
+              operation: 'chat.reconciliation.batch',
+              phase: result.phase,
+              completed: result.completed,
+              scannedCount: result.scannedCount,
+              anomalyCount: result.anomalyCount,
+            },
+            'chat reconciliation batch completed',
+          );
+        } catch (error) {
+          nextChatReconciliationAt = Date.now() + 60_000;
+          logger.error(
+            { err: error, operation: 'chat.reconciliation.batch' },
+            'chat reconciliation batch failed',
           );
         }
       }

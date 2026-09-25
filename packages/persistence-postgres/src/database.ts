@@ -693,7 +693,7 @@ export interface RefundRecordTable {
 
 export interface ReconciliationRunTable {
   id: string;
-  run_type: Generated<'billing' | 'nakh'>;
+  run_type: Generated<'billing' | 'nakh' | 'chat'>;
   status: 'started' | 'succeeded' | 'failed';
   cursor: ColumnType<JsonObject, object, object>;
   scanned_count: Generated<string>;
@@ -718,7 +718,11 @@ export interface ReconciliationAnomalyTable {
     | 'nakh_flow'
     | 'pending_nakh'
     | 'nakh'
-    | 'user_counter';
+    | 'user_counter'
+    | 'chat_session'
+    | 'chat_message'
+    | 'match'
+    | 'notification_delivery';
   entity_id: string;
   disposition: 'repair_scheduled' | 'quarantined';
   safe_detail: ColumnType<JsonObject, object, object>;

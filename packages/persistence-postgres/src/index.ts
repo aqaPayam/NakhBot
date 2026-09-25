@@ -82,6 +82,7 @@ export { PostgresInteractionStore } from './interaction-store.js';
 export { PostgresChatStore } from './chat-store.js';
 export { PostgresChatStateStore } from './chat-state-store.js';
 export { PostgresChatRetentionStore } from './chat-retention-store.js';
+export { PostgresChatReconciliationStore } from './chat-reconciliation-store.js';
 export { PostgresUnmatchStore } from './unmatch-store.js';
 export { PostgresPendingNakhStore } from './pending-nakh-store.js';
 export { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
