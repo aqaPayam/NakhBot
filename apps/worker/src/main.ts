@@ -11,7 +11,15 @@ import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { ClamdMalwareScanner } from '@nakh/media-clamav';
 import { CloudflareMediaCachePurger } from '@nakh/media-delivery';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
-import { createLogger, M2Metrics, M3Metrics, M5Metrics, startTelemetry } from '@nakh/observability';
+import {
+  createLogger,
+  m6RetryClass,
+  M2Metrics,
+  M3Metrics,
+  M5Metrics,
+  M6Metrics,
+  startTelemetry,
+} from '@nakh/observability';
 import {
   createDatabase,
   PostgresInboxStore,
@@ -96,6 +104,7 @@ const notificationDelivery = createTelegramNotificationDeliveryRuntime({
   database,
   owner: `telegram-notification-${randomUUID()}`,
 });
+const chatMetrics = notificationDelivery === undefined ? undefined : new M6Metrics();
 const mediaOwner = randomUUID();
 const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
 const mediaCipher = config.media.ingestionEnabled
@@ -221,8 +230,15 @@ let notificationDispatching = false;
 const dispatchNotification = async (): Promise<void> => {
   if (notificationDelivery === undefined || notificationDispatching) return;
   notificationDispatching = true;
+  const startedAt = performance.now();
   try {
     const result = await notificationDelivery.processNext();
+    if (result.outcome !== 'idle')
+      chatMetrics?.recordDelivery(
+        result.outcome,
+        m6RetryClass('reasonCode' in result ? result.reasonCode : undefined),
+        performance.now() - startedAt,
+      );
     if (
       result.outcome === 'retry_scheduled' ||
       result.outcome === 'failed' ||
@@ -242,6 +258,7 @@ const dispatchNotification = async (): Promise<void> => {
         'Telegram notification delivery lease was lost',
       );
   } catch (error) {
+    chatMetrics?.recordDelivery('poll_failure', 'transient', performance.now() - startedAt);
     logger.error(
       { err: error, operation: 'telegram.notification.deliver' },
       'Telegram notification delivery polling failed',

@@ -10,10 +10,18 @@ import {
 } from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
-import { createLogger, M2Metrics, M4Metrics, M5Metrics, startTelemetry } from '@nakh/observability';
+import {
+  createLogger,
+  M2Metrics,
+  M4Metrics,
+  M5Metrics,
+  M6Metrics,
+  startTelemetry,
+} from '@nakh/observability';
 import {
   createDatabase,
   PostgresBillingReconciliationStore,
+  PostgresChatOperationalMetricsStore,
   PostgresChatReconciliationStore,
   PostgresChatRetentionStore,
   PostgresMediaObjectReferenceStore,
@@ -103,6 +111,8 @@ const chatCleanup = new RunChatCleanupBatchHandler(
 const chatReconciliation = new RunChatReconciliationBatchHandler(
   new PostgresChatReconciliationStore(database),
 );
+const chatMetrics = new M6Metrics();
+const chatOperationalMetrics = new PostgresChatOperationalMetricsStore(database);
 const chatReconciliationIntervalMs = 15 * 60_000;
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
@@ -110,6 +120,7 @@ let nextNakhReconciliationAt = 0;
 let nextNakhHealthSampleAt = 0;
 let nextChatCleanupAt = 0;
 let nextChatReconciliationAt = 0;
+let nextChatHealthSampleAt = 0;
 
 let ticking = false;
 const tick = async (): Promise<void> => {
@@ -265,8 +276,16 @@ const tick = async (): Promise<void> => {
         }
       }
       if (Date.now() >= nextChatCleanupAt) {
+        const startedAt = performance.now();
         try {
           const result = await chatCleanup.execute(10);
+          chatMetrics.recordCleanup(
+            'completed',
+            performance.now() - startedAt,
+            result.examinedCount,
+            result.deletedCount,
+            result.snapshotCount,
+          );
           nextChatCleanupAt = result.hasMore ? Date.now() : Date.now() + 30_000;
           if (result.deletedCount > 0 || result.snapshotCount > 0 || result.hasMore)
             logger.info(
@@ -274,6 +293,7 @@ const tick = async (): Promise<void> => {
               'chat retention cleanup batch completed',
             );
         } catch (error) {
+          chatMetrics.recordCleanup('failure', performance.now() - startedAt);
           nextChatCleanupAt = Date.now() + 5_000;
           logger.error(
             { err: error, operation: 'chat.retention.cleanup' },
@@ -282,6 +302,7 @@ const tick = async (): Promise<void> => {
         }
       }
       if (Date.now() >= nextChatReconciliationAt) {
+        const startedAt = performance.now();
         try {
           const result = await chatReconciliation.execute({
             proposedRunId: randomUUID(),
@@ -290,6 +311,13 @@ const tick = async (): Promise<void> => {
           nextChatReconciliationAt = result.completed
             ? Date.now() + chatReconciliationIntervalMs
             : Date.now();
+          chatMetrics.recordReconciliation(
+            result.completed ? 'completed' : 'in_progress',
+            result.phase,
+            performance.now() - startedAt,
+            result.scannedCount,
+            result.anomalyCount,
+          );
           logger.info(
             {
               operation: 'chat.reconciliation.batch',
@@ -301,10 +329,25 @@ const tick = async (): Promise<void> => {
             'chat reconciliation batch completed',
           );
         } catch (error) {
+          chatMetrics.recordReconciliation('failure', 'unknown', performance.now() - startedAt);
           nextChatReconciliationAt = Date.now() + 60_000;
           logger.error(
             { err: error, operation: 'chat.reconciliation.batch' },
             'chat reconciliation batch failed',
+          );
+        }
+      }
+      if (Date.now() >= nextChatHealthSampleAt) {
+        try {
+          const health = await chatOperationalMetrics.measure();
+          chatMetrics.recordOperationalHealth(health);
+          nextChatHealthSampleAt = Date.now() + 30_000;
+        } catch (error) {
+          chatMetrics.recordOperationalHealthFailure();
+          nextChatHealthSampleAt = Date.now() + 30_000;
+          logger.error(
+            { err: error, operation: 'chat.operational-health.measure' },
+            'chat operational health measurement failed',
           );
         }
       }

@@ -7,6 +7,7 @@ import { sql } from 'kysely';
 import { RunChatReconciliationBatchHandler } from '@nakh/application';
 
 import { PostgresChatReconciliationStore } from './chat-reconciliation-store.js';
+import { PostgresChatOperationalMetricsStore } from './chat-operational-metrics-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 
@@ -161,5 +162,13 @@ describe.skipIf(databaseUrl === undefined)('M6 chat reconciliation', () => {
         safe_detail: { nextSequenceNumber: '2', expectedNextSequenceNumber: '1' },
       },
     ]);
+    const health = await new PostgresChatOperationalMetricsStore(database).measure();
+    expect(health.sequenceIntegrityCount).toBeGreaterThanOrEqual(1);
+    expect(health.dueDeliveryCount).toBeGreaterThanOrEqual(0);
+    expect(health.dueDeliveryOldestAgeSeconds).toBeGreaterThanOrEqual(0);
+    expect(health.expiredCallLeaseCount).toBeGreaterThanOrEqual(0);
+    expect(health.cleanupBacklogSessionCount).toBeGreaterThanOrEqual(0);
+    expect(health.cleanupBacklogMessageCount).toBeGreaterThanOrEqual(0);
+    expect(health.pendingSnapshotCount).toBeGreaterThanOrEqual(0);
   });
 });
