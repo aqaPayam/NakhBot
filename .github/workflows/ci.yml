@@ -107,6 +107,8 @@ jobs:
         run: pnpm test:m5-query-plan
       - name: M5 FIFO concurrency load smoke
         run: pnpm test:m5-load-smoke
+      - name: M6 production-shaped query-plan gate
+        run: pnpm test:m6-query-plan
       - name: Retain privacy-safe M3 query plans
         if: always()
         uses: actions/upload-artifact@v6
@@ -137,6 +139,14 @@ jobs:
         with:
           name: m5-load-smoke-${{ github.sha }}
           path: artifacts/m5-load-smoke.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain privacy-safe M6 query plans
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: m6-query-plans-${{ github.sha }}
+          path: artifacts/m6-query-plans.json
           if-no-files-found: error
           retention-days: 14
       - name: Migration immutability replay

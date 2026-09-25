@@ -87,6 +87,11 @@ export {
   PostgresChatOperationalMetricsStore,
   type ChatOperationalHealth,
 } from './chat-operational-metrics-store.js';
+export {
+  analyzeM6QueryTables,
+  explainM6Queries,
+  withM6SyntheticPlanSession,
+} from './m6-query-plans.js';
 export { PostgresUnmatchStore } from './unmatch-store.js';
 export { PostgresPendingNakhStore } from './pending-nakh-store.js';
 export { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
