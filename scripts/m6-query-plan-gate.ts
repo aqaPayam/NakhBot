@@ -22,8 +22,9 @@ if (!Number.isSafeInteger(volume) || volume < 1_000 || volume > 20_000)
 const batchSize = 250;
 const now = new Date();
 const old = new Date(now.getTime() - 60 * 60_000);
-const userLowId = randomUUID();
-const userHighId = randomUUID();
+const orderedUserIds = [randomUUID(), randomUUID()].sort();
+const userLowId = orderedUserIds[0]!;
+const userHighId = orderedUserIds[1]!;
 const sourceLikeAId = randomUUID();
 const sourceLikeBId = randomUUID();
 const matchId = randomUUID();
