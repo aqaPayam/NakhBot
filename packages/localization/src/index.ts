@@ -2,6 +2,7 @@ import type { LocalizedIntent } from '@nakh/application';
 
 export * from './m1-catalog.js';
 export * from './m5-catalog.js';
+export * from './m6-catalog.js';
 
 export type MessageCatalog = Readonly<Record<string, Readonly<Record<string, string>>>>;
 
