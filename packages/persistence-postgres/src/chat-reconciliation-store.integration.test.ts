@@ -33,6 +33,8 @@ describe.skipIf(databaseUrl === undefined)('M6 chat reconciliation', () => {
     const [userLowId, userHighId] = [randomUUID(), randomUUID()].sort();
     const matchId = randomUUID();
     const sessionId = randomUUID();
+    const sourceLikeAId = randomUUID();
+    const sourceLikeBId = randomUUID();
     const now = new Date();
     await database
       .insertInto('identity.users')
@@ -48,14 +50,35 @@ describe.skipIf(databaseUrl === undefined)('M6 chat reconciliation', () => {
       await sql`SET session_replication_role = replica`.execute(connection);
       try {
         await connection
+          .insertInto('interaction.likes')
+          .values([
+            {
+              id: sourceLikeAId,
+              sender_user_id: userLowId!,
+              receiver_user_id: userHighId!,
+              status: 'closed_by_match',
+              created_at: now,
+              closed_at: now,
+            },
+            {
+              id: sourceLikeBId,
+              sender_user_id: userHighId!,
+              receiver_user_id: userLowId!,
+              status: 'closed_by_match',
+              created_at: now,
+              closed_at: now,
+            },
+          ])
+          .execute();
+        await connection
           .insertInto('matching.matches')
           .values({
             id: matchId,
             user_low_id: userLowId!,
             user_high_id: userHighId!,
             source: 'mutual_like',
-            source_like_a_id: randomUUID(),
-            source_like_b_id: randomUUID(),
+            source_like_a_id: sourceLikeAId,
+            source_like_b_id: sourceLikeBId,
             source_nakh_id: null,
             status: 'active',
             created_at: now,
