@@ -358,3 +358,122 @@ resource "aws_cloudwatch_metric_alarm" "nakh_lifecycle" {
   alarm_actions       = [aws_sns_topic.operations.arn]
   ok_actions          = [aws_sns_topic.operations.arn]
 }
+
+locals {
+  chat_delivery_alarms = {
+    due_delivery_backlog = {
+      description = "M6 due notification deliveries exceed the staging envelope. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.backlog.delivery_due"
+      statistic   = "Maximum"
+      threshold   = 100
+    }
+    due_delivery_oldest_age = {
+      description = "The oldest due M6 notification delivery has waited at least five minutes. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.backlog.delivery_due_oldest_age"
+      statistic   = "Maximum"
+      threshold   = 300
+    }
+    expired_call_lease = {
+      description = "An M6 provider call lease expired after the call began; do not blindly resend. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.backlog.expired_call_lease"
+      statistic   = "Maximum"
+      threshold   = 1
+    }
+    terminal_delivery_failure = {
+      description = "An M6 Telegram delivery reached a terminal failure. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.delivery.terminal_failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    delivery_retry_spike = {
+      description = "M6 Telegram delivery retries are elevated. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.delivery.retries"
+      statistic   = "Sum"
+      threshold   = 10
+    }
+    ambiguous_delivery = {
+      description = "An M6 provider call has an ambiguous result and is quarantined. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.delivery.ambiguous"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    delivery_lease_loss = {
+      description = "M6 delivery workers are losing fenced leases. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.delivery.lease_losses"
+      statistic   = "Sum"
+      threshold   = 3
+    }
+    delivery_poll_failure = {
+      description = "M6 delivery polling failed. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.delivery.poll_failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    cleanup_oldest_age = {
+      description = "M6 live-message cleanup is at least five minutes behind. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.backlog.cleanup_oldest_age"
+      statistic   = "Maximum"
+      threshold   = 300
+    }
+    pending_snapshot_oldest_age = {
+      description = "An M6 report snapshot request has waited at least five minutes. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.backlog.pending_snapshot_oldest_age"
+      statistic   = "Maximum"
+      threshold   = 300
+    }
+    participant_mismatch = {
+      description = "M6 chat participants disagree with the owning Match. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.integrity.participant_mismatch"
+      statistic   = "Maximum"
+      threshold   = 1
+    }
+    sequence_integrity = {
+      description = "M6 message sequence or read-cursor integrity drift was detected. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.integrity.sequence_anomalies"
+      statistic   = "Maximum"
+      threshold   = 1
+    }
+    delivery_integrity = {
+      description = "M6 notification delivery integrity drift was detected. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.integrity.delivery_anomalies"
+      statistic   = "Maximum"
+      threshold   = 1
+    }
+    cleanup_failure = {
+      description = "M6 retention cleanup failed. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.cleanup.failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    reconciliation_failure = {
+      description = "M6 reconciliation failed. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.reconciliation.failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+    operational_health_failure = {
+      description = "M6 aggregate health measurement failed. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      metric_name = "nakh.m6.operational_health.failures"
+      statistic   = "Sum"
+      threshold   = 1
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "chat_delivery" {
+  for_each = local.chat_delivery_alarms
+
+  alarm_name          = "${local.name}-m6-${replace(each.key, "_", "-")}"
+  alarm_description   = each.value.description
+  namespace           = "Nakh/Platform"
+  metric_name         = each.value.metric_name
+  statistic           = each.value.statistic
+  period              = 300
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  threshold           = each.value.threshold
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.operations.arn]
+  ok_actions          = [aws_sns_topic.operations.arn]
+}

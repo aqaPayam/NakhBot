@@ -81,6 +81,13 @@ export class M6Metrics {
   private readonly deliveryDuration = meter.createHistogram('nakh.m6.delivery.duration', {
     unit: 'ms',
   });
+  private readonly deliveryRetries = meter.createCounter('nakh.m6.delivery.retries');
+  private readonly deliveryTerminalFailures = meter.createCounter(
+    'nakh.m6.delivery.terminal_failures',
+  );
+  private readonly deliveryAmbiguous = meter.createCounter('nakh.m6.delivery.ambiguous');
+  private readonly deliveryLeaseLosses = meter.createCounter('nakh.m6.delivery.lease_losses');
+  private readonly deliveryPollFailures = meter.createCounter('nakh.m6.delivery.poll_failures');
   private readonly cleanupBatches = meter.createCounter('nakh.m6.cleanup.batches');
   private readonly cleanupDuration = meter.createHistogram('nakh.m6.cleanup.duration', {
     unit: 'ms',
@@ -88,6 +95,7 @@ export class M6Metrics {
   private readonly cleanupExamined = meter.createCounter('nakh.m6.cleanup.examined');
   private readonly cleanupDeleted = meter.createCounter('nakh.m6.cleanup.deleted');
   private readonly cleanupSnapshots = meter.createCounter('nakh.m6.cleanup.snapshots');
+  private readonly cleanupFailures = meter.createCounter('nakh.m6.cleanup.failures');
   private readonly reconciliationBatches = meter.createCounter('nakh.m6.reconciliation.batches');
   private readonly reconciliationDuration = meter.createHistogram(
     'nakh.m6.reconciliation.duration',
@@ -97,6 +105,7 @@ export class M6Metrics {
   private readonly reconciliationAnomalies = meter.createCounter(
     'nakh.m6.reconciliation.anomalies',
   );
+  private readonly reconciliationFailures = meter.createCounter('nakh.m6.reconciliation.failures');
   private readonly unmatches = meter.createCounter('nakh.m6.unmatch.count');
   private readonly dueDeliveryCount = meter.createHistogram('nakh.m6.backlog.delivery_due', {
     unit: '{item}',
@@ -166,6 +175,11 @@ export class M6Metrics {
     const labels = { outcome, retry_class: retryClass };
     this.deliveries.add(1, labels);
     this.deliveryDuration.record(durationMs, labels);
+    if (outcome === 'retry_scheduled') this.deliveryRetries.add(1);
+    if (outcome === 'failed') this.deliveryTerminalFailures.add(1);
+    if (outcome === 'quarantined') this.deliveryAmbiguous.add(1);
+    if (outcome === 'lease_lost') this.deliveryLeaseLosses.add(1);
+    if (outcome === 'poll_failure') this.deliveryPollFailures.add(1);
   }
 
   public recordCleanup(
@@ -180,6 +194,7 @@ export class M6Metrics {
     this.cleanupExamined.add(examinedCount);
     this.cleanupDeleted.add(deletedCount);
     this.cleanupSnapshots.add(snapshotCount);
+    if (outcome === 'failure') this.cleanupFailures.add(1);
   }
 
   public recordReconciliation(
@@ -194,6 +209,7 @@ export class M6Metrics {
     this.reconciliationDuration.record(durationMs, labels);
     this.reconciliationScanned.add(scannedCount, { phase });
     this.reconciliationAnomalies.add(anomalyCount, { phase });
+    if (outcome === 'failure') this.reconciliationFailures.add(1);
   }
 
   public recordUnmatch(outcome: M6UnmatchOutcome): void {

@@ -52,8 +52,14 @@ describe('M6 metric contract', () => {
       metrics.recordSend('text', 'sent', 5);
       metrics.recordAuthorizationDenial('capability_denied');
       metrics.recordDelivery('retry_scheduled', 'rate_limited', 20);
+      metrics.recordDelivery('failed', 'terminal', 20);
+      metrics.recordDelivery('quarantined', 'ambiguous', 20);
+      metrics.recordDelivery('lease_lost', 'none', 20);
+      metrics.recordDelivery('poll_failure', 'transient', 20);
       metrics.recordCleanup('completed', 30, 2, 10, 1);
+      metrics.recordCleanup('failure', 30);
       metrics.recordReconciliation('in_progress', 'sessions', 40, 100, 2);
+      metrics.recordReconciliation('failure', 'unknown', 40);
       metrics.recordUnmatch('completed');
       metrics.recordOperationalHealth({
         dueDeliveryCount: 1,

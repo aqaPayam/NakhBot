@@ -62,6 +62,7 @@ Any product behavior change requires a domain-document update first. Any persist
 | [`25-m5-execution-guide.md`](25-m5-execution-guide.md) | Exact M5 Nakh lifecycle, funding, FIFO settlement, receiver action, and acceptance sequence |
 | [`26-m5-acceptance-evidence.md`](26-m5-acceptance-evidence.md) | M5 automated evidence, operational gates, external blockers, and staging handoff ledger |
 | [`27-m6-execution-guide.md`](27-m6-execution-guide.md) | Exact M6 chat, Unmatch, notification delivery, retention, and acceptance sequence |
+| [`28-m6-acceptance-evidence.md`](28-m6-acceptance-evidence.md) | M6 automated evidence, operational gates, external blockers, and staging handoff ledger |
 
 ## Locked baseline
 
