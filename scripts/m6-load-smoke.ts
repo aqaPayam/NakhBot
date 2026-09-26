@@ -10,6 +10,8 @@ import {
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 
+import { roundRobinWork } from './load-smoke-order.js';
+
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 if (databaseUrl === undefined)
   throw new Error('NAKH_TEST_DATABASE_URL is required for the M6 load smoke.');
@@ -36,6 +38,37 @@ type SendFixture = Readonly<{
   messageId: string;
   eventId: string;
 }>;
+
+type LoadPhase = 'setup' | 'first_send' | 'replay' | 'verification';
+
+const artifactPath = resolve(process.cwd(), 'artifacts/m6-load-smoke.json');
+
+async function writeArtifact(report: Readonly<Record<string, unknown>>): Promise<void> {
+  await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
+  await writeFile(artifactPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+}
+
+function safeFailureCode(error: unknown): string {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return 'unexpected_error';
+  const code = String(error.code);
+  const allowed = new Set([
+    'chat_unavailable',
+    'conflict',
+    'idempotency_conflict',
+    'dependency_unavailable',
+    '40P01',
+    '55P03',
+    '57014',
+    '53300',
+    '08000',
+    '08001',
+    '08003',
+    '08004',
+    '08006',
+    '57P01',
+  ]);
+  return allowed.has(code) ? code : 'unexpected_error';
+}
 
 function command(actorUserId: string, questionId: string): SendPredefinedQuestionCommand {
   return {
@@ -182,6 +215,8 @@ const database = createDatabase({
   lockTimeoutMs: 30_000,
 });
 
+let phase: LoadPhase = 'setup';
+let artifactWritten = false;
 try {
   const fixtures: SessionFixture[] = Array.from({ length: sessionCount }, () => {
     const [firstUserId, secondUserId] = [randomUUID(), randomUUID()].sort();
@@ -202,17 +237,16 @@ try {
     .where('is_active', '=', true)
     .orderBy('id')
     .executeTakeFirstOrThrow();
-  const sends: SendFixture[] = fixtures.flatMap((session) =>
-    Array.from({ length: sendsPerSession }, (_, index) => ({
-      session,
-      command: command(index % 2 === 0 ? session.firstUserId : session.secondUserId, question.id),
-      messageId: randomUUID(),
-      eventId: randomUUID(),
-    })),
-  );
+  const sends: SendFixture[] = roundRobinWork(fixtures, sendsPerSession, (session, index) => ({
+    session,
+    command: command(index % 2 === 0 ? session.firstUserId : session.secondUserId, question.id),
+    messageId: randomUUID(),
+    eventId: randomUUID(),
+  }));
   const setupDurationMs = Math.round(performance.now() - setupStartedAt);
   const store = new PostgresChatStore(database);
 
+  phase = 'first_send';
   const sendStartedAt = performance.now();
   const results = await Promise.all(
     sends.map((send) =>
@@ -226,6 +260,7 @@ try {
   );
   const sendDurationMs = Math.round(performance.now() - sendStartedAt);
 
+  phase = 'replay';
   const replayStartedAt = performance.now();
   const replays = await Promise.all(
     sends.map((send) =>
@@ -239,6 +274,7 @@ try {
   );
   const replayDurationMs = Math.round(performance.now() - replayStartedAt);
 
+  phase = 'verification';
   const sessionIds = fixtures.map(({ chatSessionId }) => chatSessionId);
   const messageIds = sends.map(({ messageId }) => messageId);
   const [sessions, messages, notifications, deliveries, outbox] = await Promise.all([
@@ -327,6 +363,7 @@ try {
 
   const report = {
     scenario: 'M6-CONCURRENT-SEND-LOAD',
+    completed: true,
     sessionCount,
     sendsPerSession,
     concurrentSendAttempts: sends.length,
@@ -340,14 +377,22 @@ try {
     replayDurationMs,
     failures,
   };
-  await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
-  await writeFile(
-    resolve(process.cwd(), 'artifacts/m6-load-smoke.json'),
-    `${JSON.stringify(report, null, 2)}\n`,
-    'utf8',
-  );
+  await writeArtifact(report);
+  artifactWritten = true;
   if (failures.length > 0) throw new Error(`M6 load smoke failed: ${failures.join('; ')}.`);
   process.stdout.write(`${JSON.stringify(report)}\n`);
+} catch (error) {
+  if (!artifactWritten)
+    await writeArtifact({
+      scenario: 'M6-CONCURRENT-SEND-LOAD',
+      completed: false,
+      sessionCount,
+      sendsPerSession,
+      failurePhase: phase,
+      failureCode: safeFailureCode(error),
+      failures: ['load_phase_failed'],
+    });
+  throw error;
 } finally {
   await database.destroy();
 }
