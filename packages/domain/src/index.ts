@@ -6,6 +6,7 @@ export * from './identity/account.js';
 export * from './identity/signup.js';
 export * from './discovery/discovery.js';
 export * from './media/media.js';
+export * from './moderation/moderation.js';
 export * from './nakh/nakh.js';
 export * from './notification/notification.js';
 export * from './profile/validation.js';
