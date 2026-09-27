@@ -79,6 +79,6 @@ export interface PhotoModerationTable {
   admin_user_id: string;
   action: 'hide' | 'restore' | 'delete';
   reason_code: string;
-  report_id: null;
+  report_id: string | null;
   occurred_at: Date;
 }

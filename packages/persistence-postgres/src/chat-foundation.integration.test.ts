@@ -188,6 +188,52 @@ function captureMessagesCommand(
   };
 }
 
+async function createMessageReport(
+  database: NakhDatabase,
+  fixture: ChatFixture,
+  reportId: string,
+  messageId: string,
+): Promise<void> {
+  await database.transaction().execute(async (transaction) => {
+    const reason = await transaction
+      .selectFrom('moderation.report_reasons')
+      .select('id')
+      .where('code', '=', 'harassment')
+      .where('is_active', '=', true)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .insertInto('moderation.reports')
+      .values({
+        id: reportId,
+        reporter_user_id: fixture.firstUserId,
+        target_user_id: fixture.secondUserId,
+        reason_id: reason.id,
+        extra_text: null,
+        status: 'submitted',
+        command_id: randomUUID(),
+        request_id: randomUUID(),
+        idempotency_key: `report:${reportId}`,
+        request_digest: 'a'.repeat(64),
+        reviewed_at: null,
+        closed_at: null,
+      })
+      .execute();
+    await transaction
+      .insertInto('moderation.report_evidence')
+      .values({
+        id: randomUUID(),
+        report_id: reportId,
+        evidence_type: 'message',
+        profile_id: null,
+        profile_photo_id: null,
+        chat_session_id: null,
+        chat_message_id: messageId,
+        unmatch_record_id: null,
+      })
+      .execute();
+  });
+}
+
 function cleanupChatCommand(chatSessionId: string): CleanupChatCommand {
   return {
     commandId: randomUUID(),
@@ -883,6 +929,7 @@ describe.skipIf(databaseUrl === undefined)('M6 chat catalog and message foundati
 
     const store = new PostgresChatRetentionStore(database);
     const capturedReportId = randomUUID();
+    await createMessageReport(database, fixture, capturedReportId, messageIds[0]!);
     const capture = captureMessagesCommand(capturedReportId, fixture.chatSessionId, [
       messageIds[0]!,
     ]);
@@ -890,6 +937,7 @@ describe.skipIf(databaseUrl === undefined)('M6 chat catalog and message foundati
     expect(await store.captureReportedMessages(capture)).toMatchObject({ replayed: true });
 
     const pendingReportId = randomUUID();
+    await createMessageReport(database, fixture, pendingReportId, messageIds[1]!);
     await database
       .insertInto('chat.chat_message_snapshot_requests')
       .values({

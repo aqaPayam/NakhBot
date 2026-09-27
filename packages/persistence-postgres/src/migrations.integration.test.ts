@@ -72,6 +72,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000044_m6_localization.sql',
         '000045_m6_reconciliation.sql',
         '000046_m7_reports.sql',
+        '000047_m7_report_evidence.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -112,9 +113,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000044_m6_localization.sql');
       expect(verified).toContain('000045_m6_reconciliation.sql');
       expect(verified).toContain('000046_m7_reports.sql');
+      expect(verified).toContain('000047_m7_report_evidence.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(46);
+      expect(replay.existing).toHaveLength(47);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

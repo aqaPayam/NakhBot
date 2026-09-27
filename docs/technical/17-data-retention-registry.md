@@ -32,6 +32,11 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `profile.profile_change_requests` | sensitive correction request | purge after the approved compliance window | Contains protected value snapshots and User reason; Profile/Privacy |
 | `profile.profile_change_reviews` | administrative decision | retain only with the corresponding permitted audit window, then purge with request | Administration/Privacy |
 | `administration.admin_users` | workforce identity | not part of User product-data deletion | M7 administration lifecycle and audit continuity |
+| `moderation.report_reasons` | public reference data | retain | Stable code-owned safety taxonomy; Moderation/Localization |
+| `moderation.reports` | confidential safety complaint and bounded user text | remove from product access immediately; retain or purge only under the approved safety/legal window | Moderation/Privacy; reporter identity is never disclosed to the target |
+| `moderation.report_evidence` | restricted typed safety references | retain and purge atomically with the governing Report after snapshot and legal obligations complete | Moderation/Privacy |
+| `moderation.report_snapshots` | encrypted immutable sensitive evidence | never expose through ordinary product reads; key-revoke or purge with the governing Report under the approved evidence policy | Moderation/Privacy/Security |
+| `moderation.evidence_access_audits` | append-only restricted access metadata | retain for the approved security/audit window; never store decrypted evidence or user prose | Moderation/Security |
 | `platform.sample_effects` and `platform.sample_projections` | M0 test-only data | remove when M0 sample is retired | Platform |
 | `media.media_assets` | sensitive photo metadata, hashes, encrypted temporary transport references | clear transport ciphertext after ingestion ends; soft-delete ordinary assets immediately, verify object purge, then purge metadata after the replay/24-hour attempt window | Media; deletion must not reset upload limits |
 | `media.profile_photos` | sensitive Profile/photo association | remove from delivery immediately; purge after object cleanup and permitted safety-reference handling | Media/Profile |
@@ -40,7 +45,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `quarantine/{environment}/{assetId}/` | untrusted private upload | purge on rejection, abandonment, successful publication, or product deletion; verify absence | Media |
 | `validated/{environment}/{assetId}/` | private normalized original | purge on ordinary photo/product deletion; retain only under an explicit evidence decision | Media/Moderation |
 | `variants/{environment}/{assetId}/` | private served renditions | revoke grants and purge objects on ordinary photo/product deletion | Media |
-| `report-evidence/{environment}/{reportId}/` | restricted safety evidence (future M7) | retain/purge only under explicit evidence policy, independently of ordinary photo cleanup | Moderation/Privacy |
+| `report-evidence/{environment}/{reportId}/` | restricted encrypted safety evidence | revoke delivery immediately; retain/purge only under explicit evidence policy, independently of ordinary photo cleanup | Moderation/Privacy |
 
 ## Required deletion-test assertions for M1
 

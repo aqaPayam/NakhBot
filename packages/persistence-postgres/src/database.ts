@@ -977,6 +977,43 @@ export interface ReportTable {
   version: Generated<number>;
 }
 
+export interface ReportEvidenceTable {
+  id: string;
+  report_id: string;
+  evidence_type: 'profile' | 'photo' | 'chat' | 'message' | 'unmatched_user';
+  profile_id: string | null;
+  profile_photo_id: string | null;
+  chat_session_id: string | null;
+  chat_message_id: string | null;
+  unmatch_record_id: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface ReportSnapshotTable {
+  id: string;
+  report_id: string;
+  report_evidence_id: string;
+  snapshot_type: 'profile' | 'photo' | 'chat' | 'unmatched_user';
+  schema_version: number;
+  encryption_key_id: string;
+  encryption_key_version: number;
+  nonce: Buffer;
+  ciphertext: Buffer;
+  content_sha256: string;
+  created_at: Generated<Date>;
+}
+
+export interface EvidenceAccessAuditTable {
+  id: string;
+  report_id: string;
+  report_evidence_id: string;
+  admin_user_id: string;
+  reason_code: string;
+  request_id: string;
+  command_id: string;
+  accessed_at: Generated<Date>;
+}
+
 export interface DatabaseSchema {
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;
@@ -1064,6 +1101,9 @@ export interface DatabaseSchema {
   'chat.chat_cleanup_checkpoints': ChatCleanupCheckpointTable;
   'moderation.report_reasons': ReportReasonTable;
   'moderation.reports': ReportTable;
+  'moderation.report_evidence': ReportEvidenceTable;
+  'moderation.report_snapshots': ReportSnapshotTable;
+  'moderation.evidence_access_audits': EvidenceAccessAuditTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;
