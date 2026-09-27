@@ -1014,6 +1014,65 @@ export interface EvidenceAccessAuditTable {
   accessed_at: Generated<Date>;
 }
 
+export interface RestrictionEpisodeTable {
+  id: string;
+  target_user_id: string;
+  source_report_id: string;
+  status: Generated<'active' | 'resolved'>;
+  distinct_reporter_count: number;
+  started_at: Generated<Date>;
+  resolved_at: Date | null;
+  resolved_by_admin_id: string | null;
+  resolution_reason_code: string | null;
+  version: Generated<number>;
+}
+
+export interface ModerationReviewTable {
+  id: string;
+  report_id: string;
+  status: Generated<'pending' | 'in_review' | 'dismissed' | 'actioned'>;
+  assigned_admin_id: string | null;
+  assigned_at: Date | null;
+  decided_at: Date | null;
+  decision_note_ciphertext: Buffer | null;
+  decision_note_key_id: string | null;
+  decision_note_key_version: number | null;
+  decision_note_nonce: Buffer | null;
+  decision_note_sha256: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface ModerationActionTable {
+  id: string;
+  action_type:
+    | 'restrict_user'
+    | 'unrestrict_user'
+    | 'ban_user'
+    | 'unban_user'
+    | 'hide_photo'
+    | 'restore_photo'
+    | 'delete_photo'
+    | 'create_internal_block'
+    | 'remove_internal_block';
+  actor_type: 'admin' | 'system';
+  actor_admin_id: string | null;
+  target_user_id: string | null;
+  target_photo_id: string | null;
+  target_pair_low_user_id: string | null;
+  target_pair_high_user_id: string | null;
+  source_report_id: string | null;
+  restriction_episode_id: string | null;
+  audit_log_id: string;
+  notification_id: string | null;
+  command_id: string;
+  request_id: string;
+  request_digest: string;
+  reason_code: string;
+  occurred_at: Generated<Date>;
+}
+
 export interface DatabaseSchema {
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;
@@ -1104,6 +1163,9 @@ export interface DatabaseSchema {
   'moderation.report_evidence': ReportEvidenceTable;
   'moderation.report_snapshots': ReportSnapshotTable;
   'moderation.evidence_access_audits': EvidenceAccessAuditTable;
+  'moderation.restriction_episodes': RestrictionEpisodeTable;
+  'moderation.moderation_reviews': ModerationReviewTable;
+  'moderation.moderation_actions': ModerationActionTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;

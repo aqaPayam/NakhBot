@@ -37,6 +37,9 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `moderation.report_evidence` | restricted typed safety references | retain and purge atomically with the governing Report after snapshot and legal obligations complete | Moderation/Privacy |
 | `moderation.report_snapshots` | encrypted immutable sensitive evidence | never expose through ordinary product reads; key-revoke or purge with the governing Report under the approved evidence policy | Moderation/Privacy/Security |
 | `moderation.evidence_access_audits` | append-only restricted access metadata | retain for the approved security/audit window; never store decrypted evidence or user prose | Moderation/Security |
+| `moderation.restriction_episodes` | immutable safety-threshold history | retain for the approved safety/audit window; a resolved episode is never rewritten or reused | Moderation/Safety |
+| `moderation.moderation_reviews` | restricted safety workflow and encrypted decision note | remove from product access with the Report; retain or cryptographically erase under the approved safety/legal window | Moderation/Privacy |
+| `moderation.moderation_actions` | append-only exact safety action history | retain for the approved safety/audit window; never copy evidence or user prose into the row | Moderation/Security |
 | `platform.sample_effects` and `platform.sample_projections` | M0 test-only data | remove when M0 sample is retired | Platform |
 | `media.media_assets` | sensitive photo metadata, hashes, encrypted temporary transport references | clear transport ciphertext after ingestion ends; soft-delete ordinary assets immediately, verify object purge, then purge metadata after the replay/24-hour attempt window | Media; deletion must not reset upload limits |
 | `media.profile_photos` | sensitive Profile/photo association | remove from delivery immediately; purge after object cleanup and permitted safety-reference handling | Media/Profile |
