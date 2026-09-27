@@ -9,7 +9,7 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
-describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M6 upgrade', () => {
+describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it('serializes empty-database bootstrap, upgrades M1, verifies, and replays unchanged', async () => {
     // This suite needs CREATEDB on the disposable CI database server.
     const name = `nakh_migration_${randomUUID().replaceAll('-', '')}`;
@@ -71,6 +71,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000043_m6_chat_retention.sql',
         '000044_m6_localization.sql',
         '000045_m6_reconciliation.sql',
+        '000046_m7_reports.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -110,9 +111,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000043_m6_chat_retention.sql');
       expect(verified).toContain('000044_m6_localization.sql');
       expect(verified).toContain('000045_m6_reconciliation.sql');
+      expect(verified).toContain('000046_m7_reports.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(45);
+      expect(replay.existing).toHaveLength(46);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

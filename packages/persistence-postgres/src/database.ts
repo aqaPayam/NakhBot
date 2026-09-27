@@ -948,6 +948,35 @@ export interface ChatCleanupCheckpointTable {
   version: Generated<number>;
 }
 
+export interface ReportReasonTable {
+  id: string;
+  code: string;
+  label_key: string;
+  is_active: Generated<boolean>;
+  display_order: number;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface ReportTable {
+  id: string;
+  reporter_user_id: string;
+  target_user_id: string;
+  reason_id: string;
+  extra_text: string | null;
+  status: 'submitted' | 'pending_review' | 'dismissed' | 'actioned' | 'closed';
+  priority: Generated<'normal' | 'threshold'>;
+  command_id: string;
+  request_id: string;
+  idempotency_key: string;
+  request_digest: string;
+  submitted_at: Generated<Date>;
+  reviewed_at: Date | null;
+  closed_at: Date | null;
+  version: Generated<number>;
+}
+
 export interface DatabaseSchema {
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;
@@ -1033,6 +1062,8 @@ export interface DatabaseSchema {
   'chat.chat_message_snapshot_requests': ChatMessageSnapshotRequestTable;
   'chat.chat_message_snapshots': ChatMessageSnapshotTable;
   'chat.chat_cleanup_checkpoints': ChatCleanupCheckpointTable;
+  'moderation.report_reasons': ReportReasonTable;
+  'moderation.reports': ReportTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;
