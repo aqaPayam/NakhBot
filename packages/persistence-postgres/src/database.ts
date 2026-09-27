@@ -318,8 +318,55 @@ export interface AdminUserTable {
   telegram_user_id: string;
   is_active: Generated<boolean>;
   disabled_at: Date | null;
-  created_at: Date;
-  updated_at: Date;
+  identity_verified_at: Date | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface AdminRoleTable {
+  code: string;
+  description: string;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
+}
+
+export interface AdminPermissionTable {
+  code: string;
+  description: string;
+  created_at: Generated<Date>;
+}
+
+export interface AdminRolePermissionTable {
+  role_code: string;
+  permission_code: string;
+}
+
+export interface AdminUserRoleTable {
+  admin_user_id: string;
+  role_code: string;
+  assigned_by_admin_id: string;
+  assigned_at: Generated<Date>;
+  revoked_by_admin_id: string | null;
+  revoked_at: Date | null;
+}
+
+export interface AdminActionLogTable {
+  id: string;
+  admin_user_id: string;
+  command_id: string;
+  request_id: string;
+  request_digest: string;
+  command_code: string;
+  target_type: string;
+  target_id: string;
+  expected_target_version: number | null;
+  result: 'succeeded' | 'rejected' | 'failed';
+  safe_code: string;
+  reason_digest: string;
+  metadata: ColumnType<JsonObject, object, object>;
+  correlation_id: string;
+  created_at: Generated<Date>;
 }
 
 export interface ProfileChangeRequestTable {
@@ -1011,6 +1058,9 @@ export interface EvidenceAccessAuditTable {
   reason_code: string;
   request_id: string;
   command_id: string;
+  permission_code: Generated<string>;
+  outcome: Generated<'revealed' | 'rejected'>;
+  safe_code: Generated<string>;
   accessed_at: Generated<Date>;
 }
 
@@ -1138,6 +1188,11 @@ export interface DatabaseSchema {
   'profile.profile_change_requests': ProfileChangeRequestTable;
   'profile.profile_change_reviews': ProfileChangeReviewTable;
   'administration.admin_users': AdminUserTable;
+  'administration.admin_roles': AdminRoleTable;
+  'administration.admin_permissions': AdminPermissionTable;
+  'administration.admin_role_permissions': AdminRolePermissionTable;
+  'administration.admin_user_roles': AdminUserRoleTable;
+  'administration.admin_action_logs': AdminActionLogTable;
   'discovery.explore_filters': ExploreFilterTable;
   'discovery.explore_filter_genders': ExploreFilterGenderTable;
   'discovery.explore_consumptions': ExploreConsumptionTable;

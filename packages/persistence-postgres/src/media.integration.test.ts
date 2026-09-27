@@ -635,15 +635,29 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
 
     const adminUserId = await user();
     const adminId = randomUUID();
+    const adminTelegramId = String(Date.now());
+    const adminCreatedAt = new Date();
+    await database
+      .insertInto('identity.telegram_identities')
+      .values({
+        user_id: adminUserId,
+        telegram_user_id: adminTelegramId,
+        username: null,
+        first_seen_at: adminCreatedAt,
+        last_seen_at: adminCreatedAt,
+      })
+      .execute();
     await database
       .insertInto('administration.admin_users')
       .values({
         id: adminId,
         user_id: adminUserId,
-        telegram_user_id: String(Date.now()),
+        telegram_user_id: adminTelegramId,
+        is_active: true,
         disabled_at: null,
-        created_at: new Date(),
-        updated_at: new Date(),
+        identity_verified_at: adminCreatedAt,
+        created_at: adminCreatedAt,
+        updated_at: adminCreatedAt,
       })
       .execute();
     const moderate = (

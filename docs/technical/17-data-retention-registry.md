@@ -32,6 +32,8 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `profile.profile_change_requests` | sensitive correction request | purge after the approved compliance window | Contains protected value snapshots and User reason; Profile/Privacy |
 | `profile.profile_change_reviews` | administrative decision | retain only with the corresponding permitted audit window, then purge with request | Administration/Privacy |
 | `administration.admin_users` | workforce identity | not part of User product-data deletion | M7 administration lifecycle and audit continuity |
+| `administration.admin_roles`, `administration.admin_permissions`, `administration.admin_role_permissions` | code-owned authorization catalog | retain | Stable least-privilege policy; Administration/Security |
+| `administration.admin_user_roles`, `administration.admin_action_logs` | workforce authorization and append-only attempt audit | not part of User product-data deletion; retain for the approved security/audit window | Administration/Security |
 | `moderation.report_reasons` | public reference data | retain | Stable code-owned safety taxonomy; Moderation/Localization |
 | `moderation.reports` | confidential safety complaint and bounded user text | remove from product access immediately; retain or purge only under the approved safety/legal window | Moderation/Privacy; reporter identity is never disclosed to the target |
 | `moderation.report_evidence` | restricted typed safety references | retain and purge atomically with the governing Report after snapshot and legal obligations complete | Moderation/Privacy |

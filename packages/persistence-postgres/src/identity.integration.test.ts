@@ -1015,6 +1015,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         telegram_user_id: reviewerTelegramId,
         is_active: true,
         disabled_at: null,
+        identity_verified_at: new Date('2026-09-04T12:04:30.000Z'),
         created_at: new Date('2026-09-04T12:04:30.000Z'),
         updated_at: new Date('2026-09-04T12:04:30.000Z'),
       })
