@@ -10,10 +10,10 @@ import {
   type AuthorizedAdminAction,
 } from './admin-authorization.js';
 
-const actorUserId = '10000000-0000-4000-8000-000000000001';
-const otherUserId = '10000000-0000-4000-8000-000000000002';
-const adminUserId = '20000000-0000-4000-8000-000000000001';
-const targetId = '30000000-0000-4000-8000-000000000001';
+const actorUserId = '10000000-0000-7000-8000-000000000001';
+const otherUserId = '10000000-0000-7000-8000-000000000002';
+const adminUserId = '20000000-0000-7000-8000-000000000001';
+const targetId = '30000000-0000-7000-8000-000000000001';
 const telegramUserId = '9000000001';
 const key = Buffer.alloc(32, 7);
 
