@@ -1,0 +1,369 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import type { AdminCommandAttempt } from '@nakh/application';
+
+import { createDatabase, type NakhDatabase } from './database.js';
+import { runMigrations } from './migrations.js';
+import { PostgresModerationReviewWorkflow } from './moderation-review-store.js';
+
+const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
+const genderOptionId = '20000000-0000-4000-8000-000000000001';
+const genderPreferenceId = '20000000-0000-4000-8000-000000000013';
+const relationshipGoalId = '20000000-0000-4000-8000-000000000021';
+const countryId = '20000000-0000-4000-8000-000000000101';
+const provinceId = '20000000-0000-4000-8000-000000000111';
+const cityId = '20000000-0000-4000-8000-000000000121';
+
+function digest(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+async function createUser(database: NakhDatabase): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await database
+    .insertInto('identity.users')
+    .values({ id, last_activity_at: now, created_at: now, updated_at: now })
+    .execute();
+  return id;
+}
+
+async function createAdmin(database: NakhDatabase, withRole = true): Promise<string> {
+  const userId = await createUser(database);
+  const adminUserId = randomUUID();
+  const telegramUserId = String(2_000_000_000 + Math.floor(Math.random() * 7_000_000_000));
+  const now = new Date();
+  await database
+    .insertInto('identity.telegram_identities')
+    .values({
+      user_id: userId,
+      telegram_user_id: telegramUserId,
+      username: null,
+      first_seen_at: now,
+      last_seen_at: now,
+    })
+    .execute();
+  await database
+    .insertInto('administration.admin_users')
+    .values({
+      id: adminUserId,
+      user_id: userId,
+      telegram_user_id: telegramUserId,
+      is_active: true,
+      disabled_at: null,
+      identity_verified_at: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .execute();
+  if (withRole)
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminUserId,
+        role_code: 'moderator',
+        assigned_by_admin_id: adminUserId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+  return adminUserId;
+}
+
+async function createPendingReview(
+  database: NakhDatabase,
+  input: Readonly<{ priority: 'normal' | 'threshold'; createdAt: Date }>,
+): Promise<Readonly<{ reportId: string; reviewId: string }>> {
+  const reporterUserId = await createUser(database);
+  const targetUserId = await createUser(database);
+  const profileId = randomUUID();
+  await database
+    .insertInto('profile.profiles')
+    .values({
+      id: profileId,
+      user_id: targetUserId,
+      name: 'Review fixture',
+      birth_year: input.createdAt.getUTCFullYear() - 30,
+      gender_option_id: genderOptionId,
+      gender_preference_id: genderPreferenceId,
+      relationship_goal_id: relationshipGoalId,
+      country_id: countryId,
+      province_id: provinceId,
+      city_id: cityId,
+      highlight: 'Review fixture',
+      bio: null,
+      completion_status: 'complete',
+      ever_completed: true,
+      completed_at: input.createdAt,
+      created_at: input.createdAt,
+      updated_at: input.createdAt,
+    })
+    .execute();
+  await database
+    .insertInto('interaction.likes')
+    .values({
+      id: randomUUID(),
+      sender_user_id: targetUserId,
+      receiver_user_id: reporterUserId,
+      status: 'active',
+      created_at: input.createdAt,
+      closed_at: null,
+    })
+    .execute();
+  const reason = await database
+    .selectFrom('moderation.report_reasons')
+    .select('id')
+    .where('code', '=', 'harassment')
+    .executeTakeFirstOrThrow();
+  const reportId = randomUUID();
+  const reviewId = randomUUID();
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .insertInto('moderation.reports')
+      .values({
+        id: reportId,
+        reporter_user_id: reporterUserId,
+        target_user_id: targetUserId,
+        reason_id: reason.id,
+        extra_text: null,
+        status: 'pending_review',
+        priority: input.priority,
+        command_id: randomUUID(),
+        request_id: randomUUID(),
+        idempotency_key: `report:${reportId}`,
+        request_digest: digest(`report:${reportId}`),
+        submitted_at: input.createdAt,
+        reviewed_at: null,
+        closed_at: null,
+      })
+      .execute();
+    await transaction
+      .insertInto('moderation.report_evidence')
+      .values({
+        id: randomUUID(),
+        report_id: reportId,
+        evidence_type: 'profile',
+        profile_id: profileId,
+        profile_photo_id: null,
+        chat_session_id: null,
+        chat_message_id: null,
+        unmatch_record_id: null,
+      })
+      .execute();
+    await transaction
+      .insertInto('moderation.moderation_reviews')
+      .values({
+        id: reviewId,
+        report_id: reportId,
+        status: 'pending',
+        assigned_admin_id: null,
+        assigned_at: null,
+        decided_at: null,
+        decision_note_ciphertext: null,
+        decision_note_key_id: null,
+        decision_note_key_version: null,
+        decision_note_nonce: null,
+        decision_note_sha256: null,
+        created_at: input.createdAt,
+        updated_at: input.createdAt,
+      })
+      .execute();
+  });
+  return { reportId, reviewId };
+}
+
+function adminAttempt(
+  adminUserId: string,
+  input: Readonly<{
+    commandCode: 'moderation.assign-review' | 'moderation.claim-reviews';
+    targetType: 'admin_user' | 'moderation_review';
+    targetId: string;
+    expectedTargetVersion: number | null;
+  }>,
+): AdminCommandAttempt {
+  return {
+    logId: randomUUID(),
+    adminUserId,
+    commandId: randomUUID(),
+    requestId: randomUUID(),
+    requestDigest: digest(JSON.stringify(input)),
+    commandCode: input.commandCode,
+    requiredPermission: 'view_reports',
+    targetType: input.targetType,
+    targetId: input.targetId,
+    expectedTargetVersion: input.expectedTargetVersion,
+    reasonDigest: digest('queue management'),
+    metadata: {},
+    correlationId: randomUUID(),
+  };
+}
+
+describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
+  let database: NakhDatabase;
+  let workflow: PostgresModerationReviewWorkflow;
+
+  beforeAll(async () => {
+    await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
+    database = createDatabase({
+      url: databaseUrl!,
+      poolMax: 10,
+      statementTimeoutMs: 10_000,
+      lockTimeoutMs: 5_000,
+    });
+    workflow = new PostgresModerationReviewWorkflow(database);
+  });
+
+  afterAll(async () => {
+    await database?.destroy();
+  });
+
+  it('claims priority-first batches exactly once and replays without another mutation', async () => {
+    const adminUserId = await createAdmin(database);
+    const base = Date.now() - 60_000;
+    const normalOld = await createPendingReview(database, {
+      priority: 'normal',
+      createdAt: new Date(base),
+    });
+    const normalNew = await createPendingReview(database, {
+      priority: 'normal',
+      createdAt: new Date(base + 1_000),
+    });
+    const threshold = await createPendingReview(database, {
+      priority: 'threshold',
+      createdAt: new Date(base + 2_000),
+    });
+    const attempt = adminAttempt(adminUserId, {
+      commandCode: 'moderation.claim-reviews',
+      targetType: 'admin_user',
+      targetId: adminUserId,
+      expectedTargetVersion: null,
+    });
+
+    const first = await workflow.claim(attempt, { limit: 2 });
+    expect(first).toMatchObject({ result: 'succeeded', safeCode: 'reviews_claimed' });
+    expect(first.value?.map(({ reviewId }) => reviewId)).toEqual([
+      threshold.reviewId,
+      normalOld.reviewId,
+    ]);
+    await expect(workflow.claim(attempt, { limit: 2 })).resolves.toMatchObject({
+      result: 'succeeded',
+      replayed: true,
+      value: undefined,
+    });
+    const remaining = await database
+      .selectFrom('moderation.moderation_reviews')
+      .select('id')
+      .where('status', '=', 'pending')
+      .where('id', 'in', [normalOld.reviewId, normalNew.reviewId, threshold.reviewId])
+      .execute();
+    expect(remaining).toEqual([{ id: normalNew.reviewId }]);
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .select(['result', 'safe_code'])
+      .where('command_id', '=', attempt.commandId)
+      .execute();
+    expect(logs).toEqual([{ result: 'succeeded', safe_code: 'reviews_claimed' }]);
+  });
+
+  it('assigns and reassigns with optimistic versioning and rejects unauthorized assignees', async () => {
+    const actorAdminId = await createAdmin(database);
+    const firstAssigneeId = await createAdmin(database);
+    const secondAssigneeId = await createAdmin(database);
+    const unauthorizedAssigneeId = await createAdmin(database, false);
+    const review = await createPendingReview(database, {
+      priority: 'normal',
+      createdAt: new Date(Date.now() - 30_000),
+    });
+
+    const firstAttempt = adminAttempt(actorAdminId, {
+      commandCode: 'moderation.assign-review',
+      targetType: 'moderation_review',
+      targetId: review.reviewId,
+      expectedTargetVersion: 1,
+    });
+    await expect(
+      workflow.assign(firstAttempt, {
+        reviewId: review.reviewId,
+        assigneeAdminId: firstAssigneeId,
+        expectedVersion: 1,
+      }),
+    ).resolves.toMatchObject({
+      result: 'succeeded',
+      value: { assignedAdminId: firstAssigneeId, reviewVersion: 2 },
+    });
+
+    const staleAttempt = adminAttempt(actorAdminId, {
+      commandCode: 'moderation.assign-review',
+      targetType: 'moderation_review',
+      targetId: review.reviewId,
+      expectedTargetVersion: 1,
+    });
+    await expect(
+      workflow.assign(staleAttempt, {
+        reviewId: review.reviewId,
+        assigneeAdminId: secondAssigneeId,
+        expectedVersion: 1,
+      }),
+    ).resolves.toMatchObject({ result: 'rejected', safeCode: 'version_conflict' });
+
+    const unauthorizedAttempt = adminAttempt(actorAdminId, {
+      commandCode: 'moderation.assign-review',
+      targetType: 'moderation_review',
+      targetId: review.reviewId,
+      expectedTargetVersion: 2,
+    });
+    await expect(
+      workflow.assign(unauthorizedAttempt, {
+        reviewId: review.reviewId,
+        assigneeAdminId: unauthorizedAssigneeId,
+        expectedVersion: 2,
+      }),
+    ).resolves.toMatchObject({ result: 'rejected', safeCode: 'reviewer_unauthorized' });
+
+    const secondAttempt = adminAttempt(actorAdminId, {
+      commandCode: 'moderation.assign-review',
+      targetType: 'moderation_review',
+      targetId: review.reviewId,
+      expectedTargetVersion: 2,
+    });
+    await expect(
+      workflow.assign(secondAttempt, {
+        reviewId: review.reviewId,
+        assigneeAdminId: secondAssigneeId,
+        expectedVersion: 2,
+      }),
+    ).resolves.toMatchObject({
+      result: 'succeeded',
+      value: { assignedAdminId: secondAssigneeId, reviewVersion: 3 },
+    });
+  });
+
+  it('rechecks current PostgreSQL permission and records a denied claim without touching the queue', async () => {
+    const adminUserId = await createAdmin(database, false);
+    const review = await createPendingReview(database, {
+      priority: 'normal',
+      createdAt: new Date(Date.now() - 15_000),
+    });
+    const attempt = adminAttempt(adminUserId, {
+      commandCode: 'moderation.claim-reviews',
+      targetType: 'admin_user',
+      targetId: adminUserId,
+      expectedTargetVersion: null,
+    });
+    await expect(workflow.claim(attempt, { limit: 1 })).resolves.toMatchObject({
+      result: 'rejected',
+      safeCode: 'forbidden',
+      value: undefined,
+    });
+    await expect(
+      database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['status', 'version'])
+        .where('id', '=', review.reviewId)
+        .executeTakeFirstOrThrow(),
+    ).resolves.toEqual({ status: 'pending', version: 1 });
+  });
+});

@@ -60,6 +60,16 @@ async function createAdmin(database: NakhDatabase): Promise<string> {
       updated_at: now,
     })
     .execute();
+  await database
+    .insertInto('administration.admin_user_roles')
+    .values({
+      admin_user_id: adminUserId,
+      role_code: 'super_admin',
+      assigned_by_admin_id: adminUserId,
+      revoked_by_admin_id: null,
+      revoked_at: null,
+    })
+    .execute();
   return adminUserId;
 }
 
@@ -71,6 +81,7 @@ function commandAttempt(adminUserId: string, targetId: string): AdminCommandAtte
     requestId: randomUUID(),
     requestDigest: digest(`request:${targetId}`),
     commandCode: 'administration.test_transition',
+    requiredPermission: 'view_reports',
     targetType: 'user',
     targetId,
     expectedTargetVersion: 1,

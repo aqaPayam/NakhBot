@@ -17,6 +17,10 @@ export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-sto
 export { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 export { PostgresAdminCommandStore } from './admin-command-store.js';
 export {
+  PostgresModerationReviewStore,
+  PostgresModerationReviewWorkflow,
+} from './moderation-review-store.js';
+export {
   insertFeatureUnlockNotifications,
   insertNotification,
   insertPaymentCorrectionNotification,

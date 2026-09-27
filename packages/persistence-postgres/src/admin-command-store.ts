@@ -92,28 +92,56 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
         };
       }
 
-      await sql`SAVEPOINT admin_command_effect`.execute(transaction);
       let result: AdminActionResult;
       let safeCode: string;
       let value: T | undefined;
-      try {
-        const effectResult = await effect(transaction);
-        if (!isAdminSafeCode(effectResult.safeCode))
-          throw new Error('Admin effect safe code is invalid.');
-        result = 'succeeded';
-        safeCode = effectResult.safeCode;
-        value = effectResult.value;
-        await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
-      } catch (error) {
-        await sql`ROLLBACK TO SAVEPOINT admin_command_effect`.execute(transaction);
-        await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
+      const admin = await transaction
+        .selectFrom('administration.admin_users')
+        .select('is_active')
+        .where('id', '=', attempt.adminUserId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const permission = admin.is_active
+        ? await transaction
+            .selectFrom('administration.admin_user_roles as assignment')
+            .innerJoin('administration.admin_roles as role', 'role.code', 'assignment.role_code')
+            .innerJoin(
+              'administration.admin_role_permissions as role_permission',
+              'role_permission.role_code',
+              'role.code',
+            )
+            .select('role_permission.permission_code')
+            .where('assignment.admin_user_id', '=', attempt.adminUserId)
+            .where('assignment.revoked_at', 'is', null)
+            .where('role.is_active', '=', true)
+            .where('role_permission.permission_code', '=', attempt.requiredPermission)
+            .executeTakeFirst()
+        : undefined;
+      if (!admin.is_active || permission === undefined) {
+        result = 'rejected';
+        safeCode = 'forbidden';
         value = undefined;
-        if (error instanceof ApplicationError) {
-          result = 'rejected';
-          safeCode = adminRejectionSafeCode(error.code);
-        } else {
-          result = 'failed';
-          safeCode = 'internal_error';
+      } else {
+        await sql`SAVEPOINT admin_command_effect`.execute(transaction);
+        try {
+          const effectResult = await effect(transaction);
+          if (!isAdminSafeCode(effectResult.safeCode))
+            throw new Error('Admin effect safe code is invalid.');
+          result = 'succeeded';
+          safeCode = effectResult.safeCode;
+          value = effectResult.value;
+          await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
+        } catch (error) {
+          await sql`ROLLBACK TO SAVEPOINT admin_command_effect`.execute(transaction);
+          await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
+          value = undefined;
+          if (error instanceof ApplicationError) {
+            result = 'rejected';
+            safeCode = adminRejectionSafeCode(error.code);
+          } else {
+            result = 'failed';
+            safeCode = 'internal_error';
+          }
         }
       }
 

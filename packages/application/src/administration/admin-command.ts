@@ -1,10 +1,11 @@
-import type { ApplicationErrorCode } from '@nakh/domain';
+import { M7_PERMISSIONS, type ApplicationErrorCode, type M7Permission } from '@nakh/domain';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const DIGEST = /^[0-9a-f]{64}$/u;
 const COMMAND_CODE = /^[a-z][a-z0-9_.-]{0,119}$/u;
 const TARGET_TYPE = /^[a-z][a-z0-9_]{0,79}$/u;
 const SAFE_CODE = /^[a-z][a-z0-9_]{0,79}$/u;
+const permissionCodes = new Set<string>(M7_PERMISSIONS);
 
 export type AdminActionResult = 'succeeded' | 'rejected' | 'failed';
 
@@ -15,6 +16,7 @@ export type AdminCommandAttempt = Readonly<{
   requestId: string;
   requestDigest: string;
   commandCode: string;
+  requiredPermission: M7Permission;
   targetType: string;
   targetId: string;
   expectedTargetVersion: number | null;
@@ -94,6 +96,7 @@ export function validateAdminCommandAttempt(attempt: AdminCommandAttempt): void 
     !isUuid(attempt.requestId) ||
     !DIGEST.test(attempt.requestDigest) ||
     !COMMAND_CODE.test(attempt.commandCode) ||
+    !permissionCodes.has(attempt.requiredPermission) ||
     !TARGET_TYPE.test(attempt.targetType) ||
     !isUuid(attempt.targetId) ||
     (attempt.expectedTargetVersion !== null &&
