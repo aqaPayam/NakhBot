@@ -39,47 +39,37 @@ export async function explainM6Queries(
   database: NakhDatabase,
   input: M6QueryPlanInput,
 ): Promise<Readonly<Record<string, unknown>>> {
-  const [
-    historyPage,
-    sessionCleanup,
-    cleanupCandidates,
-    dueDeliveryClaim,
-    expiredCallLease,
-    pendingSnapshots,
-    sessionReconciliation,
-    messageReconciliation,
-    unmatchReconciliation,
-    deliveryReconciliation,
-  ] = await Promise.all([
-    explain(
-      database,
-      sql`SELECT id, sequence_number
+  // Measure one production query at a time. Running the plans concurrently makes
+  // the latency gate measure runner contention instead of the individual query.
+  const historyPage = await explain(
+    database,
+    sql`SELECT id, sequence_number
           FROM chat.chat_messages
           WHERE chat_session_id = ${input.chatSessionId}
             AND sequence_number < ${input.beforeSequenceNumber}::bigint
           ORDER BY sequence_number DESC
           LIMIT 50`,
-    ),
-    explain(
-      database,
-      sql`SELECT id, sequence_number
+  );
+  const sessionCleanup = await explain(
+    database,
+    sql`SELECT id, sequence_number
           FROM chat.chat_messages
           WHERE chat_session_id = ${input.chatSessionId}
           ORDER BY sequence_number DESC
           LIMIT 550`,
-    ),
-    explain(
-      database,
-      sql`SELECT chat_session_id
+  );
+  const cleanupCandidates = await explain(
+    database,
+    sql`SELECT chat_session_id
           FROM chat.chat_messages
           GROUP BY chat_session_id
           HAVING count(*) > 50
           ORDER BY min(created_at), chat_session_id
           LIMIT 100`,
-    ),
-    explain(
-      database,
-      sql`SELECT id
+  );
+  const dueDeliveryClaim = await explain(
+    database,
+    sql`SELECT id
           FROM notification.notification_deliveries
           WHERE channel = 'telegram'
             AND status IN ('pending','failed_retryable')
@@ -89,54 +79,53 @@ export async function explainM6Queries(
             AND (lease_expires_at IS NULL OR lease_expires_at <= clock_timestamp())
           ORDER BY next_attempt_at, id
           LIMIT 100`,
-    ),
-    explain(
-      database,
-      sql`SELECT id
+  );
+  const expiredCallLease = await explain(
+    database,
+    sql`SELECT id
           FROM notification.notification_deliveries
           WHERE status IN ('pending','failed_retryable')
             AND provider_progress = 'call_started'
             AND lease_expires_at <= clock_timestamp()
           ORDER BY lease_expires_at, id
           LIMIT 100`,
-    ),
-    explain(
-      database,
-      sql`SELECT report_id, original_message_id
+  );
+  const pendingSnapshots = await explain(
+    database,
+    sql`SELECT report_id, original_message_id
           FROM chat.chat_message_snapshot_requests
           WHERE chat_session_id = ${input.chatSessionId}
             AND captured_at IS NULL
           ORDER BY original_message_id, report_id
           LIMIT 500`,
-    ),
-    explain(
-      database,
-      sql`SELECT id FROM chat.chat_sessions
+  );
+  const sessionReconciliation = await explain(
+    database,
+    sql`SELECT id FROM chat.chat_sessions
           WHERE id > ${input.reconciliationCursor}::uuid
           ORDER BY id LIMIT 500`,
-    ),
-    explain(
-      database,
-      sql`SELECT id FROM chat.chat_messages
+  );
+  const messageReconciliation = await explain(
+    database,
+    sql`SELECT id FROM chat.chat_messages
           WHERE id > ${input.reconciliationCursor}::uuid
           ORDER BY id LIMIT 500`,
-    ),
-    explain(
-      database,
-      sql`SELECT match_id AS id FROM matching.unmatch_records
+  );
+  const unmatchReconciliation = await explain(
+    database,
+    sql`SELECT match_id AS id FROM matching.unmatch_records
           WHERE match_id > ${input.reconciliationCursor}::uuid
           ORDER BY match_id LIMIT 500`,
-    ),
-    explain(
-      database,
-      sql`SELECT delivery.id
+  );
+  const deliveryReconciliation = await explain(
+    database,
+    sql`SELECT delivery.id
           FROM notification.notification_deliveries delivery
           JOIN notification.notifications notification ON notification.id = delivery.notification_id
           WHERE notification.notification_type IN ('new_chat_message','chat_closed')
             AND delivery.id > ${input.reconciliationCursor}::uuid
           ORDER BY delivery.id LIMIT 500`,
-    ),
-  ]);
+  );
   return {
     historyPage,
     sessionCleanup,
