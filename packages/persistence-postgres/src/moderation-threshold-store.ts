@@ -10,7 +10,6 @@ import type {
 import {
   ApplicationError,
   REPORT_THRESHOLD_DISTINCT_REPORTERS,
-  REPORT_THRESHOLD_WINDOW_MS,
   assertAccountTransition,
 } from '@nakh/domain';
 
@@ -64,9 +63,7 @@ async function insertEvent(
 async function prioritizeTargetReports(
   database: NakhDatabase,
   targetUserId: string,
-  now: Date,
 ): Promise<void> {
-  const cutoff = new Date(now.getTime() - REPORT_THRESHOLD_WINDOW_MS);
   await database
     .updateTable('moderation.reports')
     .set({
@@ -76,8 +73,8 @@ async function prioritizeTargetReports(
     })
     .where('target_user_id', '=', targetUserId)
     .where('status', '=', 'submitted')
-    .where('submitted_at', '>', cutoff)
-    .where('submitted_at', '<=', now)
+    .where('submitted_at', '>', sql<Date>`transaction_timestamp() - interval '30 days'`)
+    .where('submitted_at', '<=', sql<Date>`transaction_timestamp()`)
     .execute();
   await database
     .updateTable('moderation.reports')
@@ -85,8 +82,8 @@ async function prioritizeTargetReports(
     .where('target_user_id', '=', targetUserId)
     .where('status', '=', 'pending_review')
     .where('priority', '=', 'normal')
-    .where('submitted_at', '>', cutoff)
-    .where('submitted_at', '<=', now)
+    .where('submitted_at', '>', sql<Date>`transaction_timestamp() - interval '30 days'`)
+    .where('submitted_at', '<=', sql<Date>`transaction_timestamp()`)
     .execute();
 }
 
@@ -125,8 +122,8 @@ export async function applyModerationThreshold(
     FROM moderation.reports
     WHERE target_user_id = ${source.target_user_id}::uuid
       AND status IN ('submitted','pending_review')
-      AND submitted_at > ${now}::timestamptz - interval '30 days'
-      AND submitted_at <= ${now}::timestamptz
+      AND submitted_at > transaction_timestamp() - interval '30 days'
+      AND submitted_at <= transaction_timestamp()
   `.execute(database);
   const distinctReporterCount = countResult.rows[0]!.count;
   if (distinctReporterCount < REPORT_THRESHOLD_DISTINCT_REPORTERS)
@@ -138,7 +135,7 @@ export async function applyModerationThreshold(
       accountVersion: account.version,
     };
 
-  await prioritizeTargetReports(database, source.target_user_id, now);
+  await prioritizeTargetReports(database, source.target_user_id);
   await database
     .insertInto('moderation.moderation_reviews')
     .values({
@@ -191,7 +188,7 @@ export async function applyModerationThreshold(
       target_user_id: source.target_user_id,
       source_report_id: source.id,
       distinct_reporter_count: distinctReporterCount,
-      started_at: now,
+      started_at: sql<Date>`transaction_timestamp()`,
       resolved_at: null,
       resolved_by_admin_id: null,
       resolution_reason_code: null,
