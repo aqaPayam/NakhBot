@@ -21,6 +21,10 @@ export {
   PostgresModerationReviewWorkflow,
 } from './moderation-review-store.js';
 export {
+  PostgresAccountModerationStore,
+  PostgresAccountModerationWorkflow,
+} from './account-moderation-store.js';
+export {
   insertFeatureUnlockNotifications,
   insertNotification,
   insertPaymentCorrectionNotification,
