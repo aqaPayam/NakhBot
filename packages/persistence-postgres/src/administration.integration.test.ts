@@ -165,7 +165,13 @@ describe.skipIf(databaseUrl === undefined)('M7 administration schema', () => {
       database.deleteFrom('administration.admin_users').where('id', '=', adminUserId).execute(),
     ).rejects.toThrow('retained workforce identity');
 
-    const changedAt = new Date(now.getTime() + 60_000);
+    const assignment = await database
+      .selectFrom('administration.admin_user_roles')
+      .select('assigned_at')
+      .where('admin_user_id', '=', adminUserId)
+      .where('role_code', '=', 'super_admin')
+      .executeTakeFirstOrThrow();
+    const changedAt = new Date(assignment.assigned_at.getTime() + 60_000);
     await database
       .updateTable('administration.admin_user_roles')
       .set({
