@@ -29,9 +29,17 @@ const sourceLikeAId = randomUUID();
 const sourceLikeBId = randomUUID();
 const matchId = randomUUID();
 const chatSessionId = randomUUID();
+// Keep the measured chat large enough for both bounded reads, while distributing the remaining
+// rows across other chats so chat_session_id has production-like selectivity for the planner.
+const focalMessageCount = 600;
+const fillerChatSessionIds = Array.from({ length: 50 }, () => randomUUID());
 const reconciliationCursor = '00000000-0000-4000-8000-000000000001';
 
-type MessageFixture = Readonly<{ id: string; sequenceNumber: string }>;
+type MessageFixture = Readonly<{
+  id: string;
+  chatSessionId: string;
+  sequenceNumber: string;
+}>;
 type DeliveryFixture = Readonly<{
   notificationId: string;
   deliveryId: string;
@@ -132,11 +140,27 @@ async function seedFixtures(
         id: chatSessionId,
         match_id: matchId,
         status: 'active',
-        next_sequence_number: String(messages.length + 1),
+        next_sequence_number: String(focalMessageCount + 1),
         created_at: old,
         closed_at: null,
         closed_reason: null,
       })
+      .execute();
+    await connection
+      .insertInto('chat.chat_sessions')
+      .values(
+        fillerChatSessionIds.map((id, index) => ({
+          id,
+          match_id: randomUUID(),
+          status: 'active' as const,
+          next_sequence_number: String(
+            messages.filter((message) => message.chatSessionId === id).length + 1,
+          ),
+          created_at: new Date(old.getTime() + index + 1),
+          closed_at: null,
+          closed_reason: null,
+        })),
+      )
       .execute();
     await connection
       .insertInto('chat.chat_participants')
@@ -152,7 +176,7 @@ async function seedFixtures(
         .values(
           batch.map((message, index) => ({
             id: message.id,
-            chat_session_id: chatSessionId,
+            chat_session_id: message.chatSessionId,
             sender_user_id: Number(message.sequenceNumber) % 2 === 0 ? userLowId : userHighId,
             message_type: 'text' as const,
             text: 'Synthetic M6 query-plan fixture',
@@ -251,13 +275,16 @@ async function deleteFixtures(database: NakhDatabase): Promise<void> {
       .execute();
     await connection
       .deleteFrom('chat.chat_messages')
-      .where('chat_session_id', '=', chatSessionId)
+      .where('chat_session_id', 'in', [chatSessionId, ...fillerChatSessionIds])
       .execute();
     await connection
       .deleteFrom('chat.chat_participants')
       .where('chat_session_id', '=', chatSessionId)
       .execute();
-    await connection.deleteFrom('chat.chat_sessions').where('id', '=', chatSessionId).execute();
+    await connection
+      .deleteFrom('chat.chat_sessions')
+      .where('id', 'in', [chatSessionId, ...fillerChatSessionIds])
+      .execute();
     await connection
       .deleteFrom('matching.match_participants')
       .where('match_id', '=', matchId)
@@ -281,19 +308,31 @@ const database = createDatabase({
   statementTimeoutMs: 60_000,
   lockTimeoutMs: 10_000,
 });
-const messages: MessageFixture[] = Array.from({ length: volume }, (_, index) => ({
-  id: randomUUID(),
-  sequenceNumber: String(index + 1),
-}));
+const messages: MessageFixture[] = Array.from({ length: volume }, (_, index) => {
+  if (index < focalMessageCount)
+    return {
+      id: randomUUID(),
+      chatSessionId,
+      sequenceNumber: String(index + 1),
+    };
+  const fillerIndex = index - focalMessageCount;
+  return {
+    id: randomUUID(),
+    chatSessionId: fillerChatSessionIds[fillerIndex % fillerChatSessionIds.length]!,
+    sequenceNumber: String(Math.floor(fillerIndex / fillerChatSessionIds.length) + 1),
+  };
+});
 const deliveries: DeliveryFixture[] = Array.from({ length: volume }, (_, index) => ({
   notificationId: randomUUID(),
   deliveryId: randomUUID(),
   expiredCall: index >= Math.floor(volume / 2),
 }));
-const snapshots: SnapshotFixture[] = messages.slice(0, Math.min(volume, 1_000)).map((message) => ({
-  reportId: randomUUID(),
-  messageId: message.id,
-}));
+const snapshots: SnapshotFixture[] = messages
+  .filter((message) => message.chatSessionId === chatSessionId)
+  .map((message) => ({
+    reportId: randomUUID(),
+    messageId: message.id,
+  }));
 
 try {
   await seedFixtures(database, messages, deliveries, snapshots);
