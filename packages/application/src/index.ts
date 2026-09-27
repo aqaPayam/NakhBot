@@ -26,6 +26,7 @@ export * from './identity/signup.js';
 export * from './identity/signup-router.js';
 export * from './identity/guest-preview.js';
 export * from './access/capability-authorizer.js';
+export * from './administration/admin-authorization.js';
 export * from './security/rate-limit.js';
 export * from './security/opaque-token.js';
 export * from './profile/profile.js';

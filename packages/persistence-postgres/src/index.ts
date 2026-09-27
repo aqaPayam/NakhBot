@@ -14,6 +14,7 @@ export {
   type InboxProcessingHooks,
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
+export { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 export {
   insertFeatureUnlockNotifications,
   insertNotification,

@@ -40,17 +40,19 @@ export type ModerationReviewStatus = (typeof MODERATION_REVIEW_STATUSES)[number]
 
 export const M7_PERMISSIONS = [
   'view_reports',
-  'assign_reports',
-  'review_reports',
-  'restrict_users',
-  'ban_users',
-  'moderate_photos',
+  'view_user_profile',
+  'restrict_user',
+  'unrestrict_user',
+  'ban_user',
+  'unban_user',
+  'hide_photo',
+  'restore_photo',
+  'delete_photo',
+  'dismiss_report',
   'manage_internal_blocks',
+  'review_change_requests',
   'review_support',
   'review_appeals',
-  'manage_admins',
-  'run_reconciliation',
-  'view_operational_health',
 ] as const;
 export type M7Permission = (typeof M7_PERMISSIONS)[number];
 
@@ -298,15 +300,19 @@ export function canTransitionModerationReview(
 export function requiredPermissionForModerationAction(action: ModerationActionType): M7Permission {
   switch (action) {
     case 'restrict_user':
+      return 'restrict_user';
     case 'unrestrict_user':
-      return 'restrict_users';
+      return 'unrestrict_user';
     case 'ban_user':
+      return 'ban_user';
     case 'unban_user':
-      return 'ban_users';
+      return 'unban_user';
     case 'hide_photo':
+      return 'hide_photo';
     case 'restore_photo':
+      return 'restore_photo';
     case 'delete_photo':
-      return 'moderate_photos';
+      return 'delete_photo';
     case 'create_internal_block':
     case 'remove_internal_block':
       return 'manage_internal_blocks';

@@ -120,17 +120,19 @@ export type ModerationReviewStatus = Static<typeof ModerationReviewStatusSchema>
 
 export const M7PermissionSchema = Type.Union([
   Type.Literal('view_reports'),
-  Type.Literal('assign_reports'),
-  Type.Literal('review_reports'),
-  Type.Literal('restrict_users'),
-  Type.Literal('ban_users'),
-  Type.Literal('moderate_photos'),
+  Type.Literal('view_user_profile'),
+  Type.Literal('restrict_user'),
+  Type.Literal('unrestrict_user'),
+  Type.Literal('ban_user'),
+  Type.Literal('unban_user'),
+  Type.Literal('hide_photo'),
+  Type.Literal('restore_photo'),
+  Type.Literal('delete_photo'),
+  Type.Literal('dismiss_report'),
   Type.Literal('manage_internal_blocks'),
+  Type.Literal('review_change_requests'),
   Type.Literal('review_support'),
   Type.Literal('review_appeals'),
-  Type.Literal('manage_admins'),
-  Type.Literal('run_reconciliation'),
-  Type.Literal('view_operational_health'),
 ]);
 export type M7Permission = Static<typeof M7PermissionSchema>;
 

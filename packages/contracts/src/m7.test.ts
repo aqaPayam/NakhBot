@@ -167,9 +167,7 @@ describe('M7 moderation, administration, support, and appeal contracts', () => {
     );
     expect(validate({ ...command, data: { ...command.data, reason: undefined } })).toBe(false);
     expect(validate({ ...command, data: { ...command.data, targetUserId: otherId } })).toBe(false);
-    expect(validate({ ...command, data: { ...command.data, permission: 'ban_users' } })).toBe(
-      false,
-    );
+    expect(validate({ ...command, data: { ...command.data, permission: 'ban_user' } })).toBe(false);
   });
 
   it('keeps internal-block targets inside a signed target scope', () => {
@@ -297,7 +295,7 @@ describe('M7 moderation, administration, support, and appeal contracts', () => {
     expect(
       validator(AssignAdminRoleCommandSchema)({
         ...assignment,
-        data: { ...assignment.data, permissions: ['ban_users'] },
+        data: { ...assignment.data, permissions: ['ban_user'] },
       }),
     ).toBe(false);
   });

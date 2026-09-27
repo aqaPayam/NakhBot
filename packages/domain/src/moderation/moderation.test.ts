@@ -140,42 +140,45 @@ describe('M7 moderation policy', () => {
     expect(canTransitionModerationReview('in_review', 'actioned')).toBe(true);
     expect(canTransitionModerationReview('pending', 'actioned')).toBe(false);
     expect(canTransitionModerationReview('dismissed', 'in_review')).toBe(false);
-    expect(requiredPermissionForModerationAction('ban_user')).toBe('ban_users');
-    expect(requiredPermissionForModerationAction('hide_photo')).toBe('moderate_photos');
+    expect(requiredPermissionForModerationAction('ban_user')).toBe('ban_user');
+    expect(requiredPermissionForModerationAction('unban_user')).toBe('unban_user');
+    expect(requiredPermissionForModerationAction('hide_photo')).toBe('hide_photo');
+    expect(requiredPermissionForModerationAction('restore_photo')).toBe('restore_photo');
+    expect(requiredPermissionForModerationAction('delete_photo')).toBe('delete_photo');
     expect(requiredPermissionForModerationAction('create_internal_block')).toBe(
       'manage_internal_blocks',
     );
   });
 
   it('authorizes only active admins with an active exact permission', () => {
-    const permissions = new Set(['view_reports', 'ban_users'] as const);
+    const permissions = new Set(['view_reports', 'ban_user'] as const);
     expect(
       evaluateAdminPermission({
         adminActive: true,
-        requiredPermission: 'ban_users',
+        requiredPermission: 'ban_user',
         activePermissions: permissions,
       }),
     ).toEqual({ allowed: true });
     expect(
       evaluateAdminPermission({
         adminActive: true,
-        requiredPermission: 'restrict_users',
+        requiredPermission: 'restrict_user',
         activePermissions: permissions,
       }),
     ).toEqual({ allowed: false, reason: 'permission_missing' });
     expect(
       evaluateAdminPermission({
         adminActive: false,
-        requiredPermission: 'ban_users',
+        requiredPermission: 'ban_user',
         activePermissions: permissions,
       }),
     ).toEqual({ allowed: false, reason: 'admin_inactive' });
     expect(
       evaluateAdminPermission({
         adminActive: true,
-        requiredPermission: 'ban_users',
+        requiredPermission: 'ban_user',
         activePermissions: permissions,
-        inactivePermissions: new Set(['ban_users']),
+        inactivePermissions: new Set(['ban_user']),
       }),
     ).toEqual({ allowed: false, reason: 'permission_inactive' });
   });

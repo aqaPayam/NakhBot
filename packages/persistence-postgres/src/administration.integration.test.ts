@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDatabase, type NakhDatabase } from './database.js';
+import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 import { runMigrations } from './migrations.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
@@ -115,6 +116,23 @@ describe.skipIf(databaseUrl === undefined)('M7 administration schema', () => {
       })
       .execute();
 
+    const authorization = new PostgresAdminAuthorizationStore(database);
+    const authorized = await authorization.loadByTelegramIdentity({
+      actorUserId: userId,
+      telegramUserId,
+    });
+    expect(authorized).toMatchObject({ adminUserId, actorUserId: userId, adminActive: true });
+    expect(authorized?.activePermissions).toHaveLength(14);
+    expect(authorized?.activePermissions).toContain('ban_user');
+    expect(authorized?.activePermissions).toContain('unban_user');
+    expect(authorized?.activePermissions).toContain('view_reports');
+    await expect(
+      authorization.loadByTelegramIdentity({
+        actorUserId: userId,
+        telegramUserId: String(Number(telegramUserId) + 1),
+      }),
+    ).resolves.toBeUndefined();
+
     const actionLogId = randomUUID();
     await database
       .insertInto('administration.admin_action_logs')
@@ -146,5 +164,33 @@ describe.skipIf(databaseUrl === undefined)('M7 administration schema', () => {
     await expect(
       database.deleteFrom('administration.admin_users').where('id', '=', adminUserId).execute(),
     ).rejects.toThrow('retained workforce identity');
+
+    const changedAt = new Date(Date.now() + 60_000);
+    await database
+      .updateTable('administration.admin_user_roles')
+      .set({
+        revoked_by_admin_id: adminUserId,
+        revoked_at: changedAt,
+      })
+      .where('admin_user_id', '=', adminUserId)
+      .where('role_code', '=', 'super_admin')
+      .executeTakeFirstOrThrow();
+    await expect(
+      authorization.loadCurrent({ adminUserId, actorUserId: userId }),
+    ).resolves.toMatchObject({ adminActive: true, activePermissions: [] });
+
+    await database
+      .updateTable('administration.admin_users')
+      .set({
+        is_active: false,
+        disabled_at: changedAt,
+        updated_at: changedAt,
+        version: 2,
+      })
+      .where('id', '=', adminUserId)
+      .executeTakeFirstOrThrow();
+    await expect(
+      authorization.loadCurrent({ adminUserId, actorUserId: userId }),
+    ).resolves.toMatchObject({ adminActive: false, activePermissions: [] });
   });
 });
