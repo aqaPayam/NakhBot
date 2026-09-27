@@ -109,13 +109,15 @@ and Notification state.
    M6 ChatMessageSnapshot Report foreign key, content hashes, access audit, and retention indexes.
 3. `000048_m7_threshold_reviews_actions.sql` — target lock support, restriction episode identity,
    ModerationReview, append-only ModerationAction, threshold/review indexes, and safety audit links.
-4. `000049_m7_administration.sql` — AdminUser, role/permission catalogs and joins, attempted-command
+4. `000049_m7_review_consistency_fix.sql` — forward-only row-shape-safe deferred consistency fix
+   for Report and ModerationReview trigger sources.
+5. `000050_m7_administration.sql` — AdminUser, role/permission catalogs and joins, attempted-command
    log, evidence-access log, bootstrap constraints, and immutable RBAC seed codes.
-5. `000050_m7_support_appeals.sql` — SupportThread/SupportMessage, per-ban UserAppeal uniqueness,
+6. `000051_m7_support_appeals.sql` — SupportThread/SupportMessage, per-ban UserAppeal uniqueness,
    unanswered-count support, lifecycle guards, and restricted-text grants.
-6. `000051_m7_localization.sql` — report reasons/surfaces, safe restriction/ban notices, admin
+7. `000052_m7_localization.sql` — report reasons/surfaces, safe restriction/ban notices, admin
    outcomes, support, appeal, stale-action, rate-limit, and generic authorization/error keys.
-7. `000052_m7_reconciliation.sql` — resumable bounded M7 reconciliation runs, anomaly types, query
+8. `000053_m7_reconciliation.sql` — resumable bounded M7 reconciliation runs, anomaly types, query
    indexes, and verification hardening.
 
 Every migration must bootstrap from empty, upgrade from `000045`, replay unchanged, and have
