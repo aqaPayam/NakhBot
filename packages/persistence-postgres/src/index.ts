@@ -93,6 +93,10 @@ export {
   withM6SyntheticPlanSession,
 } from './m6-query-plans.js';
 export { PostgresUnmatchStore } from './unmatch-store.js';
+export {
+  applyModerationThreshold,
+  PostgresModerationThresholdStore,
+} from './moderation-threshold-store.js';
 export { PostgresPendingNakhStore } from './pending-nakh-store.js';
 export { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
 export { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
