@@ -14,6 +14,12 @@ import {
 import { runMigrations } from './migrations.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
+const genderOptionId = '20000000-0000-4000-8000-000000000001';
+const genderPreferenceId = '20000000-0000-4000-8000-000000000013';
+const relationshipGoalId = '20000000-0000-4000-8000-000000000021';
+const countryId = '20000000-0000-4000-8000-000000000101';
+const provinceId = '20000000-0000-4000-8000-000000000111';
+const cityId = '20000000-0000-4000-8000-000000000121';
 
 type SeededReport = Readonly<{
   id: string;
@@ -35,10 +41,50 @@ async function createUser(database: NakhDatabase, withAccount = false): Promise<
       .insertInto('identity.accounts')
       .values({ user_id: id, state: 'active', state_reason: null, state_changed_at: now })
       .execute();
+  if (withAccount)
+    await database
+      .insertInto('profile.profiles')
+      .values({
+        id: randomUUID(),
+        user_id: id,
+        name: 'Moderation fixture',
+        birth_year: now.getUTCFullYear() - 30,
+        gender_option_id: genderOptionId,
+        gender_preference_id: genderPreferenceId,
+        relationship_goal_id: relationshipGoalId,
+        country_id: countryId,
+        province_id: provinceId,
+        city_id: cityId,
+        highlight: 'Moderation fixture',
+        bio: null,
+        completion_status: 'complete',
+        ever_completed: true,
+        completed_at: now,
+        created_at: now,
+        updated_at: now,
+      })
+      .execute();
   return id;
 }
 
 async function insertFocusedReport(database: NakhDatabase, report: SeededReport): Promise<void> {
+  const profile = await database
+    .selectFrom('profile.profiles')
+    .select('id')
+    .where('user_id', '=', report.targetUserId)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto('interaction.likes')
+    .values({
+      id: randomUUID(),
+      sender_user_id: report.targetUserId,
+      receiver_user_id: report.reporterUserId,
+      status: 'active',
+      created_at: report.submittedAt,
+      closed_at: null,
+    })
+    .onConflict((conflict) => conflict.columns(['sender_user_id', 'receiver_user_id']).doNothing())
+    .execute();
   const reason = await database
     .selectFrom('moderation.report_reasons')
     .select('id')
@@ -73,7 +119,7 @@ async function insertFocusedReport(database: NakhDatabase, report: SeededReport)
       id: randomUUID(),
       report_id: report.id,
       evidence_type: 'profile',
-      profile_id: randomUUID(),
+      profile_id: profile.id,
       profile_photo_id: null,
       chat_session_id: null,
       chat_message_id: null,
@@ -82,7 +128,7 @@ async function insertFocusedReport(database: NakhDatabase, report: SeededReport)
     .execute();
 }
 
-/** Seeds only the threshold facts; evidence authorization has its own integration suite. */
+/** Preserves boundary timestamps while still creating restorable, constraint-valid evidence. */
 async function seedFocusedReports(
   database: NakhDatabase,
   reports: readonly SeededReport[],
@@ -121,9 +167,7 @@ async function insertAndEvaluate(
   report: SeededReport,
 ): ReturnType<typeof applyModerationThreshold> {
   return database.transaction().execute(async (transaction) => {
-    await sql`SET LOCAL session_replication_role = replica`.execute(transaction);
     await insertFocusedReport(transaction, report);
-    await sql`SET LOCAL session_replication_role = origin`.execute(transaction);
     return applyModerationThreshold(transaction, thresholdWrite(report.id));
   });
 }
