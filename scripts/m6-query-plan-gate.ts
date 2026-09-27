@@ -15,7 +15,7 @@ const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 if (databaseUrl === undefined)
   throw new Error('NAKH_TEST_DATABASE_URL is required for the M6 query-plan gate.');
 
-const volume = Number(process.env.NAKH_M6_PLAN_VOLUME ?? '5000');
+const volume = Number(process.env.NAKH_M6_PLAN_VOLUME ?? '20000');
 if (!Number.isSafeInteger(volume) || volume < 1_000 || volume > 20_000)
   throw new Error('NAKH_M6_PLAN_VOLUME must be an integer between 1000 and 20000.');
 

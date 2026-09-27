@@ -142,7 +142,7 @@ export async function explainM6Queries(
 
 export async function analyzeM6QueryTables(database: NakhDatabase): Promise<void> {
   await sql`
-    ANALYZE chat.chat_sessions, chat.chat_messages,
+    VACUUM (ANALYZE) chat.chat_sessions, chat.chat_messages,
       chat.chat_message_snapshot_requests, matching.unmatch_records,
       notification.notifications, notification.notification_deliveries
   `.execute(database);
