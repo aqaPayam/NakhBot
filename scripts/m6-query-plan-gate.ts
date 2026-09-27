@@ -47,6 +47,7 @@ type DeliveryFixture = Readonly<{
 }>;
 type SnapshotFixture = Readonly<{
   reportId: string;
+  chatSessionId: string;
   messageId: string;
 }>;
 
@@ -242,7 +243,7 @@ async function seedFixtures(
         .values(
           batch.map((fixture) => ({
             report_id: fixture.reportId,
-            chat_session_id: chatSessionId,
+            chat_session_id: fixture.chatSessionId,
             original_message_id: fixture.messageId,
             requested_at: old,
             captured_at: null,
@@ -256,7 +257,7 @@ async function deleteFixtures(database: NakhDatabase): Promise<void> {
   await withM6SyntheticPlanSession(database, async (connection) => {
     await connection
       .deleteFrom('chat.chat_message_snapshot_requests')
-      .where('chat_session_id', '=', chatSessionId)
+      .where('chat_session_id', 'in', [chatSessionId, ...fillerChatSessionIds])
       .execute();
     await connection
       .deleteFrom('notification.notification_deliveries')
@@ -327,12 +328,11 @@ const deliveries: DeliveryFixture[] = Array.from({ length: volume }, (_, index) 
   deliveryId: randomUUID(),
   expiredCall: index >= Math.floor(volume / 2),
 }));
-const snapshots: SnapshotFixture[] = messages
-  .filter((message) => message.chatSessionId === chatSessionId)
-  .map((message) => ({
-    reportId: randomUUID(),
-    messageId: message.id,
-  }));
+const snapshots: SnapshotFixture[] = messages.map((message) => ({
+  reportId: randomUUID(),
+  chatSessionId: message.chatSessionId,
+  messageId: message.id,
+}));
 
 try {
   await seedFixtures(database, messages, deliveries, snapshots);
