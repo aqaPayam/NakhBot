@@ -29,6 +29,10 @@ export {
   PostgresPhotoModerationWorkflow,
 } from './photo-moderation-store.js';
 export {
+  PostgresInternalBlockStore,
+  PostgresInternalBlockWorkflow,
+} from './internal-block-store.js';
+export {
   insertFeatureUnlockNotifications,
   insertNotification,
   insertPaymentCorrectionNotification,

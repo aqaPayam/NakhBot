@@ -5,6 +5,7 @@ import type { M7Permission } from '@nakh/domain';
 import type { OpaqueTokenStore } from '../security/opaque-token.js';
 import {
   AdminActionAuthorizationService,
+  canonicalAdminPairTargetId,
   type AdminAuthorizationFacts,
   type AdminAuthorizationStore,
   type AuthorizedAdminAction,
@@ -206,6 +207,51 @@ describe('admin action authorization', () => {
         actorUserId,
         telegramUserId,
         scope: { ...scope, expectedTargetVersion: 0 },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+  });
+
+  it('binds both normalized users into an opaque pair-action scope', async () => {
+    const context = service();
+    context.authorization.facts = {
+      adminUserId,
+      actorUserId,
+      adminActive: true,
+      activePermissions: ['manage_internal_blocks'],
+    };
+    const targetPair = {
+      userLowId: actorUserId,
+      userHighId: otherUserId,
+    } as const;
+    const pairScope = {
+      commandCode: 'moderation.change-internal-block',
+      requiredPermission: 'manage_internal_blocks' as const,
+      targetType: 'user_pair',
+      targetId: canonicalAdminPairTargetId(targetPair),
+      expectedTargetVersion: 1,
+      targetPair,
+    };
+    const token = await context.service.issue({
+      actorUserId,
+      telegramUserId,
+      scope: pairScope,
+    });
+
+    expect(context.tokens.values.get('abcdefghijklmnop')).not.toContain(token);
+    await expect(
+      context.service.authorize({
+        actor: { kind: 'admin', userId: actorUserId },
+        token,
+        commandCode: pairScope.commandCode,
+        requiredPermission: pairScope.requiredPermission,
+        targetType: pairScope.targetType,
+      }),
+    ).resolves.toEqual({ adminUserId, actorUserId, ...pairScope });
+    await expect(
+      context.service.issue({
+        actorUserId,
+        telegramUserId,
+        scope: { ...pairScope, targetPair: { userLowId: otherUserId, userHighId: targetId } },
       }),
     ).rejects.toMatchObject({ code: 'invalid_request' });
   });

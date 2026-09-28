@@ -1,11 +1,13 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import {
   ApplicationError,
   M7_PERMISSIONS,
   evaluateAdminPermission,
+  normalizeUserPair,
   type Actor,
   type M7Permission,
+  type NormalizedUserPair,
 } from '@nakh/domain';
 
 import type { OpaqueTokenStore } from '../security/opaque-token.js';
@@ -46,6 +48,8 @@ export type AdminActionScope = Readonly<{
   targetType: string;
   targetId: string | null;
   expectedTargetVersion: number | null;
+  /** Present only for a pair target; retained inside the opaque server-side token state. */
+  targetPair?: NormalizedUserPair;
 }>;
 
 export type AuthorizedAdminAction = AdminActionScope &
@@ -79,13 +83,28 @@ function validFacts(value: AdminAuthorizationFacts | undefined): value is AdminA
 }
 
 function validScope(value: AdminActionScope): boolean {
+  let pairValid = value.targetPair === undefined;
+  if (value.targetPair !== undefined) {
+    try {
+      const normalized = normalizeUserPair(value.targetPair.userLowId, value.targetPair.userHighId);
+      pairValid =
+        value.targetType === 'user_pair' &&
+        normalized.userLowId === value.targetPair.userLowId &&
+        normalized.userHighId === value.targetPair.userHighId &&
+        value.targetId === canonicalAdminPairTargetId(normalized);
+    } catch {
+      pairValid = false;
+    }
+  }
   return (
     COMMAND_CODE.test(value.commandCode) &&
     isPermission(value.requiredPermission) &&
     TARGET_TYPE.test(value.targetType) &&
     (value.targetId === null || UUID.test(value.targetId)) &&
     (value.expectedTargetVersion === null ||
-      (Number.isSafeInteger(value.expectedTargetVersion) && value.expectedTargetVersion >= 1))
+      (Number.isSafeInteger(value.expectedTargetVersion) && value.expectedTargetVersion >= 1)) &&
+    pairValid &&
+    (value.targetType === 'user_pair') === (value.targetPair !== undefined)
   );
 }
 
@@ -93,7 +112,7 @@ function validStoredState(value: unknown): value is StoredAdminAction {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const state = value as Readonly<Record<string, unknown>>;
   return (
-    Object.keys(state).length === 10 &&
+    Object.keys(state).length === (state.targetPair === undefined ? 10 : 11) &&
     state.version === 1 &&
     state.purpose === 'admin_action' &&
     typeof state.adminUserId === 'string' &&
@@ -113,6 +132,19 @@ function validStoredState(value: unknown): value is StoredAdminAction {
     Number.isSafeInteger(state.expiresAt) &&
     validScope(state as StoredAdminAction)
   );
+}
+
+/** Stable opaque UUID used to bind both members of a normalized pair into one admin target. */
+export function canonicalAdminPairTargetId(pair: NormalizedUserPair): string {
+  const normalized = normalizeUserPair(pair.userLowId, pair.userHighId);
+  const bytes = createHash('sha256')
+    .update(`nakh:admin-user-pair:v1:${normalized.userLowId}:${normalized.userHighId}`)
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function invalidScope(): ApplicationError {
@@ -278,6 +310,7 @@ export class AdminActionAuthorizationService {
       targetType: state.targetType,
       targetId: state.targetId,
       expectedTargetVersion: state.expectedTargetVersion,
+      ...(state.targetPair === undefined ? {} : { targetPair: state.targetPair }),
     };
   }
 }

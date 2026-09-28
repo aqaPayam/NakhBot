@@ -1,5 +1,7 @@
 import { M7_PERMISSIONS, type ApplicationErrorCode, type M7Permission } from '@nakh/domain';
 
+import { canonicalAdminPairTargetId } from './admin-authorization.js';
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const DIGEST = /^[0-9a-f]{64}$/u;
 const COMMAND_CODE = /^[a-z][a-z0-9_.-]{0,119}$/u;
@@ -23,6 +25,8 @@ export type AdminCommandAttempt = Readonly<{
   reasonDigest: string;
   metadata: Readonly<Record<string, unknown>>;
   correlationId: string;
+  /** Trusted pair claims recovered from an opaque admin action token. */
+  targetPair?: Readonly<{ userLowId: string; userHighId: string }>;
 }>;
 
 export type AdminCommandEffectResult<T> = Readonly<{
@@ -89,6 +93,16 @@ export function validateAdminCommandAttempt(attempt: AdminCommandAttempt): void 
   } catch {
     // Cyclic or otherwise non-serializable metadata is invalid at the trust boundary.
   }
+  let pairValid = attempt.targetPair === undefined;
+  if (attempt.targetPair !== undefined) {
+    try {
+      pairValid =
+        attempt.targetType === 'user_pair' &&
+        canonicalAdminPairTargetId(attempt.targetPair) === attempt.targetId;
+    } catch {
+      pairValid = false;
+    }
+  }
   if (
     !isUuid(attempt.logId) ||
     !isUuid(attempt.adminUserId) ||
@@ -105,7 +119,9 @@ export function validateAdminCommandAttempt(attempt: AdminCommandAttempt): void 
     !DIGEST.test(attempt.reasonDigest) ||
     !isObject(attempt.metadata) ||
     metadataLength > 4_096 ||
-    !isUuid(attempt.correlationId)
+    !isUuid(attempt.correlationId) ||
+    !pairValid ||
+    (attempt.targetType === 'user_pair') !== (attempt.targetPair !== undefined)
   )
     throw new Error('Admin command attempt is invalid.');
 }
