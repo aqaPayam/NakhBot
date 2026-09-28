@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { sql, type Selectable, type Transaction } from 'kysely';
+import { sql, type Selectable } from 'kysely';
 
 import type {
   ManagedPhoto,
@@ -17,12 +17,41 @@ import {
   type PhotoState,
 } from '@nakh/domain';
 
-import type { DatabaseSchema, NakhDatabase } from './database.js';
+import type { NakhDatabase } from './database.js';
 import { profilePhotosAreEligible } from './media-eligibility.js';
 import type { ProfilePhotoTable } from './media-tables.js';
 
-type Tx = Transaction<DatabaseSchema>;
+type Tx = NakhDatabase;
 type PhotoRow = Selectable<ProfilePhotoTable>;
+
+export type AppliedPhotoModerationResult = Readonly<{
+  photoId: string;
+  profileId: string;
+  targetUserId: string;
+  previousStatus: PhotoRow['status'];
+  nextStatus: PhotoRow['status'];
+  wasPrimary: boolean;
+  primaryPhotoId: string | null;
+  photoVersion: number;
+  profileVersion: number;
+  profileCompletion: 'incomplete' | 'complete' | 'invalid';
+}>;
+
+export type ApplyPhotoModerationInput = Readonly<{
+  adminId: string;
+  photoId: string;
+  expectedPhotoVersion: number | null;
+  action: 'hide' | 'restore' | 'delete';
+  reasonCode: string;
+  sourceReportId: string | null;
+  moderationId: string;
+  auditId: string;
+  eventId: string;
+  profileEventId: string;
+  requestId: string;
+  commandId: string;
+  occurredAt: Date;
+}>;
 
 function missingPhoto(): never {
   throw new ApplicationError('photo_not_found', 'error.media.photo_not_found', 404);
@@ -213,6 +242,124 @@ async function tombstoneDeletedPhotoAsset(tx: Tx, photoId: string, at: Date): Pr
     .where('asset_id', '=', photo.asset_id)
     .where('deleted_at', 'is', null)
     .execute();
+}
+
+/** Applies the owning M2 photo lifecycle while already inside the caller's transaction. */
+export async function applyPhotoModeration(
+  tx: NakhDatabase,
+  input: ApplyPhotoModerationInput,
+): Promise<AppliedPhotoModerationResult> {
+  const target = await tx
+    .selectFrom('media.profile_photos as photo')
+    .innerJoin('profile.profiles as profile', 'profile.id', 'photo.profile_id')
+    .select(['photo.profile_id', 'profile.user_id'])
+    .where('photo.id', '=', input.photoId)
+    .executeTakeFirst();
+  if (target === undefined) missingPhoto();
+  await tx
+    .selectFrom('identity.users')
+    .select('id')
+    .where('id', '=', target.user_id)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  const profile = await tx
+    .selectFrom('profile.profiles')
+    .select(['id', 'version', 'completion_status', 'ever_completed'])
+    .where('id', '=', target.profile_id)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  const rows = await lockedPhotos(tx, profile.id);
+  const selected = rows.find((photo) => photo.id === input.photoId);
+  if (selected === undefined || selected.status === 'deleted') missingPhoto();
+  if (input.expectedPhotoVersion !== null && selected.version !== input.expectedPhotoVersion)
+    throw new ApplicationError('version_conflict', 'error.command.version_conflict', 409);
+  const next = moderatePhoto(state(rows), input.photoId, input.action);
+  await applyPlan(tx, profile.id, rows, next, input.occurredAt);
+  if (input.action === 'delete')
+    await tombstoneDeletedPhotoAsset(tx, input.photoId, input.occurredAt);
+  const profileResult = await updateProfile(tx, profile, input.occurredAt);
+  const eventType =
+    input.action === 'hide'
+      ? 'media.photo-hidden.v1'
+      : input.action === 'restore'
+        ? 'media.photo-visible.v1'
+        : 'media.photo-deleted.v1';
+  await tx
+    .insertInto('media.photo_moderation_records')
+    .values({
+      id: input.moderationId,
+      photo_id: input.photoId,
+      admin_user_id: input.adminId,
+      action: input.action,
+      reason_code: input.reasonCode,
+      report_id: input.sourceReportId,
+      occurred_at: input.occurredAt,
+    })
+    .execute();
+  await tx
+    .insertInto('platform.audit_logs')
+    .values({
+      id: input.auditId,
+      category: 'admin',
+      event_type: eventType,
+      actor_type: 'admin',
+      actor_user_id: null,
+      actor_admin_id: input.adminId,
+      subject_type: 'profile_photo',
+      subject_id: input.photoId,
+      result_code: 'succeeded',
+      metadata_schema_version: 1,
+      metadata: { action: input.action, reasonCode: input.reasonCode },
+      request_id: input.requestId,
+      command_id: input.commandId,
+      occurred_at: input.occurredAt,
+    })
+    .execute();
+  await event(tx, {
+    id: input.eventId,
+    aggregateType: 'profile_photo',
+    aggregateId: input.photoId,
+    eventType,
+    payload: { profileId: profile.id, photoId: input.photoId },
+    occurredAt: input.occurredAt,
+    correlationId: input.requestId,
+    causationId: input.commandId,
+  });
+  if (profileResult.completionChanged)
+    await event(tx, {
+      id: input.profileEventId,
+      aggregateType: 'profile',
+      aggregateId: profile.id,
+      eventType: profileResult.complete
+        ? 'profile.profile-completed.v1'
+        : 'profile.profile-invalidated.v1',
+      payload: { profileId: profile.id },
+      occurredAt: input.occurredAt,
+      correlationId: input.requestId,
+      causationId: input.commandId,
+    });
+  const updatedPhoto = await tx
+    .selectFrom('media.profile_photos')
+    .select(['status', 'version'])
+    .where('id', '=', input.photoId)
+    .executeTakeFirstOrThrow();
+  const primary = next.find((photo) => photo.status === 'visible' && photo.isPrimary);
+  return {
+    photoId: input.photoId,
+    profileId: profile.id,
+    targetUserId: target.user_id,
+    previousStatus: selected.status,
+    nextStatus: updatedPhoto.status,
+    wasPrimary: selected.is_primary,
+    primaryPhotoId: primary?.id ?? null,
+    photoVersion: updatedPhoto.version,
+    profileVersion: profileResult.version,
+    profileCompletion: profileResult.complete
+      ? 'complete'
+      : profile.ever_completed
+        ? 'invalid'
+        : 'incomplete',
+  };
 }
 
 export class PostgresPhotoManagementStore implements PhotoManagementStore {
@@ -409,87 +556,21 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
           'error.admin.reviewer_unauthorized',
           403,
         );
-      const target = await tx
-        .selectFrom('media.profile_photos as photo')
-        .innerJoin('profile.profiles as profile', 'profile.id', 'photo.profile_id')
-        .select(['photo.profile_id', 'profile.user_id'])
-        .where('photo.id', '=', input.photoId)
-        .executeTakeFirst();
-      if (target === undefined) missingPhoto();
-      await tx
-        .selectFrom('identity.users')
-        .select('id')
-        .where('id', '=', target.user_id)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      const profile = await tx
-        .selectFrom('profile.profiles')
-        .select(['id', 'version', 'completion_status', 'ever_completed'])
-        .where('id', '=', target.profile_id)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      const rows = await lockedPhotos(tx, profile.id);
-      const next = moderatePhoto(state(rows), input.photoId, input.action);
-      await applyPlan(tx, profile.id, rows, next, input.occurredAt);
-      if (input.action === 'delete')
-        await tombstoneDeletedPhotoAsset(tx, input.photoId, input.occurredAt);
-      const profileResult = await updateProfile(tx, profile, input.occurredAt);
-      const eventType =
-        input.action === 'hide'
-          ? 'media.photo-hidden.v1'
-          : input.action === 'restore'
-            ? 'media.photo-visible.v1'
-            : 'media.photo-deleted.v1';
-      await tx
-        .insertInto('media.photo_moderation_records')
-        .values({
-          id: input.moderationId,
-          photo_id: input.photoId,
-          admin_user_id: admin.id,
-          action: input.action,
-          reason_code: input.reasonCode,
-          report_id: null,
-          occurred_at: input.occurredAt,
-        })
-        .execute();
-      await tx
-        .insertInto('platform.audit_logs')
-        .values({
-          id: input.auditId,
-          category: 'admin',
-          event_type: eventType,
-          actor_type: 'admin',
-          actor_user_id: null,
-          actor_admin_id: admin.id,
-          subject_type: 'profile_photo',
-          subject_id: input.photoId,
-          result_code: 'succeeded',
-          metadata_schema_version: 1,
-          metadata: { action: input.action, reasonCode: input.reasonCode },
-          request_id: input.eventId,
-          command_id: input.eventId,
-          occurred_at: input.occurredAt,
-        })
-        .execute();
-      await event(tx, {
-        id: input.eventId,
-        aggregateType: 'profile_photo',
-        aggregateId: input.photoId,
-        eventType,
-        payload: { profileId: profile.id, photoId: input.photoId },
+      await applyPhotoModeration(tx, {
+        adminId: admin.id,
+        photoId: input.photoId,
+        expectedPhotoVersion: null,
+        action: input.action,
+        reasonCode: input.reasonCode,
+        sourceReportId: null,
+        moderationId: input.moderationId,
+        auditId: input.auditId,
+        eventId: input.eventId,
+        profileEventId: input.profileEventId,
+        requestId: input.eventId,
+        commandId: input.eventId,
         occurredAt: input.occurredAt,
       });
-      if (profileResult.completionChanged)
-        await event(tx, {
-          id: input.profileEventId,
-          aggregateType: 'profile',
-          aggregateId: profile.id,
-          eventType: profileResult.complete
-            ? 'profile.profile-completed.v1'
-            : 'profile.profile-invalidated.v1',
-          payload: { profileId: profile.id },
-          occurredAt: input.occurredAt,
-        });
     });
   }
 }

@@ -25,6 +25,10 @@ export {
   PostgresAccountModerationWorkflow,
 } from './account-moderation-store.js';
 export {
+  PostgresPhotoModerationStore,
+  PostgresPhotoModerationWorkflow,
+} from './photo-moderation-store.js';
+export {
   insertFeatureUnlockNotifications,
   insertNotification,
   insertPaymentCorrectionNotification,
