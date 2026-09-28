@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -195,7 +196,12 @@ describe.skipIf(databaseUrl === undefined)('M7 account moderation lifecycle', ()
     disabled.data.confirmationToken = await commands.prepare(disabled, f.actor);
     await database
       .updateTable('administration.admin_users')
-      .set({ is_active: false, disabled_at: new Date() })
+      .set({
+        is_active: false,
+        disabled_at: sql<Date>`updated_at + interval '1 millisecond'`,
+        updated_at: sql<Date>`updated_at + interval '1 millisecond'`,
+        version: sql<number>`version + 1`,
+      })
       .where('id', '=', adminId)
       .execute();
     expect(await commands.execute(disabled, f.actor)).toMatchObject({
