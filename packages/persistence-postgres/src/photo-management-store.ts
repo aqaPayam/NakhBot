@@ -270,9 +270,10 @@ export async function applyPhotoModeration(
     .executeTakeFirstOrThrow();
   const rows = await lockedPhotos(tx, profile.id);
   const selected = rows.find((photo) => photo.id === input.photoId);
-  if (selected === undefined || selected.status === 'deleted') missingPhoto();
+  if (selected === undefined) missingPhoto();
   if (input.expectedPhotoVersion !== null && selected.version !== input.expectedPhotoVersion)
     throw new ApplicationError('version_conflict', 'error.command.version_conflict', 409);
+  if (selected.status === 'deleted') missingPhoto();
   const next = moderatePhoto(state(rows), input.photoId, input.action);
   await applyPlan(tx, profile.id, rows, next, input.occurredAt);
   if (input.action === 'delete')
