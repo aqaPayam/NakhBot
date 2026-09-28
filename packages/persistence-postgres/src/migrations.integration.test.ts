@@ -76,6 +76,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000048_m7_threshold_reviews_actions.sql',
         '000049_m7_review_consistency_fix.sql',
         '000050_m7_administration.sql',
+        '000051_m7_support_appeals.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -120,9 +121,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000048_m7_threshold_reviews_actions.sql');
       expect(verified).toContain('000049_m7_review_consistency_fix.sql');
       expect(verified).toContain('000050_m7_administration.sql');
+      expect(verified).toContain('000051_m7_support_appeals.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(50);
+      expect(replay.existing).toHaveLength(51);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
