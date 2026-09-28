@@ -118,3 +118,4 @@ export interface MediaStorePort {
 }
 
 export * from './support/appeal.js';
+export * from './support/appeal-review.js';
