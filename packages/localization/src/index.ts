@@ -28,3 +28,5 @@ export class CatalogRenderer {
     });
   }
 }
+
+export * from './m7-catalog.js';

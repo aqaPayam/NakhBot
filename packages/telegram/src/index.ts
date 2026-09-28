@@ -625,3 +625,4 @@ export class TelegramPhotoManagementAdapter {
     };
   }
 }
+export * from './m7-presentation.js';
