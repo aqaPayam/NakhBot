@@ -116,3 +116,5 @@ export interface MediaStorePort {
   delete(input: Readonly<{ key: string }>): Promise<void>;
   exists(input: Readonly<{ key: string }>): Promise<boolean>;
 }
+
+export * from './support/appeal.js';

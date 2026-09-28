@@ -42,6 +42,8 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `moderation.restriction_episodes` | immutable safety-threshold history | retain for the approved safety/audit window; a resolved episode is never rewritten or reused | Moderation/Safety |
 | `moderation.moderation_reviews` | restricted safety workflow and encrypted decision note | remove from product access with the Report; retain or cryptographically erase under the approved safety/legal window | Moderation/Privacy |
 | `moderation.moderation_actions` | append-only exact safety action history | retain for the approved safety/audit window; never copy evidence or user prose into the row | Moderation/Security |
+| `moderation.user_appeals` | restricted user text and admin decision notes | retain with the exact ban event under the approved safety/legal window; M8 must implement controlled purge | Moderation/Privacy |
+| `moderation.appeal_submissions` | immutable actor-bound replay digests | retain and purge with the governing appeal; never reset one-appeal admission by ordinary deletion | Moderation/Security |
 | `platform.sample_effects` and `platform.sample_projections` | M0 test-only data | remove when M0 sample is retired | Platform |
 | `media.media_assets` | sensitive photo metadata, hashes, encrypted temporary transport references | clear transport ciphertext after ingestion ends; soft-delete ordinary assets immediately, verify object purge, then purge metadata after the replay/24-hour attempt window | Media; deletion must not reset upload limits |
 | `media.profile_photos` | sensitive Profile/photo association | remove from delivery immediately; purge after object cleanup and permitted safety-reference handling | Media/Profile |

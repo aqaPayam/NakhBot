@@ -1165,7 +1165,16 @@ export interface UserAppealTable {
   version: Generated<number>;
 }
 
+export interface AppealSubmissionTable {
+  appeal_id: string;
+  user_id: string;
+  command_id: string;
+  idempotency_key: string;
+  request_digest: string;
+}
+
 export interface DatabaseSchema {
+  'moderation.appeal_submissions': AppealSubmissionTable;
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;
   'media.media_assets': MediaAssetTable;
