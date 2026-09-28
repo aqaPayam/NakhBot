@@ -73,7 +73,8 @@ describe('Ban references', () => {
     expect(await refs.resolve(token, user)).toBe(ban);
     expect(await refs.resolve(token, randomUUID())).toBeUndefined();
     expect(await refs.resolve(token.replace('v1.bn', 'v1.sp'), user)).toBeUndefined();
-    expect(await refs.resolve(token.slice(0, -2) + 'xx', user)).toBeUndefined();
+    const tampered = token.slice(0, -1) + (token.endsWith('x') ? 'y' : 'x');
+    expect(await refs.resolve(tampered, user)).toBeUndefined();
     expect(await refs.issue(user, randomUUID(), command)).not.toBe(token);
     now += 86400000;
     expect(await refs.resolve(token, user)).toBeUndefined();

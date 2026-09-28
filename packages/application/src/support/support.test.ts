@@ -42,7 +42,8 @@ describe('Support application boundary', () => {
     expect(await references.issue(userId, threadId, commandId)).toBe(token);
     expect(await references.resolve(token, userId)).toBe(threadId);
     expect(await references.resolve(token, randomUUID())).toBeUndefined();
-    expect(await references.resolve(`${token.slice(0, -1)}x`, userId)).toBeUndefined();
+    const tampered = token.slice(0, -1) + (token.endsWith('x') ? 'y' : 'x');
+    expect(await references.resolve(tampered, userId)).toBeUndefined();
   });
 
   it('normalizes restricted text and returns only the opaque support reference', async () => {

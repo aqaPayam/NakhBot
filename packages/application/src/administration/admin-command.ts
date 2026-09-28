@@ -25,6 +25,8 @@ export type AdminCommandAttempt = Readonly<{
   reasonDigest: string;
   metadata: Readonly<Record<string, unknown>>;
   correlationId: string;
+  /** Trusted adapter rejection, checked inside the auditable transaction before any effect. */
+  preconditionRejection?: 'invalid_request' | 'version_conflict' | 'admin_reason_invalid';
   /** Trusted pair claims recovered from an opaque admin action token. */
   targetPair?: Readonly<{ userLowId: string; userHighId: string }>;
 }>;
@@ -120,6 +122,10 @@ export function validateAdminCommandAttempt(attempt: AdminCommandAttempt): void 
     !isObject(attempt.metadata) ||
     metadataLength > 4_096 ||
     !isUuid(attempt.correlationId) ||
+    (attempt.preconditionRejection !== undefined &&
+      !['invalid_request', 'version_conflict', 'admin_reason_invalid'].includes(
+        attempt.preconditionRejection,
+      )) ||
     !pairValid ||
     (attempt.targetType === 'user_pair') !== (attempt.targetPair !== undefined)
   )

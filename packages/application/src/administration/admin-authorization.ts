@@ -253,7 +253,8 @@ export class AdminActionAuthorizationService {
     throw new Error('Admin action-token allocation failed.');
   }
 
-  public async authorize(
+  /** Recovers only authenticated, actor-bound claims. The command store must recheck RBAC. */
+  public async resolveAttempt(
     input: Readonly<{
       actor: Actor;
       token: string;
@@ -261,7 +262,7 @@ export class AdminActionAuthorizationService {
       requiredPermission: M7Permission;
       targetType: string;
     }>,
-  ): Promise<AuthorizedAdminAction> {
+  ): Promise<AuthorizedAdminAction & Readonly<{ expiresAt: number }>> {
     if (
       input.actor.kind !== 'admin' ||
       !UUID.test(input.actor.userId) ||
@@ -286,23 +287,14 @@ export class AdminActionAuthorizationService {
     }
     if (
       !validStoredState(state) ||
-      state.expiresAt <= this.now() ||
       state.actorUserId !== input.actor.userId ||
       state.commandCode !== input.commandCode ||
       state.requiredPermission !== input.requiredPermission ||
       state.targetType !== input.targetType
     )
       throw denied();
-    this.authorizeFacts(
-      await this.authorization.loadCurrent({
-        adminUserId: state.adminUserId,
-        actorUserId: state.actorUserId,
-      }),
-      state.actorUserId,
-      state.requiredPermission,
-      state.adminUserId,
-    );
     return {
+      expiresAt: state.expiresAt,
       adminUserId: state.adminUserId,
       actorUserId: state.actorUserId,
       commandCode: state.commandCode,
@@ -312,5 +304,22 @@ export class AdminActionAuthorizationService {
       expectedTargetVersion: state.expectedTargetVersion,
       ...(state.targetPair === undefined ? {} : { targetPair: state.targetPair }),
     };
+  }
+
+  public async authorize(
+    input: Parameters<AdminActionAuthorizationService['resolveAttempt']>[0],
+  ): Promise<AuthorizedAdminAction> {
+    const { expiresAt, ...action } = await this.resolveAttempt(input);
+    if (expiresAt <= this.now()) throw denied();
+    this.authorizeFacts(
+      await this.authorization.loadCurrent({
+        adminUserId: action.adminUserId,
+        actorUserId: action.actorUserId,
+      }),
+      action.actorUserId,
+      action.requiredPermission,
+      action.adminUserId,
+    );
+    return action;
   }
 }

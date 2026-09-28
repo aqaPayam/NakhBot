@@ -120,3 +120,5 @@ export interface MediaStorePort {
 export * from './support/appeal.js';
 export * from './support/appeal-review.js';
 export * from './support/appeal-unban.js';
+export * from './administration/admin-confirmation.js';
+export * from './support/confirmed-appeal.js';

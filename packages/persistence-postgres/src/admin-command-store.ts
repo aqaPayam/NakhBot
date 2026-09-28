@@ -121,6 +121,10 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
         result = 'rejected';
         safeCode = 'forbidden';
         value = undefined;
+      } else if (attempt.preconditionRejection !== undefined) {
+        result = 'rejected';
+        safeCode = attempt.preconditionRejection;
+        value = undefined;
       } else {
         await sql`SAVEPOINT admin_command_effect`.execute(transaction);
         try {
