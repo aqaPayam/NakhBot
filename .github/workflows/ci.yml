@@ -113,7 +113,7 @@ jobs:
         run: pnpm test:m6-load-smoke
       - name: Retain privacy-safe M3 query plans
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: m3-query-plans-${{ github.sha }}
           path: artifacts/m3-query-plans.json
@@ -121,7 +121,7 @@ jobs:
           retention-days: 14
       - name: Retain privacy-safe M4 query plans
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: m4-query-plans-${{ github.sha }}
           path: artifacts/m4-query-plans.json
@@ -129,7 +129,7 @@ jobs:
           retention-days: 14
       - name: Retain privacy-safe M5 query plans
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: m5-query-plans-${{ github.sha }}
           path: artifacts/m5-query-plans.json
@@ -137,7 +137,7 @@ jobs:
           retention-days: 14
       - name: Retain privacy-safe M5 load evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: m5-load-smoke-${{ github.sha }}
           path: artifacts/m5-load-smoke.json
@@ -145,7 +145,7 @@ jobs:
           retention-days: 14
       - name: Retain privacy-safe M6 query plans
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: m6-query-plans-${{ github.sha }}
           path: artifacts/m6-query-plans.json
@@ -153,7 +153,7 @@ jobs:
           retention-days: 14
       - name: Retain privacy-safe M6 load evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: m6-load-smoke-${{ github.sha }}
           path: artifacts/m6-load-smoke.json
