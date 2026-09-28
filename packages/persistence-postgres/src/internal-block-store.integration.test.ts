@@ -9,7 +9,9 @@ import {
   type InteractionStore,
   type SpendCreditsForPaidActionWrite,
 } from '@nakh/application';
-import type { SendLikeCommand } from '@nakh/contracts';
+import type { SendLikeCommand, ChangeInternalBlockCommand } from '@nakh/contracts';
+import { PostgresConfirmedInternalBlocks } from './confirmed-internal-block-store.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
 import { normalizeUserPair } from '@nakh/domain';
 
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
@@ -215,6 +217,94 @@ describe.skipIf(databaseUrl === undefined)('M7 internal block lifecycle', () => 
 
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('binds create/removal to the signed pair and rejects reused confirmation without restoring old matches', async () => {
+    const adminId = await createAdmin(database),
+      first = await createActiveUser(database),
+      second = await createActiveUser(database);
+    const pair = normalizeUserPair(first, second),
+      targetId = canonicalAdminPairTargetId(pair);
+    const interactions = new PostgresInteractionStore(database);
+    await interactions.sendLike(likeCommand(first, second), likeGenerated());
+    const matched = await interactions.sendLike(likeCommand(second, first), likeGenerated());
+    const f = await confirmationFixture(database, adminId);
+    const commands = new PostgresConfirmedInternalBlocks(database, f.tokens, f.key);
+    const adminActionToken = await f.issue({
+      commandCode: 'moderation.change-internal-block',
+      requiredPermission: 'manage_internal_blocks',
+      targetType: 'user_pair',
+      targetId,
+      targetPair: pair,
+      expectedTargetVersion: 1,
+    });
+    const command: ChangeInternalBlockCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.change-internal-block',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken,
+        confirmationToken: '',
+        expectedTargetVersion: 1,
+        reason: 'Restricted internal safety reason',
+        action: 'create',
+      },
+    };
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'invalid_request',
+    });
+    command.commandId = randomUUID();
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => commands.execute(command, f.actor)),
+    );
+    expect(results.every((r) => r.result === 'succeeded')).toBe(true);
+    expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+    const removal: ChangeInternalBlockCommand = {
+      ...command,
+      commandId: randomUUID(),
+      data: {
+        ...command.data,
+        action: 'remove',
+        expectedTargetVersion: 2,
+        adminActionToken: await f.issue({
+          commandCode: 'moderation.change-internal-block',
+          requiredPermission: 'manage_internal_blocks',
+          targetType: 'user_pair',
+          targetId,
+          targetPair: pair,
+          expectedTargetVersion: 2,
+        }),
+      },
+    };
+    expect(await commands.execute(removal, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'invalid_request',
+    });
+    removal.commandId = randomUUID();
+    removal.data.confirmationToken = await commands.prepare(removal, f.actor);
+    expect(await commands.execute(removal, f.actor)).toMatchObject({
+      result: 'succeeded',
+      value: { nextState: undefined },
+    });
+    const match = await database
+      .selectFrom('matching.matches')
+      .select('status')
+      .where('id', '=', matched.matchId!)
+      .executeTakeFirstOrThrow();
+    expect(match.status).toBe('closed');
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    expect(logs).toHaveLength(4);
+    expect(JSON.stringify(logs)).not.toContain('Restricted internal safety reason');
   });
 
   it('silently closes an active Match, chat, and scoped access without restoring them on removal', async () => {

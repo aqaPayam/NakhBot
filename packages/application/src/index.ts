@@ -127,3 +127,4 @@ export * from './administration/confirmed-command.js';
 export * from './support/confirmed-support.js';
 export * from './moderation/confirmed-account-action.js';
 export * from './moderation/confirmed-photo-action.js';
+export * from './moderation/confirmed-internal-block.js';

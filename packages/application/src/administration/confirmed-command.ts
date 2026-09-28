@@ -139,6 +139,7 @@ export class ConfirmedAdminCommandBoundary {
         requiredPermission: scope.permission,
         targetType: scope.targetType,
         targetId: action.targetId,
+        ...(action.targetPair === undefined ? {} : { targetPair: action.targetPair }),
         expectedTargetVersion: command.data.expectedTargetVersion,
         reasonDigest: hash(reason),
         metadata: {},
