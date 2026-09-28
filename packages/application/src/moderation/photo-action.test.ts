@@ -138,13 +138,13 @@ describe('photo moderation workflow', () => {
     expect(invalid.order).toEqual([]);
   });
 
-  it('propagates purge failure without beginning the database command', async () => {
+  it('passes sanitized purge failure through the audit boundary without a photo write', async () => {
     const context = fixture();
     context.revoke.mockRejectedValueOnce(new Error('cache unavailable'));
     await expect(context.workflow.apply(attempt(), 'hide_photo')).rejects.toThrow(
-      'cache unavailable',
+      'Photo delivery revocation unavailable.',
     );
-    expect(context.order).toEqual([]);
+    expect(context.order).toEqual(['command']);
     expect(context.writes).toEqual([]);
   });
 });

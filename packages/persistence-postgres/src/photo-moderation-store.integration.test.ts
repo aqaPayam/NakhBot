@@ -9,6 +9,9 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { seedValidMedia } from './media-fixtures.js';
 import { PostgresPhotoModerationWorkflow } from './photo-moderation-store.js';
+import { PostgresConfirmedPhotoActions } from './confirmed-photo-store.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
+import type { ApplyPhotoModerationActionCommand } from '@nakh/contracts';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const genderOptionId = '20000000-0000-4000-8000-000000000001';
@@ -171,6 +174,132 @@ describe.skipIf(databaseUrl === undefined)('M7 photo moderation lifecycle', () =
 
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('records a failed confirmed attempt when the purge provider fails, without photo mutation', async () => {
+    const adminId = await createAdmin(database),
+      profile = await createProfileWithPhotos(database, 2);
+    const photoId = profile.photoIds[0]!,
+      f = await confirmationFixture(database, adminId);
+    const commands = new PostgresConfirmedPhotoActions(database, f.tokens, f.key, {
+      execute: () => Promise.reject(new Error('Restricted provider failure')),
+    });
+    const adminActionToken = await f.issue({
+      commandCode: 'moderation.apply-photo-action',
+      requiredPermission: 'hide_photo',
+      targetType: 'photo',
+      targetId: photoId,
+      expectedTargetVersion: 1,
+    });
+    const command: ApplyPhotoModerationActionCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.apply-photo-action',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken,
+        confirmationToken: '',
+        expectedTargetVersion: 1,
+        reason: 'Restricted photo reason',
+        action: 'hide_photo',
+      },
+    };
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'failed',
+      safeCode: 'internal_error',
+    });
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'failed',
+      replayed: true,
+    });
+    expect(
+      await database
+        .selectFrom('media.profile_photos')
+        .select(['status', 'version'])
+        .where('id', '=', photoId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'visible', version: 1 });
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    expect(logs).toHaveLength(1);
+    expect(JSON.stringify(logs)).not.toContain('Restricted');
+  });
+  it('audits missing confirmation without purging, then confirms hide/restore/delete independently', async () => {
+    const adminId = await createAdmin(database),
+      profile = await createProfileWithPhotos(database, 3);
+    const photoId = profile.photoIds[0]!;
+    const f = await confirmationFixture(database, adminId);
+    const purged: string[] = [];
+    const commands = new PostgresConfirmedPhotoActions(database, f.tokens, f.key, {
+      execute: (id) => {
+        purged.push(id);
+        return Promise.resolve();
+      },
+    });
+    let version = 1;
+    for (const action of ['hide_photo', 'restore_photo', 'delete_photo'] as const) {
+      const adminActionToken = await f.issue({
+        commandCode: 'moderation.apply-photo-action',
+        requiredPermission: action,
+        targetType: 'photo',
+        targetId: photoId,
+        expectedTargetVersion: version,
+      });
+      const command: ApplyPhotoModerationActionCommand = {
+        actor: f.actor,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        commandType: 'moderation.apply-photo-action',
+        schemaVersion: 1,
+        idempotencyKey: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          adminActionToken,
+          confirmationToken: '',
+          expectedTargetVersion: version,
+          reason: 'Restricted photo reason',
+          action,
+        },
+      };
+      const before = purged.length;
+      expect(await commands.execute(command, f.actor)).toMatchObject({
+        result: 'rejected',
+        safeCode: 'invalid_request',
+      });
+      expect(purged).toHaveLength(before);
+      command.commandId = randomUUID();
+      command.data.confirmationToken = await commands.prepare(command, f.actor);
+      expect(await commands.execute(command, f.actor)).toMatchObject({
+        result: 'succeeded',
+        value: { photoVersion: ++version },
+      });
+      expect(purged).toHaveLength(before + (action === 'restore_photo' ? 0 : 1));
+      expect(await commands.execute(command, f.actor)).toMatchObject({
+        result: 'succeeded',
+        replayed: true,
+      });
+    }
+    const photo = await database
+      .selectFrom('media.profile_photos')
+      .select(['status', 'version'])
+      .where('id', '=', photoId)
+      .executeTakeFirstOrThrow();
+    expect(photo).toMatchObject({ status: 'deleted', version: 4 });
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    expect(logs).toHaveLength(6);
+    expect(JSON.stringify(logs)).not.toContain('Restricted photo reason');
   });
 
   it('purges before hide/delete and preserves the M2 primary, completion, and cleanup lifecycle', async () => {

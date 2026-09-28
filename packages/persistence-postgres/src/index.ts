@@ -147,3 +147,4 @@ export * from './confirmed-appeal-store.js';
 export * from './safety-contact-store.js';
 export * from './confirmed-support-store.js';
 export * from './confirmed-account-store.js';
+export * from './confirmed-photo-store.js';

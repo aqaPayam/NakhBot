@@ -97,7 +97,14 @@ export class PhotoModerationWorkflow<TContext> {
       throw invalidRequest();
 
     // Purging is idempotent. A later permission/version rejection remains fail-closed for delivery.
-    if (action !== 'restore_photo') await this.delivery.execute(attempt.targetId);
+    let purgeFailed = false;
+    if (attempt.preconditionRejection === undefined && action !== 'restore_photo') {
+      try {
+        await this.delivery.execute(attempt.targetId);
+      } catch {
+        purgeFailed = true;
+      }
+    }
     const write: PhotoModerationWrite = {
       action,
       adminUserId: attempt.adminUserId,
@@ -114,9 +121,9 @@ export class PhotoModerationWorkflow<TContext> {
       actionId: this.ids.uuid(),
       actionEventId: this.ids.uuid(),
     };
-    return this.commands.execute(attempt, async (context) => ({
-      value: await this.photos.apply(context, write),
-      safeCode: `photo_${action}`,
-    }));
+    return this.commands.execute(attempt, async (context) => {
+      if (purgeFailed) throw new Error('Photo delivery revocation unavailable.');
+      return { value: await this.photos.apply(context, write), safeCode: `photo_${action}` };
+    });
   }
 }
