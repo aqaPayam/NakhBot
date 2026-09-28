@@ -281,7 +281,6 @@ export class SupportAdminWorkflow<TContext> {
       attempt.expectedTargetVersion === null
     )
       throw invalidAdminRequest();
-    const normalizedText = normalizeSupportText(text);
     return this.commands.execute(attempt, async (context) => ({
       value: await this.store.reply(context, {
         supportThreadId: attempt.targetId,
@@ -292,7 +291,7 @@ export class SupportAdminWorkflow<TContext> {
         commandId: attempt.commandId,
         requestId: attempt.requestId,
         requestDigest: attempt.requestDigest,
-        normalizedText,
+        normalizedText: normalizeSupportText(text),
         expectedVersion: attempt.expectedTargetVersion!,
       }),
       safeCode: 'support_replied',

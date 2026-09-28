@@ -3,7 +3,15 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { AdminCommandAttempt, UserSupportWrite } from '@nakh/application';
+import {
+  AdminActionAuthorizationService,
+  type OpaqueTokenStore,
+  type AdminCommandAttempt,
+  type UserSupportWrite,
+} from '@nakh/application';
+import type { ReplySupportThreadCommand, CloseSupportThreadCommand } from '@nakh/contracts';
+import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
+import { PostgresConfirmedSupportCommands } from './confirmed-support-store.js';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -139,6 +147,114 @@ describe.skipIf(databaseUrl === undefined)('M7 durable support messaging', () =>
 
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('requires exact reply/close confirmation and audits changed, stale and invalid-text attempts', async () => {
+    const userId = await createUser(database),
+      threadId = randomUUID(),
+      adminId = await createSupportAdmin(database);
+    await store.open(userWrite(userId, threadId, 'confirmed'));
+    const admin = await database
+      .selectFrom('administration.admin_users')
+      .selectAll()
+      .where('id', '=', adminId)
+      .executeTakeFirstOrThrow();
+    const actor = { kind: 'admin' as const, userId: admin.user_id };
+    const values = new Map<string, string>();
+    const tokens: OpaqueTokenStore = {
+      get: (id) => Promise.resolve(values.get(id)),
+      putIfAbsent: (id, value) => {
+        if (values.has(id)) return Promise.resolve(false);
+        values.set(id, value);
+        return Promise.resolve(true);
+      },
+    };
+    const key = Buffer.alloc(32, 6);
+    const authorization = new AdminActionAuthorizationService(
+      new PostgresAdminAuthorizationStore(database),
+      tokens,
+      key,
+    );
+    const commands = new PostgresConfirmedSupportCommands(database, tokens, key);
+    const token = await authorization.issue({
+      actorUserId: actor.userId,
+      telegramUserId: admin.telegram_user_id,
+      scope: {
+        commandCode: 'support.reply-thread',
+        requiredPermission: 'review_support',
+        targetType: 'support_thread',
+        targetId: threadId,
+        expectedTargetVersion: 1,
+      },
+    });
+    const reply: ReplySupportThreadCommand = {
+      actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'support.reply-thread',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: token,
+        confirmationToken: '',
+        expectedTargetVersion: 1,
+        reason: 'Restricted reason',
+        text: 'Restricted reply',
+      },
+    };
+    const confirmationToken = await commands.prepare(reply, actor);
+    const changed = { ...reply, data: { ...reply.data, confirmationToken, text: 'Changed reply' } };
+    expect(await commands.execute(changed, actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'invalid_request',
+    });
+    const valid = { ...reply, commandId: randomUUID() };
+    valid.data = { ...valid.data, confirmationToken: await commands.prepare(valid, actor) };
+    expect(await commands.execute(valid, actor)).toMatchObject({ result: 'succeeded' });
+    expect(await commands.execute(valid, actor)).toMatchObject({
+      result: 'succeeded',
+      replayed: true,
+    });
+    const invalid = { ...reply, commandId: randomUUID(), data: { ...reply.data, text: '   ' } };
+    invalid.data.confirmationToken = await commands.prepare(invalid, actor);
+    expect(await commands.execute(invalid, actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'support_text_invalid',
+    });
+    const close: CloseSupportThreadCommand = {
+      ...reply,
+      commandId: randomUUID(),
+      commandType: 'support.close-thread',
+      data: {
+        adminActionToken: await authorization.issue({
+          actorUserId: actor.userId,
+          telegramUserId: admin.telegram_user_id,
+          scope: {
+            commandCode: 'support.close-thread',
+            requiredPermission: 'review_support',
+            targetType: 'support_thread',
+            targetId: threadId,
+            expectedTargetVersion: 2,
+          },
+        }),
+        confirmationToken: '',
+        expectedTargetVersion: 2,
+        reason: 'Close resolved support',
+      },
+    };
+    close.data.confirmationToken = await commands.prepare(close, actor);
+    expect(await commands.execute(close, actor)).toMatchObject({
+      result: 'succeeded',
+      value: { status: 'closed' },
+    });
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    expect(logs).toHaveLength(4);
+    expect(JSON.stringify(logs)).not.toContain('Restricted');
   });
 
   it('admits at most two unanswered messages across concurrent attempts and resets after reply', async () => {

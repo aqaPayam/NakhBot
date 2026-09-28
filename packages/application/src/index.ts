@@ -123,3 +123,5 @@ export * from './support/appeal-unban.js';
 export * from './administration/admin-confirmation.js';
 export * from './support/confirmed-appeal.js';
 export * from './support/user-contact.js';
+export * from './administration/confirmed-command.js';
+export * from './support/confirmed-support.js';
