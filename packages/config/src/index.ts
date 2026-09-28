@@ -34,6 +34,7 @@ const ConfigSchema = Type.Object(
       actionTokenKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       likedByDeliveryEnabled: Type.Boolean(),
       notificationDeliveryEnabled: Type.Boolean(),
+      supportAppealEnabled: Type.Boolean(),
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
@@ -134,6 +135,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       ),
       likedByDeliveryEnabled: boolean(env.NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED, false),
       notificationDeliveryEnabled: boolean(env.NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED, false),
+      supportAppealEnabled: boolean(env.NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED, false),
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),

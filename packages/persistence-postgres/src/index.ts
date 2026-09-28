@@ -144,3 +144,4 @@ export * from './appeal-store.js';
 export * from './appeal-review-store.js';
 export * from './appeal-unban-store.js';
 export * from './confirmed-appeal-store.js';
+export * from './safety-contact-store.js';

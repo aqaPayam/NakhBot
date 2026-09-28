@@ -37,7 +37,11 @@ describe('M7 localization and static prose gate', () => {
       'packages/application/src/support',
       'packages/domain/src/moderation',
     ];
-    const files: string[] = ['packages/telegram/src/m7-presentation.ts'];
+    const files: string[] = [
+      'packages/telegram/src/m7-presentation.ts',
+      'packages/telegram/src/support-appeal-adapter.ts',
+      'apps/telegram-gateway/src/support-appeal-ingress.ts',
+    ];
     for (const directory of directories) {
       for (const file of await readdir(resolve(directory)))
         if (file.endsWith('.ts') && !file.endsWith('.test.ts')) files.push(`${directory}/${file}`);
@@ -54,9 +58,10 @@ describe('M7 localization and static prose gate', () => {
       const source = await readFile(resolve(file), 'utf8');
       for (const match of source.matchAll(/new ApplicationError\(\s*'[^']+'\s*,\s*'([^']+)'/gu))
         expect(match[1], file).toMatch(/^error\.[a-z0-9_.]+$/u);
-      const keyPattern = file.startsWith('packages/telegram/')
-        ? /'((?:error\.(?:m7|report|moderation|admin|support|appeal)|report|support|appeal|admin\.outcome)\.[a-z0-9_.]+)'/gu
-        : /'((?:error\.(?:m7|report|moderation|admin|support|appeal)|notification\.(?:restriction_warning|ban_warning|account_unrestricted|account_unbanned)|report\.reason)\.[a-z0-9_.]+)'/gu;
+      const keyPattern =
+        file.startsWith('packages/telegram/') || file.endsWith('/user-contact.ts')
+          ? /'((?:error\.(?:m7|report|moderation|admin|support|appeal)|report|support|appeal|admin\.outcome)\.[a-z0-9_.]+)'/gu
+          : /'((?:error\.(?:m7|report|moderation|admin|support|appeal)|notification\.(?:restriction_warning|ban_warning|account_unrestricted|account_unbanned)|report\.reason)\.[a-z0-9_.]+)'/gu;
       for (const match of source.matchAll(keyPattern))
         expect(catalog[match[1]!], `${file}: ${match[1]}`).toBeDefined();
     }

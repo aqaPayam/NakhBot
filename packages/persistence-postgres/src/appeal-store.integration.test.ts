@@ -1,10 +1,21 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { UserAppealWrite } from '@nakh/application';
+import {
+  BanOpaqueReferences,
+  OpenSupportThreadHandler,
+  PrepareAppealHandler,
+  SubmitAppealHandler,
+  SupportOpaqueReferences,
+  UserSafetyContactHandler,
+  type UserAppealWrite,
+  type OpaqueTokenStore,
+} from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresAppealStore } from './appeal-store.js';
+import { PostgresSafetyContactStore } from './safety-contact-store.js';
+import { PostgresSupportStore } from './support-store.js';
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 async function createUser(
   database: NakhDatabase,
@@ -94,6 +105,85 @@ describe.skipIf(databaseUrl === undefined)('M7 exact-ban appeal admission', () =
   });
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('composes authenticated contact handlers with transactional replay and changed-payload rejection', async () => {
+    const values = new Map<string, string>();
+    const tokens: OpaqueTokenStore = {
+      get: (id) => Promise.resolve(values.get(id)),
+      putIfAbsent: (id, value) => {
+        if (values.has(id)) return Promise.resolve(false);
+        values.set(id, value);
+        return Promise.resolve(true);
+      },
+    };
+    const refs = new BanOpaqueReferences(tokens, Buffer.alloc(32, 7));
+    const ids = { uuid: randomUUID };
+    const handler = new UserSafetyContactHandler(
+      new PostgresSafetyContactStore(database),
+      new OpenSupportThreadHandler(
+        new PostgresSupportStore(database),
+        new SupportOpaqueReferences(tokens, Buffer.alloc(32, 7)),
+        ids,
+      ),
+      new PrepareAppealHandler(store, refs),
+      new SubmitAppealHandler(store, refs, ids),
+    );
+    const userId = await createUser(database);
+    await ban(database, userId);
+    const input = {
+      userId,
+      commandId: randomUUID(),
+      kind: 'appeal' as const,
+      text: 'Restricted explanation',
+    };
+    const results = await Promise.all(Array.from({ length: 6 }, () => handler.execute(input)));
+    expect(results).toEqual(
+      Array.from({ length: 6 }, () => ({ key: 'appeal.submitted', variables: {} })),
+    );
+    const rows = await database
+      .selectFrom('moderation.user_appeals')
+      .select('id')
+      .where('user_id', '=', userId)
+      .execute();
+    expect(rows).toHaveLength(1);
+    await expect(handler.execute({ ...input, text: 'Changed explanation' })).rejects.toMatchObject({
+      code: 'idempotency_conflict',
+    });
+    await expect(handler.execute({ ...input, kind: 'support' })).resolves.toEqual({
+      key: 'appeal.prompt',
+      variables: {},
+    });
+    const threads = await database
+      .selectFrom('support.support_threads')
+      .select('id')
+      .where('user_id', '=', userId)
+      .execute();
+    expect(threads).toHaveLength(0);
+  });
+  it('projects only the exact current ban status and routes missing/deleted accounts nowhere', async () => {
+    const states = new PostgresSafetyContactStore(database);
+    expect(await states.get(randomUUID())).toEqual({ route: 'unavailable' });
+    const userId = await createUser(database);
+    expect(await states.get(userId)).toEqual({ route: 'support' });
+    const historyId = await ban(database, userId);
+    expect(await states.get(userId)).toEqual({ route: 'appeal' });
+    const submitted = write(userId, historyId);
+    await store.submit(submitted);
+    expect(await states.get(userId)).toEqual({ route: 'appeal', status: 'submitted' });
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'active' })
+      .where('user_id', '=', userId)
+      .execute();
+    expect(await states.get(userId)).toEqual({ route: 'support' });
+    await ban(database, userId);
+    expect(await states.get(userId)).toEqual({ route: 'appeal' });
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'deleted' })
+      .where('user_id', '=', userId)
+      .execute();
+    expect(await states.get(userId)).toEqual({ route: 'unavailable' });
   });
   it('serializes independent concurrent submissions into one appeal and one content-free event', async () => {
     const userId = await createUser(database);

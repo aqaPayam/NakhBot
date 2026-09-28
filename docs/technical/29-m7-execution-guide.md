@@ -363,6 +363,33 @@ checkpoint and wait for that exact commit to turn green before advancing.
 
 ## 13. Definition of done
 
+### Current implementation evidence (2026-09-28)
+
+Support and exact-ban appeal persistence, audited terminal reviews, and a separate permission-checked
+unban command are implemented. The presentation work includes seeded English fallback keys and
+privacy-safe notices; appeal review/unban confirmation tokens bind the authenticated admin, exact
+command, target version, reason, and payload. Confirmation does not replace the transaction's RBAC
+check or immutable attempted-command log.
+
+The Telegram webhook now supports `/support [text]` and `/appeal [text]` behind
+`NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED=false`. Enable it only for controlled staging with the bot token
+and canonical 32-byte action-token key configured. Provider authentication precedes handling;
+private-chat sender identity is resolved server-side. A stable bot/user/update command ID preserves
+transactional replay across webhook retries. Restricted text is passed directly to its owning store,
+never queued or interpolated in notices. Status lookup selects only the current exact ban's appeal
+status. Banned support users receive an appeal prompt, and accepted appeals still require a separate
+authorized unban.
+
+Unit evidence covers routing, forged/group/bot updates, unsafe identifiers, rate denial, stable replay
+identity, privacy, activation, and delivery failure. PostgreSQL integration evidence covers exact-ban
+status projection and transactional submissions alongside the existing concurrency and migration
+matrix. Replies use localized plain text after business commit; provider retries can duplicate a
+notice but cannot duplicate the business write. No real Telegram delivery is claimed.
+
+Checkpoint 8 remains partial: report/evidence presentation, provider-neutral authenticated endpoints,
+admin ingress and remaining moderation presentation still need implementation. Reconciliation,
+operational/query-plan gates and real Telegram/admin staging evidence remain outstanding.
+
 M7 is code-complete only when `ACC-039..041`, authorization/privacy/snapshot tests, threshold/admin/
 internal-block/support/appeal races, reconciliation, retention, production-shaped plans, operations
 docs, and CI are green. It is production-ready only after the same immutable release passes real
