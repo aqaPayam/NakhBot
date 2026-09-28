@@ -9,6 +9,9 @@ import type { M7Permission } from '@nakh/domain';
 import { PostgresAccountModerationWorkflow } from './account-moderation-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
+import type { ApplyAccountModerationActionCommand } from '@nakh/contracts';
+import { PostgresConfirmedAccountActions } from './confirmed-account-store.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -114,6 +117,98 @@ describe.skipIf(databaseUrl === undefined)('M7 account moderation lifecycle', ()
 
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('confirms each account action separately, serializes replay and audits revoked admin access', async () => {
+    const adminId = await createAdmin(database, 'moderator'),
+      targetId = await createUser(database, true);
+    const f = await confirmationFixture(database, adminId);
+    const commands = new PostgresConfirmedAccountActions(database, f.tokens, f.key);
+    let version = 1;
+    for (const action of ['restrict_user', 'unrestrict_user', 'ban_user', 'unban_user'] as const) {
+      const adminActionToken = await f.issue({
+        commandCode: 'moderation.apply-account-action',
+        requiredPermission: action,
+        targetType: 'user',
+        targetId,
+        expectedTargetVersion: version,
+      });
+      const command: ApplyAccountModerationActionCommand = {
+        actor: f.actor,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        commandType: 'moderation.apply-account-action',
+        schemaVersion: 1,
+        idempotencyKey: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          adminActionToken,
+          confirmationToken: '',
+          expectedTargetVersion: version,
+          reason: 'Restricted account reason',
+          action,
+        },
+      };
+      expect(await commands.execute(command, f.actor)).toMatchObject({
+        result: 'rejected',
+        safeCode: 'invalid_request',
+      });
+      command.commandId = randomUUID();
+      command.data.confirmationToken = await commands.prepare(command, f.actor);
+      const results = await Promise.all(
+        Array.from({ length: 4 }, () => commands.execute(command, f.actor)),
+      );
+      expect(results.every((r) => r.result === 'succeeded')).toBe(true);
+      expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+      version++;
+      const account = await database
+        .selectFrom('identity.accounts')
+        .select('version')
+        .where('user_id', '=', targetId)
+        .executeTakeFirstOrThrow();
+      expect(account.version).toBe(version);
+    }
+    const token = await f.issue({
+      commandCode: 'moderation.apply-account-action',
+      requiredPermission: 'ban_user',
+      targetType: 'user',
+      targetId,
+      expectedTargetVersion: version,
+    });
+    const disabled: ApplyAccountModerationActionCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.apply-account-action',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: token,
+        confirmationToken: '',
+        expectedTargetVersion: version,
+        reason: 'Restricted account reason',
+        action: 'ban_user',
+      },
+    };
+    disabled.data.confirmationToken = await commands.prepare(disabled, f.actor);
+    await database
+      .updateTable('administration.admin_users')
+      .set({ is_active: false, disabled_at: new Date() })
+      .where('id', '=', adminId)
+      .execute();
+    expect(await commands.execute(disabled, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'forbidden',
+    });
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    expect(logs).toHaveLength(9);
+    expect(JSON.stringify(logs)).not.toContain('Restricted account reason');
   });
 
   it('reverses restrict and ban paths with complete critical safety facts and replay protection', async () => {

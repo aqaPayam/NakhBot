@@ -125,3 +125,4 @@ export * from './support/confirmed-appeal.js';
 export * from './support/user-contact.js';
 export * from './administration/confirmed-command.js';
 export * from './support/confirmed-support.js';
+export * from './moderation/confirmed-account-action.js';
