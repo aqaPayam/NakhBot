@@ -374,6 +374,16 @@ export const ReviewAppealCommandSchema = mutationSchema(
 );
 export type ReviewAppealCommand = Static<typeof ReviewAppealCommandSchema>;
 
+export const UnbanAppealCommandSchema = mutationSchema(
+  'moderation.unban-appeal',
+  AdminActorSchema,
+  Type.Object(
+    { ...AdminMutationFields, expectedAccountVersion: Type.Integer({ minimum: 1 }) },
+    { additionalProperties: false },
+  ),
+);
+export type UnbanAppealCommand = Static<typeof UnbanAppealCommandSchema>;
+
 export const BootstrapAdminCommandSchema = mutationSchema(
   'administration.bootstrap-admin',
   SystemActorSchema,

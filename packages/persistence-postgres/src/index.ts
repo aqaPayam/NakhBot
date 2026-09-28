@@ -142,3 +142,4 @@ export {
 } from './migrations.js';
 export * from './appeal-store.js';
 export * from './appeal-review-store.js';
+export * from './appeal-unban-store.js';

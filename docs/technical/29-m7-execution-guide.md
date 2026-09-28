@@ -117,9 +117,11 @@ and Notification state.
    unanswered-count support, lifecycle guards, and restricted-text grants.
 7. `000052_m7_appeal_admission.sql` — exact current-ban ownership, immutable submission replay,
    and appeal deletion guards.
-8. `000053_m7_localization.sql` — report reasons/surfaces, safe restriction/ban notices, admin
+8. `000053_m7_appeal_unban.sql` — immutable accepted-appeal, Account transition, moderation action,
+   and successful admin-attempt evidence.
+9. `000054_m7_localization.sql` — report reasons/surfaces, safe restriction/ban notices, admin
    outcomes, support, appeal, stale-action, rate-limit, and generic authorization/error keys.
-9. `000054_m7_reconciliation.sql` — resumable bounded M7 reconciliation runs, anomaly types, query
+10. `000055_m7_reconciliation.sql` — resumable bounded M7 reconciliation runs, anomaly types, query
    indexes, and verification hardening.
 
 Every migration must bootstrap from empty, upgrade from `000045`, replay unchanged, and have

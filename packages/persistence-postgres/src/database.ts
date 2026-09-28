@@ -1174,6 +1174,12 @@ export interface AppealSubmissionTable {
 }
 
 export interface DatabaseSchema {
+  'moderation.appeal_unbans': {
+    appeal_id: string;
+    action_id: string;
+    unban_history_id: string;
+    admin_action_log_id: string;
+  };
   'moderation.appeal_submissions': AppealSubmissionTable;
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;

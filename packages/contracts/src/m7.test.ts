@@ -22,6 +22,7 @@ import {
   RevealedReportEvidenceSchema,
   SendSupportMessageCommandSchema,
   SubmitAppealCommandSchema,
+  UnbanAppealCommandSchema,
   SubmitReportCommandSchema,
   SupportThreadResultSchema,
 } from './index.js';
@@ -67,6 +68,24 @@ const adminMutation = {
 };
 
 describe('M7 moderation, administration, support, and appeal contracts', () => {
+  it('requires a separate confirmed admin unban with both appeal and account versions', () => {
+    const validate = validator(UnbanAppealCommandSchema);
+    const command = {
+      ...adminEnvelope,
+      commandType: 'moderation.unban-appeal',
+      data: { ...adminMutation, expectedAccountVersion: 3 },
+    };
+    expect(validate(command)).toBe(true);
+    expect(validate({ ...command, actor: userEnvelope.actor })).toBe(false);
+    expect(validate({ ...command, data: adminMutation })).toBe(false);
+    expect(validate({ ...command, data: { ...command.data, confirmationToken: undefined } })).toBe(
+      false,
+    );
+    expect(validate({ ...command, data: { ...command.data, targetUserId: otherId } })).toBe(false);
+    expect(validate({ ...command, data: { ...command.data, expectedAccountVersion: 0 } })).toBe(
+      false,
+    );
+  });
   it('prepares actor-bound evidence without accepting an effective target', () => {
     const validate = validator(PrepareReportEvidenceQuerySchema);
     const query = {
