@@ -62,6 +62,7 @@ export * from './moderation/review.js';
 export * from './moderation/account-action.js';
 export * from './moderation/photo-action.js';
 export * from './moderation/internal-block.js';
+export * from './support/support.js';
 export * from './profile/protected-change.js';
 export * from './presentation.js';
 

@@ -32,6 +32,7 @@ export {
   PostgresInternalBlockStore,
   PostgresInternalBlockWorkflow,
 } from './internal-block-store.js';
+export { PostgresSupportAdminWorkflow, PostgresSupportStore } from './support-store.js';
 export {
   insertFeatureUnlockNotifications,
   insertNotification,

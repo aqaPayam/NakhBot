@@ -1123,6 +1123,48 @@ export interface ModerationActionTable {
   occurred_at: Generated<Date>;
 }
 
+export interface SupportThreadTable {
+  id: string;
+  user_id: string;
+  status: Generated<'open' | 'closed'>;
+  open_command_id: string;
+  open_idempotency_key: string;
+  open_request_digest: string;
+  last_message_at: Date;
+  created_at: Date;
+  closed_at: Date | null;
+  version: Generated<number>;
+}
+
+export interface SupportMessageTable {
+  id: string;
+  support_thread_id: string;
+  sender_type: 'user' | 'admin';
+  sender_user_id: string | null;
+  sender_admin_id: string | null;
+  message_text: string;
+  command_id: string;
+  request_id: string;
+  request_digest: string;
+  idempotency_key: string;
+  thread_version_after: number;
+  unanswered_user_messages_after: number;
+  created_at: Date;
+}
+
+export interface UserAppealTable {
+  id: string;
+  user_id: string;
+  ban_state_history_id: string;
+  message_text: string;
+  status: Generated<'submitted' | 'in_review' | 'accepted' | 'rejected'>;
+  reviewed_by_admin_id: string | null;
+  admin_note: string | null;
+  submitted_at: Generated<Date>;
+  reviewed_at: Date | null;
+  version: Generated<number>;
+}
+
 export interface DatabaseSchema {
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;
@@ -1221,6 +1263,9 @@ export interface DatabaseSchema {
   'moderation.restriction_episodes': RestrictionEpisodeTable;
   'moderation.moderation_reviews': ModerationReviewTable;
   'moderation.moderation_actions': ModerationActionTable;
+  'support.support_threads': SupportThreadTable;
+  'support.support_messages': SupportMessageTable;
+  'moderation.user_appeals': UserAppealTable;
 }
 
 export type NakhDatabase = Kysely<DatabaseSchema>;
