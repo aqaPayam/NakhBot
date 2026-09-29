@@ -3,6 +3,9 @@ packages:
   - packages/*
 
 injectWorkspacePackages: true
+overrides:
+  'fast-uri@3': 3.1.7
+  'fast-uri@4': 4.1.4
 syncInjectedDepsAfterScripts:
   - build
 
