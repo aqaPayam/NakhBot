@@ -129,3 +129,4 @@ export * from './moderation/confirmed-account-action.js';
 export * from './moderation/confirmed-photo-action.js';
 export * from './moderation/confirmed-internal-block.js';
 export * from './moderation/confirmed-review-assignment.js';
+export * from './moderation/review-note.js';
