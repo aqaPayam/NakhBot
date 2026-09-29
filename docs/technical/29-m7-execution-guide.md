@@ -121,7 +121,8 @@ and Notification state.
    and successful admin-attempt evidence.
 9. `000054_m7_localization.sql` — report reasons/surfaces, safe restriction/ban notices, admin
    outcomes, support, appeal, stale-action, rate-limit, and generic authorization/error keys.
-10. `000055_m7_reconciliation.sql` — resumable bounded M7 reconciliation runs, anomaly types, query
+10. `000055_m7_review_decisions.sql` — explicit dismissal action shape and terminal-review guard.
+11. `000056_m7_reconciliation.sql` (planned) — resumable bounded M7 reconciliation runs, anomaly types, query
    indexes, and verification hardening.
 
 Every migration must bootstrap from empty, upgrade from `000045`, replay unchanged, and have

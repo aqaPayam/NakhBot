@@ -1104,6 +1104,7 @@ export interface ModerationActionTable {
     | 'hide_photo'
     | 'restore_photo'
     | 'delete_photo'
+    | 'dismiss_report'
     | 'create_internal_block'
     | 'remove_internal_block';
   actor_type: 'admin' | 'system';

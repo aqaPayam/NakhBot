@@ -3,7 +3,17 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { AdminCommandAttempt } from '@nakh/application';
+import {
+  AesGcmReviewNoteProtector,
+  ReviewDecisionWorkflow,
+  type AdminCommandAttempt,
+} from '@nakh/application';
+import {
+  PostgresReviewDecisionStore,
+  PostgresReviewDecisionWorkflow,
+} from './review-decision-store.js';
+import { PostgresAdminCommandStore } from './admin-command-store.js';
+import { SystemIdGenerator } from './foundation-store.js';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -221,6 +231,247 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
 
   afterAll(async () => {
     await database?.destroy();
+  });
+  async function assignedReview(): Promise<{
+    adminId: string;
+    review: { reportId: string; reviewId: string };
+    attempt: AdminCommandAttempt;
+  }> {
+    const adminId = await createAdmin(database);
+    const review = await createPendingReview(database, {
+      priority: 'normal',
+      createdAt: new Date(Date.now() - 10000),
+    });
+    const assignment = adminAttempt(adminId, {
+      commandCode: 'moderation.assign-review',
+      targetType: 'moderation_review',
+      targetId: review.reviewId,
+      expectedTargetVersion: 1,
+    });
+    expect(
+      await workflow.assign(assignment, {
+        reviewId: review.reviewId,
+        assigneeAdminId: adminId,
+        expectedVersion: 1,
+      }),
+    ).toMatchObject({ result: 'succeeded' });
+    const attempt: AdminCommandAttempt = {
+      ...assignment,
+      logId: randomUUID(),
+      commandId: randomUUID(),
+      commandCode: 'moderation.decide-review',
+      requiredPermission: 'dismiss_report',
+      expectedTargetVersion: 2,
+    };
+    return { adminId, review, attempt };
+  }
+  const notes = new AesGcmReviewNoteProtector('review-key', 1, Buffer.alloc(32, 17));
+  it('finalizes an already actioned report without performing the prior action again', async () => {
+    const { review, attempt, adminId } = await assignedReview();
+    const report = await database
+      .selectFrom('moderation.reports')
+      .select('target_user_id')
+      .where('id', '=', review.reportId)
+      .executeTakeFirstOrThrow();
+    // Seed historical action evidence; the decision workflow may acknowledge it but never repeat it.
+    const auditId = randomUUID(),
+      actionId = randomUUID(),
+      commandId = randomUUID();
+    await database
+      .insertInto('platform.audit_logs')
+      .values({
+        id: auditId,
+        category: 'admin',
+        event_type: 'moderation.action-recorded.v1',
+        actor_type: 'admin',
+        actor_user_id: null,
+        actor_admin_id: adminId,
+        subject_type: 'user',
+        subject_id: report.target_user_id,
+        result_code: 'restricted',
+        metadata_schema_version: 1,
+        metadata: {},
+        request_id: randomUUID(),
+        command_id: commandId,
+        occurred_at: new Date(),
+      })
+      .execute();
+    await database
+      .insertInto('moderation.moderation_actions')
+      .values({
+        id: actionId,
+        action_type: 'restrict_user',
+        actor_type: 'admin',
+        actor_admin_id: adminId,
+        target_user_id: report.target_user_id,
+        target_photo_id: null,
+        target_pair_low_user_id: null,
+        target_pair_high_user_id: null,
+        source_report_id: review.reportId,
+        restriction_episode_id: null,
+        audit_log_id: auditId,
+        notification_id: null,
+        command_id: commandId,
+        request_id: randomUUID(),
+        request_digest: digest('historical action'),
+        reason_code: 'admin_restrict',
+      })
+      .execute();
+    const decisions = new PostgresReviewDecisionWorkflow(database, notes);
+    expect(
+      await decisions.decide({ ...attempt, requiredPermission: 'view_reports' }, 'actioned'),
+    ).toMatchObject({ result: 'succeeded', value: { status: 'actioned', version: 3 } });
+    expect(
+      await database
+        .selectFrom('moderation.reports')
+        .select('status')
+        .where('id', '=', review.reportId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'actioned' });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_actions')
+        .select('id')
+        .where('source_report_id', '=', review.reportId)
+        .execute(),
+    ).toEqual([{ id: actionId }]);
+  });
+  it('commits one encrypted dismissal, action, event and audit across concurrent retries', async () => {
+    const { review, attempt } = await assignedReview();
+    const decisions = new PostgresReviewDecisionWorkflow(database, notes);
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        decisions.decide(attempt, 'dismissed', 'Private review decision'),
+      ),
+    );
+    expect(results.every((result) => result.result === 'succeeded')).toBe(true);
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    const row = await database
+      .selectFrom('moderation.moderation_reviews')
+      .selectAll()
+      .where('id', '=', review.reviewId)
+      .executeTakeFirstOrThrow();
+    expect(row).toMatchObject({
+      status: 'dismissed',
+      version: 3,
+      decision_note_key_id: 'review-key',
+      decision_note_key_version: 1,
+    });
+    expect(row.decision_note_ciphertext?.toString('utf8')).not.toContain('Private review decision');
+    expect(
+      await database
+        .selectFrom('moderation.reports')
+        .select(['status', 'version'])
+        .where('id', '=', review.reportId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'dismissed', version: 2 });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_actions')
+        .select(['action_type', 'source_report_id'])
+        .where('command_id', '=', attempt.commandId)
+        .execute(),
+    ).toEqual([{ action_type: 'dismiss_report', source_report_id: review.reportId }]);
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('command_id', '=', attempt.commandId)
+      .execute();
+    const events = await database
+      .selectFrom('platform.outbox_events')
+      .selectAll()
+      .where('causation_id', '=', attempt.commandId)
+      .execute();
+    expect(logs).toHaveLength(1);
+    expect(events).toHaveLength(1);
+    expect(JSON.stringify({ logs, events })).not.toContain('Private review decision');
+    await expect(decisions.decide(attempt, 'dismissed', 'changed')).rejects.toMatchObject({
+      code: 'idempotency_conflict',
+    });
+    expect(
+      await decisions.decide(
+        { ...attempt, commandId: randomUUID(), logId: randomUUID() },
+        'dismissed',
+      ),
+    ).toMatchObject({ result: 'rejected', safeCode: 'version_conflict' });
+  });
+  it('rejects unassigned reviewers, unsupported actioned outcomes and invalid notes without mutations', async () => {
+    const { review, attempt } = await assignedReview();
+    const decisions = new PostgresReviewDecisionWorkflow(database, notes);
+    const other = await createAdmin(database);
+    expect(await decisions.decide({ ...attempt, adminUserId: other }, 'dismissed')).toMatchObject({
+      result: 'rejected',
+      safeCode: 'reviewer_unauthorized',
+    });
+    expect(
+      await decisions.decide(
+        {
+          ...attempt,
+          commandId: randomUUID(),
+          logId: randomUUID(),
+          requiredPermission: 'view_reports',
+        },
+        'actioned',
+      ),
+    ).toMatchObject({ result: 'rejected', safeCode: 'report_unavailable' });
+    expect(
+      await decisions.decide(
+        { ...attempt, commandId: randomUUID(), logId: randomUUID() },
+        'dismissed',
+        'x'.repeat(2001),
+      ),
+    ).toMatchObject({ result: 'rejected', safeCode: 'admin_reason_invalid' });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['status', 'version'])
+        .where('id', '=', review.reviewId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'in_review', version: 2 });
+  });
+  it('rolls back partial decisions and records a single safe failure on retry', async () => {
+    const { review, attempt } = await assignedReview();
+    const store = new PostgresReviewDecisionStore();
+    const failing = new ReviewDecisionWorkflow(
+      new PostgresAdminCommandStore(database),
+      {
+        decide: async (context, write) => {
+          await store.decide(context, write);
+          throw new Error('Restricted provider diagnostics');
+        },
+      },
+      notes,
+      new SystemIdGenerator(),
+    );
+    expect(await failing.decide(attempt, 'dismissed')).toMatchObject({
+      result: 'failed',
+      safeCode: 'internal_error',
+    });
+    expect(await failing.decide(attempt, 'dismissed')).toMatchObject({
+      result: 'failed',
+      replayed: true,
+    });
+    expect(
+      await database
+        .selectFrom('moderation.reports')
+        .select('status')
+        .where('id', '=', review.reportId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'pending_review' });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_actions')
+        .select('id')
+        .where('command_id', '=', attempt.commandId)
+        .execute(),
+    ).toEqual([]);
+    expect(
+      await database
+        .selectFrom('platform.outbox_events')
+        .select('id')
+        .where('causation_id', '=', attempt.commandId)
+        .execute(),
+    ).toEqual([]);
   });
   it('binds assignment confirmation to one reviewer and audits stale or unauthorized assignments', async () => {
     const adminId = await createAdmin(database),
