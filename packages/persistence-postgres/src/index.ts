@@ -149,3 +149,4 @@ export * from './confirmed-support-store.js';
 export * from './confirmed-account-store.js';
 export * from './confirmed-photo-store.js';
 export * from './confirmed-internal-block-store.js';
+export * from './confirmed-review-assignment-store.js';

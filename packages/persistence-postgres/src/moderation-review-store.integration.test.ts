@@ -8,6 +8,9 @@ import type { AdminCommandAttempt } from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresModerationReviewWorkflow } from './moderation-review-store.js';
+import { PostgresConfirmedReviewAssignments } from './confirmed-review-assignment-store.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
+import type { AssignModerationReviewCommand } from '@nakh/contracts';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const genderOptionId = '20000000-0000-4000-8000-000000000001';
@@ -218,6 +221,103 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
 
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('binds assignment confirmation to one reviewer and audits stale or unauthorized assignments', async () => {
+    const adminId = await createAdmin(database),
+      assignee = await createAdmin(database),
+      other = await createAdmin(database),
+      unauthorized = await createAdmin(database, false);
+    const review = await createPendingReview(database, {
+      priority: 'normal',
+      createdAt: new Date(Date.now() - 10000),
+    });
+    const f = await confirmationFixture(database, adminId);
+    const commands = new PostgresConfirmedReviewAssignments(database, f.tokens, f.key);
+    const adminActionToken = await f.issue({
+      commandCode: 'moderation.assign-review',
+      requiredPermission: 'view_reports',
+      targetType: 'moderation_review',
+      targetId: review.reviewId,
+      expectedTargetVersion: 1,
+    });
+    const command: AssignModerationReviewCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.assign-review',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken,
+        confirmationToken: '',
+        expectedTargetVersion: 1,
+        reason: 'Restricted assignment reason',
+        assigneeAdminId: assignee,
+      },
+    };
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    const changed = { ...command, data: { ...command.data, assigneeAdminId: other } };
+    expect(await commands.execute(changed, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'invalid_request',
+    });
+    command.commandId = randomUUID();
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'succeeded',
+      value: { assignedAdminId: assignee, reviewVersion: 2 },
+    });
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'succeeded',
+      replayed: true,
+    });
+    const stale = {
+      ...command,
+      commandId: randomUUID(),
+      data: { ...command.data, assigneeAdminId: other },
+    };
+    stale.data.confirmationToken = await commands.prepare(stale, f.actor);
+    expect(await commands.execute(stale, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'version_conflict',
+    });
+    const denied = {
+      ...command,
+      commandId: randomUUID(),
+      data: {
+        ...command.data,
+        assigneeAdminId: unauthorized,
+        expectedTargetVersion: 2,
+        adminActionToken: await f.issue({
+          commandCode: 'moderation.assign-review',
+          requiredPermission: 'view_reports',
+          targetType: 'moderation_review',
+          targetId: review.reviewId,
+          expectedTargetVersion: 2,
+        }),
+      },
+    };
+    denied.data.confirmationToken = await commands.prepare(denied, f.actor);
+    expect(await commands.execute(denied, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'reviewer_unauthorized',
+    });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['assigned_admin_id', 'version'])
+        .where('id', '=', review.reviewId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ assigned_admin_id: assignee, version: 2 });
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    expect(logs).toHaveLength(4);
+    expect(JSON.stringify(logs)).not.toContain('Restricted assignment reason');
   });
 
   it('claims priority-first batches exactly once and replays without another mutation', async () => {
