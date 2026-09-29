@@ -20,7 +20,9 @@ import { runMigrations } from './migrations.js';
 import { PostgresModerationReviewWorkflow } from './moderation-review-store.js';
 import { PostgresConfirmedReviewAssignments } from './confirmed-review-assignment-store.js';
 import { confirmationFixture } from './testing/admin-confirmation.js';
-import type { AssignModerationReviewCommand } from '@nakh/contracts';
+import type { AssignModerationReviewCommand, DecideModerationReviewCommand } from '@nakh/contracts';
+import { PostgresConfirmedReviewDecisions } from './confirmed-review-decision-store.js';
+import { sql } from 'kysely';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const genderOptionId = '20000000-0000-4000-8000-000000000001';
@@ -266,6 +268,139 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
     return { adminId, review, attempt };
   }
   const notes = new AesGcmReviewNoteProtector('review-key', 1, Buffer.alloc(32, 17));
+  it('audits altered and missing confirmations, then serializes independently confirmed competing decisions', async () => {
+    const { adminId, review } = await assignedReview();
+    const f = await confirmationFixture(database, adminId);
+    const commands = new PostgresConfirmedReviewDecisions(database, f.tokens, f.key, notes);
+    const token = await f.issue({
+      commandCode: 'moderation.decide-review',
+      requiredPermission: 'dismiss_report',
+      targetType: 'moderation_review',
+      targetId: review.reviewId,
+      expectedTargetVersion: 2,
+    });
+    const command: DecideModerationReviewCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.decide-review',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: token,
+        confirmationToken: '',
+        expectedTargetVersion: 2,
+        reason: 'Private dismissal reason',
+        decision: 'dismissed',
+        note: 'Private dismissal note',
+      },
+    };
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'invalid_request',
+    });
+    command.commandId = randomUUID();
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    expect(
+      await commands.execute(
+        { ...command, data: { ...command.data, note: 'altered private note' } },
+        f.actor,
+      ),
+    ).toMatchObject({ result: 'rejected', safeCode: 'invalid_request' });
+    const contenders = await Promise.all(
+      Array.from({ length: 2 }, async () => {
+        const next = { ...command, commandId: randomUUID(), data: { ...command.data } };
+        next.data.confirmationToken = await commands.prepare(next, f.actor);
+        return next;
+      }),
+    );
+    const results = await Promise.all(contenders.map((next) => commands.execute(next, f.actor)));
+    expect(results.filter((result) => result.result === 'succeeded')).toHaveLength(1);
+    expect(results.filter((result) => result.result === 'rejected')).toHaveLength(1);
+    const winner = contenders[results.findIndex((result) => result.result === 'succeeded')]!;
+    expect(await commands.execute(winner, f.actor)).toMatchObject({
+      result: 'succeeded',
+      replayed: true,
+    });
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminId)
+      .where('command_code', '=', 'moderation.decide-review')
+      .execute();
+    expect(logs).toHaveLength(4);
+    expect(JSON.stringify(logs)).not.toContain('Private dismissal');
+    expect(JSON.stringify(logs)).not.toContain(token);
+  });
+  it('rechecks admin disablement after confirmation and safely records encryption failure', async () => {
+    const { adminId, review } = await assignedReview();
+    const f = await confirmationFixture(database, adminId);
+    const commands = new PostgresConfirmedReviewDecisions(database, f.tokens, f.key, {
+      protect: () => {
+        throw new Error('Restricted key provider diagnostics');
+      },
+    });
+    const command: DecideModerationReviewCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.decide-review',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: await f.issue({
+          commandCode: 'moderation.decide-review',
+          requiredPermission: 'dismiss_report',
+          targetType: 'moderation_review',
+          targetId: review.reviewId,
+          expectedTargetVersion: 2,
+        }),
+        confirmationToken: '',
+        expectedTargetVersion: 2,
+        reason: 'review resolution',
+        decision: 'dismissed',
+        note: 'Restricted note',
+      },
+    };
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'failed',
+      safeCode: 'internal_error',
+    });
+    command.commandId = randomUUID();
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    await database
+      .updateTable('administration.admin_users')
+      .set({
+        is_active: false,
+        disabled_at: sql<Date>`updated_at + interval '1 millisecond'`,
+        updated_at: sql<Date>`updated_at + interval '1 millisecond'`,
+        version: sql<number>`version + 1`,
+      })
+      .where('id', '=', adminId)
+      .execute();
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'forbidden',
+    });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['status', 'version'])
+        .where('id', '=', review.reviewId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'in_review', version: 2 });
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    expect(JSON.stringify(logs)).not.toContain('Restricted');
+  });
   it('finalizes an already actioned report without performing the prior action again', async () => {
     const { review, attempt, adminId } = await assignedReview();
     const report = await database

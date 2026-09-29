@@ -151,3 +151,4 @@ export * from './confirmed-photo-store.js';
 export * from './confirmed-internal-block-store.js';
 export * from './confirmed-review-assignment-store.js';
 export * from './review-decision-store.js';
+export * from './confirmed-review-decision-store.js';
