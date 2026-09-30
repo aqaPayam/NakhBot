@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { NakhDatabase } from '../database.js';
+import { CreateDirectNakhHandler } from '@nakh/application';
+import { PostgresDirectNakhStore } from '../direct-nakh-store.js';
+import { PostgresCreditLedgerStore } from '../credit-ledger-store.js';
+import { SystemIdGenerator } from '../foundation-store.js';
 
 export async function createReportUser(
   database: NakhDatabase,
@@ -89,4 +93,52 @@ export async function createReportFixtureAdmin(database: NakhDatabase): Promise<
     })
     .execute();
   return id;
+}
+
+export async function createReportNakh(
+  database: NakhDatabase,
+  reporter: string,
+  target: string,
+): Promise<string> {
+  const now = new Date();
+  for (const userId of [reporter, target]) {
+    await database
+      .insertInto('identity.user_settings')
+      .values({ user_id: userId, created_at: now, updated_at: now })
+      .onConflict((conflict) => conflict.column('user_id').doNothing())
+      .execute();
+    await database
+      .insertInto('billing.credit_accounts')
+      .values({ user_id: userId, created_at: now, updated_at: now })
+      .onConflict((conflict) => conflict.column('user_id').doNothing())
+      .execute();
+    await database
+      .insertInto('notification.notification_preferences')
+      .values({ user_id: userId, created_at: now, updated_at: now })
+      .onConflict((conflict) => conflict.column('user_id').doNothing())
+      .execute();
+  }
+  await new PostgresCreditLedgerStore(database).append({
+    transactionId: randomUUID(),
+    userId: target,
+    transactionType: 'admin_adjustment',
+    amount: 2n,
+    idempotencyKey: randomUUID(),
+    correlationId: randomUUID(),
+  });
+  const result = await new CreateDirectNakhHandler(
+    new PostgresDirectNakhStore(database),
+    new SystemIdGenerator(),
+  ).execute({
+    commandType: 'nakh.create-direct',
+    schemaVersion: 1,
+    commandId: randomUUID(),
+    requestId: randomUUID(),
+    idempotencyKey: randomUUID(),
+    actor: { kind: 'user', userId: target },
+    occurredAt: now.toISOString(),
+    locale: 'en',
+    data: { targetUserId: reporter, text: 'Private Nakh text is not report evidence' },
+  });
+  return result.nakhId;
 }

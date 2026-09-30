@@ -10,6 +10,7 @@ import {
   USER_REPORT_LIMIT,
   USER_REPORT_WINDOW_MS,
   canSubmitAppeal,
+  canSubmitUserReport,
   canTransitionModerationReview,
   canUseSupport,
   evaluateAdminPermission,
@@ -28,6 +29,12 @@ import {
 const now = new Date('2026-09-26T12:00:00.000Z');
 
 describe('M7 moderation policy', () => {
+  it('keeps safety reporting available to restricted users and rejects non-reporting account routes', () => {
+    expect(canSubmitUserReport('active')).toBe(true);
+    expect(canSubmitUserReport('restricted')).toBe(true);
+    for (const state of ['guest', 'incomplete', 'banned', 'deleted'] as const)
+      expect(canSubmitUserReport(state)).toBe(false);
+  });
   it('normalizes restricted text and enforces scalar limits', () => {
     expect(normalizeReportText('  Cafe\u0301  ')).toBe('Café');
     expect(normalizeReportText(' \n\t ')).toBeUndefined();

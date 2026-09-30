@@ -10,6 +10,10 @@ export const USER_REPORT_LIMIT = 10;
 export const USER_REPORT_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const REPORT_THRESHOLD_DISTINCT_REPORTERS = 5;
 export const REPORT_THRESHOLD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+/** Relationship authorization is additional; old report buttons cannot bypass account routing. */
+export function canSubmitUserReport(state: AccountState): boolean {
+  return state === 'active' || state === 'restricted';
+}
 export const SUPPORT_UNANSWERED_LIMIT = 2;
 
 export const REPORT_EVIDENCE_TYPES = [

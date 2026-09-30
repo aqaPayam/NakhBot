@@ -1,4 +1,4 @@
-import { createDecipheriv, randomUUID } from 'node:crypto';
+import { createDecipheriv, createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -21,6 +21,7 @@ import { SystemIdGenerator } from './foundation-store.js';
 import {
   createReportFixtureAdmin,
   createReportLike,
+  createReportNakh,
   createReportUser,
 } from './testing/report-fixture.js';
 
@@ -78,13 +79,19 @@ describe.skipIf(databaseUrl === undefined)('transactional encrypted profile repo
       await database.destroy();
     }
   });
-  async function command(target?: string): Promise<SubmitReportCommand> {
-    const reporter = await createReportUser(database);
+  async function command(
+    target?: string,
+    sourceKind: 'received_like' | 'received_nakh' = 'received_like',
+  ): Promise<SubmitReportCommand> {
+    const reporter = await createReportUser(database, sourceKind === 'received_nakh');
     reporters.push(reporter);
     const targetId = target ?? (await createReportUser(database, true));
     const source = await tokens.issueSource(reporter, {
-      kind: 'received_like',
-      referenceId: await createReportLike(database, reporter, targetId),
+      kind: sourceKind,
+      referenceId:
+        sourceKind === 'received_like'
+          ? await createReportLike(database, reporter, targetId)
+          : await createReportNakh(database, reporter, targetId),
     });
     const actor = { kind: 'user' as const, userId: reporter };
     const prepared = await new PostgresPrepareProfileReportEvidenceHandler(
@@ -335,5 +342,168 @@ describe.skipIf(databaseUrl === undefined)('transactional encrypted profile repo
         .execute(),
     ).toHaveLength(0);
     await expect(normal.execute(input, input.actor)).resolves.toMatchObject({ replayed: false });
+  });
+  it('submits profile-only evidence from a real funded Nakh and denies its sender and unrelated users', async () => {
+    const input = await command(undefined, 'received_nakh');
+    const intent = (await tokens.resolveIntent(
+      input.data.evidenceIntentToken,
+      input.actor.userId,
+    ))!;
+    const preparation = new PostgresPrepareProfileReportEvidenceHandler(database, tokens);
+    for (const userId of [intent.targetUserId, await createReportUser(database)]) {
+      const source = await tokens.issueSource(userId, intent.source),
+        actor = { kind: 'user' as const, userId };
+      await expect(
+        preparation.execute(
+          {
+            actor,
+            requestId: randomUUID(),
+            sourceActionToken: source.token,
+            requestedEvidenceTypes: ['profile'],
+          },
+          actor,
+        ),
+      ).rejects.toMatchObject({ code: 'report_unavailable' });
+    }
+    const handler = new PostgresSubmitProfileReportHandler(database, tokens, snapshots);
+    const result = await handler.execute(input, input.actor);
+    await expect(handler.execute(input, input.actor)).resolves.toMatchObject({
+      reportId: result.reportId,
+      replayed: true,
+    });
+    const evidence = await database
+      .selectFrom('moderation.report_evidence')
+      .select(['evidence_type', 'profile_id', 'chat_message_id'])
+      .where('report_id', '=', result.reportId)
+      .execute();
+    expect(evidence).toEqual([
+      {
+        evidence_type: 'profile',
+        profile_id: intent.evidence[0]!.referenceId,
+        chat_message_id: null,
+      },
+    ]);
+    const snapshot = await database
+      .selectFrom('moderation.report_snapshots')
+      .select(['snapshot_type', 'content_sha256'])
+      .where('report_id', '=', result.reportId)
+      .executeTakeFirstOrThrow();
+    expect(snapshot).toEqual({
+      snapshot_type: 'profile',
+      content_sha256: createHash('sha256')
+        .update(
+          JSON.stringify({
+            evidenceType: 'profile',
+            displayName: 'Private report fixture',
+            birthYear: 1995,
+            bio: 'Private report bio',
+          }),
+        )
+        .digest('hex'),
+    });
+    const events = await database
+      .selectFrom('platform.outbox_events')
+      .select('payload')
+      .where('causation_id', '=', input.commandId)
+      .execute();
+    for (const secret of [
+      intent.source.referenceId,
+      input.actor.userId,
+      intent.targetUserId,
+      'Private Nakh text',
+      'private report text',
+    ])
+      expect(JSON.stringify(events)).not.toContain(secret);
+  });
+  it('rejects a cached report intent after a ban and allows safety reporting after restriction', async () => {
+    const input = await command();
+    const intent = (await tokens.resolveIntent(
+      input.data.evidenceIntentToken,
+      input.actor.userId,
+    ))!;
+    const source = await tokens.issueSource(input.actor.userId, intent.source);
+    await database
+      .updateTable('identity.accounts')
+      .set({
+        state: 'banned',
+        state_reason: 'fixture_ban',
+        state_changed_at: new Date(),
+        version: 2,
+      })
+      .where('user_id', '=', input.actor.userId)
+      .execute();
+    await expect(
+      new PostgresPrepareProfileReportEvidenceHandler(database, tokens).execute(
+        {
+          actor: input.actor,
+          requestId: randomUUID(),
+          sourceActionToken: source.token,
+          requestedEvidenceTypes: ['profile'],
+        },
+        input.actor,
+      ),
+    ).rejects.toMatchObject({ code: 'report_unavailable' });
+    const handler = new PostgresSubmitProfileReportHandler(database, tokens, snapshots);
+    await expect(handler.execute(input, input.actor)).rejects.toMatchObject({
+      code: 'report_unavailable',
+    });
+    expect(
+      await database
+        .selectFrom('moderation.reports')
+        .select('id')
+        .where('reporter_user_id', '=', input.actor.userId)
+        .execute(),
+    ).toHaveLength(0);
+    await database
+      .updateTable('identity.accounts')
+      .set({
+        state: 'restricted',
+        state_reason: 'fixture_restriction',
+        state_changed_at: new Date(),
+        version: 3,
+      })
+      .where('user_id', '=', input.actor.userId)
+      .execute();
+    await expect(handler.execute(input, input.actor)).resolves.toMatchObject({ replayed: false });
+  });
+  it('admits reciprocal reports without reversing account locks', async () => {
+    const first = await createReportUser(database, true),
+      second = await createReportUser(database, true);
+    reporters.push(first, second);
+    async function reciprocal(actorUserId: string, target: string): Promise<SubmitReportCommand> {
+      const actor = { kind: 'user' as const, userId: actorUserId };
+      const source = await tokens.issueSource(actorUserId, {
+        kind: 'received_like',
+        referenceId: await createReportLike(database, actorUserId, target),
+      });
+      const prepared = await new PostgresPrepareProfileReportEvidenceHandler(
+        database,
+        tokens,
+      ).execute(
+        {
+          actor,
+          requestId: randomUUID(),
+          sourceActionToken: source.token,
+          requestedEvidenceTypes: ['profile'],
+        },
+        actor,
+      );
+      return {
+        actor,
+        commandType: 'moderation.submit-report',
+        schemaVersion: 1,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: { evidenceIntentToken: prepared.evidenceIntentToken, reasonCode: 'harassment' },
+      };
+    }
+    const commands = await Promise.all([reciprocal(first, second), reciprocal(second, first)]);
+    const handler = barrierHandler(2);
+    const results = await Promise.all(commands.map((input) => handler.execute(input, input.actor)));
+    expect(results).toHaveLength(2);
+    expect(new Set(results.map((result) => result.reportId)).size).toBe(2);
   });
 });

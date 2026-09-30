@@ -10,7 +10,7 @@ import {
   type ReportTokens,
 } from '@nakh/application';
 import type { ReportSubmissionResult } from '@nakh/contracts';
-import { ApplicationError } from '@nakh/domain';
+import { ApplicationError, canSubmitUserReport } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
 import { SystemIdGenerator } from './foundation-store.js';
 import { resolveProfileReportSource } from './profile-report-source-store.js';
@@ -78,13 +78,17 @@ export class PostgresProfileReportSubmissionStore implements ProfileReportSubmis
       await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${write.intent.targetUserId}::text, 0))`.execute(
         transaction,
       );
-      const account = await transaction
+      // Lock both accounts in canonical order so reciprocal reports cannot deadlock.
+      const accounts = await transaction
         .selectFrom('identity.accounts')
-        .select('user_id')
-        .where('user_id', '=', write.intent.targetUserId)
+        .select(['user_id', 'state'])
+        .where('user_id', 'in', [write.actorUserId, write.intent.targetUserId])
+        .orderBy('user_id')
         .forUpdate()
-        .executeTakeFirst();
-      if (account === undefined) throw reportUnavailable();
+        .execute();
+      const reporter = accounts.find((row) => row.user_id === write.actorUserId);
+      if (accounts.length !== 2 || reporter === undefined || !canSubmitUserReport(reporter.state))
+        throw reportUnavailable();
       const authorized = await resolveProfileReportSource(
         transaction,
         write.actorUserId,

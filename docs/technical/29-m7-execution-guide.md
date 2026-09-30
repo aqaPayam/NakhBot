@@ -365,7 +365,7 @@ checkpoint and wait for that exact commit to turn green before advancing.
 
 ## 13. Definition of done
 
-### Current implementation evidence (2026-09-29)
+### Current implementation evidence (2026-09-30)
 
 Support and exact-ban appeal persistence, audited terminal reviews, and a separate permission-checked
 unban command are implemented. The presentation work includes seeded English fallback keys and
@@ -394,8 +394,11 @@ authoritative. Photo delivery revocation failures are sanitized and recorded as 
 Review decisions use the target threshold lock, preserve assignee/version checks, and atomically
 write matching Report/Review statuses, audit, and a content-free event. Dismissal writes its own
 append-only ModerationAction under migration `000055`; actioned outcomes require a pre-existing
-admin action linked to that Report and never execute another account/photo/pair action. Linking
-source Reports through the existing account/photo action ingress remains outstanding.
+admin action linked to that Report and never execute another account/photo/pair action. Account and
+photo confirmations now retain an opaque source Report context. Commit-time checks require the
+matching target, unresolved Report and current assigned reviewer. Migration `000056` also enforces
+linked action scope and deferred successful admin-attempt evidence. Finalizing a review never repeats
+the underlying account/photo action.
 
 Optional report review notes are normalized and encrypted before the transaction with a fresh
 AES-GCM nonce and review/key-version associated data. The write capability exposes no reveal path.
@@ -411,10 +414,33 @@ the contract's report ID, reason code, evidence types, status, priority, submiss
 count and version. They expose neither reporter/target identity nor restricted content. Tests cover
 pagination ties, forged/cross-scope/expired cursors, bounded reads, and disabled-admin access.
 
-Checkpoint 8 remains partial. Report submission and encrypted snapshot/evidence-reveal application
-services, report/evidence presentation, provider-neutral authenticated HTTP endpoints, admin ingress,
-and remaining moderation presentation still need implementation. Reconciliation, M7 production-volume
-query-plan/load gates, metrics/alarms, and real Telegram/admin staging evidence remain outstanding.
+Profile-only report preparation and submission now support authoritative received-Like and received-Nakh
+relationships. Five-minute signed opaque references bind the authenticated reporter and retain source,
+target and evidence IDs server-side. Preparation and commit recheck current account eligibility;
+active and restricted users may report valid evidence, while guest/incomplete/banned/deleted routes
+cannot submit a new report. Visibility is not used to retract an existing evidence relationship.
+Other evidence selections fail explicitly. Nakh text is neither selected nor copied into evidence.
+
+Submission locks reporter admission and target threshold state, reauthorizes the source, and captures
+the locked Profile in the same transaction as the Report, typed evidence, pending review and safe
+outbox event. AES-GCM snapshots bind report/evidence IDs, schema/type, key identity/version and content
+hash; the write capability exposes no decryption method. The daily ten-report limit admits committed
+reports only. Durable command/idempotency replay precedes expiring token resolution, returns the
+original submission receipt and rejects changed data. Threshold evaluation captures one post-lock
+database instant with microsecond precision, so transactions that started earlier count later commits.
+
+Unit evidence covers token actor/purpose/expiry, typed encryption/tampering and authenticated replay.
+PostgreSQL evidence covers real received-Nakh creation through the existing funded flow, unauthorized
+sources, post-preparation bans, simultaneous duplicate submissions, ten-of-twelve admission, five
+distinct reporters producing one restriction, older transaction start ordering, snapshot failure
+rollback and content-free report events. Schema bootstrap/upgrade/replay evidence remains part of CI.
+No authenticated report HTTP/Telegram ingress or real report delivery is claimed.
+
+Checkpoint 8 remains partial. Photo/chat/message/unmatched-user submission and snapshot composition,
+audited evidence-reveal services, report/evidence presentation, provider-neutral authenticated HTTP
+endpoints, admin ingress and remaining moderation presentation still need implementation.
+Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
+staging evidence remain outstanding.
 
 M7 is code-complete only when `ACC-039..041`, authorization/privacy/snapshot tests, threshold/admin/
 internal-block/support/appeal races, reconciliation, retention, production-shaped plans, operations
