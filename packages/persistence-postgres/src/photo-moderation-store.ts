@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { ApplicationError } from '@nakh/domain';
 
 import {
   PhotoModerationWorkflow,
@@ -30,6 +31,25 @@ export class PostgresPhotoModerationStore implements PhotoModerationWorkflowStor
     database: NakhDatabase,
     write: PhotoModerationWrite,
   ): Promise<PhotoModerationResult> {
+    if (write.sourceReportId !== undefined) {
+      const target = await database
+        .selectFrom('media.profile_photos as photo')
+        .innerJoin('profile.profiles as profile', 'profile.id', 'photo.profile_id')
+        .innerJoin('moderation.reports as report', 'report.target_user_id', 'profile.user_id')
+        .select('profile.user_id')
+        .where('photo.id', '=', write.photoId)
+        .where('report.id', '=', write.sourceReportId)
+        .executeTakeFirst();
+      if (target === undefined)
+        throw new ApplicationError(
+          'report_unavailable',
+          'error.moderation.review_unavailable',
+          409,
+        );
+      await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${target.user_id}::text, 0))`.execute(
+        database,
+      );
+    }
     const time = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(database);
     const occurredAt = time.rows[0]!.now;
     const result = await applyPhotoModeration(database, {
@@ -38,7 +58,7 @@ export class PostgresPhotoModerationStore implements PhotoModerationWorkflowStor
       expectedPhotoVersion: write.expectedPhotoVersion,
       action: lifecycleAction(write.action),
       reasonCode: write.reasonCode,
-      sourceReportId: null,
+      sourceReportId: write.sourceReportId ?? null,
       moderationId: write.moderationId,
       auditId: write.auditId,
       eventId: write.eventId,
@@ -47,6 +67,38 @@ export class PostgresPhotoModerationStore implements PhotoModerationWorkflowStor
       commandId: write.commandId,
       occurredAt,
     });
+    // The lifecycle owns user/profile/photo locks. Validate and lock report/review next; any
+    // rejection rolls its photo history, audit and state changes back to the command savepoint.
+    if (write.sourceReportId !== undefined) {
+      const report = await database
+        .selectFrom('moderation.reports')
+        .select(['target_user_id', 'status'])
+        .where('id', '=', write.sourceReportId)
+        .forUpdate()
+        .executeTakeFirst();
+      const review = await database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['status', 'assigned_admin_id'])
+        .where('report_id', '=', write.sourceReportId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        report?.target_user_id !== result.targetUserId ||
+        report.status !== 'pending_review' ||
+        review?.status !== 'in_review'
+      )
+        throw new ApplicationError(
+          'report_unavailable',
+          'error.moderation.review_unavailable',
+          409,
+        );
+      if (review.assigned_admin_id !== write.adminUserId)
+        throw new ApplicationError(
+          'reviewer_unauthorized',
+          'error.moderation.reviewer_unauthorized',
+          403,
+        );
+    }
     await database
       .insertInto('moderation.moderation_actions')
       .values({
@@ -58,7 +110,7 @@ export class PostgresPhotoModerationStore implements PhotoModerationWorkflowStor
         target_photo_id: write.photoId,
         target_pair_low_user_id: null,
         target_pair_high_user_id: null,
-        source_report_id: null,
+        source_report_id: write.sourceReportId ?? null,
         restriction_episode_id: null,
         audit_log_id: write.auditId,
         notification_id: null,

@@ -27,6 +27,9 @@ import type { RawBuilder } from 'kysely';
 import { PostgresGetReportMetadataPageHandler } from './report-metadata-store.js';
 import { PostgresConfirmedAccountActions } from './confirmed-account-store.js';
 import type { ApplyAccountModerationActionCommand } from '@nakh/contracts';
+import type { ApplyPhotoModerationActionCommand } from '@nakh/contracts';
+import { PostgresConfirmedPhotoActions } from './confirmed-photo-store.js';
+import { seedValidMedia } from './media-fixtures.js';
 import type { GetReportMetadataPageQuery, ReportMetadataPage } from '@nakh/contracts';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
@@ -277,6 +280,140 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
     return { adminId, review, attempt };
   }
   const notes = new AesGcmReviewNoteProtector('review-key', 1, Buffer.alloc(32, 17));
+  it('links photo history and the safety action to one report and rolls back reuse after finalization', async () => {
+    const { review, attempt, adminId } = await assignedReview();
+    const profile = await database
+      .selectFrom('moderation.reports as report')
+      .innerJoin('profile.profiles as profile', 'profile.user_id', 'report.target_user_id')
+      .select(['profile.id', 'profile.user_id'])
+      .where('report.id', '=', review.reportId)
+      .executeTakeFirstOrThrow();
+    await database
+      .insertInto('identity.accounts')
+      .values({
+        user_id: profile.user_id,
+        state: 'active',
+        state_reason: null,
+        state_changed_at: new Date(),
+      })
+      .execute();
+    const assetId = await seedValidMedia(database, profile.user_id),
+      photoId = randomUUID(),
+      now = new Date();
+    await database
+      .insertInto('media.profile_photos')
+      .values({
+        id: photoId,
+        profile_id: profile.id,
+        asset_id: assetId,
+        status: 'visible',
+        is_primary: true,
+        display_order: 0,
+        created_at: now,
+        updated_at: now,
+        hidden_at: null,
+        deleted_at: null,
+      })
+      .execute();
+    const f = await confirmationFixture(database, adminId);
+    const commands = new PostgresConfirmedPhotoActions(database, f.tokens, f.key, {
+      execute: () => Promise.resolve(),
+    });
+    const command: ApplyPhotoModerationActionCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.apply-photo-action',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: now.toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: await f.issue({
+          commandCode: 'moderation.apply-photo-action',
+          requiredPermission: 'hide_photo',
+          targetType: 'photo',
+          targetId: photoId,
+          expectedTargetVersion: 1,
+          sourceReportId: review.reportId,
+        }),
+        confirmationToken: '',
+        expectedTargetVersion: 1,
+        reason: 'Reviewed photo report',
+        action: 'hide_photo',
+      },
+    };
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'succeeded',
+      value: { nextStatus: 'hidden' },
+    });
+    expect(await commands.execute(command, f.actor)).toMatchObject({
+      result: 'succeeded',
+      replayed: true,
+    });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_actions')
+        .select(['source_report_id', 'target_photo_id'])
+        .where('command_id', '=', command.commandId)
+        .execute(),
+    ).toEqual([{ source_report_id: review.reportId, target_photo_id: photoId }]);
+    expect(
+      await database
+        .selectFrom('media.photo_moderation_records')
+        .select('report_id')
+        .where('photo_id', '=', photoId)
+        .execute(),
+    ).toEqual([{ report_id: review.reportId }]);
+    const decisions = new PostgresReviewDecisionWorkflow(database, notes);
+    expect(
+      await decisions.decide({ ...attempt, requiredPermission: 'view_reports' }, 'actioned'),
+    ).toMatchObject({ result: 'succeeded' });
+    const restore: ApplyPhotoModerationActionCommand = {
+      ...command,
+      commandId: randomUUID(),
+      data: {
+        ...command.data,
+        action: 'restore_photo',
+        expectedTargetVersion: 2,
+        adminActionToken: await f.issue({
+          commandCode: 'moderation.apply-photo-action',
+          requiredPermission: 'restore_photo',
+          targetType: 'photo',
+          targetId: photoId,
+          expectedTargetVersion: 2,
+          sourceReportId: review.reportId,
+        }),
+      },
+    };
+    restore.data.confirmationToken = await commands.prepare(restore, f.actor);
+    expect(await commands.execute(restore, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'report_unavailable',
+    });
+    expect(
+      await database
+        .selectFrom('media.profile_photos')
+        .select(['status', 'version'])
+        .where('id', '=', photoId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'hidden', version: 2 });
+    expect(
+      await database
+        .selectFrom('media.photo_moderation_records')
+        .select('report_id')
+        .where('photo_id', '=', photoId)
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('platform.outbox_events')
+        .select('id')
+        .where('causation_id', '=', restore.commandId)
+        .execute(),
+    ).toEqual([]);
+  });
   it('pages privacy-safe metadata without skipping microsecond ties and rechecks authorization for every page', async () => {
     const adminId = await createAdmin(database);
     const fixtures: string[] = [];

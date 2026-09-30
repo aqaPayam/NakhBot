@@ -109,8 +109,9 @@ function validScope(value: AdminActionScope): boolean {
     (value.sourceReportId === undefined ||
       (typeof value.sourceReportId === 'string' &&
         UUID.test(value.sourceReportId) &&
-        value.commandCode === 'moderation.apply-account-action' &&
-        value.targetType === 'user' &&
+        ((value.commandCode === 'moderation.apply-account-action' && value.targetType === 'user') ||
+          (value.commandCode === 'moderation.apply-photo-action' &&
+            value.targetType === 'photo')) &&
         value.targetId !== null)) &&
     (value.targetType === 'user_pair') === (value.targetPair !== undefined)
   );

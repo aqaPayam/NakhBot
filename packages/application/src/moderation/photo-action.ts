@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   ApplicationError,
   requiredPermissionForModerationAction,
@@ -31,6 +32,7 @@ export type PhotoModerationResult = Readonly<{
 }>;
 
 export type PhotoModerationWrite = Readonly<{
+  sourceReportId?: string;
   action: PhotoAdminAction;
   adminUserId: string;
   photoId: string;
@@ -105,14 +107,24 @@ export class PhotoModerationWorkflow<TContext> {
         purgeFailed = true;
       }
     }
+    const boundAttempt =
+      attempt.sourceReportId === undefined
+        ? attempt
+        : {
+            ...attempt,
+            requestDigest: createHash('sha256')
+              .update(JSON.stringify([attempt.requestDigest, attempt.sourceReportId]))
+              .digest('hex'),
+          };
     const write: PhotoModerationWrite = {
+      ...(attempt.sourceReportId === undefined ? {} : { sourceReportId: attempt.sourceReportId }),
       action,
       adminUserId: attempt.adminUserId,
       photoId: attempt.targetId,
       expectedPhotoVersion: expectedVersion,
       requestId: attempt.requestId,
       commandId: attempt.commandId,
-      requestDigest: attempt.requestDigest,
+      requestDigest: boundAttempt.requestDigest,
       reasonCode: reasonCode(action),
       moderationId: this.ids.uuid(),
       auditId: this.ids.uuid(),
@@ -121,7 +133,7 @@ export class PhotoModerationWorkflow<TContext> {
       actionId: this.ids.uuid(),
       actionEventId: this.ids.uuid(),
     };
-    return this.commands.execute(attempt, async (context) => {
+    return this.commands.execute(boundAttempt, async (context) => {
       if (purgeFailed) throw new Error('Photo delivery revocation unavailable.');
       return { value: await this.photos.apply(context, write), safeCode: `photo_${action}` };
     });

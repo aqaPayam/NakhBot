@@ -130,8 +130,12 @@ export function validateAdminCommandAttempt(attempt: AdminCommandAttempt): void 
     !pairValid ||
     (attempt.sourceReportId !== undefined &&
       (!isUuid(attempt.sourceReportId) ||
-        attempt.commandCode !== 'moderation.apply-account-action' ||
-        attempt.targetType !== 'user')) ||
+        !(
+          (attempt.commandCode === 'moderation.apply-account-action' &&
+            attempt.targetType === 'user') ||
+          (attempt.commandCode === 'moderation.apply-photo-action' &&
+            attempt.targetType === 'photo')
+        ))) ||
     (attempt.targetType === 'user_pair') !== (attempt.targetPair !== undefined)
   )
     throw new Error('Admin command attempt is invalid.');
