@@ -54,7 +54,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           );
         }
         expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-          55 - baseline,
+          56 - baseline,
         );
         await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
         expect((await runMigrations(targetUrl.toString(), directory)).applied).toEqual([]);
@@ -155,6 +155,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000053_m7_appeal_unban.sql',
         '000054_m7_localization.sql',
         '000055_m7_review_decisions.sql',
+        '000056_m7_action_report_scope.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -204,9 +205,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000053_m7_appeal_unban.sql');
       expect(verified).toContain('000054_m7_localization.sql');
       expect(verified).toContain('000055_m7_review_decisions.sql');
+      expect(verified).toContain('000056_m7_action_report_scope.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(55);
+      expect(replay.existing).toHaveLength(56);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

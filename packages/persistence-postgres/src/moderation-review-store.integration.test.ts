@@ -280,6 +280,107 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
     return { adminId, review, attempt };
   }
   const notes = new AesGcmReviewNoteProtector('review-key', 1, Buffer.alloc(32, 17));
+  it('rejects direct report-linked effects with wrong targets or missing/failed admin attempts', async () => {
+    const { review, adminId } = await assignedReview();
+    const report = await database
+      .selectFrom('moderation.reports')
+      .select('target_user_id')
+      .where('id', '=', review.reportId)
+      .executeTakeFirstOrThrow();
+    const wrongTarget = await createUser(database);
+    const commandIds: string[] = [];
+    async function insert(
+      targetId: string,
+      result: 'succeeded' | 'rejected' | undefined,
+    ): Promise<void> {
+      const commandId = randomUUID(),
+        requestId = randomUUID(),
+        auditId = randomUUID(),
+        requestDigest = digest(commandId);
+      commandIds.push(commandId);
+      await database.transaction().execute(async (transaction) => {
+        await transaction
+          .insertInto('platform.audit_logs')
+          .values({
+            id: auditId,
+            category: 'admin',
+            event_type: 'moderation.action-recorded.v1',
+            actor_type: 'admin',
+            actor_user_id: null,
+            actor_admin_id: adminId,
+            subject_type: 'user',
+            subject_id: targetId,
+            result_code: 'restricted',
+            metadata_schema_version: 1,
+            metadata: {},
+            request_id: requestId,
+            command_id: commandId,
+            occurred_at: new Date(),
+          })
+          .execute();
+        await transaction
+          .insertInto('moderation.moderation_actions')
+          .values({
+            id: randomUUID(),
+            action_type: 'restrict_user',
+            actor_type: 'admin',
+            actor_admin_id: adminId,
+            target_user_id: targetId,
+            target_photo_id: null,
+            target_pair_low_user_id: null,
+            target_pair_high_user_id: null,
+            source_report_id: review.reportId,
+            restriction_episode_id: null,
+            audit_log_id: auditId,
+            notification_id: null,
+            command_id: commandId,
+            request_id: requestId,
+            request_digest: requestDigest,
+            reason_code: 'admin_restrict_user',
+          })
+          .execute();
+        if (result !== undefined)
+          await transaction
+            .insertInto('administration.admin_action_logs')
+            .values({
+              id: randomUUID(),
+              admin_user_id: adminId,
+              command_id: commandId,
+              request_id: requestId,
+              request_digest: requestDigest,
+              command_code: 'moderation.apply-account-action',
+              target_type: 'user',
+              target_id: targetId,
+              expected_target_version: 1,
+              result,
+              safe_code: result === 'succeeded' ? 'account_restrict_user' : 'forbidden',
+              reason_digest: digest('reason'),
+              metadata: {},
+              correlation_id: requestId,
+            })
+            .execute();
+      });
+    }
+    await expect(insert(wrongTarget, 'succeeded')).rejects.toMatchObject({ code: '23514' });
+    await expect(insert(report.target_user_id, undefined)).rejects.toMatchObject({ code: '23514' });
+    await expect(insert(report.target_user_id, 'rejected')).rejects.toMatchObject({
+      code: '23514',
+    });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_actions')
+        .select('id')
+        .where('command_id', 'in', commandIds)
+        .execute(),
+    ).toEqual([]);
+    expect(
+      await database
+        .selectFrom('administration.admin_action_logs')
+        .select('id')
+        .where('command_id', 'in', commandIds)
+        .execute(),
+    ).toEqual([]);
+  });
   it('links photo history and the safety action to one report and rolls back reuse after finalization', async () => {
     const { review, attempt, adminId } = await assignedReview();
     const profile = await database
