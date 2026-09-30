@@ -437,8 +437,16 @@ distinct reporters producing one restriction, older transaction start ordering, 
 rollback and content-free report events. Schema bootstrap/upgrade/replay evidence remains part of CI.
 No authenticated report HTTP/Telegram ingress or real report delivery is claimed.
 
+An internal profile reveal store now checks current permissions and decrypts the captured snapshot
+inside the admin command transaction. A required actor-bound evidence access audit commits with the
+sanitized admin outcome before plaintext can be returned. Missing keys, invalid snapshots and denied
+permissions release no content; audit failures abort the whole attempt. Concurrent retries return
+one content result and one audit. Replays never decrypt or reload content. Keys must be preloaded;
+the transaction performs bounded local cryptography only. Confirmation and transport integration
+remain outstanding for this internal capability.
+
 Checkpoint 8 remains partial. Photo/chat/message/unmatched-user submission and snapshot composition,
-audited evidence-reveal services, report/evidence presentation, provider-neutral authenticated HTTP
+confirmed evidence-reveal services, report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
 staging evidence remain outstanding.
