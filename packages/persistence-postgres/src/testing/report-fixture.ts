@@ -6,6 +6,43 @@ import { PostgresCreditLedgerStore } from '../credit-ledger-store.js';
 import { SystemIdGenerator } from '../foundation-store.js';
 import { PostgresCandidateDeliveryStore } from '../candidate-delivery-store.js';
 
+export async function createReportChat(
+  database: NakhDatabase,
+  first: string,
+  second: string,
+): Promise<Readonly<{ matchId: string; chatSessionId: string }>> {
+  const matchId = await createReportMatch(database, first, second),
+    chatSessionId = randomUUID(),
+    now = new Date();
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .insertInto('chat.chat_sessions')
+      .values({
+        id: chatSessionId,
+        match_id: matchId,
+        status: 'active',
+        created_at: now,
+        closed_at: null,
+        closed_reason: null,
+      })
+      .execute();
+    await transaction
+      .insertInto('chat.chat_participants')
+      .values(
+        [first, second].map((userId) => ({
+          chat_session_id: chatSessionId,
+          user_id: userId,
+          last_read_at: null,
+          last_read_sequence_number: null,
+          muted_at: null,
+          unlock_safety_warning_shown_at: null,
+        })),
+      )
+      .execute();
+  });
+  return { matchId, chatSessionId };
+}
+
 export async function createReportMatch(
   database: NakhDatabase,
   first: string,
