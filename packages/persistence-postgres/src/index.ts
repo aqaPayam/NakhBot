@@ -153,3 +153,4 @@ export * from './confirmed-review-assignment-store.js';
 export * from './review-decision-store.js';
 export * from './confirmed-review-decision-store.js';
 export * from './report-metadata-store.js';
+export * from './profile-report-source-store.js';

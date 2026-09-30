@@ -136,3 +136,4 @@ export * from './moderation/report-metadata-cursor.js';
 export * from './moderation/report-metadata.js';
 export * from './moderation/report-tokens.js';
 export * from './moderation/profile-report-snapshot.js';
+export * from './moderation/prepare-profile-report.js';
