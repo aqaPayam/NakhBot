@@ -8,6 +8,7 @@ import { runMigrations } from './migrations.js';
 import { PostgresPrepareProfileReportEvidenceHandler } from './profile-report-source-store.js';
 import {
   createReportDelivery,
+  createReportMatch,
   createReportLike,
   createReportUser,
 } from './testing/report-fixture.js';
@@ -27,6 +28,26 @@ describe.skipIf(databaseUrl === undefined)('authoritative profile report sources
   });
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('resolves the opposite active match participant and rejects outsiders and closed matches', async () => {
+    const first = await createReportUser(database, true),
+      second = await createReportUser(database, true);
+    const outsider = await createReportUser(database),
+      store = new PostgresProfileReportSourceStore(database);
+    const source = {
+      kind: 'match' as const,
+      referenceId: await createReportMatch(database, first, second),
+    };
+    expect((await store.resolve(first, source))?.targetUserId).toBe(second);
+    expect((await store.resolve(second, source))?.targetUserId).toBe(first);
+    expect(await store.resolve(outsider, source)).toBeUndefined();
+    await database
+      .updateTable('matching.matches')
+      .set({ status: 'closed', closed_at: new Date(), version: 2 })
+      .where('id', '=', source.referenceId)
+      .execute();
+    expect(await store.resolve(first, source)).toBeUndefined();
+    expect(await store.resolve(second, source)).toBeUndefined();
   });
   it('requires delivery success and exact viewer ownership before accepting discovery evidence', async () => {
     const viewer = await createReportUser(database),

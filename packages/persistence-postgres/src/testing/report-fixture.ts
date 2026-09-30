@@ -6,6 +6,43 @@ import { PostgresCreditLedgerStore } from '../credit-ledger-store.js';
 import { SystemIdGenerator } from '../foundation-store.js';
 import { PostgresCandidateDeliveryStore } from '../candidate-delivery-store.js';
 
+export async function createReportMatch(
+  database: NakhDatabase,
+  first: string,
+  second: string,
+): Promise<string> {
+  const id = randomUUID(),
+    now = new Date();
+  const [low, high] = [first, second].sort() as [string, string];
+  const a = await createReportLike(database, first, second),
+    b = await createReportLike(database, second, first);
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .insertInto('matching.matches')
+      .values({
+        id,
+        user_low_id: low,
+        user_high_id: high,
+        source: 'mutual_like',
+        source_like_a_id: a,
+        source_like_b_id: b,
+        source_nakh_id: null,
+        status: 'active',
+        created_at: now,
+        closed_at: null,
+      })
+      .execute();
+    await transaction
+      .insertInto('matching.match_participants')
+      .values([
+        { match_id: id, user_id: low, joined_at: now },
+        { match_id: id, user_id: high, joined_at: now },
+      ])
+      .execute();
+  });
+  return id;
+}
+
 export async function createReportDelivery(
   database: NakhDatabase,
   reporter: string,

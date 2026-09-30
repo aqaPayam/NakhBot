@@ -15,7 +15,7 @@ export async function resolveProfileReportSource(
   source: ReportSource,
   lockSource = false,
 ): Promise<ReportEvidenceIntent | undefined> {
-  if (!['received_like', 'received_nakh', 'delivered_candidate'].includes(source.kind))
+  if (!['received_like', 'received_nakh', 'delivered_candidate', 'match'].includes(source.kind))
     return undefined;
   const reporter = await database
     .selectFrom('identity.accounts')
@@ -44,7 +44,7 @@ export async function resolveProfileReportSource(
       .where('source.sender_user_id', '!=', actorUserId);
     if (lockSource) query = query.forShare();
     row = await query.executeTakeFirst();
-  } else {
+  } else if (source.kind === 'delivered_candidate') {
     let query = database
       .selectFrom('discovery.candidate_deliveries as source')
       .innerJoin('profile.profiles as profile', 'profile.user_id', 'source.target_user_id')
@@ -53,6 +53,28 @@ export async function resolveProfileReportSource(
       .where('source.viewer_user_id', '=', actorUserId)
       .where('source.target_user_id', '!=', actorUserId)
       .where('source.state', '=', 'delivered');
+    if (lockSource) query = query.forShare();
+    row = await query.executeTakeFirst();
+  } else {
+    let query = database
+      .selectFrom('matching.matches as source')
+      .innerJoin('profile.profiles as profile', (join) =>
+        join.on((eb) =>
+          eb.or([
+            eb.and([
+              eb('source.user_low_id', '=', actorUserId),
+              eb('profile.user_id', '=', eb.ref('source.user_high_id')),
+            ]),
+            eb.and([
+              eb('source.user_high_id', '=', actorUserId),
+              eb('profile.user_id', '=', eb.ref('source.user_low_id')),
+            ]),
+          ]),
+        ),
+      )
+      .select(['profile.id', 'profile.user_id'])
+      .where('source.id', '=', source.referenceId)
+      .where('source.status', '=', 'active');
     if (lockSource) query = query.forShare();
     row = await query.executeTakeFirst();
   }

@@ -416,7 +416,9 @@ count and version. They expose neither reporter/target identity nor restricted c
 pagination ties, forged/cross-scope/expired cursors, bounded reads, and disabled-admin access.
 
 Profile-only report preparation and submission now support authoritative received-Like, received-Nakh
-and successfully delivered discovery-card relationships. Reserved/failed deliveries and other viewers
+and successfully delivered discovery-card relationships, plus active matches. Match sources resolve
+only the opposite stored participant and must remain active at submission; closed/unmatched handling
+remains a separate pending flow. Reserved/failed deliveries and other viewers
 cannot establish report evidence. Five-minute signed opaque references bind the reporter and retain source,
 target and evidence IDs server-side. Preparation and commit recheck current account eligibility;
 active and restricted users may report valid evidence, while guest/incomplete/banned/deleted routes

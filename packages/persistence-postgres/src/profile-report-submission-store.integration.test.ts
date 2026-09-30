@@ -21,6 +21,7 @@ import { SystemIdGenerator } from './foundation-store.js';
 import {
   createReportFixtureAdmin,
   createReportDelivery,
+  createReportMatch,
   createReportLike,
   createReportNakh,
   createReportUser,
@@ -82,7 +83,8 @@ describe.skipIf(databaseUrl === undefined)('transactional encrypted profile repo
   });
   async function command(
     target?: string,
-    sourceKind: 'received_like' | 'received_nakh' | 'delivered_candidate' = 'received_like',
+    sourceKind:
+      'received_like' | 'received_nakh' | 'delivered_candidate' | 'match' = 'received_like',
   ): Promise<SubmitReportCommand> {
     const reporter = await createReportUser(database, sourceKind === 'received_nakh');
     reporters.push(reporter);
@@ -90,11 +92,13 @@ describe.skipIf(databaseUrl === undefined)('transactional encrypted profile repo
     const source = await tokens.issueSource(reporter, {
       kind: sourceKind,
       referenceId:
-        sourceKind === 'delivered_candidate'
-          ? await createReportDelivery(database, reporter, targetId)
-          : sourceKind === 'received_like'
-            ? await createReportLike(database, reporter, targetId)
-            : await createReportNakh(database, reporter, targetId),
+        sourceKind === 'match'
+          ? await createReportMatch(database, reporter, targetId)
+          : sourceKind === 'delivered_candidate'
+            ? await createReportDelivery(database, reporter, targetId)
+            : sourceKind === 'received_like'
+              ? await createReportLike(database, reporter, targetId)
+              : await createReportNakh(database, reporter, targetId),
     });
     const actor = { kind: 'user' as const, userId: reporter };
     const prepared = await new PostgresPrepareProfileReportEvidenceHandler(
@@ -147,6 +151,29 @@ describe.skipIf(databaseUrl === undefined)('transactional encrypted profile repo
       new SystemIdGenerator(),
     );
   }
+  it('submits active-match profile evidence but rejects a match closed after preparation', async () => {
+    const handler = new PostgresSubmitProfileReportHandler(database, tokens, snapshots);
+    const valid = await command(undefined, 'match');
+    expect((await handler.execute(valid, valid.actor)).replayed).toBe(false);
+    const stale = await command(undefined, 'match');
+    const intent = await tokens.resolveIntent(stale.data.evidenceIntentToken, stale.actor.userId);
+    expect(intent?.source.kind).toBe('match');
+    await database
+      .updateTable('matching.matches')
+      .set({ status: 'closed', closed_at: new Date(), version: 2 })
+      .where('id', '=', intent!.source.referenceId)
+      .execute();
+    await expect(handler.execute(stale, stale.actor)).rejects.toMatchObject({
+      code: 'report_unavailable',
+    });
+    expect(
+      await database
+        .selectFrom('moderation.reports')
+        .select('id')
+        .where('command_id', '=', stale.commandId)
+        .execute(),
+    ).toHaveLength(0);
+  });
   it('submits profile evidence from an actual recorded discovery delivery and replays once', async () => {
     const input = await command(undefined, 'delivered_candidate');
     const handler = new PostgresSubmitProfileReportHandler(database, tokens, snapshots);
