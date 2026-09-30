@@ -4,6 +4,8 @@ packages:
 
 injectWorkspacePackages: true
 overrides:
+  'brace-expansion@2': 2.1.6
+  'brace-expansion@5': 5.0.11
   'fast-uri@3': 3.1.7
   'fast-uri@4': 4.1.4
 syncInjectedDepsAfterScripts:
