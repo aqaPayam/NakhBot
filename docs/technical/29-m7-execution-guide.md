@@ -459,6 +459,11 @@ schema 1 snapshots. It reloads verified admin identity and current permission wh
 action; token storage runs outside SQL transactions. Integration evidence connects the report menu,
 metadata selection, opaque action, exact confirmation, historical snapshot and committed access audit.
 
+The authenticated report-reason catalog returns at most 50 active codes and localization keys in
+configured display order, without database IDs. Current account eligibility is checked under a shared
+lock; active and restricted users can read it, while banned or missing accounts cannot. Submission
+still rechecks reason activation independently, so a cached menu never authorizes a disabled reason.
+
 Checkpoint 8 remains partial. Photo/chat/message/unmatched-user submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.

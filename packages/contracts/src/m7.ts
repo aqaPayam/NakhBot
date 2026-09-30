@@ -189,6 +189,32 @@ export const PrepareReportEvidenceQuerySchema = Type.Object(
 );
 export type PrepareReportEvidenceQuery = Static<typeof PrepareReportEvidenceQuerySchema>;
 
+export const GetReportReasonsQuerySchema = Type.Object(
+  { actor: UserActorSchema, requestId: UuidSchema },
+  { additionalProperties: false },
+);
+export type GetReportReasonsQuery = Static<typeof GetReportReasonsQuerySchema>;
+export const ReportReasonCatalogSchema = Type.Object(
+  {
+    items: Type.Array(
+      Type.Object(
+        {
+          code: SafeCodeSchema,
+          labelKey: Type.String({
+            minLength: 1,
+            maxLength: 160,
+            pattern: '^[a-z][a-z0-9_.]{0,159}$',
+          }),
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 50 },
+    ),
+  },
+  { additionalProperties: false },
+);
+export type ReportReasonCatalog = Static<typeof ReportReasonCatalogSchema>;
+
 export const SubmitReportCommandSchema = mutationSchema(
   'moderation.submit-report',
   UserActorSchema,
