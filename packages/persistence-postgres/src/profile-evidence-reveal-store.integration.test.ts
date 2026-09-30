@@ -17,6 +17,9 @@ import {
 import { PostgresPrepareProfileReportEvidenceHandler } from './profile-report-source-store.js';
 import { PostgresSubmitProfileReportHandler } from './profile-report-submission-store.js';
 import { PostgresProfileEvidenceRevealStore } from './profile-evidence-reveal-store.js';
+import { PostgresConfirmedEvidenceReveals } from './confirmed-evidence-reveal-store.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
+import type { EvidenceRevealDraft } from '@nakh/application';
 
 const url = process.env.NAKH_TEST_DATABASE_URL,
   key = Buffer.alloc(32, 49);
@@ -135,6 +138,105 @@ describe.skipIf(url === undefined)('audited profile evidence release', () => {
       correlationId: randomUUID(),
     };
   }
+  it('binds explicit reveal confirmation to evidence, reason and actor and rechecks revoked permissions', async () => {
+    const confirmedAdmin = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: confirmedAdmin,
+        role_code: 'super_admin',
+        assigned_by_admin_id: admin,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, confirmedAdmin);
+    let reads = 0;
+    const handler = new PostgresConfirmedEvidenceReveals(database, fixture.tokens, fixture.key, {
+      decrypt: (subject, snapshot) => {
+        reads++;
+        return reader.decrypt(subject, snapshot);
+      },
+    });
+    async function draft(): Promise<EvidenceRevealDraft> {
+      return {
+        commandType: 'moderation.reveal-evidence',
+        schemaVersion: 1,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        actor: fixture.actor,
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          evidenceId,
+          reason: 'Investigate selected report evidence',
+          adminActionToken: await fixture.issue({
+            commandCode: 'moderation.reveal-evidence',
+            requiredPermission: 'view_reports',
+            targetType: 'report_evidence',
+            targetId: evidenceId,
+            expectedTargetVersion: 1,
+          }),
+        },
+      };
+    }
+    const valid = await draft();
+    const command = {
+      ...valid,
+      data: { ...valid.data, confirmationToken: await handler.prepare(valid, fixture.actor) },
+    };
+    await expect(
+      handler.execute(command, { ...fixture.actor, userId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(reads).toBe(0);
+    expect((await handler.execute(command, fixture.actor)).value).toBeDefined();
+    expect((await handler.execute(command, fixture.actor)).value).toBeUndefined();
+    expect(reads).toBe(1);
+    for (const modification of [
+      { evidenceId: randomUUID() },
+      { reason: 'Changed reason' },
+      { confirmationToken: 'invalid' },
+    ]) {
+      const input = await draft();
+      const confirmationToken = await handler.prepare(input, fixture.actor);
+      const result = await handler.execute(
+        { ...input, data: { ...input.data, confirmationToken, ...modification } },
+        fixture.actor,
+      );
+      expect(result).toMatchObject({
+        result: 'rejected',
+        safeCode: 'invalid_request',
+        value: undefined,
+      });
+    }
+    // Even a confirmation prepared for a mismatched client ID cannot override the opaque target.
+    const mismatch = await draft();
+    const wrong = { ...mismatch, data: { ...mismatch.data, evidenceId: randomUUID() } };
+    expect(
+      (
+        await handler.execute(
+          {
+            ...wrong,
+            data: { ...wrong.data, confirmationToken: await handler.prepare(wrong, fixture.actor) },
+          },
+          fixture.actor,
+        )
+      ).safeCode,
+    ).toBe('invalid_request');
+    const revoked = await draft();
+    const revokedCommand = {
+      ...revoked,
+      data: { ...revoked.data, confirmationToken: await handler.prepare(revoked, fixture.actor) },
+    };
+    await database
+      .updateTable('administration.admin_user_roles')
+      .set({ revoked_at: new Date(), revoked_by_admin_id: admin })
+      .where('admin_user_id', '=', confirmedAdmin)
+      .execute();
+    expect((await handler.execute(revokedCommand, fixture.actor)).safeCode).toBe('forbidden');
+    expect(reads).toBe(1);
+  });
   it('releases the captured snapshot once across concurrent retries and never records plaintext', async () => {
     let reads = 0;
     const store = new PostgresProfileEvidenceRevealStore(database, {
