@@ -4,6 +4,8 @@ import {
   SubmitProfileReportHandler,
   reportUnavailable,
   type ProfileReportSnapshotProtector,
+  type ProtectedProfileReportSnapshot,
+  type ProtectedChatReportSnapshot,
   type ProfileReportRequest,
   type ProfileReportWrite,
   type ProfileReportSubmissionStore,
@@ -49,10 +51,23 @@ async function replay(
     replayed: true,
   };
 }
-export class PostgresProfileReportSubmissionStore implements ProfileReportSubmissionStore {
+export interface SingleReportEvidenceCapture {
+  capture(
+    transaction: NakhDatabase,
+    write: ProfileReportWrite,
+  ): Promise<
+    Readonly<{
+      targetUserId: string;
+      referenceId: string;
+      snapshot: ProtectedProfileReportSnapshot | ProtectedChatReportSnapshot;
+    }>
+  >;
+}
+
+export class PostgresSingleEvidenceReportSubmissionStore implements ProfileReportSubmissionStore {
   public constructor(
     private readonly database: NakhDatabase,
-    private readonly snapshots: ProfileReportSnapshotProtector,
+    private readonly capture: SingleReportEvidenceCapture,
   ) {}
   public replay(request: ProfileReportRequest): Promise<ReportSubmissionResult | undefined> {
     return replay(this.database, request);
@@ -89,26 +104,15 @@ export class PostgresProfileReportSubmissionStore implements ProfileReportSubmis
       const reporter = accounts.find((row) => row.user_id === write.actorUserId);
       if (accounts.length !== 2 || reporter === undefined || !canSubmitUserReport(reporter.state))
         throw reportUnavailable();
-      const authorized = await resolveProfileReportSource(
-        transaction,
-        write.actorUserId,
-        write.intent.source,
-        true,
-      );
+      const captured = await this.capture.capture(transaction, write);
       if (
-        authorized === undefined ||
-        authorized.targetUserId !== write.intent.targetUserId ||
+        captured.targetUserId !== write.intent.targetUserId ||
         write.intent.evidence.length !== 1 ||
-        write.intent.evidence[0]?.evidenceType !== 'profile' ||
-        authorized.evidence[0]?.referenceId !== write.intent.evidence[0].referenceId
+        captured.snapshot.snapshotType !== write.intent.evidence[0]?.evidenceType ||
+        captured.referenceId !== write.intent.evidence[0].referenceId
       )
         throw reportUnavailable();
-      const profile = await transaction
-        .selectFrom('profile.profiles')
-        .select(['name', 'birth_year', 'bio'])
-        .where('id', '=', authorized.evidence[0].referenceId)
-        .forShare()
-        .executeTakeFirstOrThrow();
+      const snapshot = captured.snapshot;
       const reason = await transaction
         .selectFrom('moderation.report_reasons')
         .select('id')
@@ -117,21 +121,12 @@ export class PostgresProfileReportSubmissionStore implements ProfileReportSubmis
         .forShare()
         .executeTakeFirst();
       if (reason === undefined) throw reportUnavailable();
-      const snapshot = this.snapshots.protect(
-        { reportId: write.reportId, evidenceId: write.evidenceId },
-        {
-          evidenceType: 'profile',
-          displayName: profile.name,
-          birthYear: profile.birth_year,
-          ...(profile.bio === null ? {} : { bio: profile.bio }),
-        },
-      );
       const report = await transaction
         .insertInto('moderation.reports')
         .values({
           id: write.reportId,
           reporter_user_id: write.actorUserId,
-          target_user_id: authorized.targetUserId,
+          target_user_id: captured.targetUserId,
           reason_id: reason.id,
           extra_text: write.normalizedText ?? null,
           status: 'pending_review',
@@ -149,10 +144,10 @@ export class PostgresProfileReportSubmissionStore implements ProfileReportSubmis
         .values({
           id: write.evidenceId,
           report_id: write.reportId,
-          evidence_type: 'profile',
-          profile_id: authorized.evidence[0].referenceId,
+          evidence_type: snapshot.snapshotType,
+          profile_id: snapshot.snapshotType === 'profile' ? captured.referenceId : null,
           profile_photo_id: null,
-          chat_session_id: null,
+          chat_session_id: snapshot.snapshotType === 'chat' ? captured.referenceId : null,
           chat_message_id: null,
           unmatch_record_id: null,
         })
@@ -199,7 +194,7 @@ export class PostgresProfileReportSubmissionStore implements ProfileReportSubmis
           schema_version: 1,
           payload: {
             reportId: write.reportId,
-            evidenceTypes: ['profile'],
+            evidenceTypes: [snapshot.snapshotType],
             status: 'pending_review',
           },
           occurred_at: report.submitted_at,
@@ -226,6 +221,53 @@ export class PostgresProfileReportSubmissionStore implements ProfileReportSubmis
         submittedAt: report.submitted_at.toISOString(),
         replayed: false,
       };
+    });
+  }
+}
+
+export async function captureProfileReportEvidence(
+  transaction: NakhDatabase,
+  write: ProfileReportWrite,
+  snapshots: ProfileReportSnapshotProtector,
+): ReturnType<SingleReportEvidenceCapture['capture']> {
+  const authorized = await resolveProfileReportSource(
+    transaction,
+    write.actorUserId,
+    write.intent.source,
+    true,
+  );
+  if (
+    authorized === undefined ||
+    authorized.targetUserId !== write.intent.targetUserId ||
+    write.intent.evidence.length !== 1 ||
+    write.intent.evidence[0]?.evidenceType !== 'profile' ||
+    authorized.evidence[0]?.referenceId !== write.intent.evidence[0].referenceId
+  )
+    throw reportUnavailable();
+  const profile = await transaction
+    .selectFrom('profile.profiles')
+    .select(['name', 'birth_year', 'bio'])
+    .where('id', '=', authorized.evidence[0].referenceId)
+    .forShare()
+    .executeTakeFirstOrThrow();
+  return {
+    targetUserId: authorized.targetUserId,
+    referenceId: authorized.evidence[0].referenceId,
+    snapshot: snapshots.protect(
+      { reportId: write.reportId, evidenceId: write.evidenceId },
+      {
+        evidenceType: 'profile',
+        displayName: profile.name,
+        birthYear: profile.birth_year,
+        ...(profile.bio === null ? {} : { bio: profile.bio }),
+      },
+    ),
+  };
+}
+export class PostgresProfileReportSubmissionStore extends PostgresSingleEvidenceReportSubmissionStore {
+  public constructor(database: NakhDatabase, snapshots: ProfileReportSnapshotProtector) {
+    super(database, {
+      capture: (transaction, write) => captureProfileReportEvidence(transaction, write, snapshots),
     });
   }
 }

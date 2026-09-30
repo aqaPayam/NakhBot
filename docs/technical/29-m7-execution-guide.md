@@ -466,11 +466,16 @@ still rechecks reason activation independently, so a cached menu never authorize
 
 The internal chat snapshot codec now encrypts only the session ID and lifecycle state, with strict
 schema/lifecycle validation, fresh nonces and report/evidence/type/key/hash binding. Its reader rejects
-message text, participant identities, extra fields, unsupported envelopes and tampering. No chat
-submission or reveal service is wired to this codec yet. Chat-only preparation now resolves a signed
+message text, participant identities, extra fields, unsupported envelopes and tampering. Chat-only preparation resolves a signed
 match context through current account eligibility, active Match/ChatSession state and stored chat
 participation. Either participant can receive a typed opaque intent for the opposite participant;
 outsiders, unrelated sources, mixed evidence selections and closed contexts are rejected.
+Chat submission now uses the shared report transaction for durable replay, rolling admission,
+encrypted capture, review/outbox creation and distinct-reporter threshold evaluation. The locked
+session must still be active and belong to the same exact prepared relationship. Existing profile
+entry points retain their original replay digest namespace. Integration evidence covers simultaneous
+retries, token loss, changed replay, closed-session denial, snapshot rollback, ten-of-twelve admission
+and five distinct chat reporters causing one restriction. Audited chat reveal remains pending.
 
 Checkpoint 8 remains partial. Photo/chat/message/unmatched-user submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP

@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import type { ReportSubmissionResult, SubmitReportCommand } from '@nakh/contracts';
+import type {
+  ReportSubmissionResult,
+  SubmitReportCommand,
+  ReportEvidenceType,
+} from '@nakh/contracts';
 import { ApplicationError, normalizeReportText, type Actor, type IdGenerator } from '@nakh/domain';
 import { reportUnavailable } from './prepare-profile-report.js';
 import type { ReportEvidenceIntent, ReportTokens } from './report-tokens.js';
@@ -27,11 +31,12 @@ export interface ProfileReportSubmissionStore {
   submit(write: ProfileReportWrite): Promise<ReportSubmissionResult>;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
-export class SubmitProfileReportHandler {
+export class SubmitSingleEvidenceReportHandler {
   public constructor(
     private readonly tokens: Pick<ReportTokens, 'resolveIntent'>,
     private readonly store: ProfileReportSubmissionStore,
     private readonly ids: IdGenerator,
+    private readonly evidenceType: ReportEvidenceType,
   ) {}
   public async execute(
     command: SubmitReportCommand,
@@ -67,7 +72,7 @@ export class SubmitProfileReportHandler {
       requestDigest: createHash('sha256')
         .update(
           JSON.stringify([
-            'profile-report',
+            'profile-report', // Retain the original namespace so existing durable receipts remain replayable.
             1,
             actor.userId,
             command.data.evidenceIntentToken,
@@ -84,7 +89,7 @@ export class SubmitProfileReportHandler {
       intent === undefined ||
       intent.targetUserId === actor.userId ||
       intent.evidence.length !== 1 ||
-      intent.evidence[0]?.evidenceType !== 'profile'
+      intent.evidence[0]?.evidenceType !== this.evidenceType
     )
       throw reportUnavailable();
     return this.store.submit({
@@ -96,5 +101,24 @@ export class SubmitProfileReportHandler {
       reviewId: this.ids.uuid(),
       eventId: this.ids.uuid(),
     });
+  }
+}
+
+export class SubmitProfileReportHandler extends SubmitSingleEvidenceReportHandler {
+  public constructor(
+    tokens: Pick<ReportTokens, 'resolveIntent'>,
+    store: ProfileReportSubmissionStore,
+    ids: IdGenerator,
+  ) {
+    super(tokens, store, ids, 'profile');
+  }
+}
+export class SubmitChatReportHandler extends SubmitSingleEvidenceReportHandler {
+  public constructor(
+    tokens: Pick<ReportTokens, 'resolveIntent'>,
+    store: ProfileReportSubmissionStore,
+    ids: IdGenerator,
+  ) {
+    super(tokens, store, ids, 'chat');
   }
 }
