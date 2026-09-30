@@ -124,6 +124,7 @@ and Notification state.
 10. `000055_m7_review_decisions.sql` — explicit dismissal action shape and terminal-review guard.
 11. `000056_m7_action_report_scope.sql` — report-linked admin target/assignment and successful-attempt guards.
 12. `000057_m7_evidence_access_identity.sql` — admin-bound evidence access command identity, preserving existing audit rows.
+13. `000058_m7_unmatch_report_deadline.sql` — post-lock database-time enforcement of the immutable unmatch report window at evidence insertion.
 13. `000058_m7_reconciliation.sql` (planned) — resumable bounded M7 reconciliation runs, anomaly types, query
    indexes, and verification hardening.
 
@@ -487,9 +488,14 @@ clock check after source locks. Integration evidence covers real Unmatch, outsid
 windows and lock waits crossing expiry. The internal unmatch snapshot codec encrypts only the
 unmatch time and exact 24-hour deadline. Strict validation rejects extra identity/reason fields,
 invalid dates and altered intervals; typed authenticated encryption rejects substitution and
-tampering without leaking key-provider diagnostics. Submission and audited reveal remain pending.
+tampering without leaking key-provider diagnostics. Post-unmatch submission now uses the shared
+atomic admission, capture, review, outbox and threshold transaction. Migration `000058` checks the
+post-lock database clock again at evidence insertion, rejecting expiry during later lock waits.
+Tests cover duplicate races, ten-report admission, five-reporter restriction, encryption rollback,
+expiry after capture and durable replay after the window closes. Bootstrap, upgrades through
+`000057` and unchanged replay cover the new guard. Audited unmatch reveal remains pending.
 
-Checkpoint 8 remains partial. Photo/message/unmatched-user submission and snapshot composition,
+Checkpoint 8 remains partial. Photo/message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
