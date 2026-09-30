@@ -364,7 +364,7 @@ checkpoint and wait for that exact commit to turn green before advancing.
 
 ## 13. Definition of done
 
-### Current implementation evidence (2026-09-28)
+### Current implementation evidence (2026-09-29)
 
 Support and exact-ban appeal persistence, audited terminal reviews, and a separate permission-checked
 unban command are implemented. The presentation work includes seeded English fallback keys and
@@ -387,9 +387,33 @@ status projection and transactional submissions alongside the existing concurren
 matrix. Replies use localized plain text after business commit; provider retries can duplicate a
 notice but cannot duplicate the business write. No real Telegram delivery is claimed.
 
-Checkpoint 8 remains partial: report/evidence presentation, provider-neutral authenticated endpoints,
-admin ingress and remaining moderation presentation still need implementation. Reconciliation,
-operational/query-plan gates and real Telegram/admin staging evidence remain outstanding.
+Support administration, account/photo actions, internal blocks, review assignment, and terminal
+review decisions now have explicit confirmation boundaries. Current PostgreSQL permissions remain
+authoritative. Photo delivery revocation failures are sanitized and recorded as failed attempts.
+Review decisions use the target threshold lock, preserve assignee/version checks, and atomically
+write matching Report/Review statuses, audit, and a content-free event. Dismissal writes its own
+append-only ModerationAction under migration `000055`; actioned outcomes require a pre-existing
+admin action linked to that Report and never execute another account/photo/pair action. Linking
+source Reports through the existing account/photo action ingress remains outstanding.
+
+Optional report review notes are normalized and encrypted before the transaction with a fresh
+AES-GCM nonce and review/key-version associated data. The write capability exposes no reveal path.
+Evidence covers ciphertext substitution/tampering, Unicode limits, concurrent retries, competing
+confirmed decisions, changed replay, disabled admins, encryption failure, and partial-write rollback.
+Migration evidence covers bootstrap, upgrades from `000045` and `000051`, and unchanged replay.
+
+The provider-neutral report metadata handler authenticates queue-scoped admin actions, rechecks
+current PostgreSQL permissions, and returns at most 50 metadata items. The default status is
+`pending_review`; pages order threshold priority first, then submission time and report ID. Opaque
+five-minute cursors bind admin/actor/status and preserve PostgreSQL microseconds. Lists include only
+the contract's report ID, reason code, evidence types, status, priority, submission time, prior report
+count and version. They expose neither reporter/target identity nor restricted content. Tests cover
+pagination ties, forged/cross-scope/expired cursors, bounded reads, and disabled-admin access.
+
+Checkpoint 8 remains partial. Report submission and encrypted snapshot/evidence-reveal application
+services, report/evidence presentation, provider-neutral authenticated HTTP endpoints, admin ingress,
+and remaining moderation presentation still need implementation. Reconciliation, M7 production-volume
+query-plan/load gates, metrics/alarms, and real Telegram/admin staging evidence remain outstanding.
 
 M7 is code-complete only when `ACC-039..041`, authorization/privacy/snapshot tests, threshold/admin/
 internal-block/support/appeal races, reconciliation, retention, production-shaped plans, operations

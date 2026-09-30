@@ -23,6 +23,9 @@ import { confirmationFixture } from './testing/admin-confirmation.js';
 import type { AssignModerationReviewCommand, DecideModerationReviewCommand } from '@nakh/contracts';
 import { PostgresConfirmedReviewDecisions } from './confirmed-review-decision-store.js';
 import { sql } from 'kysely';
+import type { RawBuilder } from 'kysely';
+import { PostgresGetReportMetadataPageHandler } from './report-metadata-store.js';
+import type { GetReportMetadataPageQuery, ReportMetadataPage } from '@nakh/contracts';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const genderOptionId = '20000000-0000-4000-8000-000000000001';
@@ -90,7 +93,11 @@ async function createAdmin(database: NakhDatabase, withRole = true): Promise<str
 
 async function createPendingReview(
   database: NakhDatabase,
-  input: Readonly<{ priority: 'normal' | 'threshold'; createdAt: Date }>,
+  input: Readonly<{
+    priority: 'normal' | 'threshold';
+    createdAt: Date;
+    submittedAt?: RawBuilder<Date>;
+  }>,
 ): Promise<Readonly<{ reportId: string; reviewId: string }>> {
   const reporterUserId = await createUser(database);
   const targetUserId = await createUser(database);
@@ -150,7 +157,7 @@ async function createPendingReview(
         request_id: randomUUID(),
         idempotency_key: `report:${reportId}`,
         request_digest: digest(`report:${reportId}`),
-        submitted_at: input.createdAt,
+        submitted_at: input.submittedAt ?? input.createdAt,
         reviewed_at: null,
         closed_at: null,
       })
@@ -268,6 +275,97 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
     return { adminId, review, attempt };
   }
   const notes = new AesGcmReviewNoteProtector('review-key', 1, Buffer.alloc(32, 17));
+  it('pages privacy-safe metadata without skipping microsecond ties and rechecks authorization for every page', async () => {
+    const adminId = await createAdmin(database);
+    const fixtures: string[] = [];
+    for (const [index, priority] of (['threshold', 'normal', 'normal'] as const).entries()) {
+      const review = await createPendingReview(database, {
+        priority,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        submittedAt: sql<Date>`${`2026-01-01T00:00:00.00000${index + 1}Z`}::timestamptz`,
+      });
+      await workflow.assign(
+        adminAttempt(adminId, {
+          commandCode: 'moderation.assign-review',
+          targetType: 'moderation_review',
+          targetId: review.reviewId,
+          expectedTargetVersion: 1,
+        }),
+        { reviewId: review.reviewId, assigneeAdminId: adminId, expectedVersion: 1 },
+      );
+      fixtures.push(review.reportId);
+    }
+    const f = await confirmationFixture(database, adminId);
+    const handler = new PostgresGetReportMetadataPageHandler(database, f.tokens, f.key);
+    const query: GetReportMetadataPageQuery = {
+      actor: f.actor,
+      requestId: randomUUID(),
+      limit: 1,
+      adminActionToken: await f.issue({
+        commandCode: 'moderation.report-metadata',
+        requiredPermission: 'view_reports',
+        targetType: 'report_queue',
+        targetId: null,
+        expectedTargetVersion: null,
+      }),
+    };
+    const items: ReportMetadataPage['items'] = [];
+    let cursor: string | undefined;
+    let firstCursor: string | undefined;
+    for (let pageNumber = 0; pageNumber < 50; pageNumber++) {
+      const page = await handler.execute(
+        { ...query, ...(cursor === undefined ? {} : { cursor }) },
+        f.actor,
+      );
+      items.push(...page.items);
+      firstCursor ??= page.nextCursor;
+      cursor = page.nextCursor;
+      if (cursor === undefined) break;
+    }
+    expect(cursor).toBeUndefined();
+    expect(new Set(items.map((item) => item.reportId)).size).toBe(items.length);
+    expect(
+      items.filter((item) => fixtures.includes(item.reportId)).map((item) => item.reportId),
+    ).toEqual(fixtures);
+    for (const item of items)
+      expect(Object.keys(item).sort()).toEqual([
+        'evidenceTypes',
+        'priorReportCount',
+        'priority',
+        'reasonCode',
+        'reportId',
+        'status',
+        'submittedAt',
+        'version',
+      ]);
+    expect(items.find((item) => item.reportId === fixtures[0])).toMatchObject({
+      reasonCode: 'harassment',
+      evidenceTypes: ['profile'],
+      priorReportCount: 0,
+    });
+    await expect(
+      handler.execute({ ...query, cursor: firstCursor!, status: 'dismissed' }, f.actor),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    const otherId = await createAdmin(database),
+      other = await confirmationFixture(database, otherId);
+    const otherHandler = new PostgresGetReportMetadataPageHandler(database, f.tokens, f.key);
+    await expect(
+      otherHandler.execute({ ...query, actor: other.actor }, other.actor),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await database
+      .updateTable('administration.admin_users')
+      .set({
+        is_active: false,
+        disabled_at: sql<Date>`updated_at + interval '1 millisecond'`,
+        updated_at: sql<Date>`updated_at + interval '1 millisecond'`,
+        version: sql<number>`version + 1`,
+      })
+      .where('id', '=', adminId)
+      .execute();
+    await expect(
+      handler.execute({ ...query, cursor: firstCursor! }, f.actor),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
   it('audits altered and missing confirmations, then serializes independently confirmed competing decisions', async () => {
     const { adminId, review } = await assignedReview();
     const f = await confirmationFixture(database, adminId);
