@@ -4,6 +4,51 @@ import { CreateDirectNakhHandler } from '@nakh/application';
 import { PostgresDirectNakhStore } from '../direct-nakh-store.js';
 import { PostgresCreditLedgerStore } from '../credit-ledger-store.js';
 import { SystemIdGenerator } from '../foundation-store.js';
+import { PostgresCandidateDeliveryStore } from '../candidate-delivery-store.js';
+
+export async function createReportDelivery(
+  database: NakhDatabase,
+  reporter: string,
+  target: string,
+  state: 'reserved' | 'delivered' | 'failed' = 'delivered',
+): Promise<string> {
+  const id = randomUUID(),
+    now = new Date();
+  await database
+    .insertInto('discovery.candidate_deliveries')
+    .values({
+      id,
+      viewer_user_id: reporter,
+      target_user_id: target,
+      mode: 'explore',
+      filter_version: 1,
+      state: 'reserved',
+      expires_at: new Date(now.getTime() + 300000),
+      provider_message_id: null,
+      reserved_at: now,
+      delivered_at: null,
+      failed_at: null,
+      updated_at: now,
+    })
+    .execute();
+  const store = new PostgresCandidateDeliveryStore(database);
+  if (state === 'delivered')
+    await store.recordDelivered(
+      { deliveryId: id, providerMessageId: '123' },
+      {
+        auditId: randomUUID(),
+        deliveryEventId: randomUUID(),
+        consumptionEventId: randomUUID(),
+        processedAt: new Date(),
+      },
+    );
+  if (state === 'failed')
+    await store.recordDefinitiveFailure(
+      { deliveryId: id, reasonCode: 'provider_rejected' },
+      { auditId: randomUUID(), eventId: randomUUID(), processedAt: new Date() },
+    );
+  return id;
+}
 
 export async function createReportUser(
   database: NakhDatabase,

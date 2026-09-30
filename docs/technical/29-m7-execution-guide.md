@@ -233,8 +233,8 @@ therefore lock reporter IDs and target IDs independently, never two User rows in
 Cross-user moderation uses normalized UUID order where both Accounts are required.
 
 External Telegram, object storage, KMS, and telemetry calls never occur in a business transaction.
-Snapshot encryption is performed before entering the short commit using a versioned in-memory
-envelope key; the transaction persists only ciphertext/digests. Photo object retention/cleanup uses
+Versioned envelope keys are loaded before entering a transaction. Bounded local snapshot encryption
+captures the locked source inside the short commit; only ciphertext/digests persist. Photo object retention/cleanup uses
 existing outbox workers after the database decision.
 
 ## 8. Canonical use cases
@@ -415,8 +415,9 @@ the contract's report ID, reason code, evidence types, status, priority, submiss
 count and version. They expose neither reporter/target identity nor restricted content. Tests cover
 pagination ties, forged/cross-scope/expired cursors, bounded reads, and disabled-admin access.
 
-Profile-only report preparation and submission now support authoritative received-Like and received-Nakh
-relationships. Five-minute signed opaque references bind the authenticated reporter and retain source,
+Profile-only report preparation and submission now support authoritative received-Like, received-Nakh
+and successfully delivered discovery-card relationships. Reserved/failed deliveries and other viewers
+cannot establish report evidence. Five-minute signed opaque references bind the reporter and retain source,
 target and evidence IDs server-side. Preparation and commit recheck current account eligibility;
 active and restricted users may report valid evidence, while guest/incomplete/banned/deleted routes
 cannot submit a new report. Visibility is not used to retract an existing evidence relationship.

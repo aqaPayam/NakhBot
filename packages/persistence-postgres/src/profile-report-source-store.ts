@@ -15,7 +15,8 @@ export async function resolveProfileReportSource(
   source: ReportSource,
   lockSource = false,
 ): Promise<ReportEvidenceIntent | undefined> {
-  if (source.kind !== 'received_like' && source.kind !== 'received_nakh') return undefined;
+  if (!['received_like', 'received_nakh', 'delivered_candidate'].includes(source.kind))
+    return undefined;
   const reporter = await database
     .selectFrom('identity.accounts')
     .select('state')
@@ -33,7 +34,7 @@ export async function resolveProfileReportSource(
       .where('source.sender_user_id', '!=', actorUserId);
     if (lockSource) query = query.forShare();
     row = await query.executeTakeFirst();
-  } else {
+  } else if (source.kind === 'received_nakh') {
     let query = database
       .selectFrom('nakh.nakhes as source')
       .innerJoin('profile.profiles as profile', 'profile.user_id', 'source.sender_user_id')
@@ -41,6 +42,17 @@ export async function resolveProfileReportSource(
       .where('source.id', '=', source.referenceId)
       .where('source.receiver_user_id', '=', actorUserId)
       .where('source.sender_user_id', '!=', actorUserId);
+    if (lockSource) query = query.forShare();
+    row = await query.executeTakeFirst();
+  } else {
+    let query = database
+      .selectFrom('discovery.candidate_deliveries as source')
+      .innerJoin('profile.profiles as profile', 'profile.user_id', 'source.target_user_id')
+      .select(['profile.id', 'profile.user_id'])
+      .where('source.id', '=', source.referenceId)
+      .where('source.viewer_user_id', '=', actorUserId)
+      .where('source.target_user_id', '!=', actorUserId)
+      .where('source.state', '=', 'delivered');
     if (lockSource) query = query.forShare();
     row = await query.executeTakeFirst();
   }

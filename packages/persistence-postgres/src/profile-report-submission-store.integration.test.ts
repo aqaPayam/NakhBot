@@ -20,6 +20,7 @@ import {
 import { SystemIdGenerator } from './foundation-store.js';
 import {
   createReportFixtureAdmin,
+  createReportDelivery,
   createReportLike,
   createReportNakh,
   createReportUser,
@@ -81,7 +82,7 @@ describe.skipIf(databaseUrl === undefined)('transactional encrypted profile repo
   });
   async function command(
     target?: string,
-    sourceKind: 'received_like' | 'received_nakh' = 'received_like',
+    sourceKind: 'received_like' | 'received_nakh' | 'delivered_candidate' = 'received_like',
   ): Promise<SubmitReportCommand> {
     const reporter = await createReportUser(database, sourceKind === 'received_nakh');
     reporters.push(reporter);
@@ -89,9 +90,11 @@ describe.skipIf(databaseUrl === undefined)('transactional encrypted profile repo
     const source = await tokens.issueSource(reporter, {
       kind: sourceKind,
       referenceId:
-        sourceKind === 'received_like'
-          ? await createReportLike(database, reporter, targetId)
-          : await createReportNakh(database, reporter, targetId),
+        sourceKind === 'delivered_candidate'
+          ? await createReportDelivery(database, reporter, targetId)
+          : sourceKind === 'received_like'
+            ? await createReportLike(database, reporter, targetId)
+            : await createReportNakh(database, reporter, targetId),
     });
     const actor = { kind: 'user' as const, userId: reporter };
     const prepared = await new PostgresPrepareProfileReportEvidenceHandler(
@@ -144,6 +147,21 @@ describe.skipIf(databaseUrl === undefined)('transactional encrypted profile repo
       new SystemIdGenerator(),
     );
   }
+  it('submits profile evidence from an actual recorded discovery delivery and replays once', async () => {
+    const input = await command(undefined, 'delivered_candidate');
+    const handler = new PostgresSubmitProfileReportHandler(database, tokens, snapshots);
+    const first = await handler.execute(input, input.actor);
+    expect(first.replayed).toBe(false);
+    expect(await handler.execute(input, input.actor)).toEqual({ ...first, replayed: true });
+    const evidence = await database
+      .selectFrom('moderation.report_evidence')
+      .select(['evidence_type', 'profile_id'])
+      .where('report_id', '=', first.reportId)
+      .execute();
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]?.evidence_type).toBe('profile');
+    expect(evidence[0]?.profile_id).not.toBeNull();
+  });
   it('commits one encrypted snapshot, review and safe event across simultaneous retries and survives token loss', async () => {
     const input = await command(),
       handler = barrierHandler(6);

@@ -6,7 +6,12 @@ import type { PrepareReportEvidenceQuery } from '@nakh/contracts';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresPrepareProfileReportEvidenceHandler } from './profile-report-source-store.js';
-import { createReportLike, createReportUser } from './testing/report-fixture.js';
+import {
+  createReportDelivery,
+  createReportLike,
+  createReportUser,
+} from './testing/report-fixture.js';
+import { PostgresProfileReportSourceStore } from './profile-report-source-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)('authoritative profile report sources', () => {
@@ -22,6 +27,27 @@ describe.skipIf(databaseUrl === undefined)('authoritative profile report sources
   });
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('requires delivery success and exact viewer ownership before accepting discovery evidence', async () => {
+    const viewer = await createReportUser(database),
+      target = await createReportUser(database, true);
+    const stranger = await createReportUser(database),
+      store = new PostgresProfileReportSourceStore(database);
+    for (const state of ['failed', 'reserved', 'delivered'] as const) {
+      const referenceId = await createReportDelivery(database, viewer, target, state);
+      const source = { kind: 'delivered_candidate' as const, referenceId };
+      expect(await store.resolve(stranger, source)).toBeUndefined();
+      expect(await store.resolve(target, source)).toBeUndefined();
+      const resolved = await store.resolve(viewer, source);
+      if (state === 'delivered') expect(resolved?.targetUserId).toBe(target);
+      else expect(resolved).toBeUndefined();
+      if (state === 'reserved')
+        await database
+          .updateTable('discovery.candidate_deliveries')
+          .set({ state: 'failed', failed_at: new Date(), updated_at: new Date() })
+          .where('id', '=', referenceId)
+          .execute();
+    }
   });
   it('resolves only the receiving user and does not expose source or profile content', async () => {
     const reporter = await createReportUser(database),
