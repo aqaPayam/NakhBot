@@ -14,7 +14,7 @@ export class PostgresGetReportEvidenceActionsHandler extends GetReportEvidenceAc
     tokens: OpaqueTokenStore,
     key: Uint8Array,
     now: () => number = Date.now,
-    supportedTypes: readonly ('profile' | 'chat')[] = ['profile'],
+    supportedTypes: readonly ('profile' | 'chat' | 'unmatched_user')[] = ['profile'],
   ) {
     const authorization = new AdminActionAuthorizationService(
       new PostgresAdminAuthorizationStore(database),

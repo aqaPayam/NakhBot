@@ -493,7 +493,11 @@ atomic admission, capture, review, outbox and threshold transaction. Migration `
 post-lock database clock again at evidence insertion, rejecting expiry during later lock waits.
 Tests cover duplicate races, ten-report admission, five-reporter restriction, encryption rollback,
 expiry after capture and durable replay after the window closes. Bootstrap, upgrades through
-`000057` and unchanged replay cover the new guard. Audited unmatch reveal remains pending.
+`000057` and unchanged replay cover the new guard. Confirmed audited unmatch reveal now verifies
+the captured dates against the immutable source record, remains available after the reporting
+window closes, and releases content only after its access audit commits. Integration evidence
+covers opaque selection, concurrent confirmed retries, corrupted reference dates and permission
+revocation after confirmation. No decrypted content is returned on rejected or replayed attempts.
 
 Checkpoint 8 remains partial. Photo/message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP

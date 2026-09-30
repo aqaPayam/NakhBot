@@ -1,3 +1,6 @@
+import { confirmationFixture } from './testing/admin-confirmation.js';
+import { PostgresConfirmedReportEvidenceReveals } from './confirmed-evidence-reveal-store.js';
+import { PostgresGetReportEvidenceActionsHandler } from './report-evidence-actions-store.js';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
@@ -7,6 +10,7 @@ import {
   AesGcmUnmatchedReportSnapshotReader,
   ReportTokens,
   SubmitSingleEvidenceReportHandler,
+  type EvidenceRevealDraft,
 } from '@nakh/application';
 import type { SubmitReportCommand } from '@nakh/contracts';
 import { createDatabase, type NakhDatabase } from './database.js';
@@ -288,6 +292,172 @@ describe.skipIf(url === undefined)('transactional unmatch report submission', ()
       ...receipt,
       replayed: true,
     });
+  });
+  it('reveals retained unmatch evidence after expiry with confirmation, audit and immutable binding', async () => {
+    const { now } = (await sql<{ now: Date }>`select clock_timestamp() as now`.execute(database))
+      .rows[0]!;
+    const expires = new Date(now.getTime() + 4000);
+    const input = await prepare(undefined, new Date(expires.getTime() - 86400000));
+    const report = await new PostgresSubmitUnmatchedReportHandler(
+      database,
+      tokens,
+      snapshots,
+    ).execute(input.command, input.command.actor);
+    await sql`select pg_sleep_until(${expires.toISOString()}::timestamptz)`.execute(database);
+    const unmatch = await database
+      .selectFrom('matching.unmatch_records')
+      .select(['unmatched_at', 'report_window_expires_at'])
+      .where('match_id', '=', input.matchId)
+      .executeTakeFirstOrThrow();
+    const admin = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: admin,
+        role_code: 'super_admin',
+        assigned_by_admin_id: admin,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, admin);
+    const query = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: await fixture.issue({
+        commandCode: 'moderation.evidence-metadata',
+        requiredPermission: 'view_reports',
+        targetType: 'report',
+        targetId: report.reportId,
+        expectedTargetVersion: 1,
+      }),
+    };
+    const unsupported = await new PostgresGetReportEvidenceActionsHandler(
+      database,
+      fixture.tokens,
+      fixture.key,
+    ).execute(query, fixture.actor);
+    expect(unsupported.items[0]!.revealActionToken).toBeUndefined();
+    const selected = await new PostgresGetReportEvidenceActionsHandler(
+      database,
+      fixture.tokens,
+      fixture.key,
+      Date.now,
+      ['unmatched_user'],
+    ).execute(query, fixture.actor);
+    const evidence = selected.items[0]!;
+    const draft: EvidenceRevealDraft = {
+      commandType: 'moderation.reveal-evidence',
+      schemaVersion: 1,
+      actor: fixture.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: evidence.revealActionToken!,
+        evidenceId: evidence.evidenceId,
+        reason: 'Review captured chat context',
+      },
+    };
+    let decryptions = 0;
+    const reader = new AesGcmUnmatchedReportSnapshotReader({ resolve: () => key });
+    const handler = new PostgresConfirmedReportEvidenceReveals(
+      database,
+      fixture.tokens,
+      fixture.key,
+      {
+        unmatched_user: {
+          decrypt: (subject, snapshot) => {
+            decryptions++;
+            return reader.decrypt(subject, snapshot);
+          },
+        },
+      },
+    );
+    const command = {
+      ...draft,
+      data: { ...draft.data, confirmationToken: await handler.prepare(draft, fixture.actor) },
+    };
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => handler.execute(command, fixture.actor)),
+    );
+    expect(decryptions).toBe(1);
+    expect(results.filter((result) => result.value !== undefined)).toHaveLength(1);
+    expect(results.find((result) => result.value !== undefined)!.value!.content).toEqual({
+      evidenceType: 'unmatched_user',
+      unmatchedAt: unmatch.unmatched_at.toISOString(),
+      reportWindowExpiresAt: unmatch.report_window_expires_at.toISOString(),
+    });
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('outcome')
+        .where('command_id', '=', draft.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'revealed' }]);
+    const corrupt = new PostgresConfirmedReportEvidenceReveals(
+      database,
+      fixture.tokens,
+      fixture.key,
+      {
+        unmatched_user: {
+          decrypt: () => ({
+            evidenceType: 'unmatched_user',
+            unmatchedAt: new Date(unmatch.unmatched_at.getTime() + 1).toISOString(),
+            reportWindowExpiresAt: new Date(
+              unmatch.report_window_expires_at.getTime() + 1,
+            ).toISOString(),
+          }),
+        },
+      },
+    );
+    const changed = { ...draft, commandId: randomUUID(), idempotencyKey: randomUUID() };
+    const denied = await corrupt.execute(
+      {
+        ...changed,
+        data: { ...changed.data, confirmationToken: await corrupt.prepare(changed, fixture.actor) },
+      },
+      fixture.actor,
+    );
+    expect(denied.value).toBeUndefined();
+    expect(denied.result).toBe('failed');
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('outcome')
+        .where('command_id', '=', changed.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'rejected' }]);
+    const revokedDraft = { ...draft, commandId: randomUUID(), idempotencyKey: randomUUID() };
+    const revokedCommand = {
+      ...revokedDraft,
+      data: {
+        ...revokedDraft.data,
+        confirmationToken: await handler.prepare(revokedDraft, fixture.actor),
+      },
+    };
+    await database
+      .updateTable('administration.admin_user_roles')
+      .set({
+        revoked_at: sql<Date>`clock_timestamp()`,
+        revoked_by_admin_id: admin,
+      })
+      .where('admin_user_id', '=', admin)
+      .where('role_code', '=', 'super_admin')
+      .execute();
+    const revoked = await handler.execute(revokedCommand, fixture.actor);
+    expect(revoked.result).toBe('rejected');
+    expect(revoked.value).toBeUndefined();
+    expect(decryptions).toBe(1);
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('outcome')
+        .where('command_id', '=', revokedDraft.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'rejected' }]);
   });
   it('counts five distinct unmatch reporters toward one restriction episode', async () => {
     const target = await createReportUser(database),

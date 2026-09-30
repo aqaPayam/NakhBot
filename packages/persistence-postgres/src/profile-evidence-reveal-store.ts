@@ -3,6 +3,7 @@ import type {
   AdminCommandExecutionResult,
   ProfileReportSnapshotReader,
   ChatReportSnapshotReader,
+  UnmatchedReportSnapshotReader,
 } from '@nakh/application';
 import type { RevealedReportEvidence } from '@nakh/contracts';
 import { ApplicationError, type IdGenerator } from '@nakh/domain';
@@ -17,6 +18,7 @@ import { SystemIdGenerator } from './foundation-store.js';
 export type ReportEvidenceReaders = Readonly<{
   profile?: ProfileReportSnapshotReader;
   chat?: ChatReportSnapshotReader;
+  unmatched_user?: UnmatchedReportSnapshotReader;
 }>;
 export class PostgresReportEvidenceRevealStore {
   public constructor(
@@ -51,6 +53,7 @@ export class PostgresReportEvidenceRevealStore {
             'evidence.report_id',
             'evidence.evidence_type',
             'evidence.chat_session_id',
+            'evidence.unmatch_record_id',
             'snapshot.snapshot_type',
             'snapshot.schema_version',
             'snapshot.encryption_key_id',
@@ -66,7 +69,9 @@ export class PostgresReportEvidenceRevealStore {
             ? this.readers.profile
             : row?.evidence_type === 'chat'
               ? this.readers.chat
-              : undefined;
+              : row?.evidence_type === 'unmatched_user'
+                ? this.readers.unmatched_user
+                : undefined;
         if (row === undefined || reader === undefined)
           throw new ApplicationError(
             'report_unavailable',
@@ -90,6 +95,23 @@ export class PostgresReportEvidenceRevealStore {
           (content.evidenceType === 'chat' && content.chatSessionId !== row.chat_session_id)
         )
           throw new Error('Report snapshot reference is invalid.');
+        if (content.evidenceType === 'unmatched_user') {
+          const source =
+            row.unmatch_record_id === null
+              ? undefined
+              : await transaction
+                  .selectFrom('matching.unmatch_records')
+                  .select(['unmatched_at', 'report_window_expires_at'])
+                  .where('match_id', '=', row.unmatch_record_id)
+                  .executeTakeFirst();
+          // Retained evidence remains reviewable after expiry; only its immutable binding matters.
+          if (
+            source === undefined ||
+            content.unmatchedAt !== source.unmatched_at.toISOString() ||
+            content.reportWindowExpiresAt !== source.report_window_expires_at.toISOString()
+          )
+            throw new Error('Report snapshot reference is invalid.');
+        }
         return { safeCode: 'evidence_revealed', value: content };
       },
       async (transaction, outcome) => {
