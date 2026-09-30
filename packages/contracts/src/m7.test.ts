@@ -17,6 +17,7 @@ import {
   PreparedReportEvidenceSchema,
   ReconcileM7CommandSchema,
   ReportMetadataPageSchema,
+  ReportEvidenceMetadataSchema,
   ReportSubmissionResultSchema,
   RevealReportEvidenceCommandSchema,
   RevealedReportEvidenceSchema,
@@ -35,6 +36,22 @@ function validator(schema: object): ValidateFunction {
   addFormats(ajv);
   return ajv.compile(schema);
 }
+
+describe('report evidence metadata privacy contract', () => {
+  it('bounds one report selection and rejects content and identity fields', () => {
+    const validate = validator(ReportEvidenceMetadataSchema);
+    const item = {
+      evidenceId: '20000000-0000-4000-8000-000000000000',
+      evidenceType: 'profile',
+      snapshotSchemaVersion: 1,
+    };
+    const result = { reportId: '10000000-0000-4000-8000-000000000000', items: [item] };
+    expect(validate(result)).toBe(true);
+    for (const field of ['content', 'ciphertext', 'reporterUserId', 'targetUserId', 'keyId'])
+      expect(validate({ ...result, items: [{ ...item, [field]: 'private' }] })).toBe(false);
+    expect(validate({ ...result, items: Array.from({ length: 6 }, () => item) })).toBe(false);
+  });
+});
 
 const userId = '10000000-0000-4000-8000-000000000000';
 const entityId = '20000000-0000-4000-8000-000000000000';

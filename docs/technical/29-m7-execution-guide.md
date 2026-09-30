@@ -447,6 +447,11 @@ command, opaque evidence target, selected evidence ID and normalized reason. Evi
 version 1; client IDs cannot override opaque targets. Commit-time permission checks reject revoked
 roles even after confirmation. Transport integration remains outstanding.
 
+Selected-report evidence metadata is bounded to five entries and scoped by a current report-version
+action token. It returns only report/evidence IDs, evidence types and snapshot schema versions;
+queries do not select content, ciphertext, key metadata or user identities. Stale report menus,
+cross-actor requests and disabled admins cannot use this read path.
+
 Checkpoint 8 remains partial. Photo/chat/message/unmatched-user submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.

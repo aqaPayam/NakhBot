@@ -140,3 +140,4 @@ export * from './moderation/prepare-profile-report.js';
 export * from './moderation/submit-profile-report.js';
 export * from './moderation/profile-report-snapshot-reader.js';
 export * from './moderation/confirmed-evidence-reveal.js';
+export * from './moderation/report-evidence-metadata.js';

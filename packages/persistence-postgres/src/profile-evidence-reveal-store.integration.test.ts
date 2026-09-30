@@ -20,6 +20,10 @@ import { PostgresProfileEvidenceRevealStore } from './profile-evidence-reveal-st
 import { PostgresConfirmedEvidenceReveals } from './confirmed-evidence-reveal-store.js';
 import { confirmationFixture } from './testing/admin-confirmation.js';
 import type { EvidenceRevealDraft } from '@nakh/application';
+import {
+  PostgresGetReportEvidenceMetadataHandler,
+  PostgresReportEvidenceMetadataStore,
+} from './report-evidence-metadata-store.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL,
   key = Buffer.alloc(32, 49);
@@ -138,6 +142,70 @@ describe.skipIf(url === undefined)('audited profile evidence release', () => {
       correlationId: randomUUID(),
     };
   }
+  it('lists only selected-report evidence metadata and rejects stale, cross-actor and disabled access', async () => {
+    const fixture = await confirmationFixture(database, admin);
+    const report = await database
+      .selectFrom('moderation.report_evidence')
+      .select('report_id')
+      .where('id', '=', evidenceId)
+      .executeTakeFirstOrThrow();
+    const scope = {
+      commandCode: 'moderation.evidence-metadata',
+      requiredPermission: 'view_reports' as const,
+      targetType: 'report',
+      targetId: report.report_id,
+      expectedTargetVersion: 1,
+    };
+    const handler = new PostgresGetReportEvidenceMetadataHandler(
+      database,
+      fixture.tokens,
+      fixture.key,
+    );
+    const query = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: await fixture.issue(scope),
+    };
+    expect(await handler.execute(query, fixture.actor)).toEqual({
+      reportId: report.report_id,
+      items: [{ evidenceId, evidenceType: 'profile', snapshotSchemaVersion: 1 }],
+    });
+    await expect(
+      handler.execute(query, { ...fixture.actor, userId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    await expect(
+      handler.execute(
+        { ...query, adminActionToken: await fixture.issue({ ...scope, expectedTargetVersion: 2 }) },
+        fixture.actor,
+      ),
+    ).rejects.toMatchObject({ code: 'version_conflict' });
+    await expect(
+      handler.execute(
+        { ...query, adminActionToken: await fixture.issue({ ...scope, targetId: randomUUID() }) },
+        fixture.actor,
+      ),
+    ).rejects.toMatchObject({ code: 'report_unavailable' });
+    const disabled = await createReportFixtureAdmin(database);
+    await database
+      .updateTable('administration.admin_users')
+      .set({ is_active: false, disabled_at: new Date(), updated_at: new Date() })
+      .where('id', '=', disabled)
+      .execute();
+    const actorId = (
+      await database
+        .selectFrom('administration.admin_users')
+        .select('user_id')
+        .where('id', '=', disabled)
+        .executeTakeFirstOrThrow()
+    ).user_id;
+    await expect(
+      new PostgresReportEvidenceMetadataStore(database).list({
+        ...scope,
+        adminUserId: disabled,
+        actorUserId: actorId,
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
   it('binds explicit reveal confirmation to evidence, reason and actor and rechecks revoked permissions', async () => {
     const confirmedAdmin = await createReportFixtureAdmin(database);
     await database

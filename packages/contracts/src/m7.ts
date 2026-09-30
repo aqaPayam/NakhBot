@@ -275,6 +275,34 @@ export const RevealReportEvidenceCommandSchema = mutationSchema(
 );
 export type RevealReportEvidenceCommand = Static<typeof RevealReportEvidenceCommandSchema>;
 
+export const GetReportEvidenceMetadataQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+  },
+  { additionalProperties: false },
+);
+export type GetReportEvidenceMetadataQuery = Static<typeof GetReportEvidenceMetadataQuerySchema>;
+export const ReportEvidenceMetadataSchema = Type.Object(
+  {
+    reportId: UuidSchema,
+    items: Type.Array(
+      Type.Object(
+        {
+          evidenceId: UuidSchema,
+          evidenceType: ReportEvidenceTypeSchema,
+          snapshotSchemaVersion: Type.Integer({ minimum: 1 }),
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 5 },
+    ),
+  },
+  { additionalProperties: false },
+);
+export type ReportEvidenceMetadata = Static<typeof ReportEvidenceMetadataSchema>;
+
 export const ApplyAccountModerationActionCommandSchema = mutationSchema(
   'moderation.apply-account-action',
   AdminActorSchema,
