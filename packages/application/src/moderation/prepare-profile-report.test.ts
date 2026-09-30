@@ -36,7 +36,7 @@ describe('profile report evidence preparation', () => {
     });
     expect(resolve).not.toHaveBeenCalled();
     const result = await handler.execute(query, actor);
-    expect(resolve).toHaveBeenCalledWith(actor.userId, source);
+    expect(resolve).toHaveBeenCalledWith(actor.userId, source, 'profile');
     expect(await tokens.resolveIntent(result.evidenceIntentToken, actor.userId)).toEqual(intent);
     expect(Object.keys(result).sort()).toEqual([
       'evidenceIntentToken',

@@ -32,12 +32,15 @@ export interface ProfileReportSubmissionStore {
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export class SubmitSingleEvidenceReportHandler {
+  private readonly evidenceTypes: readonly ReportEvidenceType[];
   public constructor(
     private readonly tokens: Pick<ReportTokens, 'resolveIntent'>,
     private readonly store: ProfileReportSubmissionStore,
     private readonly ids: IdGenerator,
-    private readonly evidenceType: ReportEvidenceType,
-  ) {}
+    evidenceTypes: ReportEvidenceType | readonly ReportEvidenceType[],
+  ) {
+    this.evidenceTypes = typeof evidenceTypes === 'string' ? [evidenceTypes] : [...evidenceTypes];
+  }
   public async execute(
     command: SubmitReportCommand,
     actor: Actor,
@@ -89,7 +92,7 @@ export class SubmitSingleEvidenceReportHandler {
       intent === undefined ||
       intent.targetUserId === actor.userId ||
       intent.evidence.length !== 1 ||
-      intent.evidence[0]?.evidenceType !== this.evidenceType
+      !this.evidenceTypes.some((type) => type === intent.evidence[0]?.evidenceType)
     )
       throw reportUnavailable();
     return this.store.submit({

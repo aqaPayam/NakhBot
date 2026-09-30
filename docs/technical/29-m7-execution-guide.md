@@ -499,6 +499,13 @@ window closes, and releases content only after its access audit commits. Integra
 covers opaque selection, concurrent confirmed retries, corrupted reference dates and permission
 revocation after confirmation. No decrypted content is returned on rejected or replayed attempts.
 
+A provider-neutral service factory now composes profile, chat and post-unmatch preparation,
+submission, evidence actions and confirmed reveal from one trusted capability configuration.
+Disabled types cannot prepare or submit new reports and receive no reveal action. Each request
+still selects exactly one evidence type. Integration evidence covers all three complete internal
+flows, legacy profile receipts, token-loss replay and one shared ten-report limit under mixed-type
+concurrency. Transport authentication and presentation remain separate pending work.
+
 Checkpoint 8 remains partial. Photo/message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.
