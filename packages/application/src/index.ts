@@ -134,3 +134,4 @@ export * from './moderation/review-decision.js';
 export * from './moderation/confirmed-review-decision.js';
 export * from './moderation/report-metadata-cursor.js';
 export * from './moderation/report-metadata.js';
+export * from './moderation/report-tokens.js';
