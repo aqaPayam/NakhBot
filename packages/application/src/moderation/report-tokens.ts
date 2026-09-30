@@ -3,7 +3,7 @@ import type { ReportEvidenceType } from '@nakh/contracts';
 import type { OpaqueTokenStore } from '../security/opaque-token.js';
 
 export type ReportSource = Readonly<{
-  kind: 'received_like' | 'received_nakh' | 'delivered_candidate' | 'match';
+  kind: 'received_like' | 'received_nakh' | 'delivered_candidate' | 'match' | 'unmatched';
   referenceId: string;
 }>;
 export type ReportEvidenceReference = Readonly<{
@@ -27,7 +27,7 @@ function source(value: unknown): value is ReportSource {
   return (
     record(value) &&
     Object.keys(value).length === 2 &&
-    ['received_like', 'received_nakh', 'delivered_candidate', 'match'].includes(
+    ['received_like', 'received_nakh', 'delivered_candidate', 'match', 'unmatched'].includes(
       String(value.kind),
     ) &&
     uuid(value.referenceId)

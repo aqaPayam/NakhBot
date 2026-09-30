@@ -481,6 +481,11 @@ supported evidence types; chat content must match the immutable evidence session
 Concurrent confirmed retries release one captured result, even after the live session closes, and
 never decrypt on replay. Invalid references fail with a sanitized outcome and rejected access audit.
 
+Post-unmatch preparation now accepts a separate actor-bound opaque context for either stored
+participant. It checks the immutable M6 deadline with PostgreSQL precision, including a fresh
+clock check after source locks. Integration evidence covers real Unmatch, outsiders, expired
+windows and lock waits crossing expiry. Submission and snapshot capture for this type remain pending.
+
 Checkpoint 8 remains partial. Photo/message/unmatched-user submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.

@@ -5,15 +5,98 @@ import { PostgresDirectNakhStore } from '../direct-nakh-store.js';
 import { PostgresCreditLedgerStore } from '../credit-ledger-store.js';
 import { SystemIdGenerator } from '../foundation-store.js';
 import { PostgresCandidateDeliveryStore } from '../candidate-delivery-store.js';
+import { PostgresUnmatchStore } from '../unmatch-store.js';
+
+export async function createReportUnmatch(
+  database: NakhDatabase,
+  first: string,
+  second: string,
+  historicalTime?: Date,
+): Promise<Readonly<{ matchId: string; chatSessionId: string }>> {
+  const at = historicalTime ?? new Date();
+  const chat = await createReportChat(database, first, second, new Date(at.getTime() - 1000));
+  const [low, high] = [first, second].sort() as [string, string];
+  await database
+    .insertInto('interaction.user_pair_states')
+    .values({
+      user_low_id: low,
+      user_high_id: high,
+      state: 'matched',
+      reason_code: 'match',
+      changed_at: new Date(at.getTime() - 1000),
+    })
+    .execute();
+  if (historicalTime === undefined) {
+    await database
+      .insertInto('notification.notification_preferences')
+      .values({ user_id: second, created_at: at, updated_at: at })
+      .onConflict((conflict) => conflict.column('user_id').doNothing())
+      .execute();
+    await new PostgresUnmatchStore(database).unmatch({
+      matchId: chat.matchId,
+      eventId: randomUUID(),
+      command: {
+        commandType: 'matching.unmatch',
+        schemaVersion: 1,
+        actor: { kind: 'user', userId: first },
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        occurredAt: at.toISOString(),
+        locale: 'en',
+        data: { matchActionToken: 'fixture' },
+      },
+    });
+    return chat;
+  }
+  // Historical lifecycle fixtures preserve all deferred consistency checks, never mutate records.
+  await database.transaction().execute(async (tx) => {
+    await tx
+      .insertInto('matching.unmatch_records')
+      .values({
+        match_id: chat.matchId,
+        actor_user_id: first,
+        reason_code: null,
+        command_id: randomUUID(),
+        idempotency_key: randomUUID(),
+        unmatched_at: at,
+        report_window_expires_at: new Date(at.getTime() + 86400000),
+      })
+      .execute();
+    await tx
+      .updateTable('matching.matches')
+      .set({ status: 'unmatched', closed_at: at, version: 2 })
+      .where('id', '=', chat.matchId)
+      .execute();
+    await tx
+      .updateTable('interaction.user_pair_states')
+      .set({ state: 'unmatched', reason_code: 'unmatch', changed_at: at, version: 2 })
+      .where('user_low_id', '=', low)
+      .where('user_high_id', '=', high)
+      .execute();
+    await tx
+      .updateTable('chat.chat_sessions')
+      .set({ status: 'closed', closed_reason: 'unmatch', closed_at: at, version: 2 })
+      .where('id', '=', chat.chatSessionId)
+      .execute();
+    await tx
+      .updateTable('interaction.likes')
+      .set({ status: 'closed_by_unmatch', closed_at: at, version: 2 })
+      .where('sender_user_id', 'in', [first, second])
+      .where('receiver_user_id', 'in', [first, second])
+      .execute();
+  });
+  return chat;
+}
 
 export async function createReportChat(
   database: NakhDatabase,
   first: string,
   second: string,
+  now = new Date(),
 ): Promise<Readonly<{ matchId: string; chatSessionId: string }>> {
-  const matchId = await createReportMatch(database, first, second),
-    chatSessionId = randomUUID(),
-    now = new Date();
+  const matchId = await createReportMatch(database, first, second, now),
+    chatSessionId = randomUUID();
   await database.transaction().execute(async (transaction) => {
     await transaction
       .insertInto('chat.chat_sessions')
@@ -47,12 +130,12 @@ export async function createReportMatch(
   database: NakhDatabase,
   first: string,
   second: string,
+  now = new Date(),
 ): Promise<string> {
-  const id = randomUUID(),
-    now = new Date();
+  const id = randomUUID();
   const [low, high] = [first, second].sort() as [string, string];
-  const a = await createReportLike(database, first, second),
-    b = await createReportLike(database, second, first);
+  const a = await createReportLike(database, first, second, now),
+    b = await createReportLike(database, second, first, now);
   await database.transaction().execute(async (transaction) => {
     await transaction
       .insertInto('matching.matches')
@@ -167,6 +250,7 @@ export async function createReportLike(
   database: NakhDatabase,
   reporter: string,
   target: string,
+  now = new Date(),
 ): Promise<string> {
   const id = randomUUID();
   await database
@@ -176,7 +260,7 @@ export async function createReportLike(
       sender_user_id: target,
       receiver_user_id: reporter,
       status: 'active',
-      created_at: new Date(),
+      created_at: now,
       closed_at: null,
     })
     .execute();
