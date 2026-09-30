@@ -138,3 +138,4 @@ export * from './moderation/report-tokens.js';
 export * from './moderation/profile-report-snapshot.js';
 export * from './moderation/prepare-profile-report.js';
 export * from './moderation/submit-profile-report.js';
+export * from './moderation/profile-report-snapshot-reader.js';
