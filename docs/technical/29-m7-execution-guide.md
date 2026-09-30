@@ -484,7 +484,10 @@ never decrypt on replay. Invalid references fail with a sanitized outcome and re
 Post-unmatch preparation now accepts a separate actor-bound opaque context for either stored
 participant. It checks the immutable M6 deadline with PostgreSQL precision, including a fresh
 clock check after source locks. Integration evidence covers real Unmatch, outsiders, expired
-windows and lock waits crossing expiry. Submission and snapshot capture for this type remain pending.
+windows and lock waits crossing expiry. The internal unmatch snapshot codec encrypts only the
+unmatch time and exact 24-hour deadline. Strict validation rejects extra identity/reason fields,
+invalid dates and altered intervals; typed authenticated encryption rejects substitution and
+tampering without leaking key-provider diagnostics. Submission and audited reveal remain pending.
 
 Checkpoint 8 remains partial. Photo/message/unmatched-user submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
