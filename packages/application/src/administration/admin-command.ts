@@ -29,6 +29,7 @@ export type AdminCommandAttempt = Readonly<{
   preconditionRejection?: 'invalid_request' | 'version_conflict' | 'admin_reason_invalid';
   /** Trusted pair claims recovered from an opaque admin action token. */
   targetPair?: Readonly<{ userLowId: string; userHighId: string }>;
+  sourceReportId?: string;
 }>;
 
 export type AdminCommandEffectResult<T> = Readonly<{
@@ -127,6 +128,10 @@ export function validateAdminCommandAttempt(attempt: AdminCommandAttempt): void 
         attempt.preconditionRejection,
       )) ||
     !pairValid ||
+    (attempt.sourceReportId !== undefined &&
+      (!isUuid(attempt.sourceReportId) ||
+        attempt.commandCode !== 'moderation.apply-account-action' ||
+        attempt.targetType !== 'user')) ||
     (attempt.targetType === 'user_pair') !== (attempt.targetPair !== undefined)
   )
     throw new Error('Admin command attempt is invalid.');

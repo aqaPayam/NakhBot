@@ -152,6 +152,10 @@ export class PostgresAccountModerationStore implements AccountModerationWorkflow
     database: NakhDatabase,
     write: AccountModerationWrite,
   ): Promise<AccountModerationResult> {
+    if (write.sourceReportId !== undefined)
+      await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${write.targetUserId}::text, 0))`.execute(
+        database,
+      );
     await sql`SELECT pg_advisory_xact_lock(
       hashtextextended('moderation-account:' || ${write.targetUserId}::text, 0)
     )`.execute(database);
@@ -164,6 +168,37 @@ export class PostgresAccountModerationStore implements AccountModerationWorkflow
     if (account === undefined) throw unavailable();
     if (account.version !== write.expectedAccountVersion)
       throw new ApplicationError('version_conflict', 'error.command.version_conflict', 409);
+
+    if (write.sourceReportId !== undefined) {
+      const report = await database
+        .selectFrom('moderation.reports')
+        .select(['target_user_id', 'status'])
+        .where('id', '=', write.sourceReportId)
+        .forUpdate()
+        .executeTakeFirst();
+      const review = await database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['assigned_admin_id', 'status'])
+        .where('report_id', '=', write.sourceReportId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        report?.target_user_id !== write.targetUserId ||
+        report.status !== 'pending_review' ||
+        review?.status !== 'in_review'
+      )
+        throw new ApplicationError(
+          'report_unavailable',
+          'error.moderation.review_unavailable',
+          409,
+        );
+      if (review.assigned_admin_id !== write.adminUserId)
+        throw new ApplicationError(
+          'reviewer_unauthorized',
+          'error.moderation.reviewer_unauthorized',
+          403,
+        );
+    }
 
     const state = await nextState(database, write.targetUserId, account.state, write.action);
     assertAccountTransition(account.state, state);
@@ -288,7 +323,7 @@ export class PostgresAccountModerationStore implements AccountModerationWorkflow
         target_photo_id: null,
         target_pair_low_user_id: null,
         target_pair_high_user_id: null,
-        source_report_id: null,
+        source_report_id: write.sourceReportId ?? null,
         restriction_episode_id: restrictionEpisodeId,
         audit_log_id: write.auditId,
         notification_id: write.notificationId,

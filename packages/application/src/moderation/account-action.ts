@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   ApplicationError,
   requiredPermissionForModerationAction,
@@ -34,6 +35,7 @@ export type AccountModerationResult = Readonly<{
 }>;
 
 export type AccountModerationWrite = Readonly<{
+  sourceReportId?: string;
   action: AccountModerationAction;
   adminUserId: string;
   targetUserId: string;
@@ -82,14 +84,24 @@ export class AccountModerationWorkflow<TContext> {
     )
       throw invalidRequest();
 
+    const boundAttempt =
+      attempt.sourceReportId === undefined
+        ? attempt
+        : {
+            ...attempt,
+            requestDigest: createHash('sha256')
+              .update(JSON.stringify([attempt.requestDigest, attempt.sourceReportId]))
+              .digest('hex'),
+          };
     const write: AccountModerationWrite = {
+      ...(attempt.sourceReportId === undefined ? {} : { sourceReportId: attempt.sourceReportId }),
       action,
       adminUserId: attempt.adminUserId,
       targetUserId: attempt.targetId,
       expectedAccountVersion: expectedVersion,
       requestId: attempt.requestId,
       commandId: attempt.commandId,
-      requestDigest: attempt.requestDigest,
+      requestDigest: boundAttempt.requestDigest,
       actionId: this.ids.uuid(),
       auditId: this.ids.uuid(),
       accountHistoryId: this.ids.uuid(),
@@ -99,7 +111,7 @@ export class AccountModerationWorkflow<TContext> {
       accountEventId: this.ids.uuid(),
       actionEventId: this.ids.uuid(),
     };
-    return this.commands.execute(attempt, async (context) => ({
+    return this.commands.execute(boundAttempt, async (context) => ({
       value: await this.accounts.apply(context, write),
       safeCode: `account_${action}`,
     }));

@@ -25,6 +25,8 @@ import { PostgresConfirmedReviewDecisions } from './confirmed-review-decision-st
 import { sql } from 'kysely';
 import type { RawBuilder } from 'kysely';
 import { PostgresGetReportMetadataPageHandler } from './report-metadata-store.js';
+import { PostgresConfirmedAccountActions } from './confirmed-account-store.js';
+import type { ApplyAccountModerationActionCommand } from '@nakh/contracts';
 import type { GetReportMetadataPageQuery, ReportMetadataPage } from '@nakh/contracts';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
@@ -506,50 +508,92 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
       .select('target_user_id')
       .where('id', '=', review.reportId)
       .executeTakeFirstOrThrow();
-    // Seed historical action evidence; the decision workflow may acknowledge it but never repeat it.
-    const auditId = randomUUID(),
-      actionId = randomUUID(),
-      commandId = randomUUID();
     await database
-      .insertInto('platform.audit_logs')
+      .insertInto('identity.accounts')
       .values({
-        id: auditId,
-        category: 'admin',
-        event_type: 'moderation.action-recorded.v1',
-        actor_type: 'admin',
-        actor_user_id: null,
-        actor_admin_id: adminId,
-        subject_type: 'user',
-        subject_id: report.target_user_id,
-        result_code: 'restricted',
-        metadata_schema_version: 1,
-        metadata: {},
-        request_id: randomUUID(),
-        command_id: commandId,
-        occurred_at: new Date(),
+        user_id: report.target_user_id,
+        state: 'active',
+        state_reason: null,
+        state_changed_at: new Date(),
       })
       .execute();
-    await database
-      .insertInto('moderation.moderation_actions')
-      .values({
-        id: actionId,
-        action_type: 'restrict_user',
-        actor_type: 'admin',
-        actor_admin_id: adminId,
-        target_user_id: report.target_user_id,
-        target_photo_id: null,
-        target_pair_low_user_id: null,
-        target_pair_high_user_id: null,
-        source_report_id: review.reportId,
-        restriction_episode_id: null,
-        audit_log_id: auditId,
-        notification_id: null,
-        command_id: commandId,
-        request_id: randomUUID(),
-        request_digest: digest('historical action'),
-        reason_code: 'admin_restrict',
-      })
-      .execute();
+    const f = await confirmationFixture(database, adminId);
+    const commands = new PostgresConfirmedAccountActions(database, f.tokens, f.key);
+    const command: ApplyAccountModerationActionCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.apply-account-action',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: await f.issue({
+          commandCode: 'moderation.apply-account-action',
+          requiredPermission: 'restrict_user',
+          targetType: 'user',
+          targetId: report.target_user_id,
+          expectedTargetVersion: 1,
+          sourceReportId: review.reportId,
+        }),
+        confirmationToken: '',
+        expectedTargetVersion: 1,
+        reason: 'Reviewed report action',
+        action: 'restrict_user',
+      },
+    };
+    command.data.confirmationToken = await commands.prepare(command, f.actor);
+    const unrelated = await assignedReview();
+    const wrongReport = {
+      ...command,
+      commandId: randomUUID(),
+      data: {
+        ...command.data,
+        adminActionToken: await f.issue({
+          commandCode: 'moderation.apply-account-action',
+          requiredPermission: 'restrict_user',
+          targetType: 'user',
+          targetId: report.target_user_id,
+          expectedTargetVersion: 1,
+          sourceReportId: unrelated.review.reportId,
+        }),
+      },
+    };
+    wrongReport.data.confirmationToken = await commands.prepare(wrongReport, f.actor);
+    expect(await commands.execute(wrongReport, f.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'report_unavailable',
+    });
+    const other = await confirmationFixture(database, unrelated.adminId);
+    const otherCommands = new PostgresConfirmedAccountActions(database, other.tokens, other.key);
+    const wrongReviewer = {
+      ...command,
+      actor: other.actor,
+      commandId: randomUUID(),
+      data: {
+        ...command.data,
+        adminActionToken: await other.issue({
+          commandCode: 'moderation.apply-account-action',
+          requiredPermission: 'restrict_user',
+          targetType: 'user',
+          targetId: report.target_user_id,
+          expectedTargetVersion: 1,
+          sourceReportId: review.reportId,
+        }),
+      },
+    };
+    wrongReviewer.data.confirmationToken = await otherCommands.prepare(wrongReviewer, other.actor);
+    expect(await otherCommands.execute(wrongReviewer, other.actor)).toMatchObject({
+      result: 'rejected',
+      safeCode: 'reviewer_unauthorized',
+    });
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => commands.execute(command, f.actor)),
+    );
+    expect(results.every((result) => result.result === 'succeeded')).toBe(true);
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    const actionId = results.find((result) => result.value !== undefined)!.value!.actionId;
     const decisions = new PostgresReviewDecisionWorkflow(database, notes);
     expect(
       await decisions.decide({ ...attempt, requiredPermission: 'view_reports' }, 'actioned'),
@@ -568,6 +612,13 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
         .where('source_report_id', '=', review.reportId)
         .execute(),
     ).toEqual([{ id: actionId }]);
+    expect(
+      await database
+        .selectFrom('identity.accounts')
+        .select(['state', 'version'])
+        .where('user_id', '=', report.target_user_id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ state: 'restricted', version: 2 });
   });
   it('commits one encrypted dismissal, action, event and audit across concurrent retries', async () => {
     const { review, attempt } = await assignedReview();

@@ -94,6 +94,39 @@ const scope = {
 };
 
 describe('admin action authorization', () => {
+  it('retains a report link only inside account action state and rejects unrelated scopes', async () => {
+    const context = service();
+    const sourceReportId = '40000000-0000-7000-8000-000000000001';
+    const token = await context.service.issue({
+      actorUserId,
+      telegramUserId,
+      scope: { ...scope, sourceReportId },
+    });
+    expect(token).not.toContain(sourceReportId);
+    expect(
+      await context.service.authorize({
+        actor: { kind: 'admin', userId: actorUserId },
+        token,
+        commandCode: scope.commandCode,
+        requiredPermission: scope.requiredPermission,
+        targetType: scope.targetType,
+      }),
+    ).toMatchObject({ sourceReportId });
+    await expect(
+      context.service.issue({
+        actorUserId,
+        telegramUserId,
+        scope: { ...scope, commandCode: 'moderation.assign-review', sourceReportId },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    await expect(
+      context.service.issue({
+        actorUserId,
+        telegramUserId,
+        scope: { ...scope, sourceReportId: 'bad' },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+  });
   it('issues an opaque signed scope only for the verified Telegram-backed permission', async () => {
     const context = service();
     const token = await context.service.issue({ actorUserId, telegramUserId, scope });

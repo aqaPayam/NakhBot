@@ -50,6 +50,8 @@ export type AdminActionScope = Readonly<{
   expectedTargetVersion: number | null;
   /** Present only for a pair target; retained inside the opaque server-side token state. */
   targetPair?: NormalizedUserPair;
+  /** Trusted report context retained in server-side state, never accepted as a client target. */
+  sourceReportId?: string;
 }>;
 
 export type AuthorizedAdminAction = AdminActionScope &
@@ -104,6 +106,12 @@ function validScope(value: AdminActionScope): boolean {
     (value.expectedTargetVersion === null ||
       (Number.isSafeInteger(value.expectedTargetVersion) && value.expectedTargetVersion >= 1)) &&
     pairValid &&
+    (value.sourceReportId === undefined ||
+      (typeof value.sourceReportId === 'string' &&
+        UUID.test(value.sourceReportId) &&
+        value.commandCode === 'moderation.apply-account-action' &&
+        value.targetType === 'user' &&
+        value.targetId !== null)) &&
     (value.targetType === 'user_pair') === (value.targetPair !== undefined)
   );
 }
@@ -112,7 +120,10 @@ function validStoredState(value: unknown): value is StoredAdminAction {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const state = value as Readonly<Record<string, unknown>>;
   return (
-    Object.keys(state).length === (state.targetPair === undefined ? 10 : 11) &&
+    Object.keys(state).length ===
+      10 +
+        (state.targetPair === undefined ? 0 : 1) +
+        (state.sourceReportId === undefined ? 0 : 1) &&
     state.version === 1 &&
     state.purpose === 'admin_action' &&
     typeof state.adminUserId === 'string' &&
@@ -303,6 +314,7 @@ export class AdminActionAuthorizationService {
       targetId: state.targetId,
       expectedTargetVersion: state.expectedTargetVersion,
       ...(state.targetPair === undefined ? {} : { targetPair: state.targetPair }),
+      ...(state.sourceReportId === undefined ? {} : { sourceReportId: state.sourceReportId }),
     };
   }
 

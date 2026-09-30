@@ -57,6 +57,7 @@ function binding(
     scope.targetType,
     reason,
     scope.payload,
+    ...(action.sourceReportId === undefined ? [] : [action.sourceReportId]),
   ]);
 }
 /** Internal shared boundary; wrappers supply fixed permission/target scopes, never transport input. */
@@ -140,6 +141,7 @@ export class ConfirmedAdminCommandBoundary {
         targetType: scope.targetType,
         targetId: action.targetId,
         ...(action.targetPair === undefined ? {} : { targetPair: action.targetPair }),
+        ...(action.sourceReportId === undefined ? {} : { sourceReportId: action.sourceReportId }),
         expectedTargetVersion: command.data.expectedTargetVersion,
         reasonDigest: hash(reason),
         metadata: {},
