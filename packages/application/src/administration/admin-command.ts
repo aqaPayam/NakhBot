@@ -68,10 +68,14 @@ export type EvidenceAccessResult = Readonly<{
   replayed: boolean;
 }>;
 
+export type AdminCommandRecordedOutcome = Omit<AdminCommandExecutionResult<never>, 'value'>;
+
 export interface AdminCommandExecutionStore<TContext> {
   execute<T>(
     attempt: AdminCommandAttempt,
     effect: (context: TContext) => Promise<AdminCommandEffectResult<T>>,
+    /** Required audit facts commit with the outcome; failure aborts the entire transaction. Not called on replay. */
+    onRecorded?: (context: TContext, outcome: AdminCommandRecordedOutcome) => Promise<void>,
   ): Promise<AdminCommandExecutionResult<T>>;
   recordEvidenceAccess(attempt: EvidenceAccessAttempt): Promise<EvidenceAccessResult>;
 }

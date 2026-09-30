@@ -10,6 +10,7 @@ import {
   type AdminCommandEffectResult,
   type AdminCommandExecutionResult,
   type AdminCommandExecutionStore,
+  type AdminCommandRecordedOutcome,
   type EvidenceAccessAttempt,
   type EvidenceAccessResult,
 } from '@nakh/application';
@@ -56,6 +57,7 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
   public async execute<T>(
     attempt: AdminCommandAttempt,
     effect: (transaction: NakhDatabase) => Promise<AdminCommandEffectResult<T>>,
+    onRecorded?: (transaction: NakhDatabase, outcome: AdminCommandRecordedOutcome) => Promise<void>,
   ): Promise<AdminCommandExecutionResult<T>> {
     validateAdminCommandAttempt(attempt);
     return this.database.transaction().execute(async (transaction) => {
@@ -115,6 +117,7 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
             .where('assignment.revoked_at', 'is', null)
             .where('role.is_active', '=', true)
             .where('role_permission.permission_code', '=', attempt.requiredPermission)
+            .forShare()
             .executeTakeFirst()
         : undefined;
       if (!admin.is_active || permission === undefined) {
@@ -169,6 +172,13 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
         })
         .returning('created_at')
         .executeTakeFirstOrThrow();
+      await onRecorded?.(transaction, {
+        logId: attempt.logId,
+        result,
+        safeCode,
+        recordedAt: recorded.created_at,
+        replayed: false,
+      });
       return {
         logId: attempt.logId,
         result,
@@ -181,59 +191,68 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
   }
 
   public async recordEvidenceAccess(attempt: EvidenceAccessAttempt): Promise<EvidenceAccessResult> {
-    validateEvidenceAccessAttempt(attempt);
-    return this.database.transaction().execute(async (transaction) => {
-      await sql`SELECT pg_advisory_xact_lock(
-        hashtextextended(${'evidence-access:'} || ${attempt.commandId}::text, 0)
-      )`.execute(transaction);
-      const existing = await transaction
-        .selectFrom('moderation.evidence_access_audits')
-        .selectAll()
-        .where('command_id', '=', attempt.commandId)
-        .executeTakeFirst();
-      if (existing !== undefined) {
-        if (
-          existing.report_id !== attempt.reportId ||
-          existing.report_evidence_id !== attempt.reportEvidenceId ||
-          existing.admin_user_id !== attempt.adminUserId ||
-          existing.reason_code !== attempt.reasonCode ||
-          existing.permission_code !== attempt.permissionCode ||
-          existing.outcome !== attempt.outcome ||
-          existing.safe_code !== attempt.safeCode
-        )
-          throw idempotencyConflict();
-        return {
-          auditId: existing.id,
-          outcome: existing.outcome,
-          safeCode: existing.safe_code,
-          accessedAt: existing.accessed_at,
-          replayed: true,
-        };
-      }
-
-      const recorded = await transaction
-        .insertInto('moderation.evidence_access_audits')
-        .values({
-          id: attempt.auditId,
-          report_id: attempt.reportId,
-          report_evidence_id: attempt.reportEvidenceId,
-          admin_user_id: attempt.adminUserId,
-          reason_code: attempt.reasonCode,
-          request_id: attempt.requestId,
-          command_id: attempt.commandId,
-          permission_code: attempt.permissionCode,
-          outcome: attempt.outcome,
-          safe_code: attempt.safeCode,
-        })
-        .returning('accessed_at')
-        .executeTakeFirstOrThrow();
-      return {
-        auditId: attempt.auditId,
-        outcome: attempt.outcome,
-        safeCode: attempt.safeCode,
-        accessedAt: recorded.accessed_at,
-        replayed: false,
-      };
-    });
+    return this.database
+      .transaction()
+      .execute((transaction) => recordEvidenceAccessInTransaction(transaction, attempt));
   }
+}
+
+/** Trusted audit writer for an existing authorized transaction; this does not grant permission. */
+export async function recordEvidenceAccessInTransaction(
+  transaction: NakhDatabase,
+  attempt: EvidenceAccessAttempt,
+): Promise<EvidenceAccessResult> {
+  validateEvidenceAccessAttempt(attempt);
+  await sql`SELECT pg_advisory_xact_lock(
+        hashtextextended(${'evidence-access:'} || ${attempt.adminUserId}::text || ':' || ${attempt.commandId}::text, 0)
+      )`.execute(transaction);
+  const existing = await transaction
+    .selectFrom('moderation.evidence_access_audits')
+    .selectAll()
+    .where('admin_user_id', '=', attempt.adminUserId)
+    .where('command_id', '=', attempt.commandId)
+    .executeTakeFirst();
+  if (existing !== undefined) {
+    if (
+      existing.report_id !== attempt.reportId ||
+      existing.report_evidence_id !== attempt.reportEvidenceId ||
+      existing.admin_user_id !== attempt.adminUserId ||
+      existing.reason_code !== attempt.reasonCode ||
+      existing.permission_code !== attempt.permissionCode ||
+      existing.outcome !== attempt.outcome ||
+      existing.safe_code !== attempt.safeCode
+    )
+      throw idempotencyConflict();
+    return {
+      auditId: existing.id,
+      outcome: existing.outcome,
+      safeCode: existing.safe_code,
+      accessedAt: existing.accessed_at,
+      replayed: true,
+    };
+  }
+
+  const recorded = await transaction
+    .insertInto('moderation.evidence_access_audits')
+    .values({
+      id: attempt.auditId,
+      report_id: attempt.reportId,
+      report_evidence_id: attempt.reportEvidenceId,
+      admin_user_id: attempt.adminUserId,
+      reason_code: attempt.reasonCode,
+      request_id: attempt.requestId,
+      command_id: attempt.commandId,
+      permission_code: attempt.permissionCode,
+      outcome: attempt.outcome,
+      safe_code: attempt.safeCode,
+    })
+    .returning('accessed_at')
+    .executeTakeFirstOrThrow();
+  return {
+    auditId: attempt.auditId,
+    outcome: attempt.outcome,
+    safeCode: attempt.safeCode,
+    accessedAt: recorded.accessed_at,
+    replayed: false,
+  };
 }

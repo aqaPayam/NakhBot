@@ -3,10 +3,17 @@ import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { AdminCommandAttempt, EvidenceAccessAttempt } from '@nakh/application';
+import type {
+  AdminCommandAttempt,
+  AdminCommandRecordedOutcome,
+  EvidenceAccessAttempt,
+} from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 
-import { PostgresAdminCommandStore } from './admin-command-store.js';
+import {
+  PostgresAdminCommandStore,
+  recordEvidenceAccessInTransaction,
+} from './admin-command-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 
@@ -340,5 +347,154 @@ describe.skipIf(databaseUrl === undefined)('M7 durable admin command execution',
       { outcome: 'rejected', safe_code: 'confirmation_required' },
       { outcome: 'revealed', safe_code: 'evidence_revealed' },
     ]);
+  });
+
+  it('commits access audits for success, rejection and failure with the attempt and observes each command once', async () => {
+    const adminUserId = await createAdmin(database),
+      evidence = await createEvidence(database);
+    let observations = 0;
+    for (const expected of ['succeeded', 'rejected', 'failed'] as const) {
+      const attempt = commandAttempt(adminUserId, evidence.evidenceId);
+      const observe = async (
+        transaction: NakhDatabase,
+        outcome: AdminCommandRecordedOutcome,
+      ): Promise<void> => {
+        observations++;
+        expect(outcome).not.toHaveProperty('value');
+        await recordEvidenceAccessInTransaction(transaction, {
+          auditId: randomUUID(),
+          reportId: evidence.reportId,
+          reportEvidenceId: evidence.evidenceId,
+          adminUserId,
+          commandId: attempt.commandId,
+          requestId: attempt.requestId,
+          reasonCode: 'report_evidence_review',
+          permissionCode: 'view_reports',
+          outcome: outcome.result === 'succeeded' ? 'revealed' : 'rejected',
+          safeCode: outcome.safeCode,
+        });
+      };
+      const effect = (): Promise<Readonly<{ value: string; safeCode: string }>> => {
+        if (expected === 'rejected')
+          return Promise.reject(new ApplicationError('forbidden', 'private rejection detail', 403));
+        if (expected === 'failed') return Promise.reject(new Error('private provider detail'));
+        return Promise.resolve({ value: 'private content', safeCode: 'evidence_revealed' });
+      };
+      await expect(store.execute(attempt, effect, observe)).resolves.toMatchObject({
+        result: expected,
+        replayed: false,
+      });
+      await expect(store.execute(attempt, effect, observe)).resolves.toMatchObject({
+        result: expected,
+        replayed: true,
+        value: undefined,
+      });
+    }
+    expect(observations).toBe(3);
+    const access = await database
+      .selectFrom('moderation.evidence_access_audits')
+      .select(['outcome', 'safe_code'])
+      .where('admin_user_id', '=', adminUserId)
+      .orderBy('safe_code')
+      .execute();
+    expect(access).toEqual([
+      { outcome: 'revealed', safe_code: 'evidence_revealed' },
+      { outcome: 'rejected', safe_code: 'forbidden' },
+      { outcome: 'rejected', safe_code: 'internal_error' },
+    ]);
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('admin_user_id', '=', adminUserId)
+      .execute();
+    expect(logs).toHaveLength(3);
+    expect(JSON.stringify(logs)).not.toContain('private');
+  });
+
+  it('rolls back the effect, admin log and access audit when required audit recording fails', async () => {
+    const adminUserId = await createAdmin(database),
+      evidence = await createEvidence(database),
+      targetId = randomUUID();
+    const attempt = commandAttempt(adminUserId, targetId),
+      auditId = randomUUID();
+    await expect(
+      store.execute(
+        attempt,
+        async (transaction) => {
+          const now = new Date();
+          await transaction
+            .insertInto('identity.users')
+            .values({ id: targetId, created_at: now, updated_at: now, last_activity_at: now })
+            .execute();
+          return { value: 'must not escape', safeCode: 'user_created' };
+        },
+        async (transaction) => {
+          await recordEvidenceAccessInTransaction(transaction, {
+            auditId,
+            reportId: evidence.reportId,
+            reportEvidenceId: evidence.evidenceId,
+            adminUserId,
+            commandId: attempt.commandId,
+            requestId: attempt.requestId,
+            reasonCode: 'report_evidence_review',
+            permissionCode: 'view_reports',
+            outcome: 'revealed',
+            safeCode: 'evidence_revealed',
+          });
+          throw new Error('required audit failed');
+        },
+      ),
+    ).rejects.toThrow('required audit failed');
+    expect(
+      await database.selectFrom('identity.users').select('id').where('id', '=', targetId).execute(),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .selectFrom('administration.admin_action_logs')
+        .select('id')
+        .where('command_id', '=', attempt.commandId)
+        .execute(),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('id')
+        .where('id', '=', auditId)
+        .execute(),
+    ).toHaveLength(0);
+  });
+
+  it('keeps evidence access command identity independent for each admin', async () => {
+    const admins = await Promise.all([createAdmin(database), createAdmin(database)]),
+      evidence = await createEvidence(database),
+      commandId = randomUUID();
+    const attempts: EvidenceAccessAttempt[] = admins.map((adminUserId) => ({
+      auditId: randomUUID(),
+      adminUserId,
+      reportId: evidence.reportId,
+      reportEvidenceId: evidence.evidenceId,
+      commandId,
+      requestId: randomUUID(),
+      reasonCode: 'report_evidence_review',
+      permissionCode: 'view_reports',
+      outcome: 'revealed',
+      safeCode: 'evidence_revealed',
+    }));
+    const results = await Promise.all(
+      attempts.map((attempt) => store.recordEvidenceAccess(attempt)),
+    );
+    expect(new Set(results.map((result) => result.auditId)).size).toBe(2);
+    for (const attempt of attempts)
+      await expect(store.recordEvidenceAccess(attempt)).resolves.toMatchObject({
+        auditId: attempt.auditId,
+        replayed: true,
+      });
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('id')
+        .where('command_id', '=', commandId)
+        .execute(),
+    ).toHaveLength(2);
   });
 });
