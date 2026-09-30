@@ -7,11 +7,15 @@ import {
   AesGcmChatReportSnapshotReader,
   ReportTokens,
   SubmitChatReportHandler,
+  type EvidenceRevealDraft,
 } from '@nakh/application';
 import type { SubmitReportCommand } from '@nakh/contracts';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { SystemIdGenerator } from './foundation-store.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
+import { PostgresConfirmedReportEvidenceReveals } from './confirmed-evidence-reveal-store.js';
+import { PostgresGetReportEvidenceActionsHandler } from './report-evidence-actions-store.js';
 import {
   createReportChat,
   createReportFixtureAdmin,
@@ -226,6 +230,138 @@ describe.skipIf(url === undefined)('transactional chat report submission', () =>
     for (const result of results)
       if (result.status === 'rejected')
         expect(result.reason).toMatchObject({ code: 'report_limit_reached' });
+  });
+  it('releases the captured chat only after confirmed audited access, never on replay or reference mismatch', async () => {
+    const input = await prepare();
+    const report = await new PostgresSubmitChatReportHandler(database, tokens, snapshots).execute(
+      input.command,
+      input.command.actor,
+    );
+    await database
+      .updateTable('chat.chat_sessions')
+      .set({
+        status: 'closed',
+        closed_at: new Date(),
+        closed_reason: 'admin_action',
+        version: 2,
+      })
+      .where('id', '=', input.chatSessionId)
+      .execute();
+    const admin = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: admin,
+        role_code: 'super_admin',
+        assigned_by_admin_id: admin,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, admin);
+    const query = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: await fixture.issue({
+        commandCode: 'moderation.evidence-metadata',
+        requiredPermission: 'view_reports',
+        targetType: 'report',
+        targetId: report.reportId,
+        expectedTargetVersion: 1,
+      }),
+    };
+    const unsupported = await new PostgresGetReportEvidenceActionsHandler(
+      database,
+      fixture.tokens,
+      fixture.key,
+    ).execute(query, fixture.actor);
+    expect(unsupported.items[0]!.revealActionToken).toBeUndefined();
+    const selected = await new PostgresGetReportEvidenceActionsHandler(
+      database,
+      fixture.tokens,
+      fixture.key,
+      Date.now,
+      ['chat'],
+    ).execute(query, fixture.actor);
+    const evidence = selected.items[0]!;
+    const draft: EvidenceRevealDraft = {
+      commandType: 'moderation.reveal-evidence',
+      schemaVersion: 1,
+      actor: fixture.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: evidence.revealActionToken!,
+        evidenceId: evidence.evidenceId,
+        reason: 'Review captured chat context',
+      },
+    };
+    let decryptions = 0;
+    const reader = new AesGcmChatReportSnapshotReader({ resolve: () => key });
+    const handler = new PostgresConfirmedReportEvidenceReveals(
+      database,
+      fixture.tokens,
+      fixture.key,
+      {
+        chat: {
+          decrypt: (subject, snapshot) => {
+            decryptions++;
+            return reader.decrypt(subject, snapshot);
+          },
+        },
+      },
+    );
+    const command = {
+      ...draft,
+      data: { ...draft.data, confirmationToken: await handler.prepare(draft, fixture.actor) },
+    };
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => handler.execute(command, fixture.actor)),
+    );
+    expect(decryptions).toBe(1);
+    expect(results.filter((result) => result.value !== undefined)).toHaveLength(1);
+    expect(results.find((result) => result.value !== undefined)!.value!.content).toEqual({
+      evidenceType: 'chat',
+      chatSessionId: input.chatSessionId,
+      status: 'active',
+    });
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('outcome')
+        .where('command_id', '=', draft.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'revealed' }]);
+    const corrupt = new PostgresConfirmedReportEvidenceReveals(
+      database,
+      fixture.tokens,
+      fixture.key,
+      {
+        chat: {
+          decrypt: () => ({ evidenceType: 'chat', chatSessionId: randomUUID(), status: 'active' }),
+        },
+      },
+    );
+    const changed = { ...draft, commandId: randomUUID(), idempotencyKey: randomUUID() };
+    const denied = await corrupt.execute(
+      {
+        ...changed,
+        data: { ...changed.data, confirmationToken: await corrupt.prepare(changed, fixture.actor) },
+      },
+      fixture.actor,
+    );
+    expect(denied.value).toBeUndefined();
+    expect(denied.result).toBe('failed');
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('outcome')
+        .where('command_id', '=', changed.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'rejected' }]);
   });
   it('counts five distinct chat reporters toward one restriction episode', async () => {
     const target = await createReportUser(database),

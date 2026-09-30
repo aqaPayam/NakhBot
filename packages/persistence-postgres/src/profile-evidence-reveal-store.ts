@@ -2,6 +2,7 @@ import type {
   AdminCommandAttempt,
   AdminCommandExecutionResult,
   ProfileReportSnapshotReader,
+  ChatReportSnapshotReader,
 } from '@nakh/application';
 import type { RevealedReportEvidence } from '@nakh/contracts';
 import { ApplicationError, type IdGenerator } from '@nakh/domain';
@@ -13,10 +14,14 @@ import {
 import { SystemIdGenerator } from './foundation-store.js';
 
 /** Internal capability: callers must recover attempts through the confirmed admin boundary. */
-export class PostgresProfileEvidenceRevealStore {
+export type ReportEvidenceReaders = Readonly<{
+  profile?: ProfileReportSnapshotReader;
+  chat?: ChatReportSnapshotReader;
+}>;
+export class PostgresReportEvidenceRevealStore {
   public constructor(
     private readonly database: NakhDatabase,
-    private readonly snapshots: ProfileReportSnapshotReader,
+    private readonly readers: ReportEvidenceReaders,
     private readonly ids: IdGenerator = new SystemIdGenerator(),
   ) {}
 
@@ -45,6 +50,7 @@ export class PostgresProfileEvidenceRevealStore {
           .select([
             'evidence.report_id',
             'evidence.evidence_type',
+            'evidence.chat_session_id',
             'snapshot.snapshot_type',
             'snapshot.schema_version',
             'snapshot.encryption_key_id',
@@ -55,27 +61,36 @@ export class PostgresProfileEvidenceRevealStore {
           ])
           .where('evidence.id', '=', attempt.targetId)
           .executeTakeFirst();
-        if (row === undefined || row.evidence_type !== 'profile')
+        const reader =
+          row?.evidence_type === 'profile'
+            ? this.readers.profile
+            : row?.evidence_type === 'chat'
+              ? this.readers.chat
+              : undefined;
+        if (row === undefined || reader === undefined)
           throw new ApplicationError(
             'report_unavailable',
             'error.moderation.report_unavailable',
             409,
           );
-        return {
-          safeCode: 'evidence_revealed',
-          value: this.snapshots.decrypt(
-            { reportId: row.report_id, evidenceId: attempt.targetId },
-            {
-              snapshotType: row.snapshot_type,
-              schemaVersion: row.schema_version,
-              keyId: row.encryption_key_id,
-              keyVersion: row.encryption_key_version,
-              nonce: row.nonce,
-              ciphertext: row.ciphertext,
-              sha256: row.content_sha256,
-            },
-          ),
-        };
+        const content = reader.decrypt(
+          { reportId: row.report_id, evidenceId: attempt.targetId },
+          {
+            snapshotType: row.snapshot_type,
+            schemaVersion: row.schema_version,
+            keyId: row.encryption_key_id,
+            keyVersion: row.encryption_key_version,
+            nonce: row.nonce,
+            ciphertext: row.ciphertext,
+            sha256: row.content_sha256,
+          },
+        );
+        if (
+          content.evidenceType !== row.evidence_type ||
+          (content.evidenceType === 'chat' && content.chatSessionId !== row.chat_session_id)
+        )
+          throw new Error('Report snapshot reference is invalid.');
+        return { safeCode: 'evidence_revealed', value: content };
       },
       async (transaction, outcome) => {
         // Unknown IDs have no FK-valid evidence row; their sanitized admin attempt still commits.
@@ -112,5 +127,15 @@ export class PostgresProfileEvidenceRevealStore {
               accessedAt: result.recordedAt.toISOString(),
             },
     };
+  }
+}
+
+export class PostgresProfileEvidenceRevealStore extends PostgresReportEvidenceRevealStore {
+  public constructor(
+    database: NakhDatabase,
+    snapshots: ProfileReportSnapshotReader,
+    ids?: IdGenerator,
+  ) {
+    super(database, { profile: snapshots }, ids);
   }
 }

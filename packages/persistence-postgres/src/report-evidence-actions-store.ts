@@ -14,6 +14,7 @@ export class PostgresGetReportEvidenceActionsHandler extends GetReportEvidenceAc
     tokens: OpaqueTokenStore,
     key: Uint8Array,
     now: () => number = Date.now,
+    supportedTypes: readonly ('profile' | 'chat')[] = ['profile'],
   ) {
     const authorization = new AdminActionAuthorizationService(
       new PostgresAdminAuthorizationStore(database),
@@ -46,6 +47,7 @@ export class PostgresGetReportEvidenceActionsHandler extends GetReportEvidenceAc
           },
         });
       },
+      supportedTypes,
     );
   }
 }

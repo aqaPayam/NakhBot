@@ -475,9 +475,13 @@ encrypted capture, review/outbox creation and distinct-reporter threshold evalua
 session must still be active and belong to the same exact prepared relationship. Existing profile
 entry points retain their original replay digest namespace. Integration evidence covers simultaneous
 retries, token loss, changed replay, closed-session denial, snapshot rollback, ten-of-twelve admission
-and five distinct chat reporters causing one restriction. Audited chat reveal remains pending.
+and five distinct chat reporters causing one restriction. Confirmed chat reveal now shares the
+current-permission admin transaction and required access audit. A trusted reader registry limits
+supported evidence types; chat content must match the immutable evidence session reference.
+Concurrent confirmed retries release one captured result, even after the live session closes, and
+never decrypt on replay. Invalid references fail with a sanitized outcome and rejected access audit.
 
-Checkpoint 8 remains partial. Photo/chat/message/unmatched-user submission and snapshot composition,
+Checkpoint 8 remains partial. Photo/message/unmatched-user submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin

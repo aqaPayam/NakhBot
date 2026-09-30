@@ -7,6 +7,7 @@ export class GetReportEvidenceActionsHandler {
   public constructor(
     private readonly metadata: Pick<GetReportEvidenceMetadataHandler, 'execute'>,
     private readonly issue: (actor: Actor, evidenceId: string) => Promise<string>,
+    private readonly supportedTypes: readonly ('profile' | 'chat')[] = ['profile'],
   ) {}
   public async execute(
     query: GetReportEvidenceMetadataQuery,
@@ -17,7 +18,8 @@ export class GetReportEvidenceActionsHandler {
     for (const item of metadata.items) {
       items.push({
         ...item,
-        ...(item.evidenceType === 'profile' && item.snapshotSchemaVersion === 1
+        ...(this.supportedTypes.some((type) => type === item.evidenceType) &&
+        item.snapshotSchemaVersion === 1
           ? { revealActionToken: await this.issue(actor, item.evidenceId) }
           : {}),
       });
