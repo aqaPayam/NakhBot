@@ -59,3 +59,34 @@ export async function createReportLike(
     .execute();
   return id;
 }
+
+export async function createReportFixtureAdmin(database: NakhDatabase): Promise<string> {
+  const userId = await createReportUser(database),
+    id = randomUUID(),
+    now = new Date();
+  const telegramUserId = String(2_000_000_000 + Math.floor(Math.random() * 7_000_000_000));
+  await database
+    .insertInto('identity.telegram_identities')
+    .values({
+      user_id: userId,
+      telegram_user_id: telegramUserId,
+      username: null,
+      first_seen_at: now,
+      last_seen_at: now,
+    })
+    .execute();
+  await database
+    .insertInto('administration.admin_users')
+    .values({
+      id,
+      user_id: userId,
+      telegram_user_id: telegramUserId,
+      is_active: true,
+      disabled_at: null,
+      identity_verified_at: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .execute();
+  return id;
+}

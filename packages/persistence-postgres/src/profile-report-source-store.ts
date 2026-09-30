@@ -12,16 +12,18 @@ export async function resolveProfileReportSource(
   database: NakhDatabase,
   actorUserId: string,
   source: ReportSource,
+  lockSource = false,
 ): Promise<ReportEvidenceIntent | undefined> {
   if (source.kind !== 'received_like') return undefined;
-  const row = await database
+  let query = database
     .selectFrom('interaction.likes as source')
     .innerJoin('profile.profiles as profile', 'profile.user_id', 'source.sender_user_id')
     .select(['profile.id', 'profile.user_id'])
     .where('source.id', '=', source.referenceId)
     .where('source.receiver_user_id', '=', actorUserId)
-    .where('source.sender_user_id', '!=', actorUserId)
-    .executeTakeFirst();
+    .where('source.sender_user_id', '!=', actorUserId);
+  if (lockSource) query = query.forShare();
+  const row = await query.executeTakeFirst();
   return row === undefined
     ? undefined
     : {
