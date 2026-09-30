@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   AesGcmProfileReportSnapshotProtector,
@@ -187,8 +188,23 @@ describe.skipIf(url === undefined)('audited profile evidence release', () => {
     ).rejects.toMatchObject({ code: 'report_unavailable' });
     const disabled = await createReportFixtureAdmin(database);
     await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: disabled,
+        role_code: 'super_admin',
+        assigned_by_admin_id: admin,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    await database
       .updateTable('administration.admin_users')
-      .set({ is_active: false, disabled_at: new Date(), updated_at: new Date() })
+      .set({
+        is_active: false,
+        disabled_at: sql<Date>`clock_timestamp()`,
+        updated_at: sql<Date>`GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')`,
+        version: sql<number>`version + 1`,
+      })
       .where('id', '=', disabled)
       .execute();
     const actorId = (
