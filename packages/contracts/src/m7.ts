@@ -303,6 +303,26 @@ export const ReportEvidenceMetadataSchema = Type.Object(
 );
 export type ReportEvidenceMetadata = Static<typeof ReportEvidenceMetadataSchema>;
 
+export const ReportEvidenceActionsSchema = Type.Object(
+  {
+    reportId: UuidSchema,
+    items: Type.Array(
+      Type.Object(
+        {
+          evidenceId: UuidSchema,
+          evidenceType: ReportEvidenceTypeSchema,
+          snapshotSchemaVersion: Type.Integer({ minimum: 1 }),
+          revealActionToken: Type.Optional(AdminActionTokenSchema),
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 5 },
+    ),
+  },
+  { additionalProperties: false },
+);
+export type ReportEvidenceActions = Static<typeof ReportEvidenceActionsSchema>;
+
 export const ApplyAccountModerationActionCommandSchema = mutationSchema(
   'moderation.apply-account-action',
   AdminActorSchema,

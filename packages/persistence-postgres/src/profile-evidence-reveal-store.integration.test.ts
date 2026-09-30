@@ -21,6 +21,7 @@ import { PostgresProfileEvidenceRevealStore } from './profile-evidence-reveal-st
 import { PostgresConfirmedEvidenceReveals } from './confirmed-evidence-reveal-store.js';
 import { confirmationFixture } from './testing/admin-confirmation.js';
 import type { EvidenceRevealDraft } from '@nakh/application';
+import { PostgresGetReportEvidenceActionsHandler } from './report-evidence-actions-store.js';
 import {
   PostgresGetReportEvidenceMetadataHandler,
   PostgresReportEvidenceMetadataStore,
@@ -143,6 +144,67 @@ describe.skipIf(url === undefined)('audited profile evidence release', () => {
       correlationId: randomUUID(),
     };
   }
+  it('takes a report-scoped selection through an opaque action, exact confirmation and audited reveal', async () => {
+    const fixture = await confirmationFixture(database, admin);
+    const report = await database
+      .selectFrom('moderation.report_evidence')
+      .select('report_id')
+      .where('id', '=', evidenceId)
+      .executeTakeFirstOrThrow();
+    const query = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: await fixture.issue({
+        commandCode: 'moderation.evidence-metadata',
+        requiredPermission: 'view_reports',
+        targetType: 'report',
+        targetId: report.report_id,
+        expectedTargetVersion: 1,
+      }),
+    };
+    const selection = await new PostgresGetReportEvidenceActionsHandler(
+      database,
+      fixture.tokens,
+      fixture.key,
+    ).execute(query, fixture.actor);
+    const token = selection.items[0]!.revealActionToken!;
+    expect(token).toMatch(/^v1\.ad\./u);
+    expect(token.length).toBeLessThanOrEqual(64);
+    expect(token).not.toContain(evidenceId);
+    expect(JSON.stringify(selection)).not.toContain('Private report');
+    const handler = new PostgresConfirmedEvidenceReveals(
+      database,
+      fixture.tokens,
+      fixture.key,
+      reader,
+    );
+    const draft: EvidenceRevealDraft = {
+      commandType: 'moderation.reveal-evidence',
+      schemaVersion: 1,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      actor: fixture.actor,
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: { adminActionToken: token, evidenceId, reason: 'Review the selected evidence' },
+    };
+    const result = await handler.execute(
+      {
+        ...draft,
+        data: { ...draft.data, confirmationToken: await handler.prepare(draft, fixture.actor) },
+      },
+      fixture.actor,
+    );
+    expect(result.value?.content).toMatchObject({ displayName: 'Private report fixture' });
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('id')
+        .where('command_id', '=', draft.commandId)
+        .execute(),
+    ).toHaveLength(1);
+  });
   it('lists only selected-report evidence metadata and rejects stale, cross-actor and disabled access', async () => {
     const fixture = await confirmationFixture(database, admin);
     const report = await database

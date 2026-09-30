@@ -454,6 +454,10 @@ Selected-report evidence metadata is bounded to five entries and scoped by a cur
 action token. It returns only report/evidence IDs, evidence types and snapshot schema versions;
 queries do not select content, ciphertext, key metadata or user identities. Stale report menus,
 cross-actor requests and disabled admins cannot use this read path.
+The evidence selection service issues actor-bound opaque reveal actions only for supported profile
+schema 1 snapshots. It reloads verified admin identity and current permission when issuing each
+action; token storage runs outside SQL transactions. Integration evidence connects the report menu,
+metadata selection, opaque action, exact confirmation, historical snapshot and committed access audit.
 
 Checkpoint 8 remains partial. Photo/chat/message/unmatched-user submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
