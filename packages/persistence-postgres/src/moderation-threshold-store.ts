@@ -63,6 +63,7 @@ async function insertEvent(
 async function prioritizeTargetReports(
   database: NakhDatabase,
   targetUserId: string,
+  preciseNow: string,
 ): Promise<void> {
   await database
     .updateTable('moderation.reports')
@@ -73,8 +74,8 @@ async function prioritizeTargetReports(
     })
     .where('target_user_id', '=', targetUserId)
     .where('status', '=', 'submitted')
-    .where('submitted_at', '>', sql<Date>`transaction_timestamp() - interval '30 days'`)
-    .where('submitted_at', '<=', sql<Date>`transaction_timestamp()`)
+    .where('submitted_at', '>', sql<Date>`${preciseNow}::timestamptz - interval '30 days'`)
+    .where('submitted_at', '<=', sql<Date>`${preciseNow}::timestamptz`)
     .execute();
   await database
     .updateTable('moderation.reports')
@@ -82,8 +83,8 @@ async function prioritizeTargetReports(
     .where('target_user_id', '=', targetUserId)
     .where('status', '=', 'pending_review')
     .where('priority', '=', 'normal')
-    .where('submitted_at', '>', sql<Date>`transaction_timestamp() - interval '30 days'`)
-    .where('submitted_at', '<=', sql<Date>`transaction_timestamp()`)
+    .where('submitted_at', '>', sql<Date>`${preciseNow}::timestamptz - interval '30 days'`)
+    .where('submitted_at', '<=', sql<Date>`${preciseNow}::timestamptz`)
     .execute();
 }
 
@@ -106,8 +107,13 @@ export async function applyModerationThreshold(
   await sql`SELECT pg_advisory_xact_lock(
     hashtextextended('moderation-threshold:' || ${source.target_user_id}::text, 0)
   )`.execute(database);
-  const clock = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(database);
-  const now = clock.rows[0]!.now;
+  // Waiting transactions may have started before reports that already committed under this lock.
+  // Capture one post-lock instant, preserving microseconds for every window and episode guard.
+  const clock = await sql<{ now: Date; precise_now: string }>`
+    WITH clock AS MATERIALIZED (SELECT clock_timestamp() AS instant)
+    SELECT instant AS now, instant::text AS precise_now FROM clock
+  `.execute(database);
+  const { now, precise_now: preciseNow } = clock.rows[0]!;
   const account = await database
     .selectFrom('identity.accounts')
     .select(['state', 'version'])
@@ -122,8 +128,8 @@ export async function applyModerationThreshold(
     FROM moderation.reports
     WHERE target_user_id = ${source.target_user_id}::uuid
       AND status IN ('submitted','pending_review')
-      AND submitted_at > transaction_timestamp() - interval '30 days'
-      AND submitted_at <= transaction_timestamp()
+      AND submitted_at > ${preciseNow}::timestamptz - interval '30 days'
+      AND submitted_at <= ${preciseNow}::timestamptz
   `.execute(database);
   const distinctReporterCount = countResult.rows[0]!.count;
   if (distinctReporterCount < REPORT_THRESHOLD_DISTINCT_REPORTERS)
@@ -135,7 +141,7 @@ export async function applyModerationThreshold(
       accountVersion: account.version,
     };
 
-  await prioritizeTargetReports(database, source.target_user_id);
+  await prioritizeTargetReports(database, source.target_user_id, preciseNow);
   await database
     .insertInto('moderation.moderation_reviews')
     .values({
@@ -188,7 +194,7 @@ export async function applyModerationThreshold(
       target_user_id: source.target_user_id,
       source_report_id: source.id,
       distinct_reporter_count: distinctReporterCount,
-      started_at: sql<Date>`transaction_timestamp()`,
+      started_at: sql<Date>`${preciseNow}::timestamptz`,
       resolved_at: null,
       resolved_by_admin_id: null,
       resolution_reason_code: null,

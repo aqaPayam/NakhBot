@@ -189,6 +189,67 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
     await database?.destroy();
   });
 
+  it('counts later commits when the fifth report transaction began first', async () => {
+    const targetUserId = await createUser(database, true);
+    const reporters = await Promise.all(Array.from({ length: 5 }, () => createUser(database)));
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolveGate) => {
+      release = resolveGate;
+    });
+    const begun = new Promise<void>((resolveStarted) => {
+      started = resolveStarted;
+    });
+    const finalReportId = randomUUID();
+    const delayed = database.transaction().execute(async (transaction) => {
+      await sql`SELECT transaction_timestamp()`.execute(transaction);
+      started();
+      await gate;
+      await insertFocusedReport(transaction, {
+        id: finalReportId,
+        reporterUserId: reporters[4]!,
+        targetUserId,
+        submittedAt: new Date(),
+      });
+      return applyModerationThreshold(transaction, thresholdWrite(finalReportId));
+    });
+    await begun;
+    try {
+      for (const reporterUserId of reporters.slice(0, 4)) {
+        await database.transaction().execute((transaction) =>
+          insertFocusedReport(transaction, {
+            id: randomUUID(),
+            reporterUserId,
+            targetUserId,
+            submittedAt: new Date(),
+          }),
+        );
+      }
+    } finally {
+      release();
+    }
+    await expect(delayed).resolves.toMatchObject({
+      distinctReporterCount: 5,
+      outcome: 'create_restriction_episode',
+    });
+    const reports = await database
+      .selectFrom('moderation.reports')
+      .select(['status', 'priority'])
+      .where('target_user_id', '=', targetUserId)
+      .execute();
+    expect(reports).toHaveLength(5);
+    expect(
+      reports.every((row) => row.status === 'pending_review' && row.priority === 'threshold'),
+    ).toBe(true);
+    expect(
+      await database
+        .selectFrom('moderation.restriction_episodes')
+        .select('id')
+        .where('target_user_id', '=', targetUserId)
+        .execute(),
+    ).toHaveLength(1);
+  });
+
   it('counts distinct unresolved reporters only inside the rolling 30-day window', async () => {
     const targetUserId = await createUser(database, true);
     const repeatedReporter = await createUser(database);
