@@ -464,6 +464,11 @@ configured display order, without database IDs. Current account eligibility is c
 lock; active and restricted users can read it, while banned or missing accounts cannot. Submission
 still rechecks reason activation independently, so a cached menu never authorizes a disabled reason.
 
+The internal chat snapshot codec now encrypts only the session ID and lifecycle state, with strict
+schema/lifecycle validation, fresh nonces and report/evidence/type/key/hash binding. Its reader rejects
+message text, participant identities, extra fields, unsupported envelopes and tampering. No chat
+submission or reveal service is wired to this codec yet.
+
 Checkpoint 8 remains partial. Photo/chat/message/unmatched-user submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.
