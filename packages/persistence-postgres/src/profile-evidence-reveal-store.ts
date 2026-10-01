@@ -4,6 +4,7 @@ import type {
   ProfileReportSnapshotReader,
   ChatReportSnapshotReader,
   UnmatchedReportSnapshotReader,
+  PhotoReportSnapshotReader,
 } from '@nakh/application';
 import type { RevealedReportEvidence } from '@nakh/contracts';
 import { ApplicationError, type IdGenerator } from '@nakh/domain';
@@ -19,6 +20,7 @@ export type ReportEvidenceReaders = Readonly<{
   profile?: ProfileReportSnapshotReader;
   chat?: ChatReportSnapshotReader;
   unmatched_user?: UnmatchedReportSnapshotReader;
+  photo?: PhotoReportSnapshotReader;
 }>;
 export class PostgresReportEvidenceRevealStore {
   public constructor(
@@ -54,6 +56,7 @@ export class PostgresReportEvidenceRevealStore {
             'evidence.evidence_type',
             'evidence.chat_session_id',
             'evidence.unmatch_record_id',
+            'evidence.profile_photo_id',
             'snapshot.snapshot_type',
             'snapshot.schema_version',
             'snapshot.encryption_key_id',
@@ -71,7 +74,9 @@ export class PostgresReportEvidenceRevealStore {
               ? this.readers.chat
               : row?.evidence_type === 'unmatched_user'
                 ? this.readers.unmatched_user
-                : undefined;
+                : row?.evidence_type === 'photo'
+                  ? this.readers.photo
+                  : undefined;
         if (row === undefined || reader === undefined)
           throw new ApplicationError(
             'report_unavailable',
@@ -109,6 +114,28 @@ export class PostgresReportEvidenceRevealStore {
             source === undefined ||
             content.unmatchedAt !== source.unmatched_at.toISOString() ||
             content.reportWindowExpiresAt !== source.report_window_expires_at.toISOString()
+          )
+            throw new Error('Report snapshot reference is invalid.');
+        }
+        if (content.evidenceType === 'photo') {
+          const held = await transaction
+            .selectFrom('media.report_photo_evidence_holds as hold')
+            .innerJoin('media.photo_variants as variant', 'variant.id', 'hold.variant_id')
+            .select([
+              'hold.photo_id',
+              'hold.content_sha256',
+              'hold.captured_primary',
+              'variant.storage_deleted_at',
+            ])
+            .where('hold.report_evidence_id', '=', attempt.targetId)
+            .executeTakeFirst();
+          if (
+            held === undefined ||
+            held.photo_id !== row.profile_photo_id ||
+            held.storage_deleted_at !== null ||
+            content.evidenceObjectRef !== `v1.pe.${attempt.targetId}` ||
+            content.contentSha256 !== held.content_sha256 ||
+            content.primary !== held.captured_primary
           )
             throw new Error('Report snapshot reference is invalid.');
         }

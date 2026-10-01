@@ -7,9 +7,9 @@ export class GetReportEvidenceActionsHandler {
   public constructor(
     private readonly metadata: Pick<GetReportEvidenceMetadataHandler, 'execute'>,
     private readonly issue: (actor: Actor, evidenceId: string) => Promise<string>,
-    private readonly supportedTypes: readonly ('profile' | 'chat' | 'unmatched_user')[] = [
-      'profile',
-    ],
+    private readonly supportedTypes: readonly (
+      'profile' | 'photo' | 'chat' | 'unmatched_user'
+    )[] = ['profile'],
   ) {}
   public async execute(
     query: GetReportEvidenceMetadataQuery,

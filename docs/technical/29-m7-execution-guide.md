@@ -523,7 +523,11 @@ rejected bypass attempts and unchanged ordinary cleanup. Photo submission now re
 snapshot, Report, review, outbox and threshold effects in one shared transaction. Migration `000061`
 requires every new photo evidence row to have both retained media and encrypted capture at commit.
 Concurrent replay, token loss, changed payloads, unavailable sources, admission limits, threshold
-restriction and encryption rollback have integration coverage. Audited photo reveal remains pending.
+restriction and encryption rollback have integration coverage. Confirmed photo reveal now rechecks current admin permission and verifies the captured opaque
+reference, digest and primary flag against its immutable media hold. Hidden source photos remain
+reviewable; concurrent confirmed retries decrypt once and access audits must commit before any
+content is returned. Mismatched references return no content and commit a rejected access audit.
+Object delivery and transport presentation remain pending.
 
 Checkpoint 8 remains partial. Photo/message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
