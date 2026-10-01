@@ -30,10 +30,23 @@ describe.skipIf(url === undefined)('photo evidence cleanup protection', () => {
   });
   async function deleteOwn(target: string, photoId: string): Promise<void> {
     const store = new PostgresPhotoManagementStore(database),
-      current = await store.listOwn(target);
-    await store.mutateOwn({
+      current = await store.listOwn(target),
+      replacement = await createReportPhoto(database, target, false);
+    const selected = await store.mutateOwn({
       userId: target,
       expectedProfileVersion: current.profileVersion,
+      action: { type: 'select_primary', photoId: replacement },
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      auditId: randomUUID(),
+      eventId: randomUUID(),
+      profileEventId: randomUUID(),
+      occurredAt: new Date(),
+    });
+    await store.mutateOwn({
+      userId: target,
+      expectedProfileVersion: selected.profileVersion,
       action: { type: 'delete', photoId },
       commandId: randomUUID(),
       requestId: randomUUID(),
