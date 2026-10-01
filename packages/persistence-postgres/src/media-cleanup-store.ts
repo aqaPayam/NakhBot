@@ -40,6 +40,16 @@ export class PostgresMediaCleanupStore implements MediaCleanupStore {
         .where('id', '=', photo.asset_id)
         .where('deleted_at', 'is not', null)
         .where('storage_deleted_at', 'is', null)
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom('media.report_photo_evidence_holds')
+                .select('report_evidence_id')
+                .whereRef('asset_id', '=', 'media.media_assets.id'),
+            ),
+          ),
+        )
         .where((expression) =>
           expression.or([
             expression('cleanup_lease_expires_at', 'is', null),
@@ -87,6 +97,16 @@ export class PostgresMediaCleanupStore implements MediaCleanupStore {
         .where('cleanup_lease_expires_at', '>', sql<Date>`clock_timestamp()`)
         .where('deleted_at', 'is not', null)
         .where('storage_deleted_at', 'is', null)
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom('media.report_photo_evidence_holds')
+                .select('report_evidence_id')
+                .whereRef('asset_id', '=', 'media.media_assets.id'),
+            ),
+          ),
+        )
         .forUpdate()
         .executeTakeFirst();
       if (asset === undefined)

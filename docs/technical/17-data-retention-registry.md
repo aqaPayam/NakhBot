@@ -53,7 +53,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `media.photo_moderation_records` | append-only safety decision history | retain only for the approved safety/audit window; M8 must implement controlled reference release/purge, not ordinary DELETE against the append-only trigger | Moderation/Privacy; optional report link is disabled until M7 |
 | `quarantine/{environment}/{assetId}/` | untrusted private upload | purge on rejection, abandonment, successful publication, or product deletion; verify absence | Media |
 | `validated/{environment}/{assetId}/` | private normalized original | purge on ordinary photo/product deletion; retain only under an explicit evidence decision | Media/Moderation |
-| `variants/{environment}/{assetId}/` | private served renditions | revoke grants and purge objects on ordinary photo/product deletion | Media |
+| `variants/{environment}/{assetId}/` | private served renditions | revoke grants on ordinary photo/product deletion; purge only after any governing Report holds are released under approved policy | Media/Moderation |
 | `report-evidence/{environment}/{reportId}/` | restricted encrypted safety evidence | revoke delivery immediately; retain/purge only under explicit evidence policy, independently of ordinary photo cleanup | Moderation/Privacy |
 
 ## Required deletion-test assertions for M1

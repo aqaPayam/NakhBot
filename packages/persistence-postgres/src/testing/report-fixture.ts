@@ -1,12 +1,97 @@
 import { randomUUID } from 'node:crypto';
 import type { NakhDatabase } from '../database.js';
-import { CreateDirectNakhHandler } from '@nakh/application';
+import {
+  CreateDirectNakhHandler,
+  AesGcmPhotoReportSnapshotProtector,
+  type ReportPhotoContent,
+} from '@nakh/application';
 import { PostgresDirectNakhStore } from '../direct-nakh-store.js';
 import { PostgresCreditLedgerStore } from '../credit-ledger-store.js';
 import { SystemIdGenerator } from '../foundation-store.js';
 import { PostgresCandidateDeliveryStore } from '../candidate-delivery-store.js';
 import { PostgresUnmatchStore } from '../unmatch-store.js';
 import { seedValidMedia } from '../media-fixtures.js';
+import { retainPhotoEvidenceInTransaction } from '../photo-evidence-retention-store.js';
+
+/** Synthetic safety evidence fixture. Does not verify or copy real storage objects. */
+export async function createRetainedReportPhoto(database: NakhDatabase): Promise<
+  Readonly<{
+    reporter: string;
+    target: string;
+    photoId: string;
+    reportId: string;
+    evidenceId: string;
+    key: Buffer;
+    content: ReportPhotoContent;
+  }>
+> {
+  const reporter = await createReportUser(database),
+    target = await createReportUser(database, true),
+    photoId = await createReportPhoto(database, target),
+    reportId = randomUUID(),
+    evidenceId = randomUUID();
+  await createReportLike(database, reporter, target);
+  const key = Buffer.alloc(32, 81);
+  const content = await database.transaction().execute(async (tx) => {
+    const captured = await retainPhotoEvidenceInTransaction(tx, { photoId, evidenceId });
+    const reason = await tx
+      .selectFrom('moderation.report_reasons')
+      .select('id')
+      .where('code', '=', 'inappropriate_photo')
+      .executeTakeFirstOrThrow();
+    await tx
+      .insertInto('moderation.reports')
+      .values({
+        id: reportId,
+        reporter_user_id: reporter,
+        target_user_id: target,
+        reason_id: reason.id,
+        extra_text: null,
+        status: 'submitted',
+        command_id: randomUUID(),
+        request_id: randomUUID(),
+        idempotency_key: randomUUID(),
+        request_digest: '8'.repeat(64),
+        reviewed_at: null,
+        closed_at: null,
+      })
+      .execute();
+    await tx
+      .insertInto('moderation.report_evidence')
+      .values({
+        id: evidenceId,
+        report_id: reportId,
+        evidence_type: 'photo',
+        profile_id: null,
+        profile_photo_id: photoId,
+        chat_session_id: null,
+        chat_message_id: null,
+        unmatch_record_id: null,
+      })
+      .execute();
+    const snapshot = new AesGcmPhotoReportSnapshotProtector('photo-fixture', 1, key).protect(
+      { reportId, evidenceId },
+      captured,
+    );
+    await tx
+      .insertInto('moderation.report_snapshots')
+      .values({
+        id: randomUUID(),
+        report_id: reportId,
+        report_evidence_id: evidenceId,
+        snapshot_type: 'photo',
+        schema_version: 1,
+        encryption_key_id: snapshot.keyId,
+        encryption_key_version: snapshot.keyVersion,
+        nonce: Buffer.from(snapshot.nonce),
+        ciphertext: Buffer.from(snapshot.ciphertext),
+        content_sha256: snapshot.sha256,
+      })
+      .execute();
+    return captured;
+  });
+  return { reporter, target, photoId, reportId, evidenceId, key, content };
+}
 
 export async function createReportPhoto(
   database: NakhDatabase,

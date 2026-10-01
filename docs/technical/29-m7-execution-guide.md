@@ -125,7 +125,7 @@ and Notification state.
 11. `000056_m7_action_report_scope.sql` — report-linked admin target/assignment and successful-attempt guards.
 12. `000057_m7_evidence_access_identity.sql` — admin-bound evidence access command identity, preserving existing audit rows.
 13. `000058_m7_unmatch_report_deadline.sql` — post-lock database-time enforcement of the immutable unmatch report window at evidence insertion.
-14. `000060_m7_reconciliation.sql` (planned) — resumable bounded M7 reconciliation runs, anomaly types, query
+14. `000061_m7_reconciliation.sql` (planned) — resumable bounded M7 reconciliation runs, anomaly types, query
    indexes, and verification hardening.
 
 Every migration must bootstrap from empty, upgrade from `000045`, replay unchanged, and have
@@ -516,7 +516,10 @@ evidence covers substituted photos, outsiders, absent selections and unavailable
 Migration `000059` adds immutable media-owned holds for the exact served thumbnail and digest.
 The internal retention port uses only the caller's database transaction; deferred binding requires
 the matching photo evidence and governing target before commit. Bootstrap, upgrade and rollback
-evidence cover this schema. Cleanup exclusion, report capture and audited reveal remain pending.
+evidence cover this schema. Migration `000060` guards retained assets and thumbnail variants against
+physical purge and new cleanup claims. Existing media cleanup skips held assets while own-photo
+soft deletion still succeeds; integration evidence verifies no object deletion for retained evidence,
+rejected bypass attempts and unchanged ordinary cleanup. Report capture and audited reveal remain pending.
 
 Checkpoint 8 remains partial. Photo/message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
