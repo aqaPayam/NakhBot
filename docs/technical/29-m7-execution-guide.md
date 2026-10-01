@@ -125,7 +125,7 @@ and Notification state.
 11. `000056_m7_action_report_scope.sql` — report-linked admin target/assignment and successful-attempt guards.
 12. `000057_m7_evidence_access_identity.sql` — admin-bound evidence access command identity, preserving existing audit rows.
 13. `000058_m7_unmatch_report_deadline.sql` — post-lock database-time enforcement of the immutable unmatch report window at evidence insertion.
-13. `000058_m7_reconciliation.sql` (planned) — resumable bounded M7 reconciliation runs, anomaly types, query
+14. `000059_m7_reconciliation.sql` (planned) — resumable bounded M7 reconciliation runs, anomaly types, query
    indexes, and verification hardening.
 
 Every migration must bootstrap from empty, upgrade from `000045`, replay unchanged, and have
@@ -367,7 +367,7 @@ checkpoint and wait for that exact commit to turn green before advancing.
 
 ## 13. Definition of done
 
-### Current implementation evidence (2026-09-30)
+### Current implementation evidence (2026-10-01)
 
 Support and exact-ban appeal persistence, audited terminal reviews, and a separate permission-checked
 unban command are implemented. The presentation work includes seeded English fallback keys and
@@ -505,6 +505,12 @@ Disabled types cannot prepare or submit new reports and receive no reveal action
 still selects exactly one evidence type. Integration evidence covers all three complete internal
 flows, legacy profile receipts, token-loss replay and one shared ten-report limit under mixed-type
 concurrency. Transport authentication and presentation remain separate pending work.
+
+The internal photo snapshot codec now encrypts only a restricted opaque evidence-object reference,
+the reviewed content digest and the captured primary flag. It rejects raw storage keys, URLs, image
+bytes, identities and extra fields. Typed authenticated encryption binds the report/evidence/key
+identity and rejects substitution, malformed content and tampering with sanitized failures. Photo
+preparation, transactional retention/capture and audited reveal are still pending.
 
 Checkpoint 8 remains partial. Photo/message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP

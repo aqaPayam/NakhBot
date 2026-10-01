@@ -144,4 +144,5 @@ export * from './moderation/report-evidence-metadata.js';
 export * from './moderation/report-evidence-actions.js';
 export * from './moderation/report-reasons.js';
 export * from './moderation/chat-report-snapshot.js';
+export * from './moderation/photo-report-snapshot.js';
 export * from './moderation/unmatched-report-snapshot.js';
