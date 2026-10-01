@@ -6,6 +6,43 @@ import { PostgresCreditLedgerStore } from '../credit-ledger-store.js';
 import { SystemIdGenerator } from '../foundation-store.js';
 import { PostgresCandidateDeliveryStore } from '../candidate-delivery-store.js';
 import { PostgresUnmatchStore } from '../unmatch-store.js';
+import { seedValidMedia } from '../media-fixtures.js';
+
+export async function createReportPhoto(
+  database: NakhDatabase,
+  target: string,
+  primary = true,
+): Promise<string> {
+  const profile = await database
+    .selectFrom('profile.profiles')
+    .select('id')
+    .where('user_id', '=', target)
+    .executeTakeFirstOrThrow();
+  const assetId = await seedValidMedia(database, target),
+    id = randomUUID(),
+    now = new Date();
+  const count = await database
+    .selectFrom('media.profile_photos')
+    .select((eb) => eb.fn.countAll<string>().as('count'))
+    .where('profile_id', '=', profile.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto('media.profile_photos')
+    .values({
+      id,
+      profile_id: profile.id,
+      asset_id: assetId,
+      status: 'visible',
+      is_primary: primary,
+      display_order: Number(count.count) + 1,
+      created_at: now,
+      updated_at: now,
+      hidden_at: null,
+      deleted_at: null,
+    })
+    .execute();
+  return id;
+}
 
 export async function createReportUnmatch(
   database: NakhDatabase,

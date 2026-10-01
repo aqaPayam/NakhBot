@@ -5,6 +5,7 @@ import type { OpaqueTokenStore } from '../security/opaque-token.js';
 export type ReportSource = Readonly<{
   kind: 'received_like' | 'received_nakh' | 'delivered_candidate' | 'match' | 'unmatched';
   referenceId: string;
+  photoId?: string;
 }>;
 export type ReportEvidenceReference = Readonly<{
   evidenceType: ReportEvidenceType;
@@ -26,7 +27,8 @@ function uuid(value: unknown): value is string {
 function source(value: unknown): value is ReportSource {
   return (
     record(value) &&
-    Object.keys(value).length === 2 &&
+    Object.keys(value).every((key) => ['kind', 'referenceId', 'photoId'].includes(key)) &&
+    (value.photoId === undefined || (value.kind !== 'unmatched' && uuid(value.photoId))) &&
     ['received_like', 'received_nakh', 'delivered_candidate', 'match', 'unmatched'].includes(
       String(value.kind),
     ) &&

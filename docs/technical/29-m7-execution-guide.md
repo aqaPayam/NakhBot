@@ -510,7 +510,10 @@ The internal photo snapshot codec now encrypts only a restricted opaque evidence
 the reviewed content digest and the captured primary flag. It rejects raw storage keys, URLs, image
 bytes, identities and extra fields. Typed authenticated encryption binds the report/evidence/key
 identity and rejects substitution, malformed content and tampering with sanitized failures. Photo
-preparation, transactional retention/capture and audited reveal are still pending.
+preparation now binds the selected photo to the existing authoritative product relationship and
+target ownership. Active validated media with an available thumbnail is required. Integration
+evidence covers substituted photos, outsiders, absent selections and unavailable media.
+Transactional retention/capture and audited reveal remain pending.
 
 Checkpoint 8 remains partial. Photo/message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
