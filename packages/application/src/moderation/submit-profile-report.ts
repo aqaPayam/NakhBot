@@ -125,3 +125,12 @@ export class SubmitChatReportHandler extends SubmitSingleEvidenceReportHandler {
     super(tokens, store, ids, 'chat');
   }
 }
+export class SubmitPhotoReportHandler extends SubmitSingleEvidenceReportHandler {
+  public constructor(
+    tokens: Pick<ReportTokens, 'resolveIntent'>,
+    store: ProfileReportSubmissionStore,
+    ids: IdGenerator,
+  ) {
+    super(tokens, store, ids, 'photo');
+  }
+}

@@ -7,6 +7,7 @@ import {
   type ProtectedProfileReportSnapshot,
   type ProtectedChatReportSnapshot,
   type ProtectedUnmatchedReportSnapshot,
+  type ProtectedPhotoReportSnapshot,
   type ProfileReportRequest,
   type ProfileReportWrite,
   type ProfileReportSubmissionStore,
@@ -63,6 +64,7 @@ export interface SingleReportEvidenceCapture {
       snapshot:
         | ProtectedProfileReportSnapshot
         | ProtectedChatReportSnapshot
+        | ProtectedPhotoReportSnapshot
         | ProtectedUnmatchedReportSnapshot;
     }>
   >;
@@ -152,7 +154,7 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
             report_id: write.reportId,
             evidence_type: snapshot.snapshotType,
             profile_id: snapshot.snapshotType === 'profile' ? captured.referenceId : null,
-            profile_photo_id: null,
+            profile_photo_id: snapshot.snapshotType === 'photo' ? captured.referenceId : null,
             chat_session_id: snapshot.snapshotType === 'chat' ? captured.referenceId : null,
             chat_message_id: null,
             unmatch_record_id:
