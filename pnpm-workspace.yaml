@@ -4,6 +4,7 @@ packages:
 
 injectWorkspacePackages: true
 overrides:
+  '@grpc/grpc-js': 1.14.5
   'brace-expansion@2': 2.1.6
   'brace-expansion@5': 5.0.11
   'fast-uri@3': 3.1.7
@@ -14,7 +15,7 @@ syncInjectedDepsAfterScripts:
 catalog:
   '@nestjs/common': 12.0.1
   '@nestjs/core': 12.0.1
-  '@nestjs/platform-fastify': 12.0.1
+  '@nestjs/platform-fastify': 12.0.3
   '@opentelemetry/api': 1.9.1
   '@opentelemetry/auto-instrumentations-node': 0.80.0
   '@opentelemetry/exporter-metrics-otlp-http': 0.222.0
@@ -28,7 +29,7 @@ catalog:
   ajv-formats: 3.0.1
   bullmq: 6.3.3
   dotenv: 17.4.2
-  fastify: 5.12.1
+  fastify: 5.12.4
   ioredis: 6.0.0
   kysely: 0.29.5
   pg: 8.23.0
