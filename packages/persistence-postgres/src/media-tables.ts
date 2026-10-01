@@ -1,6 +1,16 @@
 import type { Generated } from 'kysely';
 import type { MediaValidationState, PhotoStatus, PhotoVariantType } from '@nakh/domain';
 
+export interface ReportPhotoEvidenceHoldTable {
+  report_evidence_id: string;
+  photo_id: string;
+  asset_id: string;
+  variant_id: string;
+  content_sha256: string;
+  captured_primary: boolean;
+  created_at: Generated<Date>;
+}
+
 export interface MediaAssetTable {
   id: string;
   owner_user_id: string;

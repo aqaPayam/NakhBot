@@ -11,6 +11,7 @@ import type {
   PhotoVariantTable,
   ProfilePhotoTable,
   PhotoModerationTable,
+  ReportPhotoEvidenceHoldTable,
 } from './media-tables.js';
 
 const { Pool } = pg;
@@ -1187,6 +1188,7 @@ export interface DatabaseSchema {
   'media.media_assets': MediaAssetTable;
   'media.photo_variants': PhotoVariantTable;
   'media.profile_photos': ProfilePhotoTable;
+  'media.report_photo_evidence_holds': ReportPhotoEvidenceHoldTable;
   'media.photo_moderation_records': PhotoModerationTable;
   'platform.idempotency_records': IdempotencyTable;
   'platform.sample_effects': SampleEffectTable;

@@ -31,6 +31,7 @@ export async function resolvePhotoReportSource(
     .where('asset.storage_deleted_at', 'is', null)
     .where('asset.cleanup_lease_owner', 'is', null)
     .where('variant.variant_type', '=', 'thumbnail')
+    .where('variant.transformation_version', '=', 1)
     .where('variant.deleted_at', 'is', null)
     .where('variant.storage_deleted_at', 'is', null);
   if (lockSource) query = query.forShare();

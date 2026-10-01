@@ -165,4 +165,5 @@ export * from './unmatched-report-source-store.js';
 export * from './unmatched-report-submission-store.js';
 export * from './report-services.js';
 export * from './photo-report-source-store.js';
+export * from './photo-evidence-retention-store.js';
 export * from './chat-report-submission-store.js';

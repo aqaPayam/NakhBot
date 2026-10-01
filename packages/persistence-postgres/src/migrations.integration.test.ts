@@ -10,7 +10,7 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
-  it.each([45, 51, 56, 57])(
+  it.each([45, 51, 56, 57, 58])(
     'upgrades from migration %i and preserves legacy appeal identity',
     async (baseline) => {
       const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
@@ -54,7 +54,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           );
         }
         expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-          58 - baseline,
+          59 - baseline,
         );
         await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
         expect((await runMigrations(targetUrl.toString(), directory)).applied).toEqual([]);
@@ -158,6 +158,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000056_m7_action_report_scope.sql',
         '000057_m7_evidence_access_identity.sql',
         '000058_m7_unmatch_report_deadline.sql',
+        '000059_m7_photo_evidence_holds.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -210,9 +211,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000056_m7_action_report_scope.sql');
       expect(verified).toContain('000057_m7_evidence_access_identity.sql');
       expect(verified).toContain('000058_m7_unmatch_report_deadline.sql');
+      expect(verified).toContain('000059_m7_photo_evidence_holds.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(58);
+      expect(replay.existing).toHaveLength(59);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
