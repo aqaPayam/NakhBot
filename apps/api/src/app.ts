@@ -21,6 +21,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sql } from 'kysely';
 import type { Logger } from 'pino';
 import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
+import { M7AdminReportApiModule, type M7AdminReportApiOptions } from './m7-admin-report-api.js';
 
 import { CreateSampleEffectHandler } from '@nakh/application';
 import {
@@ -163,11 +164,15 @@ export class ApiModule {
     config: AppConfig,
     logger: Logger,
     reports?: M7ReportApiOptions,
+    adminReports?: M7AdminReportApiOptions,
   ): DynamicModule {
     const database = createDatabase(config.database);
     return {
       module: ApiModule,
-      imports: reports === undefined ? [] : [M7ReportApiModule.register(reports)],
+      imports: [
+        ...(reports === undefined ? [] : [M7ReportApiModule.register(reports)]),
+        ...(adminReports === undefined ? [] : [M7AdminReportApiModule.register(adminReports)]),
+      ],
       controllers: [HealthController, FoundationController],
       providers: [
         { provide: APP_CONFIG, useValue: config },

@@ -2,7 +2,7 @@ import { Ajv2020 as Ajv, type ValidateFunction } from 'ajv/dist/2020.js';
 import * as formatsModule from 'ajv-formats';
 import { ApplicationError, type Actor } from '@nakh/domain';
 
-/** Server-injected verifier. It must verify signature/session, expiry, revocation and audience. */
+/** Server-injected verifier: signature/session, expiry, revocation, audience and admin MFA. */
 export interface M7ApiAuthenticator {
   authenticate(
     input: Readonly<{ bearerToken: string; audience: 'user' | 'admin' }>,
