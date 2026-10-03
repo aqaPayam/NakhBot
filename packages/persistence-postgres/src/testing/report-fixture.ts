@@ -13,6 +13,47 @@ import { PostgresUnmatchStore } from '../unmatch-store.js';
 import { seedValidMedia } from '../media-fixtures.js';
 import { retainPhotoEvidenceInTransaction } from '../photo-evidence-retention-store.js';
 
+/** Synthetic live text for M7 authorization/retention tests; preserves the M6 allocator. */
+export async function createReportMessage(
+  database: NakhDatabase,
+  chatSessionId: string,
+  sender: string,
+  text = 'Private message evidence fixture',
+): Promise<string> {
+  const id = randomUUID();
+  await database.transaction().execute(async (tx) => {
+    const session = await tx
+      .selectFrom('chat.chat_sessions')
+      .select(['next_sequence_number', 'version'])
+      .where('id', '=', chatSessionId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    await tx
+      .updateTable('chat.chat_sessions')
+      .set({
+        next_sequence_number: String(BigInt(session.next_sequence_number) + 1n),
+        version: session.version + 1,
+      })
+      .where('id', '=', chatSessionId)
+      .execute();
+    await tx
+      .insertInto('chat.chat_messages')
+      .values({
+        id,
+        chat_session_id: chatSessionId,
+        sender_user_id: sender,
+        message_type: 'text',
+        text,
+        predefined_question_id: null,
+        predefined_answer_id: null,
+        system_arguments: null,
+        sequence_number: session.next_sequence_number,
+      })
+      .execute();
+  });
+  return id;
+}
+
 /** Synthetic safety evidence fixture. Does not verify or copy real storage objects. */
 export async function createRetainedReportPhoto(database: NakhDatabase): Promise<
   Readonly<{

@@ -3,7 +3,8 @@ import type { ReportEvidenceType } from '@nakh/contracts';
 import type { OpaqueTokenStore } from '../security/opaque-token.js';
 
 export type ReportSource = Readonly<{
-  kind: 'received_like' | 'received_nakh' | 'delivered_candidate' | 'match' | 'unmatched';
+  kind:
+    'received_like' | 'received_nakh' | 'delivered_candidate' | 'match' | 'unmatched' | 'message';
   referenceId: string;
   photoId?: string;
 }>;
@@ -28,10 +29,16 @@ function source(value: unknown): value is ReportSource {
   return (
     record(value) &&
     Object.keys(value).every((key) => ['kind', 'referenceId', 'photoId'].includes(key)) &&
-    (value.photoId === undefined || (value.kind !== 'unmatched' && uuid(value.photoId))) &&
-    ['received_like', 'received_nakh', 'delivered_candidate', 'match', 'unmatched'].includes(
-      String(value.kind),
-    ) &&
+    (value.photoId === undefined ||
+      (!['unmatched', 'message'].includes(String(value.kind)) && uuid(value.photoId))) &&
+    [
+      'received_like',
+      'received_nakh',
+      'delivered_candidate',
+      'match',
+      'unmatched',
+      'message',
+    ].includes(String(value.kind)) &&
     uuid(value.referenceId)
   );
 }

@@ -3,6 +3,29 @@ import { describe, expect, it } from 'vitest';
 import { ReportTokens } from './report-tokens.js';
 
 describe('report source and evidence intent tokens', () => {
+  it('binds opaque message contexts to their actor and forbids mixed photo selections', async () => {
+    const state = new Map<string, string>(),
+      actor = randomUUID(),
+      messageId = randomUUID();
+    const tokens = new ReportTokens(
+      {
+        get: (id) => Promise.resolve(state.get(id)),
+        putIfAbsent: (id, value) => {
+          state.set(id, value);
+          return Promise.resolve(true);
+        },
+      },
+      Buffer.alloc(32, 31),
+    );
+    const source = { kind: 'message' as const, referenceId: messageId },
+      issued = await tokens.issueSource(actor, source);
+    expect(await tokens.resolveSource(issued.token, actor)).toEqual(source);
+    expect(await tokens.resolveSource(issued.token, randomUUID())).toBeUndefined();
+    expect(issued.token).not.toContain(messageId);
+    await expect(tokens.issueSource(actor, { ...source, photoId: randomUUID() })).rejects.toThrow(
+      'context is invalid',
+    );
+  });
   it('keeps identities opaque and binds purpose, actor, signature and exact expiry', async () => {
     let now = 1000;
     const state = new Map<string, string>();

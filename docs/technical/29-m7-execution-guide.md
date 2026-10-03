@@ -367,7 +367,7 @@ checkpoint and wait for that exact commit to turn green before advancing.
 
 ## 13. Definition of done
 
-### Current implementation evidence (2026-10-01)
+### Current implementation evidence (2026-10-03)
 
 Support and exact-ban appeal persistence, audited terminal reviews, and a separate permission-checked
 unban command are implemented. The presentation work includes seeded English fallback keys and
@@ -532,6 +532,13 @@ evidence actions and confirmed reveal together with profile/chat/unmatch capabil
 photo capability denies new intents and submissions and issues no reveal actions; durable receipts
 remain replayable. Integration flows exercise all four types and their shared ten-report admission
 under mixed-type concurrency. Object delivery and transport presentation remain pending.
+
+Message preparation now uses a separate actor-bound opaque source for one exact live message.
+Only stored Match/ChatSession participants may resolve it; preparation selects identity references
+without reading content. Source locks follow Match, session and message order to agree with M6
+lifecycle closure and cleanup. Tests cover either participant, outsiders, unrelated messages, mixed
+evidence, purged sources and closed sessions with retained live evidence. M6 owns live retention;
+message preparation does not reopen chat access or invent a separate expiry window.
 
 Checkpoint 8 remains partial. Message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
