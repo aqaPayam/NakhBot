@@ -9,9 +9,10 @@ import {
   createDatabase,
   runMigrations,
   PostgresGetReportMetadataPageHandler,
+  PostgresGetReportEvidenceActionsHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
-import type { ReportMetadataPage } from '@nakh/contracts';
+import type { ReportMetadataPage, ReportEvidenceActions } from '@nakh/contracts';
 import {
   createRetainedReportPhoto,
   createReportFixtureAdmin,
@@ -68,6 +69,13 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
             ),
         },
         metadata: new PostgresGetReportMetadataPageHandler(database, one.tokens, one.key),
+        evidenceActions: new PostgresGetReportEvidenceActionsHandler(
+          database,
+          one.tokens,
+          one.key,
+          Date.now,
+          ['photo'],
+        ),
       }),
       new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
       { logger: false },
@@ -112,6 +120,50 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       payload: { ...query, actor: two.actor },
     });
     expect(cross.statusCode).toBe(403);
+    const selection = {
+      actor: one.actor,
+      requestId: randomUUID(),
+      adminActionToken: await one.issue({
+        commandCode: 'moderation.evidence-metadata',
+        requiredPermission: 'view_reports',
+        targetType: 'report',
+        targetId: source.reportId,
+        expectedTargetVersion: 1,
+      }),
+    };
+    const actions = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/evidence/actions',
+      headers: { authorization: 'Bearer metadata-admin-one' },
+      payload: selection,
+    });
+    expect(actions.statusCode).toBe(200);
+    const selectedItems = actions.json<ReportEvidenceActions>().items;
+    expect(selectedItems).toHaveLength(1);
+    expect(selectedItems[0]).toMatchObject({
+      evidenceId: source.evidenceId,
+      evidenceType: 'photo',
+      snapshotSchemaVersion: 1,
+    });
+    expect(selectedItems[0]?.revealActionToken).toMatch(/^v1\.ad\./u);
+    expect(actions.headers['cache-control']).toBe('no-store');
+    for (const privateValue of [
+      source.reporter,
+      source.target,
+      source.photoId,
+      selection.adminActionToken,
+    ])
+      expect(actions.body).not.toContain(privateValue);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/reports/evidence/actions',
+          headers: { authorization: 'Bearer metadata-admin-two' },
+          payload: { ...selection, actor: two.actor },
+        })
+      ).statusCode,
+    ).toBe(403);
     await database
       .updateTable('administration.admin_user_roles')
       .set({ revoked_at: new Date(), revoked_by_admin_id: first })
@@ -126,6 +178,16 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       payload: query,
     });
     expect(revoked.statusCode).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/reports/evidence/actions',
+          headers: { authorization: 'Bearer metadata-admin-one' },
+          payload: selection,
+        })
+      ).statusCode,
+    ).toBe(403);
     expect(JSON.stringify(error.mock.calls)).not.toContain(query.adminActionToken);
   });
 });
