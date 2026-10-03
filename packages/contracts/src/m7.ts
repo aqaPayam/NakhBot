@@ -373,6 +373,14 @@ export const ApplyAccountModerationActionCommandSchema = mutationSchema(
 export type ApplyAccountModerationActionCommand = Static<
   typeof ApplyAccountModerationActionCommandSchema
 >;
+export const PrepareAccountModerationActionCommandSchema = mutationSchema(
+  'moderation.apply-account-action',
+  AdminActorSchema,
+  Type.Omit(ApplyAccountModerationActionCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareAccountModerationActionCommand = Static<
+  typeof PrepareAccountModerationActionCommandSchema
+>;
 
 export const ApplyPhotoModerationActionCommandSchema = mutationSchema(
   'moderation.apply-photo-action',
