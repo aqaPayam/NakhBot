@@ -527,9 +527,13 @@ restriction and encryption rollback have integration coverage. Confirmed photo r
 reference, digest and primary flag against its immutable media hold. Hidden source photos remain
 reviewable; concurrent confirmed retries decrypt once and access audits must commit before any
 content is returned. Mismatched references return no content and commit a rejected access audit.
-Object delivery and transport presentation remain pending.
+The provider-neutral service factory now configures photo preparation, atomic submission,
+evidence actions and confirmed reveal together with profile/chat/unmatch capabilities. Disabled
+photo capability denies new intents and submissions and issues no reveal actions; durable receipts
+remain replayable. Integration flows exercise all four types and their shared ten-report admission
+under mixed-type concurrency. Object delivery and transport presentation remain pending.
 
-Checkpoint 8 remains partial. Photo/message submission and snapshot composition,
+Checkpoint 8 remains partial. Message submission and snapshot composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin

@@ -5,6 +5,7 @@ import {
   type ProfileReportSnapshotProtector,
   type ChatReportSnapshotProtector,
   type UnmatchedReportSnapshotProtector,
+  type PhotoReportSnapshotProtector,
   type ProfileReportSourceStore,
   type ReportTokens,
   type OpaqueTokenStore,
@@ -15,6 +16,8 @@ import { SystemIdGenerator } from './foundation-store.js';
 import { resolveProfileReportSource } from './profile-report-source-store.js';
 import { resolveChatReportSource } from './chat-report-source-store.js';
 import { resolveUnmatchedReportSource } from './unmatched-report-source-store.js';
+import { resolvePhotoReportSource } from './photo-report-source-store.js';
+import { capturePhotoReportEvidence } from './photo-report-submission-store.js';
 import {
   PostgresSingleEvidenceReportSubmissionStore,
   captureProfileReportEvidence,
@@ -27,6 +30,10 @@ import { PostgresConfirmedReportEvidenceReveals } from './confirmed-evidence-rev
 import { PostgresGetReportEvidenceActionsHandler } from './report-evidence-actions-store.js';
 
 export type ReportEvidenceCapabilities = Readonly<{
+  photo?: Readonly<{
+    protector: PhotoReportSnapshotProtector;
+    reader: NonNullable<ReportEvidenceReaders['photo']>;
+  }>;
   profile?: Readonly<{
     protector: ProfileReportSnapshotProtector;
     reader: NonNullable<ReportEvidenceReaders['profile']>;
@@ -59,6 +66,14 @@ export function createPostgresReportServices(
   const captures: Partial<Record<ReportEvidenceType, SingleReportEvidenceCapture['capture']>> = {};
   const readers: { -readonly [K in keyof ReportEvidenceReaders]: ReportEvidenceReaders[K] } = {};
   const types: (keyof ReportEvidenceReaders)[] = [];
+  if (capabilities.photo !== undefined) {
+    const { protector, reader } = capabilities.photo;
+    sources.photo = (actor, source) => resolvePhotoReportSource(database, actor, source);
+    captures.photo = (transaction, write) =>
+      capturePhotoReportEvidence(transaction, write, protector);
+    readers.photo = reader;
+    types.push('photo');
+  }
   if (capabilities.profile !== undefined) {
     const { protector, reader } = capabilities.profile;
     sources.profile = (actor, source) => resolveProfileReportSource(database, actor, source);

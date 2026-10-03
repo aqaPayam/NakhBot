@@ -9,6 +9,8 @@ import {
   AesGcmChatReportSnapshotReader,
   AesGcmUnmatchedReportSnapshotProtector,
   AesGcmUnmatchedReportSnapshotReader,
+  AesGcmPhotoReportSnapshotProtector,
+  AesGcmPhotoReportSnapshotReader,
   ReportTokens,
   type EvidenceRevealDraft,
   type ReportSource,
@@ -27,6 +29,7 @@ import {
   createReportLike,
   createReportUnmatch,
   createReportUser,
+  createReportPhoto,
 } from './testing/report-fixture.js';
 import { confirmationFixture } from './testing/admin-confirmation.js';
 import { PostgresSubmitProfileReportHandler } from './profile-report-submission-store.js';
@@ -48,6 +51,10 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
     key,
   );
   const capabilities = {
+    photo: {
+      protector: new AesGcmPhotoReportSnapshotProtector('bundle-key', 1, key),
+      reader: new AesGcmPhotoReportSnapshotReader({ resolve: () => key }),
+    },
     profile: {
       protector: new AesGcmProfileReportSnapshotProtector('bundle-key', 1, key),
       reader: new AesGcmProfileReportSnapshotReader({ resolve: () => key }),
@@ -129,7 +136,16 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
     const reporter = await createReportUser(database);
     reporters.push(reporter);
     const actor = { kind: 'user' as const, userId: reporter };
+    const photoTarget = await createReportUser(database, true);
     const contexts: { type: ReportEvidenceType; source: ReportSource }[] = [
+      {
+        type: 'photo',
+        source: {
+          kind: 'received_like',
+          referenceId: await createReportLike(database, reporter, photoTarget),
+          photoId: await createReportPhoto(database, photoTarget),
+        },
+      },
       {
         type: 'profile',
         source: {
@@ -184,7 +200,7 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
     }
     return { admin, authorization, actor, services, inputs };
   }
-  it('connects three evidence types to confirmed review, preserves legacy replay and disables unsupported capabilities consistently', async () => {
+  it('connects four evidence types to confirmed review, preserves legacy replay and disables unsupported capabilities consistently', async () => {
     const { authorization, actor, services, inputs } = await fixture();
     const profileOnly = createPostgresReportServices(
       database,
@@ -274,7 +290,7 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
       ),
     ).rejects.toMatchObject({ code: 'report_unavailable' });
   });
-  it('shares one ten-report admission limit across concurrent profile, chat and unmatch commands', async () => {
+  it('shares one ten-report admission limit across concurrent profile, photo, chat and unmatch commands', async () => {
     const { actor, services, inputs } = await fixture();
     const results = await Promise.allSettled(
       Array.from({ length: 12 }, (_, index) => {
@@ -297,7 +313,7 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
       .execute();
     expect(evidence).toHaveLength(10);
     expect(new Set(evidence.map((row) => row.evidence_type))).toEqual(
-      new Set(['profile', 'chat', 'unmatched_user']),
+      new Set(['profile', 'photo', 'chat', 'unmatched_user']),
     );
   });
 });
