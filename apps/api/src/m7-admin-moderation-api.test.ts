@@ -4,7 +4,11 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Logger } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ConfirmedAccountActions, AdminIngressRejectionStore } from '@nakh/application';
+import type {
+  ConfirmedAccountActions,
+  ConfirmedPhotoActions,
+  AdminIngressRejectionStore,
+} from '@nakh/application';
 import type { AdminCommandReceipt } from '@nakh/contracts';
 import { ApiExceptionFilter } from './app.js';
 import {
@@ -127,6 +131,68 @@ describe('authenticated route-bound account moderation HTTP', () => {
       token,
     ])
       expect(response.body).not.toContain(restricted);
+  });
+  it('binds photo actions to their route and returns only public receipts after delegation', async () => {
+    const execute = vi.fn<ConfirmedPhotoActions['execute']>(() =>
+      Promise.resolve({
+        logId: randomUUID(),
+        result: 'succeeded',
+        safeCode: 'photo_hide_photo',
+        recordedAt: new Date(),
+        replayed: false,
+        value: {
+          actionId: randomUUID(),
+          photoId: randomUUID(),
+          profileId: randomUUID(),
+          targetUserId: randomUUID(),
+          previousStatus: 'visible',
+          nextStatus: 'hidden',
+          wasPrimary: false,
+          primaryPhotoId: randomUUID(),
+          photoVersion: 2,
+          profileVersion: 2,
+          profileCompletion: 'complete',
+        },
+      }),
+    );
+    const prepare = vi.fn<ConfirmedPhotoActions['prepare']>(() =>
+      Promise.resolve(confirmationToken),
+    );
+    const { server, record } = await start({ photos: { execute, prepare } }, false);
+    const photoDraft = {
+      ...draft,
+      commandType: 'moderation.apply-photo-action',
+      data: { ...draft.data, action: 'hide_photo' },
+    };
+    const prepared = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/photos/hide_photo/prepare',
+      headers,
+      payload: photoDraft,
+    });
+    expect(prepared.statusCode).toBe(200);
+    expect(prepare).toHaveBeenCalledWith(photoDraft, actor);
+    const photoCommand = { ...photoDraft, data: { ...photoDraft.data, confirmationToken } };
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/photos/hide_photo',
+      headers,
+      payload: photoCommand,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ result: 'succeeded', safeCode: 'completed' });
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body).not.toContain('photoId');
+    expect(execute).toHaveBeenCalledWith(photoCommand, actor);
+    const mismatch = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/photos/delete_photo',
+      headers,
+      payload: photoCommand,
+    });
+    expect(mismatch.json()).toMatchObject({ result: 'rejected' });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0]?.[0].requiredPermission).toBe('delete_photo');
   });
   it('rejects a mismatched route action and audits only the server-selected permission before delegation', async () => {
     const { server, execute, record } = await start();

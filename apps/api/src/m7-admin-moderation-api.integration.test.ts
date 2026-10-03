@@ -9,6 +9,7 @@ import {
   createDatabase,
   runMigrations,
   PostgresConfirmedAccountActions,
+  PostgresConfirmedPhotoActions,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -16,10 +17,13 @@ import type {
   PreparedAdminConfirmation,
   AdminCommandReceipt,
   PrepareAccountModerationActionCommand,
+  PreparePhotoModerationActionCommand,
 } from '@nakh/contracts';
 import {
   createReportUser,
   createReportFixtureAdmin,
+  createRetainedReportPhoto,
+  createReportPhoto,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
 import { ApiExceptionFilter } from './app.js';
@@ -223,5 +227,144 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
         .execute(),
     ).toEqual([{ result: 'rejected', safe_code: 'forbidden' }]);
     expect(JSON.stringify(error.mock.calls)).not.toContain(draft.data.reason);
+  });
+  it('confirms hide, restore and delete independently while retaining reported media and snapshots', async () => {
+    await app.close();
+    const retained = await createRetainedReportPhoto(database);
+    await createReportPhoto(database, retained.target, false);
+    const adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'super_admin',
+        assigned_by_admin_id: adminId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, adminId),
+      revoked: string[] = [],
+      error = vi.fn();
+    app = await NestFactory.create<NestFastifyApplication>(
+      M7AdminModerationApiModule.register({
+        authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
+        journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        photos: new PostgresConfirmedPhotoActions(database, fixture.tokens, fixture.key, {
+          execute: (photoId) => {
+            revoked.push(photoId);
+            return Promise.resolve();
+          },
+        }),
+      }),
+      new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
+      { logger: false },
+    );
+    app.useGlobalFilters(new ApiExceptionFilter({ error } as unknown as Logger));
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+    const headers = { authorization: 'Bearer photo-admin-credential' };
+    let version = 1;
+    for (const action of ['hide_photo', 'restore_photo', 'delete_photo'] as const) {
+      const draft: PreparePhotoModerationActionCommand = {
+        actor: fixture.actor,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        commandType: 'moderation.apply-photo-action',
+        schemaVersion: 1,
+        idempotencyKey: randomUUID(),
+        locale: 'en',
+        occurredAt: new Date().toISOString(),
+        data: {
+          action,
+          expectedTargetVersion: version,
+          reason: 'Synthetic retained photo review',
+          adminActionToken: await fixture.issue({
+            commandCode: 'moderation.apply-photo-action',
+            requiredPermission: action,
+            targetType: 'photo',
+            targetId: retained.photoId,
+            expectedTargetVersion: version,
+          }),
+        },
+      };
+      const prepared = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/moderation/photos/${action}/prepare`,
+        headers,
+        payload: draft,
+      });
+      expect(prepared.statusCode).toBe(200);
+      const before = revoked.length;
+      const command = {
+        ...draft,
+        data: {
+          ...draft.data,
+          confirmationToken: prepared.json<PreparedAdminConfirmation>().confirmationToken,
+        },
+      };
+      const responses = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          app.inject({
+            method: 'POST',
+            url: `/v1/admin/moderation/photos/${action}`,
+            headers,
+            payload: command,
+          }),
+        ),
+      );
+      expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+      const receipts = responses.map((response) => response.json<AdminCommandReceipt>());
+      expect(receipts.every((receipt) => receipt.result === 'succeeded')).toBe(true);
+      expect(receipts.filter((receipt) => !receipt.replayed)).toHaveLength(1);
+      if (action === 'restore_photo') expect(revoked).toHaveLength(before);
+      else expect(revoked.slice(before).every((id) => id === retained.photoId)).toBe(true);
+      version++;
+      expect(
+        await database
+          .selectFrom('media.profile_photos')
+          .select('version')
+          .where('id', '=', retained.photoId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ version });
+      expect(
+        await database
+          .selectFrom('administration.admin_action_logs')
+          .select('id')
+          .where('admin_user_id', '=', adminId)
+          .where('command_id', '=', command.commandId)
+          .execute(),
+      ).toHaveLength(1);
+      for (const response of responses)
+        for (const privateValue of [
+          retained.target,
+          retained.photoId,
+          fixture.actor.userId,
+          draft.data.reason,
+        ])
+          expect(response.body).not.toContain(privateValue);
+    }
+    expect(
+      await database
+        .selectFrom('media.profile_photos')
+        .select('status')
+        .where('id', '=', retained.photoId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'deleted' });
+    expect(
+      await database
+        .selectFrom('media.report_photo_evidence_holds')
+        .select('report_evidence_id')
+        .where('report_evidence_id', '=', retained.evidenceId)
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('moderation.report_snapshots')
+        .select('id')
+        .where('report_evidence_id', '=', retained.evidenceId)
+        .execute(),
+    ).toHaveLength(1);
+    expect(JSON.stringify(error.mock.calls)).not.toContain('Synthetic retained photo review');
   });
 });

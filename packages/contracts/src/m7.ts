@@ -393,6 +393,14 @@ export const ApplyPhotoModerationActionCommandSchema = mutationSchema(
 export type ApplyPhotoModerationActionCommand = Static<
   typeof ApplyPhotoModerationActionCommandSchema
 >;
+export const PreparePhotoModerationActionCommandSchema = mutationSchema(
+  'moderation.apply-photo-action',
+  AdminActorSchema,
+  Type.Omit(ApplyPhotoModerationActionCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PreparePhotoModerationActionCommand = Static<
+  typeof PreparePhotoModerationActionCommandSchema
+>;
 
 export const ChangeInternalBlockCommandSchema = mutationSchema(
   'moderation.change-internal-block',
