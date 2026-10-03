@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
+import { Module } from '@nestjs/common';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Logger } from 'pino';
 import { sql } from 'kysely';
@@ -24,6 +25,9 @@ import type {
   ReportSubmissionResult,
   SubmitReportCommand,
   ReportEvidenceType,
+  ReportEvidenceActions,
+  PreparedAdminConfirmation,
+  AdminEvidenceRevealResult,
 } from '@nakh/contracts';
 import { createDatabase, runMigrations, type NakhDatabase } from '@nakh/persistence-postgres';
 // Shared synthetic test fixtures; these imports never enter the production adapter.
@@ -38,11 +42,17 @@ import {
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { ApiExceptionFilter } from './app.js';
 import { M7ReportApiModule } from './m7-report-api.js';
-import { createM7ReportApiOptions } from './m7-report-services.js';
+import { M7AdminReportApiModule } from './m7-admin-report-api.js';
+import { createM7ReportHostOptions } from './m7-report-services.js';
+import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
+
+@Module({})
+class ReportTestHost {}
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts', () => {
   let database: NakhDatabase, app: NestFastifyApplication, reporter: string;
+  let admin: Awaited<ReturnType<typeof confirmationFixture>>;
   const values = new Map<string, string>(),
     error = vi.fn();
   const reporters: string[] = [],
@@ -68,45 +78,61 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
     });
     reporter = await createReportUser(database);
     reporters.push(reporter);
+    const adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'super_admin',
+        assigned_by_admin_id: adminId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    admin = await confirmationFixture(database, adminId);
+    const options = createM7ReportHostOptions({
+      database,
+      reportTokens: tokens,
+      adminTokens: admin.tokens,
+      adminKey: admin.key,
+      capabilities: {
+        profile: {
+          protector: new AesGcmProfileReportSnapshotProtector('http-key', 1, key),
+          reader: new AesGcmProfileReportSnapshotReader({ resolve: () => key }),
+        },
+        photo: {
+          protector: new AesGcmPhotoReportSnapshotProtector('http-key', 1, key),
+          reader: new AesGcmPhotoReportSnapshotReader({ resolve: () => key }),
+        },
+        chat: {
+          protector: new AesGcmChatReportSnapshotProtector('http-key', 1, key),
+          reader: new AesGcmChatReportSnapshotReader({ resolve: () => key }),
+        },
+        unmatched_user: {
+          protector: new AesGcmUnmatchedReportSnapshotProtector('http-key', 1, key),
+          reader: new AesGcmUnmatchedReportSnapshotReader({ resolve: () => key }),
+        },
+        message: { reader: new IntegrityMessageReportSnapshotReader() },
+      },
+      authenticator: {
+        authenticate: ({ bearerToken, audience }) =>
+          Promise.resolve(
+            bearerToken === 'http-fixture-credential' && audience === 'user'
+              ? { kind: 'user', userId: reporter }
+              : bearerToken === 'http-admin-credential' && audience === 'admin'
+                ? admin.actor
+                : undefined,
+          ),
+      },
+    });
     app = await NestFactory.create<NestFastifyApplication>(
-      M7ReportApiModule.register(
-        createM7ReportApiOptions({
-          database,
-          reportTokens: tokens,
-          adminTokens: {
-            get: () => Promise.resolve(undefined),
-            putIfAbsent: () => Promise.resolve(true),
-          },
-          adminKey: Buffer.alloc(32, 94),
-          capabilities: {
-            profile: {
-              protector: new AesGcmProfileReportSnapshotProtector('http-key', 1, key),
-              reader: new AesGcmProfileReportSnapshotReader({ resolve: () => key }),
-            },
-            photo: {
-              protector: new AesGcmPhotoReportSnapshotProtector('http-key', 1, key),
-              reader: new AesGcmPhotoReportSnapshotReader({ resolve: () => key }),
-            },
-            chat: {
-              protector: new AesGcmChatReportSnapshotProtector('http-key', 1, key),
-              reader: new AesGcmChatReportSnapshotReader({ resolve: () => key }),
-            },
-            unmatched_user: {
-              protector: new AesGcmUnmatchedReportSnapshotProtector('http-key', 1, key),
-              reader: new AesGcmUnmatchedReportSnapshotReader({ resolve: () => key }),
-            },
-            message: { reader: new IntegrityMessageReportSnapshotReader() },
-          },
-          authenticator: {
-            authenticate: ({ bearerToken, audience }) =>
-              Promise.resolve(
-                bearerToken === 'http-fixture-credential' && audience === 'user'
-                  ? { kind: 'user', userId: reporter }
-                  : undefined,
-              ),
-          },
-        }),
-      ),
+      {
+        module: ReportTestHost,
+        imports: [
+          M7ReportApiModule.register(options.reports),
+          M7AdminReportApiModule.register(options.adminReports),
+        ],
+      },
       new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
       { logger: false },
     );
@@ -255,7 +281,7 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
     expect(JSON.stringify(events)).not.toContain(command.data.text!);
     expect(JSON.stringify(error.mock.calls)).not.toContain(command.data.text!);
   });
-  it('prepares, captures and replays all five evidence types through the same HTTP host configuration', async () => {
+  it('prepares, captures, confirms, reveals and replays all five evidence types through one HTTP host configuration', async () => {
     reporter = await createReportUser(database);
     reporters.push(reporter);
     const actor = { kind: 'user' as const, userId: reporter },
@@ -365,6 +391,88 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
         )
         .execute(),
     ).toHaveLength(1);
+    for (const reportId of ids) {
+      const adminHeaders = { authorization: 'Bearer http-admin-credential' };
+      const actionToken = await admin.issue({
+        commandCode: 'moderation.evidence-metadata',
+        requiredPermission: 'view_reports',
+        targetType: 'report',
+        targetId: reportId,
+        expectedTargetVersion: 1,
+      });
+      const selected = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/reports/evidence/actions',
+        headers: adminHeaders,
+        payload: { actor: admin.actor, requestId: randomUUID(), adminActionToken: actionToken },
+      });
+      expect(selected.statusCode).toBe(200);
+      const selectedEvidence = selected.json<ReportEvidenceActions>().items[0]!;
+      expect(selectedEvidence.revealActionToken).toMatch(/^v1\.ad\./u);
+      const draft = {
+        actor: admin.actor,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        commandType: 'moderation.reveal-evidence',
+        schemaVersion: 1,
+        locale: 'en',
+        occurredAt: new Date().toISOString(),
+        idempotencyKey: randomUUID(),
+        data: {
+          evidenceId: selectedEvidence.evidenceId,
+          adminActionToken: selectedEvidence.revealActionToken,
+          reason: 'Review synthetic report evidence',
+        },
+      };
+      const prepared = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/reports/evidence/reveal/prepare',
+        headers: adminHeaders,
+        payload: draft,
+      });
+      expect(prepared.statusCode).toBe(200);
+      const confirmed = {
+        ...draft,
+        data: {
+          ...draft.data,
+          confirmationToken: prepared.json<PreparedAdminConfirmation>().confirmationToken,
+        },
+      };
+      const revealed = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/reports/evidence/reveal',
+        headers: adminHeaders,
+        payload: confirmed,
+      });
+      expect(revealed.statusCode).toBe(200);
+      const result = revealed.json<AdminEvidenceRevealResult>();
+      expect(result.result).toBe('succeeded');
+      expect('evidence' in result && result.evidence.content.evidenceType).toBe(
+        selectedEvidence.evidenceType,
+      );
+      const replay = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/reports/evidence/reveal',
+        headers: adminHeaders,
+        payload: confirmed,
+      });
+      expect(replay.statusCode).toBe(200);
+      expect(replay.json()).toMatchObject({
+        auditId: result.auditId,
+        result: 'succeeded',
+        replayed: true,
+      });
+      expect(replay.body).not.toContain('evidence');
+      expect(selected.body).not.toContain(reporter);
+      expect(revealed.body).not.toContain(reporter);
+    }
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('id')
+        .where('report_id', 'in', ids)
+        .execute(),
+    ).toHaveLength(5);
     values.clear();
     for (const command of commands) {
       const response = await app.inject({

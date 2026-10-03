@@ -565,8 +565,18 @@ retries, token-loss replay, changed replay, durable admission, all five evidence
 and photo holds. A single host composition uses the shared capability factory for these endpoints.
 Concrete web/admin session infrastructure, actual report delivery and object delivery remain staging work.
 
-Checkpoint 8 remains partial. Report/evidence presentation, authenticated admin HTTP endpoints,
-admin ingress and remaining moderation presentation still need implementation.
+Authenticated admin report metadata, evidence selection, confirmation and reveal now have strict,
+non-cacheable HTTP boundaries. One host configuration governs all five evidence capabilities across
+user preparation/submission and admin selection/reveal. Authenticated early execution failures use
+an immutable failure-only journal; matching retries recover receipts without effects. Public admin
+receipts use finite codes and discard internal values. Only the process committing a fresh successful
+reveal can return content, after both admin-attempt and access audits commit. PostgreSQL HTTP tests
+cover all five types, concurrent reveal retries, cross-admin token reuse and permission revocation
+between preparation and execution. These use synthetic fixtures and an injected test authenticator,
+not real admin MFA/session infrastructure or actual Telegram/object delivery.
+
+Checkpoint 8 remains partial. Telegram report/evidence presentation, remaining authenticated admin
+mutation endpoints, concrete session ingress and remaining moderation presentation need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
 staging evidence remain outstanding.
 
