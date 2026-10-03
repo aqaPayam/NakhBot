@@ -7,6 +7,7 @@ import {
 } from '@nakh/application';
 import type { ReportEvidenceMetadata } from '@nakh/contracts';
 import { ApplicationError } from '@nakh/domain';
+import { sql } from 'kysely';
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 
@@ -50,13 +51,36 @@ export class PostgresReportEvidenceMetadataStore implements ReportEvidenceMetada
         throw new ApplicationError('version_conflict', 'error.command.version_conflict', 409);
       const rows = await transaction
         .selectFrom('moderation.report_evidence as evidence')
-        .innerJoin(
+        .leftJoin(
           'moderation.report_snapshots as snapshot',
           'snapshot.report_evidence_id',
           'evidence.id',
         )
-        .select(['evidence.id', 'evidence.evidence_type', 'snapshot.schema_version'])
+        .leftJoin('chat.chat_message_snapshots as message', (join) =>
+          join
+            .onRef('message.report_id', '=', 'evidence.report_id')
+            .onRef('message.original_message_id', '=', 'evidence.chat_message_id'),
+        )
+        .select([
+          'evidence.id',
+          'evidence.evidence_type',
+          sql<number>`CASE WHEN evidence.evidence_type = 'message' THEN 1 ELSE snapshot.schema_version END`.as(
+            'schema_version',
+          ),
+        ])
         .where('evidence.report_id', '=', report.id)
+        .where((eb) =>
+          eb.or([
+            eb.and([
+              eb('evidence.evidence_type', '=', 'message'),
+              eb('message.id', 'is not', null),
+            ]),
+            eb.and([
+              eb('evidence.evidence_type', '!=', 'message'),
+              eb('snapshot.id', 'is not', null),
+            ]),
+          ]),
+        )
         .orderBy('evidence.evidence_type')
         .orderBy('evidence.id')
         .limit(6)

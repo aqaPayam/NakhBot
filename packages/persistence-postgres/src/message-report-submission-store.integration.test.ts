@@ -12,6 +12,7 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { SystemIdGenerator } from './foundation-store.js';
 import { PostgresConfirmedReportEvidenceReveals } from './confirmed-evidence-reveal-store.js';
+import { PostgresGetReportEvidenceActionsHandler } from './report-evidence-actions-store.js';
 import { confirmationFixture } from './testing/admin-confirmation.js';
 import type { EvidenceRevealDraft } from '@nakh/application';
 import { PostgresChatRetentionStore } from './chat-retention-store.js';
@@ -274,6 +275,40 @@ describe.skipIf(url === undefined)('atomic M7 report and M6 message capture', ()
       })
       .execute();
     const fixture = await confirmationFixture(database, admin);
+    const metadataQuery = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: await fixture.issue({
+        commandCode: 'moderation.evidence-metadata',
+        requiredPermission: 'view_reports',
+        targetType: 'report',
+        targetId: report.reportId,
+        expectedTargetVersion: 1,
+      }),
+    };
+    const unsupported = await new PostgresGetReportEvidenceActionsHandler(
+      database,
+      fixture.tokens,
+      fixture.key,
+    ).execute(metadataQuery, fixture.actor);
+    expect(unsupported.items).toEqual([
+      { evidenceId: evidence.id, evidenceType: 'message', snapshotSchemaVersion: 1 },
+    ]);
+    const actions = await new PostgresGetReportEvidenceActionsHandler(
+      database,
+      fixture.tokens,
+      fixture.key,
+      Date.now,
+      ['message'],
+    ).execute(metadataQuery, fixture.actor);
+    expect(actions.items[0]!.revealActionToken).toBeDefined();
+    for (const privateValue of [
+      'Private message evidence fixture',
+      input.messageId,
+      input.chatSessionId,
+      input.target,
+    ])
+      expect(JSON.stringify(actions)).not.toContain(privateValue);
     const draft: EvidenceRevealDraft = {
       commandType: 'moderation.reveal-evidence',
       schemaVersion: 1,
@@ -284,13 +319,7 @@ describe.skipIf(url === undefined)('atomic M7 report and M6 message capture', ()
       occurredAt: new Date().toISOString(),
       locale: 'en',
       data: {
-        adminActionToken: await fixture.issue({
-          commandCode: 'moderation.reveal-evidence',
-          requiredPermission: 'view_reports',
-          targetType: 'report_evidence',
-          targetId: evidence.id,
-          expectedTargetVersion: 1,
-        }),
+        adminActionToken: actions.items[0]!.revealActionToken!,
         evidenceId: evidence.id,
         reason: 'Review retained message',
       },
