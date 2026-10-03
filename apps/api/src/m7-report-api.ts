@@ -15,24 +15,56 @@ import type { FastifyRequest } from 'fastify';
 import type {
   GetReportReasonsHandler,
   PrepareSingleReportEvidenceHandler,
+  SubmitSingleEvidenceReportHandler,
 } from '@nakh/application';
 import {
   ReportReasonCatalogSchema,
   PreparedReportEvidenceSchema,
   PrepareReportEvidenceQuerySchema,
+  SubmitReportCommandSchema,
+  ReportSubmissionResultSchema,
   type ReportReasonCatalog,
   type PreparedReportEvidence,
   type PrepareReportEvidenceQuery,
+  type SubmitReportCommand,
+  type ReportSubmissionResult,
 } from '@nakh/contracts';
 import { M7ApiBoundary, type M7ApiAuthenticator } from './m7-api-boundary.js';
 
 const BOUNDARY = Symbol('M7_API_BOUNDARY');
 const REASONS = Symbol('M7_REPORT_REASONS');
 const PREPARE = Symbol('M7_REPORT_PREPARE');
+const SUBMIT = Symbol('M7_REPORT_SUBMIT');
 export interface M7ReportApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly reasons: Pick<GetReportReasonsHandler, 'execute'>;
   readonly prepare?: Pick<PrepareSingleReportEvidenceHandler, 'execute'>;
+  readonly submit?: Pick<SubmitSingleEvidenceReportHandler, 'execute'>;
+}
+
+@Controller('v1/reports')
+class SubmitReportController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(SUBMIT) private readonly submit: Pick<SubmitSingleEvidenceReportHandler, 'execute'>,
+  ) {}
+  @Post()
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async report(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<ReportSubmissionResult> {
+    const actor = await this.boundary.actor(request, 'user');
+    const command = this.boundary.parse<SubmitReportCommand>(
+      SubmitReportCommandSchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(ReportSubmissionResultSchema, () =>
+      this.submit.execute(command, actor),
+    );
+  }
 }
 
 @Controller('v1/reports')
@@ -95,11 +127,13 @@ export class M7ReportApiModule {
       controllers: [
         ReportController,
         ...(options.prepare === undefined ? [] : [PrepareReportController]),
+        ...(options.submit === undefined ? [] : [SubmitReportController]),
       ],
       providers: [
         { provide: BOUNDARY, useValue: new M7ApiBoundary(options.authenticator) },
         { provide: REASONS, useValue: options.reasons },
         ...(options.prepare === undefined ? [] : [{ provide: PREPARE, useValue: options.prepare }]),
+        ...(options.submit === undefined ? [] : [{ provide: SUBMIT, useValue: options.submit }]),
       ],
     };
   }

@@ -8,7 +8,9 @@ import { ApplicationError } from '@nakh/domain';
 import type {
   GetReportReasonsHandler,
   PrepareSingleReportEvidenceHandler,
+  SubmitSingleEvidenceReportHandler,
 } from '@nakh/application';
+import type { SubmitReportCommand } from '@nakh/contracts';
 import { ApiExceptionFilter } from './app.js';
 import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
 
@@ -126,6 +128,61 @@ describe('authenticated M7 report HTTP routes', () => {
     expect(
       (await server.inject({ method: 'POST', url: '/v1/reports/prepare', payload: {} })).statusCode,
     ).toBe(404);
+  });
+  it('preserves submission command identity and releases only the safe receipt across retries', async () => {
+    const receipt = {
+      reportId: randomUUID(),
+      status: 'pending_review' as const,
+      submittedAt: new Date().toISOString(),
+      replayed: false,
+    };
+    const execute = vi
+      .fn<SubmitSingleEvidenceReportHandler['execute']>()
+      .mockResolvedValueOnce(receipt)
+      .mockResolvedValueOnce({ ...receipt, replayed: true });
+    const server = await start({
+      authenticator: { authenticate: () => Promise.resolve(user) },
+      reasons: { execute: () => Promise.resolve({ items: [] }) },
+      submit: { execute },
+    });
+    const command: SubmitReportCommand = {
+      commandType: 'moderation.submit-report',
+      schemaVersion: 1,
+      actor: user,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        reasonCode: 'harassment',
+        evidenceIntentToken: `v1.ri.${'a'.repeat(16)}.${'b'.repeat(16)}`,
+        text: 'Private report complaint',
+      },
+    };
+    for (const replayed of [false, true]) {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/v1/reports',
+        headers: { authorization: 'Bearer privatecredential' },
+        payload: command,
+      });
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({ ...receipt, replayed });
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.body).not.toContain(command.data.text!);
+      expect(response.body).not.toContain(user.userId);
+    }
+    expect(execute).toHaveBeenNthCalledWith(1, command, user);
+    expect(execute).toHaveBeenNthCalledWith(2, command, user);
+    const forged = await server.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { authorization: 'Bearer privatecredential' },
+      payload: { ...command, data: { ...command.data, targetUserId: randomUUID() } },
+    });
+    expect(forged.statusCode).toBe(400);
+    expect(execute).toHaveBeenCalledTimes(2);
   });
   it('sanitizes domain failures and unexpected failures before HTTP output or logging', async () => {
     const privateText = 'PRIVATE REPORT SECRET';
