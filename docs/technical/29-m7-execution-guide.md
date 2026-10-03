@@ -540,7 +540,18 @@ lifecycle closure and cleanup. Tests cover either participant, outsiders, unrela
 evidence, purged sources and closed sessions with retained live evidence. M6 owns live retention;
 message preparation does not reopen chat access or invent a separate expiry window.
 
-Checkpoint 8 remains partial. Message submission and snapshot composition,
+Message submission now reauthorizes the exact participant-bound source and calls the extracted
+M6 in-transaction capture port after writing its governing Report/evidence. M6 remains the sole
+message-snapshot writer, preserving its content schema, digest, PostgreSQL timestamp precision,
+request markers and newest-50 cleanup behavior. Report, snapshot, review, content-free outbox and
+threshold effects commit atomically. The original M6 entry point delegates to the same port and
+keeps its existing replay behavior, including legacy pending snapshot requests. Tests cover retry
+races, failure after snapshot writes, durable replay after live purge/token loss, report-versus-cleanup
+races, ten-report admission and one restriction for five distinct message reporters.
+Message audited reveal, metadata/action presentation and integration into the shared capability
+factory remain pending; no new transport or object-delivery endpoint is exposed.
+
+Checkpoint 8 remains partial. Message audited reveal and service composition,
 report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin

@@ -136,6 +136,74 @@ async function captureSnapshot(
   return inserted !== undefined;
 }
 
+/** Internal M6 port: capture into the caller's governing Report transaction. */
+export async function captureReportedMessagesInTransaction(
+  transaction: NakhDatabase,
+  input: CaptureReportedMessagesCommand['data'],
+): Promise<CaptureReportedMessagesResult> {
+  const { reportId, chatSessionId, messageIds } = input;
+  validateIds([reportId, chatSessionId, ...messageIds]);
+  if (new Set(messageIds).size !== messageIds.length)
+    throw new ApplicationError('invalid_request', 'error.chat.snapshot_invalid', 400);
+
+  const session = await transaction
+    .selectFrom('chat.chat_sessions')
+    .select('id')
+    .where('id', '=', chatSessionId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (session === undefined) unavailable();
+
+  const prior = await transaction
+    .selectFrom('chat.chat_message_snapshots')
+    .select(['original_message_id', 'chat_session_id'])
+    .where('report_id', '=', reportId)
+    .where('original_message_id', 'in', messageIds)
+    .execute();
+  if (prior.some((snapshot) => snapshot.chat_session_id !== chatSessionId))
+    throw new ApplicationError('idempotency_conflict', 'error.chat.snapshot_conflict', 409);
+  if (prior.length === messageIds.length)
+    return { reportId, chatSessionId, capturedMessageIds: messageIds, replayed: true };
+
+  const priorIds = new Set(prior.map((snapshot) => snapshot.original_message_id));
+  const missingIds = messageIds.filter((messageId) => !priorIds.has(messageId));
+  const messages = await transaction
+    .selectFrom('chat.chat_messages')
+    .selectAll()
+    .where('chat_session_id', '=', chatSessionId)
+    .where('id', 'in', missingIds)
+    .orderBy('id')
+    .forUpdate()
+    .execute();
+  if (messages.length !== missingIds.length) unavailable();
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  for (const messageId of missingIds) {
+    const message = byId.get(messageId);
+    if (message === undefined) unavailable();
+    await transaction
+      .insertInto('chat.chat_message_snapshot_requests')
+      .values({
+        report_id: reportId,
+        chat_session_id: chatSessionId,
+        original_message_id: messageId,
+        captured_at: null,
+      })
+      .onConflict((conflict) => conflict.columns(['report_id', 'original_message_id']).doNothing())
+      .execute();
+    await captureSnapshot(
+      transaction,
+      {
+        report_id: reportId,
+        chat_session_id: chatSessionId,
+        original_message_id: messageId,
+        captured_at: null,
+      },
+      message,
+    );
+  }
+  return { reportId, chatSessionId, capturedMessageIds: messageIds, replayed: false };
+}
+
 /** Restricted report-evidence capture and bounded newest-50 live-message cleanup. */
 export class PostgresChatRetentionStore implements ChatRetentionStore {
   public constructor(private readonly database: NakhDatabase) {}
@@ -143,70 +211,9 @@ export class PostgresChatRetentionStore implements ChatRetentionStore {
   public async captureReportedMessages(
     command: CaptureReportedMessagesCommand,
   ): Promise<CaptureReportedMessagesResult> {
-    const { reportId, chatSessionId, messageIds } = command.data;
-    validateIds([reportId, chatSessionId, ...messageIds]);
-    if (new Set(messageIds).size !== messageIds.length)
-      throw new ApplicationError('invalid_request', 'error.chat.snapshot_invalid', 400);
-    return this.database.transaction().execute(async (transaction) => {
-      const session = await transaction
-        .selectFrom('chat.chat_sessions')
-        .select('id')
-        .where('id', '=', chatSessionId)
-        .forUpdate()
-        .executeTakeFirst();
-      if (session === undefined) unavailable();
-
-      const prior = await transaction
-        .selectFrom('chat.chat_message_snapshots')
-        .select(['original_message_id', 'chat_session_id'])
-        .where('report_id', '=', reportId)
-        .where('original_message_id', 'in', messageIds)
-        .execute();
-      if (prior.some((snapshot) => snapshot.chat_session_id !== chatSessionId))
-        throw new ApplicationError('idempotency_conflict', 'error.chat.snapshot_conflict', 409);
-      if (prior.length === messageIds.length)
-        return { reportId, chatSessionId, capturedMessageIds: messageIds, replayed: true };
-
-      const priorIds = new Set(prior.map((snapshot) => snapshot.original_message_id));
-      const missingIds = messageIds.filter((messageId) => !priorIds.has(messageId));
-      const messages = await transaction
-        .selectFrom('chat.chat_messages')
-        .selectAll()
-        .where('chat_session_id', '=', chatSessionId)
-        .where('id', 'in', missingIds)
-        .orderBy('id')
-        .forUpdate()
-        .execute();
-      if (messages.length !== missingIds.length) unavailable();
-      const byId = new Map(messages.map((message) => [message.id, message]));
-      for (const messageId of missingIds) {
-        const message = byId.get(messageId);
-        if (message === undefined) unavailable();
-        await transaction
-          .insertInto('chat.chat_message_snapshot_requests')
-          .values({
-            report_id: reportId,
-            chat_session_id: chatSessionId,
-            original_message_id: messageId,
-            captured_at: null,
-          })
-          .onConflict((conflict) =>
-            conflict.columns(['report_id', 'original_message_id']).doNothing(),
-          )
-          .execute();
-        await captureSnapshot(
-          transaction,
-          {
-            report_id: reportId,
-            chat_session_id: chatSessionId,
-            original_message_id: messageId,
-            captured_at: null,
-          },
-          message,
-        );
-      }
-      return { reportId, chatSessionId, capturedMessageIds: messageIds, replayed: false };
-    });
+    return this.database
+      .transaction()
+      .execute((transaction) => captureReportedMessagesInTransaction(transaction, command.data));
   }
 
   public async cleanupChat(command: CleanupChatCommand): Promise<CleanupChatResult> {

@@ -65,7 +65,11 @@ export interface SingleReportEvidenceCapture {
         | ProtectedProfileReportSnapshot
         | ProtectedChatReportSnapshot
         | ProtectedPhotoReportSnapshot
-        | ProtectedUnmatchedReportSnapshot;
+        | ProtectedUnmatchedReportSnapshot
+        | Readonly<{
+            snapshotType: 'message';
+            capture: (transaction: NakhDatabase) => Promise<void>;
+          }>;
     }>
   >;
 }
@@ -156,26 +160,29 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
             profile_id: snapshot.snapshotType === 'profile' ? captured.referenceId : null,
             profile_photo_id: snapshot.snapshotType === 'photo' ? captured.referenceId : null,
             chat_session_id: snapshot.snapshotType === 'chat' ? captured.referenceId : null,
-            chat_message_id: null,
+            chat_message_id: snapshot.snapshotType === 'message' ? captured.referenceId : null,
             unmatch_record_id:
               snapshot.snapshotType === 'unmatched_user' ? captured.referenceId : null,
           })
           .execute();
-        await transaction
-          .insertInto('moderation.report_snapshots')
-          .values({
-            id: write.snapshotId,
-            report_id: write.reportId,
-            report_evidence_id: write.evidenceId,
-            snapshot_type: snapshot.snapshotType,
-            schema_version: snapshot.schemaVersion,
-            encryption_key_id: snapshot.keyId,
-            encryption_key_version: snapshot.keyVersion,
-            nonce: Buffer.from(snapshot.nonce),
-            ciphertext: Buffer.from(snapshot.ciphertext),
-            content_sha256: snapshot.sha256,
-          })
-          .execute();
+        if (snapshot.snapshotType === 'message') {
+          await snapshot.capture(transaction);
+        } else
+          await transaction
+            .insertInto('moderation.report_snapshots')
+            .values({
+              id: write.snapshotId,
+              report_id: write.reportId,
+              report_evidence_id: write.evidenceId,
+              snapshot_type: snapshot.snapshotType,
+              schema_version: snapshot.schemaVersion,
+              encryption_key_id: snapshot.keyId,
+              encryption_key_version: snapshot.keyVersion,
+              nonce: Buffer.from(snapshot.nonce),
+              ciphertext: Buffer.from(snapshot.ciphertext),
+              content_sha256: snapshot.sha256,
+            })
+            .execute();
         await transaction
           .insertInto('moderation.moderation_reviews')
           .values({

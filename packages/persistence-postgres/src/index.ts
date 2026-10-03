@@ -168,4 +168,5 @@ export * from './photo-report-source-store.js';
 export * from './photo-evidence-retention-store.js';
 export * from './photo-report-submission-store.js';
 export * from './message-report-source-store.js';
+export * from './message-report-submission-store.js';
 export * from './chat-report-submission-store.js';
