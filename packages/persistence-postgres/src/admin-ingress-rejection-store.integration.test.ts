@@ -176,5 +176,49 @@ describe.skipIf(url === undefined)(
           .execute(),
       ).toHaveLength(0);
     });
+    it('recovers failed ingress attempts without effects even after permission removal', async () => {
+      const fixture = await input();
+      const handler = new PostgresRecordAdminIngressRejectionHandler(database);
+      expect(await handler.recover(fixture.rejection)).toBeUndefined();
+      const results = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          handler.record({ ...fixture.rejection, outcome: 'failed' }),
+        ),
+      );
+      expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+      expect(
+        results.every(
+          (result) => result.result === 'failed' && result.safeCode === 'internal_error',
+        ),
+      ).toBe(true);
+      await database
+        .updateTable('administration.admin_user_roles')
+        .set({ revoked_at: new Date(), revoked_by_admin_id: fixture.admin })
+        .where('admin_user_id', '=', fixture.admin)
+        .where('revoked_at', 'is', null)
+        .execute();
+      expect(
+        await handler.recover({ ...fixture.rejection, requestId: randomUUID() }),
+      ).toMatchObject({
+        logId: results[0]!.logId,
+        result: 'failed',
+        replayed: true,
+        value: undefined,
+      });
+      await expect(
+        handler.recover({ ...fixture.rejection, requestDigest: digest('changed') }),
+      ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+      const other = await input();
+      expect(
+        await handler.recover({ ...fixture.rejection, actor: other.rejection.actor }),
+      ).toBeUndefined();
+      expect(
+        await database
+          .selectFrom('administration.admin_action_logs')
+          .select('id')
+          .where('admin_user_id', '=', fixture.admin)
+          .execute(),
+      ).toHaveLength(1);
+    });
   },
 );
