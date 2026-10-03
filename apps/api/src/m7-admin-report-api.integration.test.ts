@@ -10,9 +10,17 @@ import {
   runMigrations,
   PostgresGetReportMetadataPageHandler,
   PostgresGetReportEvidenceActionsHandler,
+  PostgresConfirmedReportEvidenceReveals,
+  PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
-import type { ReportMetadataPage, ReportEvidenceActions } from '@nakh/contracts';
+import type {
+  ReportMetadataPage,
+  ReportEvidenceActions,
+  PreparedAdminConfirmation,
+  AdminEvidenceRevealResult,
+} from '@nakh/contracts';
+import { AesGcmPhotoReportSnapshotReader } from '@nakh/application';
 import {
   createRetainedReportPhoto,
   createReportFixtureAdmin,
@@ -76,6 +84,15 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
           Date.now,
           ['photo'],
         ),
+        evidenceReveals: {
+          commands: new PostgresConfirmedReportEvidenceReveals(database, one.tokens, one.key, {
+            photo: new AesGcmPhotoReportSnapshotReader({
+              resolve: (keyId, version) =>
+                keyId === 'photo-fixture' && version === 1 ? source.key : undefined,
+            }),
+          }),
+          journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        },
       }),
       new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
       { logger: false },
@@ -146,6 +163,73 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       snapshotSchemaVersion: 1,
     });
     expect(selectedItems[0]?.revealActionToken).toMatch(/^v1\.ad\./u);
+    const draft = {
+      actor: one.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.reveal-evidence',
+      schemaVersion: 1,
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      idempotencyKey: randomUUID(),
+      data: {
+        adminActionToken: selectedItems[0]!.revealActionToken,
+        evidenceId: source.evidenceId,
+        reason: 'Review synthetic retained photo',
+      },
+    };
+    const prepare = async (value: typeof draft): Promise<string> => {
+      const prepared = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/reports/evidence/reveal/prepare',
+        headers: { authorization: 'Bearer metadata-admin-one' },
+        payload: value,
+      });
+      expect(prepared.statusCode).toBe(200);
+      return prepared.json<PreparedAdminConfirmation>().confirmationToken;
+    };
+    const confirmed = {
+      ...draft,
+      data: { ...draft.data, confirmationToken: await prepare(draft) },
+    };
+    const revealed = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({
+          method: 'POST',
+          url: '/v1/admin/reports/evidence/reveal',
+          headers: { authorization: 'Bearer metadata-admin-one' },
+          payload: confirmed,
+        }),
+      ),
+    );
+    expect(revealed.every((response) => response.statusCode === 200)).toBe(true);
+    const outcomes = revealed.map((response) => response.json<AdminEvidenceRevealResult>());
+    expect(
+      outcomes.filter((result) => result.result === 'succeeded' && !result.replayed),
+    ).toHaveLength(1);
+    expect(outcomes.filter((result) => 'evidence' in result)).toHaveLength(1);
+    expect(new Set(outcomes.map((result) => result.auditId)).size).toBe(1);
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('id')
+        .where('admin_user_id', '=', first)
+        .where('command_id', '=', draft.commandId)
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('administration.admin_action_logs')
+        .select('id')
+        .where('admin_user_id', '=', first)
+        .where('command_id', '=', draft.commandId)
+        .execute(),
+    ).toHaveLength(1);
+    const revokeDraft = { ...draft, commandId: randomUUID(), requestId: randomUUID() };
+    const revokeCommand = {
+      ...revokeDraft,
+      data: { ...revokeDraft.data, confirmationToken: await prepare(revokeDraft) },
+    };
     expect(actions.headers['cache-control']).toBe('no-store');
     for (const privateValue of [
       source.reporter,
@@ -178,6 +262,15 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       payload: query,
     });
     expect(revoked.statusCode).toBe(403);
+    const revokedReveal = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/evidence/reveal',
+      headers: { authorization: 'Bearer metadata-admin-one' },
+      payload: revokeCommand,
+    });
+    expect(revokedReveal.statusCode).toBe(200);
+    expect(revokedReveal.json()).toMatchObject({ result: 'rejected', safeCode: 'forbidden' });
+    expect(revokedReveal.body).not.toContain('evidence');
     expect(
       (
         await app.inject({

@@ -25,6 +25,10 @@ import {
   type ReportMetadataPage,
 } from '@nakh/contracts';
 import { M7ApiBoundary, type M7ApiAuthenticator } from './m7-api-boundary.js';
+import {
+  M7AdminEvidenceApiModule,
+  type M7AdminEvidenceApiOptions,
+} from './m7-admin-evidence-api.js';
 
 const BOUNDARY = Symbol('M7_ADMIN_API_BOUNDARY'),
   METADATA = Symbol('M7_ADMIN_REPORT_METADATA'),
@@ -33,6 +37,7 @@ export interface M7AdminReportApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly metadata: Pick<GetReportMetadataPageHandler, 'execute'>;
   readonly evidenceActions?: Pick<GetReportEvidenceActionsHandler, 'execute'>;
+  readonly evidenceReveals?: Omit<M7AdminEvidenceApiOptions, 'authenticator'>;
 }
 @Controller('v1/admin/reports/evidence')
 class EvidenceActionsController {
@@ -90,6 +95,15 @@ export class M7AdminReportApiModule {
   public static register(options: M7AdminReportApiOptions): DynamicModule {
     return {
       module: M7AdminReportApiModule,
+      imports:
+        options.evidenceReveals === undefined
+          ? []
+          : [
+              M7AdminEvidenceApiModule.register({
+                authenticator: options.authenticator,
+                ...options.evidenceReveals,
+              }),
+            ],
       controllers: [
         ReportMetadataController,
         ...(options.evidenceActions === undefined ? [] : [EvidenceActionsController]),

@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AppealResultSchema,
+  AdminEvidenceRevealResultSchema,
+  AdminCommandReceiptSchema,
   ApplyAccountModerationActionCommandSchema,
   AssignAdminRoleCommandSchema,
   BootstrapAdminCommandSchema,
@@ -38,6 +40,37 @@ function validator(schema: object): ValidateFunction {
 }
 
 describe('report evidence metadata privacy contract', () => {
+  it('forbids evidence content on replay or failed outcomes and keeps admin receipts finite', () => {
+    const validate = validator(AdminEvidenceRevealResultSchema);
+    const receipt = {
+      auditId: '20000000-0000-4000-8000-000000000000',
+      result: 'succeeded',
+      safeCode: 'completed',
+      recordedAt: '2026-10-04T12:00:00.000Z',
+      replayed: true,
+    };
+    const evidence = {
+      evidenceId: receipt.auditId,
+      snapshotSchemaVersion: 1,
+      accessedAt: receipt.recordedAt,
+      content: {
+        evidenceType: 'message',
+        messageId: receipt.auditId,
+        messageType: 'text',
+        content: 'Private message',
+        createdAt: receipt.recordedAt,
+      },
+    };
+    expect(validate(receipt)).toBe(true);
+    expect(validate({ ...receipt, replayed: false, evidence })).toBe(true);
+    expect(validate({ ...receipt, replayed: false })).toBe(false);
+    for (const result of ['succeeded', 'rejected', 'failed'])
+      expect(validate({ ...receipt, result, evidence })).toBe(false);
+    expect(validator(AdminCommandReceiptSchema)({ ...receipt, value: evidence })).toBe(false);
+    expect(
+      validator(AdminCommandReceiptSchema)({ ...receipt, safeCode: 'private_dynamic_code' }),
+    ).toBe(false);
+  });
   it('bounds one report selection and rejects content and identity fields', () => {
     const validate = validator(ReportEvidenceMetadataSchema);
     const item = {

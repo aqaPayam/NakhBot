@@ -301,6 +301,19 @@ export const RevealReportEvidenceCommandSchema = mutationSchema(
 );
 export type RevealReportEvidenceCommand = Static<typeof RevealReportEvidenceCommandSchema>;
 
+/** Preparation retains the exact command identity used by the later confirmed execution. */
+export const PrepareEvidenceRevealCommandSchema = mutationSchema(
+  'moderation.reveal-evidence',
+  AdminActorSchema,
+  Type.Omit(RevealReportEvidenceCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareEvidenceRevealCommand = Static<typeof PrepareEvidenceRevealCommandSchema>;
+export const PreparedAdminConfirmationSchema = Type.Object(
+  { confirmationToken: ConfirmationTokenSchema },
+  { additionalProperties: false },
+);
+export type PreparedAdminConfirmation = Static<typeof PreparedAdminConfirmationSchema>;
+
 export const GetReportEvidenceMetadataQuerySchema = Type.Object(
   {
     actor: AdminActorSchema,
@@ -652,6 +665,59 @@ export const RevealedReportEvidenceSchema = Type.Object(
   { additionalProperties: false },
 );
 export type RevealedReportEvidence = Static<typeof RevealedReportEvidenceSchema>;
+
+const AdminReceiptFields = {
+  auditId: UuidSchema,
+  safeCode: Type.Union(
+    [
+      'completed',
+      'forbidden',
+      'invalid_request',
+      'version_conflict',
+      'unavailable',
+      'internal_error',
+    ].map((code) => Type.Literal(code)),
+  ),
+  recordedAt: UtcTimestampSchema,
+};
+export const AdminCommandReceiptSchema = Type.Object(
+  {
+    ...AdminReceiptFields,
+    result: Type.Union([
+      Type.Literal('succeeded'),
+      Type.Literal('rejected'),
+      Type.Literal('failed'),
+    ]),
+    replayed: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type AdminCommandReceipt = Static<typeof AdminCommandReceiptSchema>;
+/** Only the process that committed a successful audited reveal may return its content. */
+export const AdminEvidenceRevealResultSchema = Type.Union([
+  Type.Object(
+    {
+      ...AdminReceiptFields,
+      result: Type.Literal('succeeded'),
+      replayed: Type.Literal(false),
+      evidence: RevealedReportEvidenceSchema,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { ...AdminReceiptFields, result: Type.Literal('succeeded'), replayed: Type.Literal(true) },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...AdminReceiptFields,
+      result: Type.Union([Type.Literal('rejected'), Type.Literal('failed')]),
+      replayed: Type.Boolean(),
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type AdminEvidenceRevealResult = Static<typeof AdminEvidenceRevealResultSchema>;
 
 export const SupportThreadResultSchema = Type.Object(
   {
