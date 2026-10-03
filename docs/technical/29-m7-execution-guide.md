@@ -367,7 +367,7 @@ checkpoint and wait for that exact commit to turn green before advancing.
 
 ## 13. Definition of done
 
-### Current implementation evidence (2026-10-03)
+### Current implementation evidence (2026-10-04)
 
 Support and exact-ban appeal persistence, audited terminal reviews, and a separate permission-checked
 unban command are implemented. The presentation work includes seeded English fallback keys and
@@ -439,7 +439,7 @@ PostgreSQL evidence covers real received-Nakh creation through the existing fund
 sources, post-preparation bans, simultaneous duplicate submissions, ten-of-twelve admission, five
 distinct reporters producing one restriction, older transaction start ordering, snapshot failure
 rollback and content-free report events. Schema bootstrap/upgrade/replay evidence remains part of CI.
-No authenticated report HTTP/Telegram ingress or real report delivery is claimed.
+Report adapters remain disabled in ordinary startup; no real report delivery is claimed.
 
 An internal profile reveal store now checks current permissions and decrypts the captured snapshot
 inside the admin command transaction. A required actor-bound evidence access audit commits with the
@@ -556,10 +556,17 @@ evidence IDs, types and schema versions, including retained M6 snapshots after l
 The shared capability factory now governs preparation, capture, metadata actions and readers for
 all five evidence types. Integration tests cover enabled/disabled capabilities, durable replay after
 token loss or capability removal, and one concurrent ten-report limit across mixed evidence types.
-No new transport or object-delivery endpoint is exposed.
+The provider-neutral API now implements authenticated reason lookup, evidence preparation and
+report submission. A trusted host must explicitly supply an audience-verifying authenticator and
+preloaded evidence capabilities; ordinary startup registers no report routes. Strict contracts bind
+the request actor to verified identity and preserve command/idempotency IDs. Responses are validated,
+never cached, and errors discard restricted text/details. HTTP-to-PostgreSQL tests cover concurrent
+retries, token-loss replay, changed replay, durable admission, all five evidence types, M6 capture
+and photo holds. A single host composition uses the shared capability factory for these endpoints.
+Concrete web/admin session infrastructure, actual report delivery and object delivery remain staging work.
 
-Checkpoint 8 remains partial. Report/evidence presentation, provider-neutral authenticated HTTP
-endpoints, admin ingress and remaining moderation presentation still need implementation.
+Checkpoint 8 remains partial. Report/evidence presentation, authenticated admin HTTP endpoints,
+admin ingress and remaining moderation presentation still need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
 staging evidence remain outstanding.
 
