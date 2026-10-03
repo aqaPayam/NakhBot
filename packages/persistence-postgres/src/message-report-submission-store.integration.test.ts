@@ -11,6 +11,9 @@ import type { SubmitReportCommand, CleanupChatCommand } from '@nakh/contracts';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { SystemIdGenerator } from './foundation-store.js';
+import { PostgresConfirmedReportEvidenceReveals } from './confirmed-evidence-reveal-store.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
+import type { EvidenceRevealDraft } from '@nakh/application';
 import { PostgresChatRetentionStore } from './chat-retention-store.js';
 import { PostgresSingleEvidenceReportSubmissionStore } from './profile-report-submission-store.js';
 import { PostgresPrepareMessageReportEvidenceHandler } from './message-report-source-store.js';
@@ -244,6 +247,120 @@ describe.skipIf(url === undefined)('atomic M7 report and M6 message capture', ()
         .where('report_id', '=', reportId)
         .execute(),
     ).toEqual([{ content: { text: 'Private message evidence fixture' } }]);
+  });
+  it('confirms and audits retained message release once across retries and denies substituted message references', async () => {
+    const input = await prepare();
+    const report = await new PostgresSubmitMessageReportHandler(database, tokens).execute(
+      input.command,
+      input.command.actor,
+    );
+    const evidence = await database
+      .selectFrom('moderation.report_evidence')
+      .select('id')
+      .where('report_id', '=', report.reportId)
+      .executeTakeFirstOrThrow();
+    for (let index = 0; index < 50; index++)
+      await createReportMessage(database, input.chatSessionId, input.target, 'Later message');
+    await new PostgresChatRetentionStore(database).cleanupChat(cleanup(input.chatSessionId));
+    const admin = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: admin,
+        role_code: 'super_admin',
+        assigned_by_admin_id: admin,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, admin);
+    const draft: EvidenceRevealDraft = {
+      commandType: 'moderation.reveal-evidence',
+      schemaVersion: 1,
+      actor: fixture.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: await fixture.issue({
+          commandCode: 'moderation.reveal-evidence',
+          requiredPermission: 'view_reports',
+          targetType: 'report_evidence',
+          targetId: evidence.id,
+          expectedTargetVersion: 1,
+        }),
+        evidenceId: evidence.id,
+        reason: 'Review retained message',
+      },
+    };
+    let reads = 0;
+    const reader = new IntegrityMessageReportSnapshotReader();
+    const handler = new PostgresConfirmedReportEvidenceReveals(
+      database,
+      fixture.tokens,
+      fixture.key,
+      {
+        message: {
+          read: (subject, snapshot) => {
+            reads++;
+            return reader.read(subject, snapshot);
+          },
+        },
+      },
+    );
+    const command = {
+      ...draft,
+      data: { ...draft.data, confirmationToken: await handler.prepare(draft, fixture.actor) },
+    };
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => handler.execute(command, fixture.actor)),
+    );
+    expect(reads).toBe(1);
+    expect(results.filter((result) => result.value !== undefined)).toHaveLength(1);
+    expect(results.find((result) => result.value !== undefined)!.value!.content).toMatchObject({
+      evidenceType: 'message',
+      messageId: input.messageId,
+      content: 'Private message evidence fixture',
+    });
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('outcome')
+        .where('command_id', '=', draft.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'revealed' }]);
+    const corrupt = new PostgresConfirmedReportEvidenceReveals(
+      database,
+      fixture.tokens,
+      fixture.key,
+      {
+        message: {
+          read: (subject, snapshot) => ({
+            ...reader.read(subject, snapshot),
+            messageId: randomUUID(),
+          }),
+        },
+      },
+    );
+    const changed = { ...draft, commandId: randomUUID(), idempotencyKey: randomUUID() };
+    const denied = await corrupt.execute(
+      {
+        ...changed,
+        data: { ...changed.data, confirmationToken: await corrupt.prepare(changed, fixture.actor) },
+      },
+      fixture.actor,
+    );
+    expect(denied.result).toBe('failed');
+    expect(denied.value).toBeUndefined();
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('outcome')
+        .where('command_id', '=', changed.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'rejected' }]);
   });
   it('rolls back Report, request and snapshot when M6 capture fails after writing, then safely retries; rejects a purged prepared message', async () => {
     const input = await prepare();

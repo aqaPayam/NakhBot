@@ -4,6 +4,7 @@ import {
   type OpaqueTokenStore,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
+import type { ReportEvidenceType } from '@nakh/contracts';
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 import { PostgresGetReportEvidenceMetadataHandler } from './report-evidence-metadata-store.js';
@@ -14,7 +15,7 @@ export class PostgresGetReportEvidenceActionsHandler extends GetReportEvidenceAc
     tokens: OpaqueTokenStore,
     key: Uint8Array,
     now: () => number = Date.now,
-    supportedTypes: readonly ('profile' | 'photo' | 'chat' | 'unmatched_user')[] = ['profile'],
+    supportedTypes: readonly ReportEvidenceType[] = ['profile'],
   ) {
     const authorization = new AdminActionAuthorizationService(
       new PostgresAdminAuthorizationStore(database),

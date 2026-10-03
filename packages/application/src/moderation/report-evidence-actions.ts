@@ -1,4 +1,8 @@
-import type { GetReportEvidenceMetadataQuery, ReportEvidenceActions } from '@nakh/contracts';
+import type {
+  GetReportEvidenceMetadataQuery,
+  ReportEvidenceActions,
+  ReportEvidenceType,
+} from '@nakh/contracts';
 import type { Actor } from '@nakh/domain';
 import type { GetReportEvidenceMetadataHandler } from './report-evidence-metadata.js';
 
@@ -7,9 +11,7 @@ export class GetReportEvidenceActionsHandler {
   public constructor(
     private readonly metadata: Pick<GetReportEvidenceMetadataHandler, 'execute'>,
     private readonly issue: (actor: Actor, evidenceId: string) => Promise<string>,
-    private readonly supportedTypes: readonly (
-      'profile' | 'photo' | 'chat' | 'unmatched_user'
-    )[] = ['profile'],
+    private readonly supportedTypes: readonly ReportEvidenceType[] = ['profile'],
   ) {}
   public async execute(
     query: GetReportEvidenceMetadataQuery,

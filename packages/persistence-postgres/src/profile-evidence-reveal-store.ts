@@ -5,6 +5,7 @@ import type {
   ChatReportSnapshotReader,
   UnmatchedReportSnapshotReader,
   PhotoReportSnapshotReader,
+  MessageReportSnapshotReader,
 } from '@nakh/application';
 import type { RevealedReportEvidence } from '@nakh/contracts';
 import { ApplicationError, type IdGenerator } from '@nakh/domain';
@@ -21,6 +22,7 @@ export type ReportEvidenceReaders = Readonly<{
   chat?: ChatReportSnapshotReader;
   unmatched_user?: UnmatchedReportSnapshotReader;
   photo?: PhotoReportSnapshotReader;
+  message?: MessageReportSnapshotReader;
 }>;
 export class PostgresReportEvidenceRevealStore {
   public constructor(
@@ -34,7 +36,9 @@ export class PostgresReportEvidenceRevealStore {
   ): Promise<AdminCommandExecutionResult<RevealedReportEvidence>> {
     const auditId = this.ids.uuid();
     const bound = { ...attempt, metadata: {} };
-    const result = await new PostgresAdminCommandStore(this.database).execute(
+    const result = await new PostgresAdminCommandStore(this.database).execute<
+      RevealedReportEvidence['content']
+    >(
       bound,
       async (transaction) => {
         if (
@@ -44,6 +48,54 @@ export class PostgresReportEvidenceRevealStore {
           attempt.expectedTargetVersion !== 1
         )
           throw new ApplicationError('invalid_request', 'error.moderation.invalid_request', 400);
+        const selected = await transaction
+          .selectFrom('moderation.report_evidence')
+          .select(['report_id', 'evidence_type', 'chat_message_id'])
+          .where('id', '=', attempt.targetId)
+          .executeTakeFirst();
+        if (selected?.evidence_type === 'message') {
+          const reader = this.readers.message;
+          const snapshot =
+            selected.chat_message_id === null
+              ? undefined
+              : await transaction
+                  .selectFrom('chat.chat_message_snapshots')
+                  .selectAll()
+                  .where('report_id', '=', selected.report_id)
+                  .where('original_message_id', '=', selected.chat_message_id)
+                  .executeTakeFirst();
+          if (reader === undefined || snapshot === undefined || selected.chat_message_id === null)
+            throw new ApplicationError(
+              'report_unavailable',
+              'error.moderation.report_unavailable',
+              409,
+            );
+          const content = reader.read(
+            {
+              reportId: selected.report_id,
+              chatSessionId: snapshot.chat_session_id,
+              messageId: selected.chat_message_id,
+            },
+            {
+              reportId: snapshot.report_id,
+              chatSessionId: snapshot.chat_session_id,
+              originalMessageId: snapshot.original_message_id,
+              senderUserId: snapshot.sender_user_id,
+              messageType: snapshot.message_type,
+              content: snapshot.content,
+              originalCreatedAt: snapshot.original_created_at,
+              integritySha256: snapshot.integrity_sha256,
+            },
+          );
+          if (
+            content.evidenceType !== 'message' ||
+            content.messageId !== selected.chat_message_id ||
+            content.messageType !== snapshot.message_type ||
+            content.createdAt !== snapshot.original_created_at.toISOString()
+          )
+            throw new Error('Report snapshot reference is invalid.');
+          return { safeCode: 'evidence_revealed', value: content };
+        }
         const row = await transaction
           .selectFrom('moderation.report_evidence as evidence')
           .innerJoin(
