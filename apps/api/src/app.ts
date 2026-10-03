@@ -19,6 +19,7 @@ import * as formatsModule from 'ajv-formats';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sql } from 'kysely';
 import type { Logger } from 'pino';
+import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
 
 import { CreateSampleEffectHandler } from '@nakh/application';
 import {
@@ -77,7 +78,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const response = context.getResponse<FastifyReply>();
     const request = context.getRequest<FastifyRequest>();
     const requestHeader = request.headers['x-request-id'];
-    const requestId = typeof requestHeader === 'string' ? requestHeader : randomUUID();
+    const requestId =
+      typeof requestHeader === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+        requestHeader,
+      )
+        ? requestHeader
+        : randomUUID();
     const error =
       exception instanceof ApplicationError
         ? exception
@@ -149,10 +156,15 @@ class DatabaseLifecycle implements OnApplicationShutdown {
 
 @Module({})
 export class ApiModule {
-  public static register(config: AppConfig, logger: Logger): DynamicModule {
+  public static register(
+    config: AppConfig,
+    logger: Logger,
+    reports?: M7ReportApiOptions,
+  ): DynamicModule {
     const database = createDatabase(config.database);
     return {
       module: ApiModule,
+      imports: reports === undefined ? [] : [M7ReportApiModule.register(reports)],
       controllers: [HealthController, FoundationController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
