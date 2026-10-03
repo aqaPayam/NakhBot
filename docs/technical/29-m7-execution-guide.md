@@ -548,11 +548,17 @@ threshold effects commit atomically. The original M6 entry point delegates to th
 keeps its existing replay behavior, including legacy pending snapshot requests. Tests cover retry
 races, failure after snapshot writes, durable replay after live purge/token loss, report-versus-cleanup
 races, ten-report admission and one restriction for five distinct message reporters.
-Message audited reveal, metadata/action presentation and integration into the shared capability
-factory remain pending; no new transport or object-delivery endpoint is exposed.
+Message review now verifies the existing M6 digest and exact report/message binding before
+projecting content without sender identity. Confirmed reveal uses the shared current-permission,
+immutable admin-attempt and required evidence-access audit transaction; concurrent identical
+commands release content once, and recorded replay never reloads plaintext. Metadata selects only
+evidence IDs, types and schema versions, including retained M6 snapshots after live cleanup.
+The shared capability factory now governs preparation, capture, metadata actions and readers for
+all five evidence types. Integration tests cover enabled/disabled capabilities, durable replay after
+token loss or capability removal, and one concurrent ten-report limit across mixed evidence types.
+No new transport or object-delivery endpoint is exposed.
 
-Checkpoint 8 remains partial. Message audited reveal and service composition,
-report/evidence presentation, provider-neutral authenticated HTTP
+Checkpoint 8 remains partial. Report/evidence presentation, provider-neutral authenticated HTTP
 endpoints, admin ingress and remaining moderation presentation still need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
 staging evidence remain outstanding.

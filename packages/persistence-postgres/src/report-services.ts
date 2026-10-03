@@ -17,6 +17,8 @@ import { resolveProfileReportSource } from './profile-report-source-store.js';
 import { resolveChatReportSource } from './chat-report-source-store.js';
 import { resolveUnmatchedReportSource } from './unmatched-report-source-store.js';
 import { resolvePhotoReportSource } from './photo-report-source-store.js';
+import { resolveMessageReportSource } from './message-report-source-store.js';
+import { captureMessageReportEvidence } from './message-report-submission-store.js';
 import { capturePhotoReportEvidence } from './photo-report-submission-store.js';
 import {
   PostgresSingleEvidenceReportSubmissionStore,
@@ -30,6 +32,7 @@ import { PostgresConfirmedReportEvidenceReveals } from './confirmed-evidence-rev
 import { PostgresGetReportEvidenceActionsHandler } from './report-evidence-actions-store.js';
 
 export type ReportEvidenceCapabilities = Readonly<{
+  message?: Readonly<{ reader: NonNullable<ReportEvidenceReaders['message']> }>;
   photo?: Readonly<{
     protector: PhotoReportSnapshotProtector;
     reader: NonNullable<ReportEvidenceReaders['photo']>;
@@ -66,6 +69,12 @@ export function createPostgresReportServices(
   const captures: Partial<Record<ReportEvidenceType, SingleReportEvidenceCapture['capture']>> = {};
   const readers: { -readonly [K in keyof ReportEvidenceReaders]: ReportEvidenceReaders[K] } = {};
   const types: (keyof ReportEvidenceReaders)[] = [];
+  if (capabilities.message !== undefined) {
+    sources.message = (actor, source) => resolveMessageReportSource(database, actor, source);
+    captures.message = captureMessageReportEvidence;
+    readers.message = capabilities.message.reader;
+    types.push('message');
+  }
   if (capabilities.photo !== undefined) {
     const { protector, reader } = capabilities.photo;
     sources.photo = (actor, source) => resolvePhotoReportSource(database, actor, source);

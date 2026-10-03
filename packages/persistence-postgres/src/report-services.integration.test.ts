@@ -11,6 +11,7 @@ import {
   AesGcmUnmatchedReportSnapshotReader,
   AesGcmPhotoReportSnapshotProtector,
   AesGcmPhotoReportSnapshotReader,
+  IntegrityMessageReportSnapshotReader,
   ReportTokens,
   type EvidenceRevealDraft,
   type ReportSource,
@@ -30,6 +31,7 @@ import {
   createReportUnmatch,
   createReportUser,
   createReportPhoto,
+  createReportMessage,
 } from './testing/report-fixture.js';
 import { confirmationFixture } from './testing/admin-confirmation.js';
 import { PostgresSubmitProfileReportHandler } from './profile-report-submission-store.js';
@@ -51,6 +53,7 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
     key,
   );
   const capabilities = {
+    message: { reader: new IntegrityMessageReportSnapshotReader() },
     photo: {
       protector: new AesGcmPhotoReportSnapshotProtector('bundle-key', 1, key),
       reader: new AesGcmPhotoReportSnapshotReader({ resolve: () => key }),
@@ -137,7 +140,20 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
     reporters.push(reporter);
     const actor = { kind: 'user' as const, userId: reporter };
     const photoTarget = await createReportUser(database, true);
+    const messageTarget = await createReportUser(database);
+    const messageChat = await createReportChat(database, reporter, messageTarget);
     const contexts: { type: ReportEvidenceType; source: ReportSource }[] = [
+      {
+        type: 'message',
+        source: {
+          kind: 'message',
+          referenceId: await createReportMessage(
+            database,
+            messageChat.chatSessionId,
+            messageTarget,
+          ),
+        },
+      },
       {
         type: 'photo',
         source: {
@@ -200,7 +216,7 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
     }
     return { admin, authorization, actor, services, inputs };
   }
-  it('connects four evidence types to confirmed review, preserves legacy replay and disables unsupported capabilities consistently', async () => {
+  it('connects all five evidence types to confirmed review, preserves legacy replay and disables unsupported capabilities consistently', async () => {
     const { authorization, actor, services, inputs } = await fixture();
     const profileOnly = createPostgresReportServices(
       database,
@@ -283,6 +299,8 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
     values.clear();
     for (const input of inputs)
       expect((await services.submit.execute(input.command, actor)).replayed).toBe(true);
+    for (const input of inputs)
+      expect((await profileOnly.submit.execute(input.command, actor)).replayed).toBe(true);
     await expect(
       services.prepare.execute(
         { ...inputs[0]!.query, requestedEvidenceTypes: ['profile', 'chat'] },
@@ -290,7 +308,7 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
       ),
     ).rejects.toMatchObject({ code: 'report_unavailable' });
   });
-  it('shares one ten-report admission limit across concurrent profile, photo, chat and unmatch commands', async () => {
+  it('shares one ten-report admission limit across concurrent commands of all five evidence types', async () => {
     const { actor, services, inputs } = await fixture();
     const results = await Promise.allSettled(
       Array.from({ length: 12 }, (_, index) => {
@@ -312,8 +330,13 @@ describe.skipIf(url === undefined)('composed report evidence services', () => {
       .where('report.reporter_user_id', '=', actor.userId)
       .execute();
     expect(evidence).toHaveLength(10);
-    expect(new Set(evidence.map((row) => row.evidence_type))).toEqual(
-      new Set(['profile', 'photo', 'chat', 'unmatched_user']),
+    const admittedTypes = new Set(
+      results.flatMap((result, index) =>
+        result.status === 'fulfilled' ? [inputs[index % inputs.length]!.type] : [],
+      ),
     );
+    expect(new Set(evidence.map((row) => row.evidence_type))).toEqual(admittedTypes);
+    // Twelve attempts contain at most three of any one type, so ten admissions span at least four types.
+    expect(admittedTypes.size).toBeGreaterThanOrEqual(4);
   });
 });
