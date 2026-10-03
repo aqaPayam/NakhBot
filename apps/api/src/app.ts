@@ -5,6 +5,7 @@ import {
   Catch,
   Controller,
   Get,
+  HttpException,
   Inject,
   Module,
   Post,
@@ -88,7 +89,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const error =
       exception instanceof ApplicationError
         ? exception
-        : new ApplicationError('internal_error', 'An internal error occurred.', 500);
+        : exception instanceof HttpException && exception.getStatus() === 404
+          ? new ApplicationError('not_found', 'error.m7.unavailable', 404)
+          : new ApplicationError('internal_error', 'An internal error occurred.', 500);
     if (error.status >= 500) {
       this.logger.error(
         { err: exception, requestId, operation: request.routeOptions.url },

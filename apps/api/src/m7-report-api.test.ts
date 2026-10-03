@@ -5,7 +5,10 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import type { Logger } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApplicationError } from '@nakh/domain';
-import type { GetReportReasonsHandler } from '@nakh/application';
+import type {
+  GetReportReasonsHandler,
+  PrepareSingleReportEvidenceHandler,
+} from '@nakh/application';
 import { ApiExceptionFilter } from './app.js';
 import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
 
@@ -66,6 +69,63 @@ describe('authenticated M7 report HTTP routes', () => {
         (await server.inject({ method: 'GET', url: '/v1/reports/reasons', headers })).statusCode,
       ).toBe(401);
     expect(execute).not.toHaveBeenCalled();
+  });
+  it('prepares opaque evidence with authenticated actor binding and rejects raw references or extra fields', async () => {
+    const execute = vi.fn<PrepareSingleReportEvidenceHandler['execute']>(() =>
+      Promise.resolve({
+        evidenceIntentToken: `v1.ri.${'a'.repeat(16)}.${'b'.repeat(16)}`,
+        evidenceTypes: ['message'],
+        expiresAt: '2026-10-04T00:00:00.000Z',
+      }),
+    );
+    const server = await start({
+      authenticator: { authenticate: () => Promise.resolve(user) },
+      reasons: { execute: () => Promise.resolve({ items: [] }) },
+      prepare: { execute },
+    });
+    const query = {
+      actor: user,
+      requestId: randomUUID(),
+      sourceActionToken: `v1.rs.${'a'.repeat(16)}.${'b'.repeat(16)}`,
+      requestedEvidenceTypes: ['message'],
+    };
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/reports/prepare',
+      headers: { authorization: 'Bearer privatecredential' },
+      payload: query,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(await execute.mock.results[0]!.value);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(execute).toHaveBeenCalledWith(query, user);
+    expect(response.body).not.toContain(user.userId);
+    for (const [payload, status] of [
+      [{ ...query, actor: { ...user, userId: randomUUID() } }, 401],
+      [{ ...query, messageId: randomUUID() }, 400],
+      [{ ...query, sourceActionToken: randomUUID() }, 400],
+      [{ ...query, requestedEvidenceTypes: ['unknown'] }, 400],
+    ] as const)
+      expect(
+        (
+          await server.inject({
+            method: 'POST',
+            url: '/v1/reports/prepare',
+            headers: { authorization: 'Bearer privatecredential' },
+            payload,
+          })
+        ).statusCode,
+      ).toBe(status);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+  it('does not register preparation when its authorized application port is absent', async () => {
+    const server = await start({
+      authenticator: { authenticate: () => Promise.resolve(user) },
+      reasons: { execute: () => Promise.resolve({ items: [] }) },
+    });
+    expect(
+      (await server.inject({ method: 'POST', url: '/v1/reports/prepare', payload: {} })).statusCode,
+    ).toBe(404);
   });
   it('sanitizes domain failures and unexpected failures before HTTP output or logging', async () => {
     const privateText = 'PRIVATE REPORT SECRET';
