@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ReportTokens, SubmitMessageReportHandler } from '@nakh/application';
+import {
+  IntegrityMessageReportSnapshotReader,
+  ReportTokens,
+  SubmitMessageReportHandler,
+} from '@nakh/application';
 import type { SubmitReportCommand, CleanupChatCommand } from '@nakh/contracts';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -171,6 +175,27 @@ describe.skipIf(url === undefined)('atomic M7 report and M6 message capture', ()
       content: { text: 'Private message evidence fixture' },
     });
     expect(saved[0]!.integrity_sha256).toMatch(/^[0-9a-f]{64}$/u);
+    const snapshot = saved[0]!;
+    const stored = {
+      reportId: snapshot.report_id,
+      chatSessionId: snapshot.chat_session_id,
+      originalMessageId: snapshot.original_message_id,
+      senderUserId: snapshot.sender_user_id,
+      messageType: snapshot.message_type,
+      content: snapshot.content,
+      originalCreatedAt: snapshot.original_created_at,
+      integritySha256: snapshot.integrity_sha256,
+    };
+    const reader = new IntegrityMessageReportSnapshotReader();
+    const subject = { reportId, chatSessionId: input.chatSessionId, messageId: input.messageId };
+    expect(reader.read(subject, stored)).toMatchObject({
+      evidenceType: 'message',
+      content: 'Private message evidence fixture',
+      messageId: input.messageId,
+    });
+    expect(() =>
+      reader.read(subject, { ...stored, content: { text: 'Changed evidence' } }),
+    ).toThrow('Report snapshot could not be read.');
     expect(
       await database
         .selectFrom('moderation.report_snapshots')
@@ -203,6 +228,7 @@ describe.skipIf(url === undefined)('atomic M7 report and M6 message capture', ()
         .execute(),
     ).toHaveLength(0);
     state.clear();
+    expect(reader.read(subject, stored).content).toBe('Private message evidence fixture');
     const stable = new PostgresSubmitMessageReportHandler(database, tokens);
     expect((await stable.execute(input.command, input.command.actor)).replayed).toBe(true);
     await expect(
