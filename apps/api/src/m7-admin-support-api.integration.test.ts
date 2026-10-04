@@ -13,6 +13,7 @@ import {
   PostgresSupportStore,
   PostgresGetSafetyQueueActionsHandler,
   PostgresGetSupportMetadataHandler,
+  PostgresPrepareSupportActionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { OpenSupportThreadHandler, SupportOpaqueReferences } from '@nakh/application';
@@ -21,6 +22,7 @@ import type {
   PreparedAdminConfirmation,
   SafetyQueueActions,
   SupportMetadataPage,
+  PreparedSupportAction,
 } from '@nakh/contracts';
 import {
   createReportUser,
@@ -83,6 +85,11 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       M7AdminModerationApiModule.register({
         authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
         journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        supportActions: new PostgresPrepareSupportActionHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
         supportMetadata: new PostgresGetSupportMetadataHandler(
           database,
           fixture.tokens,
@@ -193,13 +200,35 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
     ).toBe(400);
     for (const action of ['reply', 'close'] as const) {
       const commandType = action === 'reply' ? 'support.reply-thread' : 'support.close-thread';
-      const adminActionToken = await fixture.issue({
-        commandCode: commandType,
-        requiredPermission: 'review_support',
-        targetType: 'support_thread',
-        targetId: thread.supportThreadId,
-        expectedTargetVersion: version,
+      const actionQuery = {
+        actor: fixture.actor,
+        requestId: randomUUID(),
+        adminActionToken: queueResponse.json<SafetyQueueActions>().adminActionToken,
+        threadId: thread.supportThreadId,
+        expectedThreadVersion: version,
+        action,
+      };
+      const access = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/support/actions',
+        headers,
+        payload: actionQuery,
       });
+      expect(access.statusCode).toBe(200);
+      expect(access.headers['cache-control']).toBe('no-store');
+      expect(access.json<PreparedSupportAction>().threadVersion).toBe(version);
+      expect(access.body).not.toContain(thread.supportThreadId);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/v1/admin/support/actions',
+            headers,
+            payload: { ...actionQuery, expectedThreadVersion: version + 1 },
+          })
+        ).statusCode,
+      ).toBe(409);
+      const adminActionToken = access.json<PreparedSupportAction>().adminActionToken;
       const draft = {
         actor: fixture.actor,
         commandType,
@@ -270,6 +299,23 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       targetId: thread.supportThreadId,
       expectedTargetVersion: version,
     });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/support/actions',
+          headers,
+          payload: {
+            actor: fixture.actor,
+            requestId: randomUUID(),
+            adminActionToken: queueResponse.json<SafetyQueueActions>().adminActionToken,
+            threadId: thread.supportThreadId,
+            expectedThreadVersion: version,
+            action: 'reply',
+          },
+        })
+      ).statusCode,
+    ).toBe(409);
     const revokedDraft = {
       actor: fixture.actor,
       commandType: 'support.reply-thread',

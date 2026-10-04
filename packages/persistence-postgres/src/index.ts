@@ -179,3 +179,4 @@ export * from './prepare-report-account-action-store.js';
 export * from './prepare-report-photo-action-store.js';
 export * from './safety-queue-actions-store.js';
 export * from './support-metadata-store.js';
+export * from './prepare-support-action-store.js';

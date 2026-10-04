@@ -387,6 +387,23 @@ export const SupportMetadataPageSchema = Type.Object(
   { additionalProperties: false },
 );
 export type SupportMetadataPage = Static<typeof SupportMetadataPageSchema>;
+export const PrepareSupportActionQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    threadId: UuidSchema,
+    expectedThreadVersion: Type.Integer({ minimum: 1 }),
+    action: Type.Union([Type.Literal('reply'), Type.Literal('close')]),
+  },
+  { additionalProperties: false },
+);
+export type PrepareSupportActionQuery = Static<typeof PrepareSupportActionQuerySchema>;
+export const PreparedSupportActionSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema, threadVersion: Type.Integer({ minimum: 1 }) },
+  { additionalProperties: false },
+);
+export type PreparedSupportAction = Static<typeof PreparedSupportActionSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,
