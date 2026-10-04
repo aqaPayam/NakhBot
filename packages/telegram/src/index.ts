@@ -627,3 +627,5 @@ export class TelegramPhotoManagementAdapter {
 }
 export * from './m7-presentation.js';
 export * from './support-appeal-adapter.js';
+export * from './report-adapter.js';
+export * from './report-selections.js';

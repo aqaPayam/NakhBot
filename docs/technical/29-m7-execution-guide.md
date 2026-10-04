@@ -618,7 +618,15 @@ well as current permissions, so a previously prepared token cannot authorize exe
 identity binding disappears. Historical roles and terminal appeals remain valid retained history.
 
 Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
-and remaining moderation presentation need implementation. The scheduler now executes at most 100
+and remaining moderation presentation need implementation. Telegram reporting now has an explicit
+gateway ingress port after webhook authentication. All five source buttons carry only opaque native
+source tokens; actor identity is resolved server-side. A user-bound first-write-wins selection receipt
+supports stable callback retries and `/report <reference> <reason> [text]` submission. The selection's
+24-hour cache does not extend the native intent grant; the native store owns replay, current source
+authorization, limits and capture. Report prose and raw Report IDs do not enter notices. Registration
+requires the configured shared report handlers and a real delivery port; ordinary startup does not
+enable reporting automatically or claim real Telegram delivery.
+The scheduler now executes at most 100
 metadata rows per moderation batch, continues incomplete runs on subsequent ticks, waits 15 minutes
 after completion, and retries failures after one minute. PostgreSQL owns durable restart recovery,
 batch serialization and finding deduplication. Only fixed phase/outcome and aggregate counts leave

@@ -61,8 +61,10 @@ import {
   createTelegramSupportAppealIngress,
   type TelegramSupportAppealIngressPort,
 } from './support-appeal-ingress.js';
+import type { TelegramReportIngressPort } from './report-ingress.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
+const REPORT_INGRESS = Symbol('REPORT_INGRESS');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
@@ -148,6 +150,7 @@ class TelegramGatewayController {
     @Inject(LIKED_BY_INGRESS) private readonly likedByIngress: TelegramLikedByIngressPort,
     @Inject(SUPPORT_APPEAL_INGRESS)
     private readonly supportAppealIngress: TelegramSupportAppealIngressPort,
+    @Inject(REPORT_INGRESS) private readonly reportIngress: TelegramReportIngressPort,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
     @Inject(M2_METRICS) private readonly m2Metrics: M2Metrics,
     @Inject(M3_METRICS) private readonly m3Metrics: M3Metrics,
@@ -209,6 +212,7 @@ class TelegramGatewayController {
     try {
       if ((await this.supportAppealIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
+      if ((await this.reportIngress.handle(update)) !== 'unhandled') return { accepted: true };
     } catch (error) {
       if (error instanceof ApplicationError)
         throw new HttpException({ code: error.code }, error.status);
@@ -289,7 +293,10 @@ class DatabaseLifecycle implements OnApplicationShutdown {
 
 @Module({})
 export class TelegramGatewayModule {
-  public static register(config: AppConfig): DynamicModule {
+  public static register(
+    config: AppConfig,
+    m7: Readonly<{ reports?: TelegramReportIngressPort }> = {},
+  ): DynamicModule {
     const database = createDatabase(config.database);
     const redis = createRedisConnection(config.redis.url);
     const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
@@ -389,6 +396,10 @@ export class TelegramGatewayModule {
         { provide: PHOTO_MENU_DELIVERY, useValue: photoMenuDelivery },
         { provide: LIKED_BY_INGRESS, useValue: likedByIngress },
         { provide: SUPPORT_APPEAL_INGRESS, useValue: supportAppealIngress },
+        {
+          provide: REPORT_INGRESS,
+          useValue: m7.reports ?? { handle: () => Promise.resolve('unhandled') },
+        },
         {
           provide: START_ADAPTER,
           useValue: TelegramStartAdapter.withStore(identityStore, limiter),
