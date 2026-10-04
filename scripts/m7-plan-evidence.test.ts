@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeM7Plan } from './m7-plan-evidence.js';
+import { summarizeM7Plan, m7PlanPasses } from './m7-plan-evidence.js';
 describe('M7 plan evidence privacy', () => {
+  it('accepts either authoritative appeal queue index and rejects unindexed or slow plans', () => {
+    const permitted = ['user_appeals_queue_idx', 'user_appeals_status_submitted_idx'];
+    for (const index of permitted)
+      expect(m7PlanPasses({ executionMs: 1, actualRows: 51, indexNames: [index] }, permitted)).toBe(
+        true,
+      );
+    expect(m7PlanPasses({ executionMs: 1, actualRows: 51, indexNames: [] }, permitted)).toBe(false);
+    expect(
+      m7PlanPasses({ executionMs: 1501, actualRows: 51, indexNames: permitted }, permitted),
+    ).toBe(false);
+  });
   it('drops predicates, SQL, private identifiers, prose and unknown fields recursively', () => {
     const result = summarizeM7Plan([
       {

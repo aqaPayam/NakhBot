@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createDatabase, runMigrations, measureM7SyntheticPlans } from '@nakh/persistence-postgres';
-import { summarizeM7Plan, type M7PlanSummary } from './m7-plan-evidence.js';
+import { summarizeM7Plan, m7PlanPasses, type M7PlanSummary } from './m7-plan-evidence.js';
 const url = process.env.NAKH_TEST_DATABASE_URL;
 if (url === undefined) throw new Error('NAKH_TEST_DATABASE_URL is required for M7 plan evidence.');
 const volume = Number(process.env.NAKH_M7_PLAN_VOLUME ?? '20000');
@@ -20,22 +20,22 @@ try {
   summaries = Object.fromEntries(
     Object.entries(plans).map(([name, plan]) => [name, summarizeM7Plan(plan)]),
   );
-  const requiredIndexes: Readonly<Record<string, string | undefined>> = {
-    supportQueue: 'support_threads_status_created_idx',
-    appealQueue: 'user_appeals_status_submitted_idx',
+  const requiredIndexes: Readonly<Record<string, readonly string[] | undefined>> = {
+    supportQueue: ['support_threads_status_created_idx'],
+    appealQueue: ['user_appeals_queue_idx', 'user_appeals_status_submitted_idx'],
     supportUnanswered: undefined,
-    reportAdmission: 'reports_reporter_window_idx',
-    reportThreshold: 'reports_target_threshold_idx',
-    pendingAge: 'reports_pending_age_idx',
-    inReviewAge: 'moderation_reviews_in_review_age_idx',
-    completedScan: 'reconciliation_runs_moderation_completed_idx',
+    reportAdmission: ['reports_reporter_window_idx'],
+    reportThreshold: ['reports_target_threshold_idx'],
+    pendingAge: ['reports_pending_age_idx'],
+    inReviewAge: ['moderation_reviews_in_review_age_idx'],
+    completedScan: ['reconciliation_runs_moderation_completed_idx'],
   };
   await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
   await writeFile(
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         fixtureRowsPerTable: volume,
         fixtureTables: 6,
         maximumExecutionMs: 1500,
@@ -48,11 +48,7 @@ try {
   );
   for (const [name, index] of Object.entries(requiredIndexes)) {
     const plan = summaries?.[name];
-    if (
-      plan === undefined ||
-      plan.executionMs > 1500 ||
-      (index !== undefined && !plan.indexNames.includes(index))
-    )
+    if (!m7PlanPasses(plan, index))
       throw new Error(`M7 query-plan budget or index failed: ${name}.`);
   }
   process.stdout.write(

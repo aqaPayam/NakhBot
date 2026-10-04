@@ -3,6 +3,16 @@ export type M7PlanSummary = Readonly<{
   actualRows: number;
   indexNames: readonly string[];
 }>;
+export function m7PlanPasses(
+  plan: M7PlanSummary | undefined,
+  indexes: readonly string[] | undefined,
+): boolean {
+  return (
+    plan !== undefined &&
+    plan.executionMs <= 1500 &&
+    (indexes === undefined || indexes.some((index) => plan.indexNames.includes(index)))
+  );
+}
 function object(value: unknown): Readonly<Record<string, unknown>> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
