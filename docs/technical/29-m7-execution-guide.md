@@ -679,6 +679,15 @@ remaining content. Already-sent messages and committed access audits are not und
 pending UI state without replacing the native permission/audit boundary; a fresh read needs a new
 explicit confirmation reference. Synthetic tests cover withdrawal, expiry and delivery races.
 
+Pending support/appeal reads now have a concrete localized confirmation menu presenter and a
+protected Bot API inline-keyboard sender. In the selected-target UI context, the menu presents the
+operator's own normalized reason and Confirm/Cancel buttons containing only the opaque vault
+reference. It fetches no support/appeal text and executes no native read. Session/MFA and the exact
+pending command are checked again before delivery. Both buttons must reference the same pending
+read; the sender disallows arbitrary callback actions. Synthetic wire tests cover both read kinds,
+revocation, withdrawal/cache loss and callback substitution. Target selection and native draft
+preparation still need gateway composition; real Telegram menu/session acceptance remains pending.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome

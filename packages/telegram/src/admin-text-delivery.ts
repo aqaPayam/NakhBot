@@ -1,6 +1,10 @@
 import { ApplicationError } from '@nakh/domain';
 import type { TelegramAdminEvidenceDelivery } from './admin-evidence-adapter.js';
 import { m7Record } from './m7-private-update.js';
+import type {
+  TelegramAdminReadConfirmationMenu,
+  TelegramAdminReadMenuDelivery,
+} from './admin-read-confirmation-menu.js';
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 function unavailable(): ApplicationError {
@@ -42,7 +46,9 @@ async function requireAcknowledgement(response: Response): Promise<void> {
 }
 /** One protected plain-text send to the fixed Bot API. No persistence, tracing, or retry.
  * A failed/ambiguous send requires a new confirmed audited read, never a replayed read. */
-export class TelegramAdminTextDelivery implements Pick<TelegramAdminEvidenceDelivery, 'text'> {
+export class TelegramAdminTextDelivery
+  implements Pick<TelegramAdminEvidenceDelivery, 'text'>, TelegramAdminReadMenuDelivery
+{
   public constructor(
     private readonly botToken: string,
     private readonly fetcher: FetchLike = (...args) => fetch(...args),
@@ -51,6 +57,32 @@ export class TelegramAdminTextDelivery implements Pick<TelegramAdminEvidenceDeli
       throw new Error('Telegram admin delivery configuration invalid.');
   }
   public async text(input: Parameters<TelegramAdminEvidenceDelivery['text']>[0]): Promise<void> {
+    await this.send(input);
+  }
+  public async menu(input: TelegramAdminReadConfirmationMenu): Promise<void> {
+    const rows = input.replyMarkup.inline_keyboard;
+    const buttons = rows[0];
+    if (
+      rows.length !== 1 ||
+      buttons.length !== 2 ||
+      buttons.some((button) => button.text.trim() === '' || [...button.text].length > 64) ||
+      !/^m7s:[A-Za-z0-9_-]{22}$/u.test(buttons[0].callback_data) ||
+      buttons[1].callback_data !== buttons[0].callback_data.replace('m7s:', 'm7c:')
+    )
+      throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+    await this.send(input, {
+      inline_keyboard: [
+        [
+          { text: buttons[0].text, callback_data: buttons[0].callback_data },
+          { text: buttons[1].text, callback_data: buttons[1].callback_data },
+        ],
+      ],
+    });
+  }
+  private async send(
+    input: Parameters<TelegramAdminEvidenceDelivery['text']>[0],
+    replyMarkup?: TelegramAdminReadConfirmationMenu['replyMarkup'],
+  ): Promise<void> {
     if (
       !/^[1-9][0-9]{0,19}$/u.test(input.recipient) ||
       input.text.length < 1 ||
@@ -70,6 +102,7 @@ export class TelegramAdminTextDelivery implements Pick<TelegramAdminEvidenceDeli
             text: input.text,
             link_preview_options: { is_disabled: true },
             protect_content: true,
+            ...(replyMarkup === undefined ? {} : { reply_markup: replyMarkup }),
           }),
           signal: AbortSignal.timeout(15000),
         },
