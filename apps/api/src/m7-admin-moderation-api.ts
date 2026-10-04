@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  ConfirmedSupportCommands,
+  StoredSupportResult,
   ClaimModerationReviewsHandler,
   ClaimedModerationReview,
   ConfirmedAccountActions,
@@ -28,6 +30,14 @@ import type {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
+  PrepareSupportReplyCommandSchema,
+  PrepareSupportCloseCommandSchema,
+  ReplySupportThreadCommandSchema,
+  CloseSupportThreadCommandSchema,
+  type PrepareSupportReplyCommand,
+  type PrepareSupportCloseCommand,
+  type ReplySupportThreadCommand,
+  type CloseSupportThreadCommand,
   ClaimModerationReviewsCommandSchema,
   AdminReviewClaimResultSchema,
   type ClaimModerationReviewsCommand,
@@ -70,7 +80,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   BLOCKS = Symbol('M7_MODERATION_BLOCKS'),
   ASSIGNMENTS = Symbol('M7_REVIEW_ASSIGNMENTS'),
   DECISIONS = Symbol('M7_REVIEW_DECISIONS'),
-  CLAIMS = Symbol('M7_REVIEW_CLAIMS');
+  CLAIMS = Symbol('M7_REVIEW_CLAIMS'),
+  SUPPORT = Symbol('M7_ADMIN_SUPPORT');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -80,6 +91,7 @@ export interface M7AdminModerationApiOptions {
   readonly reviewAssignments?: Pick<ConfirmedReviewAssignments, 'prepare' | 'execute'>;
   readonly reviewDecisions?: Pick<ConfirmedReviewDecisions, 'prepare' | 'execute'>;
   readonly reviewClaims?: Pick<ClaimModerationReviewsHandler, 'execute'>;
+  readonly supportCommands?: Pick<ConfirmedSupportCommands, 'prepare' | 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -440,6 +452,67 @@ class ReviewClaimController {
     });
   }
 }
+function supportAction(value: string): 'reply' | 'close' {
+  if (value === 'reply' || value === 'close') return value;
+  throw new ApplicationError('not_found', 'error.m7.unavailable', 404);
+}
+@Controller('v1/admin/support')
+class SupportAdminController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(INGRESS) private readonly ingress: AuditedAdminMutationIngress,
+    @Inject(SUPPORT)
+    private readonly support: NonNullable<M7AdminModerationApiOptions['supportCommands']>,
+  ) {}
+  @Post(':action/prepare')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Param('action') selected: string,
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAdminConfirmation> {
+    const action = supportAction(selected),
+      actor = await this.boundary.actor(request, 'admin');
+    const command = this.boundary.parse<PrepareSupportReplyCommand | PrepareSupportCloseCommand>(
+      action === 'reply' ? PrepareSupportReplyCommandSchema : PrepareSupportCloseCommandSchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAdminConfirmationSchema, async () => ({
+      confirmationToken: await this.support.prepare(command, actor),
+    }));
+  }
+  @Post(':action')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async execute(
+    @Param('action') selected: string,
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminCommandReceipt> {
+    return this.boundary.result(AdminCommandReceiptSchema, async () => {
+      const action = supportAction(selected);
+      return adminCommandReceipt(
+        await this.ingress.execute<
+          ReplySupportThreadCommand | CloseSupportThreadCommand,
+          StoredSupportResult
+        >(
+          action === 'reply' ? ReplySupportThreadCommandSchema : CloseSupportThreadCommandSchema,
+          request,
+          body,
+          {
+            commandCode: action === 'reply' ? 'support.reply-thread' : 'support.close-thread',
+            requiredPermission: 'review_support',
+          },
+          (command, actor) => this.support.execute(command, actor),
+        ),
+      );
+    });
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -448,6 +521,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.supportCommands === undefined ? [] : [SupportAdminController]),
         ...(options.reviewClaims === undefined ? [] : [ReviewClaimController]),
         ...(options.accounts === undefined ? [] : [AccountActionsController]),
         ...(options.photos === undefined ? [] : [PhotoActionsController]),
@@ -456,6 +530,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.supportCommands === undefined
+          ? []
+          : [{ provide: SUPPORT, useValue: options.supportCommands }]),
         ...(options.reviewClaims === undefined
           ? []
           : [{ provide: CLAIMS, useValue: options.reviewClaims }]),

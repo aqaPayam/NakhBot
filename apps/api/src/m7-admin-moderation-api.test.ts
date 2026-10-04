@@ -11,6 +11,7 @@ import type {
   ConfirmedReviewAssignments,
   ConfirmedReviewDecisions,
   ClaimModerationReviewsHandler,
+  ConfirmedSupportCommands,
   AdminIngressRejectionStore,
 } from '@nakh/application';
 import type { AdminCommandReceipt } from '@nakh/contracts';
@@ -100,6 +101,68 @@ describe('authenticated route-bound account moderation HTTP', () => {
     await app.getHttpAdapter().getInstance().ready();
     return { server: app, execute, record };
   }
+  it('binds support reply and close to their schemas, journals substitutions, and discards private workflow values', async () => {
+    const executeSupport = vi.fn<ConfirmedSupportCommands['execute']>(() =>
+      Promise.resolve({
+        logId: randomUUID(),
+        result: 'succeeded',
+        safeCode: 'support_replied',
+        recordedAt: new Date(),
+        replayed: false,
+        value: {
+          supportThreadId: randomUUID(),
+          status: 'open',
+          unansweredUserMessages: 0,
+          version: 2,
+          changedAt: new Date(),
+          replayed: false,
+        },
+      }),
+    );
+    const prepare = vi.fn<ConfirmedSupportCommands['prepare']>(() =>
+      Promise.resolve(confirmationToken),
+    );
+    const { server, record } = await start({
+      supportCommands: { prepare, execute: executeSupport },
+    });
+    const reply = {
+      ...draft,
+      commandType: 'support.reply-thread',
+      data: {
+        adminActionToken: token,
+        expectedTargetVersion: 1,
+        reason: 'Support review',
+        text: 'Private admin reply',
+      },
+    };
+    const prepared = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/support/reply/prepare',
+      headers,
+      payload: reply,
+    });
+    expect(prepared.statusCode).toBe(200);
+    expect(prepare).toHaveBeenCalledWith(reply, actor);
+    const confirmed = { ...reply, data: { ...reply.data, confirmationToken } };
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/support/reply',
+      headers,
+      payload: confirmed,
+    });
+    expect(response.json()).toMatchObject({ result: 'succeeded', safeCode: 'completed' });
+    expect(response.json()).not.toHaveProperty('value');
+    expect(response.body).not.toContain(reply.data.text);
+    const wrong = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/support/close',
+      headers,
+      payload: { ...confirmed, commandId: randomUUID() },
+    });
+    expect(wrong.json()).toMatchObject({ result: 'rejected', safeCode: 'invalid_request' });
+    expect(executeSupport).toHaveBeenCalledOnce();
+    expect(record).toHaveBeenCalledOnce();
+  });
   it('returns only fresh bounded claims, omits replay contents, and rejects an oversized batch before delegation', async () => {
     const claims = [
       {

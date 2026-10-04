@@ -463,6 +463,12 @@ export const ReplySupportThreadCommandSchema = mutationSchema(
   ),
 );
 export type ReplySupportThreadCommand = Static<typeof ReplySupportThreadCommandSchema>;
+export const PrepareSupportReplyCommandSchema = mutationSchema(
+  'support.reply-thread',
+  AdminActorSchema,
+  Type.Omit(ReplySupportThreadCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareSupportReplyCommand = Static<typeof PrepareSupportReplyCommandSchema>;
 
 export const CloseSupportThreadCommandSchema = mutationSchema(
   'support.close-thread',
@@ -470,6 +476,12 @@ export const CloseSupportThreadCommandSchema = mutationSchema(
   Type.Object(AdminMutationFields, { additionalProperties: false }),
 );
 export type CloseSupportThreadCommand = Static<typeof CloseSupportThreadCommandSchema>;
+export const PrepareSupportCloseCommandSchema = mutationSchema(
+  'support.close-thread',
+  AdminActorSchema,
+  Type.Omit(CloseSupportThreadCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareSupportCloseCommand = Static<typeof PrepareSupportCloseCommandSchema>;
 
 export const SubmitAppealCommandSchema = mutationSchema(
   'moderation.submit-appeal',
