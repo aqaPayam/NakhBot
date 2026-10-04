@@ -26,6 +26,8 @@ import type {
   PrepareReviewActionHandler,
   PrepareSelectedReportReviewHandler,
   PrepareSelectedReportAccountActionHandler,
+  PrepareSelectedReportPhotoActionHandler,
+  GetSelectedReportEvidenceMetadataHandler,
   ConfirmedAppealCommands,
   ConfirmedSupportCommands,
   StoredSupportResult,
@@ -100,6 +102,12 @@ import {
   PrepareSelectedReportReviewQuerySchema,
   PrepareSelectedReportAccountActionQuerySchema,
   type PrepareSelectedReportAccountActionQuery,
+  PrepareSelectedReportPhotoActionQuerySchema,
+  type PrepareSelectedReportPhotoActionQuery,
+  GetSelectedReportEvidenceMetadataQuerySchema,
+  type GetSelectedReportEvidenceMetadataQuery,
+  ReportEvidenceMetadataSchema,
+  type ReportEvidenceMetadata,
   PreparedSelectedReportReviewSchema,
   type PrepareSelectedReportReviewQuery,
   type PreparedSelectedReportReview,
@@ -169,6 +177,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   REVIEW_ACTIONS = Symbol('M7_REVIEW_ACTIONS'),
   SELECTED_REPORT_REVIEW = Symbol('M7_SELECTED_REPORT_REVIEW'),
   SELECTED_REPORT_ACCOUNT = Symbol('M7_SELECTED_REPORT_ACCOUNT'),
+  SELECTED_REPORT_PHOTO = Symbol('M7_SELECTED_REPORT_PHOTO'),
+  SELECTED_REPORT_EVIDENCE = Symbol('M7_SELECTED_REPORT_EVIDENCE'),
   REPORT_ACCOUNT_ACTIONS = Symbol('M7_REPORT_ACCOUNT_ACTIONS'),
   REPORT_PHOTO_ACTIONS = Symbol('M7_REPORT_PHOTO_ACTIONS'),
   SAFETY_QUEUE_ACTIONS = Symbol('M7_SAFETY_QUEUE_ACTIONS'),
@@ -193,6 +203,8 @@ export interface M7AdminModerationApiOptions {
   readonly appealReviews?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
   readonly appealUnbans?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
   readonly reviewActions?: Pick<PrepareReviewActionHandler, 'execute'>;
+  readonly selectedReportPhoto?: Pick<PrepareSelectedReportPhotoActionHandler, 'execute'>;
+  readonly selectedReportEvidence?: Pick<GetSelectedReportEvidenceMetadataHandler, 'execute'>;
   readonly selectedReportAccount?: Pick<PrepareSelectedReportAccountActionHandler, 'execute'>;
   readonly selectedReportReview?: Pick<PrepareSelectedReportReviewHandler, 'execute'>;
   readonly reportAccountActions?: Pick<PrepareReportAccountActionHandler, 'execute'>;
@@ -812,6 +824,58 @@ class SelectedReportAccountController {
     );
   }
 }
+@Controller('v1/admin/moderation/reports')
+class SelectedReportPhotoController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(SELECTED_REPORT_PHOTO)
+    private readonly actions: NonNullable<M7AdminModerationApiOptions['selectedReportPhoto']>,
+  ) {}
+  @Post('photo-selection')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedReportPhotoAction> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<PrepareSelectedReportPhotoActionQuery>(
+      PrepareSelectedReportPhotoActionQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedReportPhotoActionSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
+@Controller('v1/admin/moderation/reports')
+class SelectedReportEvidenceController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(SELECTED_REPORT_EVIDENCE)
+    private readonly metadata: NonNullable<M7AdminModerationApiOptions['selectedReportEvidence']>,
+  ) {}
+  @Post('evidence-selection')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async list(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<ReportEvidenceMetadata> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<GetSelectedReportEvidenceMetadataQuery>(
+      GetSelectedReportEvidenceMetadataQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(ReportEvidenceMetadataSchema, () =>
+      this.metadata.execute(query, actor),
+    );
+  }
+}
 @Controller('v1/admin/moderation/reports/account-actions')
 class ReportAccountActionsController {
   public constructor(
@@ -1182,6 +1246,8 @@ export class M7AdminModerationApiModule {
         ...(options.reviewActions === undefined ? [] : [ReviewActionsController]),
         ...(options.selectedReportReview === undefined ? [] : [SelectedReportReviewController]),
         ...(options.selectedReportAccount === undefined ? [] : [SelectedReportAccountController]),
+        ...(options.selectedReportPhoto === undefined ? [] : [SelectedReportPhotoController]),
+        ...(options.selectedReportEvidence === undefined ? [] : [SelectedReportEvidenceController]),
         ...(options.appealUnbans === undefined ? [] : [AppealUnbanController]),
         ...(options.appealReviews === undefined ? [] : [AppealReviewController]),
         ...(options.supportCommands === undefined ? [] : [SupportAdminController]),
@@ -1193,6 +1259,12 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.selectedReportPhoto === undefined
+          ? []
+          : [{ provide: SELECTED_REPORT_PHOTO, useValue: options.selectedReportPhoto }]),
+        ...(options.selectedReportEvidence === undefined
+          ? []
+          : [{ provide: SELECTED_REPORT_EVIDENCE, useValue: options.selectedReportEvidence }]),
         ...(options.selectedReportAccount === undefined
           ? []
           : [{ provide: SELECTED_REPORT_ACCOUNT, useValue: options.selectedReportAccount }]),

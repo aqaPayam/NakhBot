@@ -24,6 +24,9 @@ import {
   PrepareSelectedReportReviewQuerySchema,
   PrepareSelectedReportAccountActionQuerySchema,
   PreparedReportAccountActionSchema,
+  PrepareSelectedReportPhotoActionQuerySchema,
+  PreparedReportPhotoActionSchema,
+  GetSelectedReportEvidenceMetadataQuerySchema,
   PreparedSelectedReportReviewSchema,
   ReportEvidenceMetadataSchema,
   ReportSubmissionResultSchema,
@@ -541,6 +544,46 @@ describe('selected report Account preparation privacy contract', () => {
       output = validator(PreparedReportAccountActionSchema);
     expect(output(result)).toBe(true);
     for (const key of ['reviewId', 'reportId', 'targetUserId', 'telegramUserId', 'text'])
+      expect(output({ ...result, [key]: id })).toBe(false);
+  });
+});
+
+describe('selected Report photo/evidence contracts', () => {
+  it('permits only Report/evidence selection and rejects photo identities, client authority and prose', () => {
+    const id = '20000000-0000-4000-8000-000000000000',
+      token = `v1.ad.${'a'.repeat(16)}.${'b'.repeat(16)}`;
+    const base = {
+      actor: { kind: 'admin', userId: id },
+      requestId: id,
+      adminActionToken: token,
+      reportId: id,
+      expectedReportVersion: 2,
+    };
+    const metadata = validator(GetSelectedReportEvidenceMetadataQuerySchema),
+      photo = validator(PrepareSelectedReportPhotoActionQuerySchema);
+    expect(metadata(base)).toBe(true);
+    const query = { ...base, evidenceId: id, action: 'hide_photo' };
+    for (const action of ['hide_photo', 'restore_photo', 'delete_photo'])
+      expect(photo({ ...query, action })).toBe(true);
+    for (const key of [
+      'photoId',
+      'expectedPhotoVersion',
+      'reviewId',
+      'expectedReviewVersion',
+      'targetUserId',
+      'reason',
+      'text',
+    ]) {
+      expect(photo({ ...query, [key]: id })).toBe(false);
+      expect(metadata({ ...base, [key]: id })).toBe(false);
+    }
+    expect(metadata({ ...base, evidenceId: id })).toBe(false);
+    expect(photo({ ...query, action: 'ban_user' })).toBe(false);
+    expect(photo({ ...query, expectedReportVersion: 0 })).toBe(false);
+    const output = validator(PreparedReportPhotoActionSchema),
+      result = { adminActionToken: token, photoVersion: 1 };
+    expect(output(result)).toBe(true);
+    for (const key of ['photoId', 'assetId', 'objectKey', 'url', 'evidenceId', 'targetUserId'])
       expect(output({ ...result, [key]: id })).toBe(false);
   });
 });

@@ -191,3 +191,5 @@ export * from './moderation-reconciliation-store.js';
 export * from './moderation-operational-metrics-store.js';
 export * from './m7-query-plans.js';
 export * from './prepare-selected-report-account-action-store.js';
+export * from './prepare-selected-report-photo-action-store.js';
+export * from './selected-report-evidence-metadata-store.js';

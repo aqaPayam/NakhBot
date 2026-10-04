@@ -167,3 +167,5 @@ export * from './support/confirmed-support-reveal.js';
 export * from './support/confirmed-appeal-reveal.js';
 export * from './moderation/reconciliation.js';
 export * from './moderation/prepare-selected-report-account-action.js';
+export * from './moderation/prepare-selected-report-photo-action.js';
+export * from './moderation/selected-report-evidence-metadata.js';

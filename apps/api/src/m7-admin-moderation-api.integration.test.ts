@@ -17,6 +17,8 @@ import {
   PostgresPrepareReviewActionHandler,
   PostgresPrepareReportAccountActionHandler,
   PostgresPrepareSelectedReportAccountActionHandler,
+  PostgresPrepareSelectedReportPhotoActionHandler,
+  PostgresGetSelectedReportEvidenceMetadataHandler,
   PostgresPrepareReportPhotoActionHandler,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
@@ -383,6 +385,16 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
             return Promise.resolve();
           },
         }),
+        selectedReportPhoto: new PostgresPrepareSelectedReportPhotoActionHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
+        selectedReportEvidence: new PostgresGetSelectedReportEvidenceMetadataHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
         reportPhotoActions: new PostgresPrepareReportPhotoActionHandler(
           database,
           fixture.tokens,
@@ -403,6 +415,27 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
       targetId: null,
       expectedTargetVersion: null,
     });
+    const selectedReport = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: queueToken,
+      reportId: retained.reportId,
+      expectedReportVersion: 2,
+    };
+    const metadata = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reports/evidence-selection',
+      headers,
+      payload: selectedReport,
+    });
+    expect(metadata.statusCode).toBe(200);
+    expect(metadata.headers['cache-control']).toBe('no-store');
+    expect(metadata.json()).toMatchObject({
+      reportId: retained.reportId,
+      items: [{ evidenceId: retained.evidenceId, evidenceType: 'photo', snapshotSchemaVersion: 1 }],
+    });
+    for (const secret of [retained.photoId, retained.target, retained.reporter])
+      expect(metadata.body).not.toContain(secret);
     let version = 1;
     for (const action of ['hide_photo', 'restore_photo', 'delete_photo'] as const) {
       const photoQuery = {
@@ -444,6 +477,16 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           })
         ).statusCode,
       ).toBe(409);
+      const selectedPhoto = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/moderation/reports/photo-selection',
+        headers,
+        payload: { ...selectedReport, evidenceId: retained.evidenceId, action },
+      });
+      expect(selectedPhoto.statusCode).toBe(200);
+      expect(selectedPhoto.headers['cache-control']).toBe('no-store');
+      expect(selectedPhoto.json<PreparedReportPhotoAction>().photoVersion).toBe(version);
+      expect(selectedPhoto.body).not.toContain(retained.photoId);
       const draft: PreparePhotoModerationActionCommand = {
         actor: fixture.actor,
         commandId: randomUUID(),
@@ -457,7 +500,7 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           action,
           expectedTargetVersion: version,
           reason: 'Synthetic retained photo review',
-          adminActionToken: photoAccess.json<PreparedReportPhotoAction>().adminActionToken,
+          adminActionToken: selectedPhoto.json<PreparedReportPhotoAction>().adminActionToken,
         },
       };
       const prepared = await app.inject({

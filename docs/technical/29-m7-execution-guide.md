@@ -924,3 +924,25 @@ evidence covers all four actions, cancellation, revocation, reassignment, stale 
 closed review, with concurrent preparations/confirmations and no identity disclosure.
 Concrete session/MFA composition, report photo/internal-block/evidence UI and real operator/provider
 staging acceptance remain open.
+
+### Queue-selected report evidence and photo preparation evidence
+
+Strict selected-Report contracts now list bounded evidence metadata and prepare hide/restore/delete
+photo actions using a metadata-root token and expected Report version. Metadata grants no content
+reveal; photo preparation resolves the governing review/version and delegates evidence-to-photo
+ownership and current permission checks to the native port. It accepts no client photo identity
+or photo version. Photo preparation rechecks Report/review stability; metadata rechecks Report version/status and
+remains available for submitted and terminal reports without requiring an assigned review.
+Authenticated no-store `POST /v1/admin/moderation/reports/evidence-selection` and `photo-selection`
+routes compose these ports in production and are absent without their trusted capabilities.
+Photo preparation returns only the opaque action token and native photo version. No mutation or
+evidence-access/attempted-command audit occurs before a separately confirmed native command.
+Unit evidence covers actor/root/selection substitution, strict ingress/result contracts, changes
+during preparation and cross-report metadata. PostgreSQL evidence starts with native metadata and
+confirmed review assignment, denies borrowed evidence and proves one hide/restore/delete effect and
+audit under retries, while preserving the evidence hold, encrypted snapshot and retained media.
+Rejected confirmations are audited under separate command identities; revocation, reassignment
+and terminal reviews after preparation produce no photo effect. HTTP integration retains legacy
+route coverage and executes actual selected-Report photo actions with independent confirmation.
+Photo/evidence Telegram controls, concrete session/MFA composition and provider/operator staging
+acceptance remain open. No new persistence shape or migration is required.

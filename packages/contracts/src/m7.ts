@@ -362,6 +362,34 @@ export const PreparedReportAccountActionSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedReportAccountAction = Static<typeof PreparedReportAccountActionSchema>;
+export const PrepareSelectedReportPhotoActionQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    reportId: UuidSchema,
+    expectedReportVersion: Type.Integer({ minimum: 1 }),
+    evidenceId: UuidSchema,
+    action: PhotoModerationActionSchema,
+  },
+  { additionalProperties: false },
+);
+export type PrepareSelectedReportPhotoActionQuery = Static<
+  typeof PrepareSelectedReportPhotoActionQuerySchema
+>;
+export const GetSelectedReportEvidenceMetadataQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    reportId: UuidSchema,
+    expectedReportVersion: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type GetSelectedReportEvidenceMetadataQuery = Static<
+  typeof GetSelectedReportEvidenceMetadataQuerySchema
+>;
 export const PrepareReportPhotoActionQuerySchema = Type.Object(
   {
     actor: AdminActorSchema,
