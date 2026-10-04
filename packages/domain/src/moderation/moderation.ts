@@ -390,3 +390,23 @@ export function canSubmitAppeal(
     !input.existingAppeal
   );
 }
+
+/** Current-state eligibility; restoration still resolves and validates immutable state history. */
+export function canApplyAccountModerationAction(
+  state: AccountState,
+  action: Extract<
+    ModerationActionType,
+    'restrict_user' | 'unrestrict_user' | 'ban_user' | 'unban_user'
+  >,
+): boolean {
+  switch (action) {
+    case 'restrict_user':
+      return ['guest', 'incomplete', 'active'].includes(state);
+    case 'ban_user':
+      return ['guest', 'incomplete', 'active', 'restricted'].includes(state);
+    case 'unrestrict_user':
+      return state === 'restricted';
+    case 'unban_user':
+      return state === 'banned';
+  }
+}

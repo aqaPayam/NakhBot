@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import type { OpaqueTokenStore } from '@nakh/application';
 import { ApplicationError, type Actor } from '@nakh/domain';
+import type { TelegramReportAccountAction } from './admin-report-account-actions.js';
 import { m7Record } from './m7-private-update.js';
 
 export type TelegramReportQueueChoice = Readonly<{
@@ -17,7 +18,7 @@ export type TelegramReportQueuePage = Readonly<{
 }>;
 type Prompt = Readonly<{
   reference: string;
-  action: 'assign' | 'dismissed' | 'actioned';
+  action: 'assign' | 'dismissed' | 'actioned' | TelegramReportAccountAction;
 }>;
 type State = TelegramReportQueueChoice | TelegramReportQueuePage | Prompt;
 type Purpose = 'choice' | 'page' | 'prompt';
@@ -35,7 +36,15 @@ function valid(value: unknown, purpose: Purpose): value is State {
   if (purpose === 'prompt')
     return (
       Object.keys(row).length === 2 &&
-      ['assign', 'dismissed', 'actioned'].includes(String(row.action)) &&
+      [
+        'assign',
+        'dismissed',
+        'actioned',
+        'restrict_user',
+        'unrestrict_user',
+        'ban_user',
+        'unban_user',
+      ].includes(String(row.action)) &&
       typeof row.reference === 'string' &&
       referencePattern.test(row.reference)
     );

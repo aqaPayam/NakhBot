@@ -4,6 +4,7 @@ import type {
   ConfirmedAppealCommands,
   ConfirmedReviewAssignments,
   ConfirmedReviewDecisions,
+  ConfirmedAccountActions,
   OpaqueTokenStore,
 } from '@nakh/application';
 import {
@@ -39,8 +40,17 @@ export type TelegramConfirmedReportDecision = Readonly<{
   binding: string;
   command: Parameters<ConfirmedReviewDecisions['execute']>[0];
 }>;
+export type TelegramConfirmedReportAccountAction = Readonly<{
+  binding: string;
+  command: Parameters<ConfirmedAccountActions['execute']>[0];
+}>;
 type Purpose =
-  'support' | 'appeal-review' | 'appeal-unban' | 'report-assignment' | 'report-decision';
+  | 'support'
+  | 'appeal-review'
+  | 'appeal-unban'
+  | 'report-assignment'
+  | 'report-decision'
+  | 'report-account';
 type Selection<P extends Purpose> = P extends 'support'
   ? TelegramConfirmedSupportMutation
   : P extends 'appeal-review'
@@ -49,13 +59,16 @@ type Selection<P extends Purpose> = P extends 'support'
       ? TelegramConfirmedAppealUnban
       : P extends 'report-assignment'
         ? TelegramConfirmedReportAssignment
-        : TelegramConfirmedReportDecision;
+        : P extends 'report-decision'
+          ? TelegramConfirmedReportDecision
+          : TelegramConfirmedReportAccountAction;
 type Mutation =
   | TelegramConfirmedSupportMutation
   | TelegramConfirmedAppealReview
   | TelegramConfirmedAppealUnban
   | TelegramConfirmedReportAssignment
-  | TelegramConfirmedReportDecision;
+  | TelegramConfirmedReportDecision
+  | TelegramConfirmedReportAccountAction;
 import { m7Record } from './m7-private-update.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -104,9 +117,11 @@ function binding(selected: Mutation, includeConfirmation: boolean): string {
         ? [command.data.decision, normalizeReviewNote(command.data.note)]
         : command.commandType === 'moderation.unban-appeal'
           ? command.data.expectedAccountVersion
-          : command.commandType === 'moderation.assign-review'
-            ? command.data.assigneeAdminId
-            : undefined,
+          : command.commandType === 'moderation.apply-account-action'
+            ? command.data.action
+            : command.commandType === 'moderation.assign-review'
+              ? command.data.assigneeAdminId
+              : undefined,
   ]);
 }
 function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is Mutation {
@@ -143,7 +158,9 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
             ? ['moderation.unban-appeal']
             : purpose === 'report-assignment'
               ? ['moderation.assign-review']
-              : ['moderation.decide-review']
+              : purpose === 'report-decision'
+                ? ['moderation.decide-review']
+                : ['moderation.apply-account-action']
     ).includes(String(command.commandType)) ||
     command.schemaVersion !== 1 ||
     !keys(owner, ['kind', 'userId']) ||
@@ -189,7 +206,15 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
                   'expectedTargetVersion',
                   'assigneeAdminId',
                 ]
-              : ['adminActionToken', 'confirmationToken', 'reason', 'expectedTargetVersion'],
+              : command.commandType === 'moderation.apply-account-action'
+                ? [
+                    'adminActionToken',
+                    'confirmationToken',
+                    'reason',
+                    'expectedTargetVersion',
+                    'action',
+                  ]
+                : ['adminActionToken', 'confirmationToken', 'reason', 'expectedTargetVersion'],
     ) ||
     !string(data.adminActionToken, 1, 64) ||
     !/^v1\.ad\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u.test(data.adminActionToken) ||
@@ -203,6 +228,11 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
     return false;
   try {
     if (normalizeAdminReason(data.reason) !== data.reason) return false;
+    if (
+      command.commandType === 'moderation.apply-account-action' &&
+      !['restrict_user', 'unrestrict_user', 'ban_user', 'unban_user'].includes(String(data.action))
+    )
+      return false;
     if (
       command.commandType === 'moderation.assign-review' &&
       (typeof data.assigneeAdminId !== 'string' || !UUID.test(data.assigneeAdminId))
@@ -269,6 +299,7 @@ export class TelegramAdminSafetyMutationVault<P extends Purpose> {
         'appeal-unban',
         'report-assignment',
         'report-decision',
+        'report-account',
       ].includes(purpose) ||
       encryptionKey.byteLength !== 32 ||
       referenceKey.byteLength < 32 ||

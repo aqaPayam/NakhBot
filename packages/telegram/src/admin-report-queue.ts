@@ -10,6 +10,16 @@ import {
 } from './admin-report-queue-state.js';
 import type { TelegramAdminReportAssignments } from './admin-report-assignments.js';
 import type { TelegramAdminReportDecisions } from './admin-report-decisions.js';
+import {
+  isTelegramReportAccountAction,
+  type TelegramAdminReportAccountActions,
+} from './admin-report-account-actions.js';
+const ACCOUNT_CHOICES = [
+  ['R', 'restrict_user'],
+  ['E', 'unrestrict_user'],
+  ['B', 'ban_user'],
+  ['U', 'unban_user'],
+] as const;
 import type { TelegramAdminTextDelivery } from './admin-text-delivery.js';
 import { requireTelegramAdminSession, type TelegramAdminSessionVerifier } from './admin-session.js';
 import { m7Record, requirePrivateM7Actor } from './m7-private-update.js';
@@ -35,6 +45,10 @@ export class TelegramAdminReportQueue {
       TelegramAdminReportDecisions,
       'prepare' | 'check' | 'available'
     >,
+    private readonly accounts?: Pick<
+      TelegramAdminReportAccountActions,
+      'prepare' | 'check' | 'available'
+    >,
   ) {
     if (!/^[1-9][0-9]{0,19}$/u.test(botId) || !Number.isSafeInteger(Number(botId)))
       throw new Error('Report queue bot identity invalid.');
@@ -45,7 +59,7 @@ export class TelegramAdminReportQueue {
       data = m7Record(root?.callback_query)?.data;
     const command =
       typeof message?.text === 'string' && /^\/admin_reports(?:\s|$)/u.test(message.text);
-    const callback = typeof data === 'string' && /^m7[TOIDA]:/u.test(data);
+    const callback = typeof data === 'string' && /^m7[TOIDAREBU]:/u.test(data);
     const replied = m7Record(message?.reply_to_message);
     if (!command && !callback && replied === undefined) return 'unhandled';
     if (
@@ -81,7 +95,7 @@ export class TelegramAdminReportQueue {
         return 'notice';
       }
       if (callback) {
-        const match = /^m7([TOIDA]):([A-Za-z0-9_-]{22})$/u.exec(data);
+        const match = /^m7([TOIDAREBU]):([A-Za-z0-9_-]{22})$/u.exec(data);
         if (match === null)
           throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
         const reference = match[2]!;
@@ -100,9 +114,15 @@ export class TelegramAdminReportQueue {
           const choice = await this.state.choice(session.actor, reference);
           if (choice === undefined)
             throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
-          const action = match[1] === 'D' ? 'dismissed' : match[1] === 'A' ? 'actioned' : 'assign';
+          const action =
+            ACCOUNT_CHOICES.find(([code]) => code === match[1])?.[1] ??
+            (match[1] === 'D' ? 'dismissed' : match[1] === 'A' ? 'actioned' : 'assign');
           if (action === 'assign') await this.assignments.check(context.telegramUserId, choice);
-          else {
+          else if (isTelegramReportAccountAction(action)) {
+            if (this.accounts === undefined)
+              throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+            await this.accounts.check(context.telegramUserId, choice, action);
+          } else {
             if (this.decisions === undefined)
               throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
             await this.decisions.check(context.telegramUserId, choice, action);
@@ -115,12 +135,15 @@ export class TelegramAdminReportQueue {
           );
           if ((await this.state.choice(session.actor, reference)) === undefined)
             throw new ApplicationError('version_conflict', 'error.m7.stale_action', 409);
-          if (match[1] === 'T' && this.decisions !== undefined) {
+          if (match[1] === 'T' && (this.decisions !== undefined || this.accounts !== undefined)) {
             const options = ['I'];
-            if (await this.decisions.available(context.telegramUserId, choice, 'dismissed'))
+            if (await this.decisions?.available(context.telegramUserId, choice, 'dismissed'))
               options.push('D');
-            if (await this.decisions.available(context.telegramUserId, choice, 'actioned'))
+            if (await this.decisions?.available(context.telegramUserId, choice, 'actioned'))
               options.push('A');
+            for (const [code, accountAction] of ACCOUNT_CHOICES)
+              if (await this.accounts?.available(context.telegramUserId, choice, accountAction))
+                options.push(code);
             await requireTelegramAdminSession(
               this.sessions,
               context.telegramUserId,
@@ -145,7 +168,9 @@ export class TelegramAdminReportQueue {
                           ? 'admin.report.assign'
                           : code === 'D'
                             ? 'admin.report.dismissed'
-                            : 'admin.report.actioned',
+                            : code === 'A'
+                              ? 'admin.report.actioned'
+                              : `admin.report.account.${ACCOUNT_CHOICES.find(([item]) => item === code)?.[1]}`,
                       variables: {},
                     }),
                     callback_data: `m7${code}:${reference}`,
@@ -159,7 +184,11 @@ export class TelegramAdminReportQueue {
             recipient: context.telegramUserId,
             text: this.renderer.render(session.locale, {
               key:
-                action === 'assign' ? 'admin.report.assign_prompt' : 'admin.report.decision_prompt',
+                action === 'assign'
+                  ? 'admin.report.assign_prompt'
+                  : isTelegramReportAccountAction(action)
+                    ? 'admin.report.account_prompt'
+                    : 'admin.report.decision_prompt',
               variables: {},
             }),
             disableLinkPreviews: true,
@@ -184,7 +213,17 @@ export class TelegramAdminReportQueue {
       const choice = await this.state.choice(session.actor, reference);
       if (choice === undefined)
         throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
-      if (prompt.action !== 'assign') {
+      if (isTelegramReportAccountAction(prompt.action)) {
+        if (this.accounts === undefined)
+          throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+        await this.accounts.prepare(context.telegramUserId, {
+          choice,
+          action: prompt.action,
+          reason: message.text,
+          operationId,
+          occurredAt: context.occurredAt,
+        });
+      } else if (prompt.action !== 'assign') {
         if (this.decisions === undefined)
           throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
         const newline = message.text.indexOf('\n');

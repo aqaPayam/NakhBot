@@ -151,6 +151,11 @@ describe.skipIf(url === undefined)(
           .where('id', '=', fixture.reviewId)
           .executeTakeFirstOrThrow();
         await callback(choice!);
+        const assign = (JSON.parse(sent.at(-1)!) as Menu).reply_markup.inline_keyboard
+          .flat()
+          .find((button) => button.callback_data.startsWith('m7I:'));
+        expect(assign).toBeDefined();
+        await callback(assign!.callback_data);
         expect(sent.at(-1)).toContain('"force_reply":true');
         const promptId = sent.length;
         const reason = {

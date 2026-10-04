@@ -31,6 +31,7 @@ describe('report-bound account action preparation', () => {
       reportStatus: 'pending_review',
       targetUserId: randomUUID(),
       accountVersion: 7,
+      accountState: 'active' as const,
     };
     const get = vi.fn<ReportAccountActionPreparationStore['get']>(() => Promise.resolve(facts));
     const handler = new PrepareReportAccountActionHandler(
@@ -64,5 +65,9 @@ describe('report-bound account action preparation', () => {
       handler.execute({ ...query, expectedReviewVersion: 1 }, actor),
     ).rejects.toMatchObject({ code: 'version_conflict' });
     expect(issue).toHaveBeenCalledOnce();
+    get.mockResolvedValueOnce({ ...facts, accountState: 'banned' });
+    await expect(handler.execute(query, actor)).rejects.toMatchObject({
+      code: 'moderation_state_invalid',
+    });
   });
 });

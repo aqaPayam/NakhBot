@@ -1,5 +1,10 @@
 import type { PrepareReportAccountActionQuery, PreparedReportAccountAction } from '@nakh/contracts';
-import { ApplicationError, type Actor } from '@nakh/domain';
+import {
+  ApplicationError,
+  canApplyAccountModerationAction,
+  type AccountState,
+  type Actor,
+} from '@nakh/domain';
 import type { AdminActionAuthorizationService } from '../administration/admin-authorization.js';
 import type { AdminQueueIdentityStore } from './queue-actions.js';
 export interface ReportAccountActionPreparationStore {
@@ -12,6 +17,7 @@ export interface ReportAccountActionPreparationStore {
         reportStatus: string;
         targetUserId: string;
         accountVersion: number;
+        accountState: AccountState;
       }>
     | undefined
   >;
@@ -69,6 +75,12 @@ export class PrepareReportAccountActionHandler {
         sourceReportId: report.reportId,
       },
     });
+    if (!canApplyAccountModerationAction(report.accountState, query.action))
+      throw new ApplicationError(
+        'moderation_state_invalid',
+        'error.moderation.account_action_unavailable',
+        409,
+      );
     return { adminActionToken, accountVersion: report.accountVersion };
   }
 }

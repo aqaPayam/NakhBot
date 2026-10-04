@@ -22,6 +22,7 @@ class PostgresReportAccountActionPreparationStore implements ReportAccountAction
         'report.status as reportStatus',
         'report.target_user_id as targetUserId',
         'account.version as accountVersion',
+        'account.state as accountState',
       ])
       .where('review.id', '=', reviewId)
       .executeTakeFirst();

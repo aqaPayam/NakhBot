@@ -15,6 +15,8 @@ import {
   PostgresPrepareSelectedReportReviewHandler,
   PostgresConfirmedReviewAssignments,
   PostgresConfirmedReviewDecisions,
+  PostgresPrepareSelectedReportAccountActionHandler,
+  PostgresConfirmedAccountActions,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -33,6 +35,7 @@ import {
   TelegramAdminReadConfirmationMenus,
   TelegramAdminReportAssignments,
   TelegramAdminReportDecisions,
+  TelegramAdminReportAccountActions,
   TelegramAdminReportQueue,
   TelegramAdminReportQueueState,
   type TelegramAdminTextDelivery,
@@ -194,6 +197,24 @@ export function createTelegramAdminSafetyReadIngress(
           input.delivery,
           input.renderer,
         );
+  const reportAccounts = new TelegramAdminReportAccountActions(
+    input.sessions,
+    new PostgresPrepareSelectedReportAccountActionHandler(
+      input.database,
+      input.tokens,
+      input.adminKey,
+    ),
+    new PostgresConfirmedAccountActions(input.database, input.tokens, input.adminKey),
+    new TelegramAdminSafetyMutationVault(
+      'report-account',
+      input.tokens,
+      input.uiEncryptionKey,
+      input.uiReferenceKey,
+    ),
+    input.uiReferenceKey,
+    input.delivery,
+    input.renderer,
+  );
   const reportQueue = new TelegramAdminReportQueue(
     input.botId,
     input.sessions,
@@ -205,6 +226,7 @@ export function createTelegramAdminSafetyReadIngress(
     input.renderer,
     undefined,
     reportDecisions,
+    reportAccounts,
   );
   const feedback = new TelegramAdminSafetyFeedback(
     input.botId,
@@ -217,6 +239,7 @@ export function createTelegramAdminSafetyReadIngress(
       unbans,
       reportQueue,
       reportAssignments,
+      reportAccounts,
       ...(reportDecisions === undefined ? [] : [reportDecisions]),
     ],
     input.tokens,

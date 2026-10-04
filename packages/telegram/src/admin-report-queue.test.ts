@@ -292,3 +292,65 @@ describe('assigned report action picker', () => {
     expect(f.prompt).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('report Account action picker and prompt', () => {
+  it('offers native eligible actions without retained-note capability and binds the exact owned prompt action', async () => {
+    const f = new Harness(),
+      accounts = {
+        check: vi.fn().mockResolvedValue(undefined),
+        available: vi
+          .fn()
+          .mockImplementation((_user, _choice, action) =>
+            Promise.resolve(action === 'restrict_user' || action === 'ban_user'),
+          ),
+        prepare: vi.fn().mockResolvedValue('account'),
+      };
+    const adapter = new TelegramAdminReportQueue(
+      '99',
+      f.sessions,
+      { execute: f.queues },
+      { execute: f.reports },
+      f.state,
+      { check: f.check, prepare: f.prepare },
+      { queueMenu: f.menu, reasonPrompt: f.prompt, text: f.text },
+      { render: (_locale, intent) => intent.key },
+      () => f.now,
+      undefined,
+      accounts,
+    );
+    await adapter.handle(message('/admin_reports'));
+    const selected = f.menu.mock.calls[0]![0].replyMarkup.inline_keyboard[0]![0].callback_data;
+    await adapter.handle(callback(selected));
+    expect(
+      f.menu.mock.calls[1]![0].replyMarkup.inline_keyboard.flat().map(
+        (button) => button.callback_data,
+      ),
+    ).toEqual(['I', 'R', 'B'].map((code) => selected.replace('m7T:', `m7${code}:`)));
+    await adapter.handle(callback(selected.replace('m7T:', 'm7R:')));
+    expect(f.prompt.mock.calls[0]![0].text).toBe('admin.report.account_prompt');
+    await adapter.handle(reply('Selected account reason'));
+    expect(accounts.prepare.mock.calls[0]).toMatchObject([
+      '123',
+      {
+        action: 'restrict_user',
+        reason: 'Selected account reason',
+        choice: { targetId: f.item.reportId, expectedVersion: 2 },
+      },
+    ]);
+    expect(f.prepare).not.toHaveBeenCalled();
+    await expect(adapter.handle(callback(selected.replace('m7T:', 'm7B:')))).rejects.toMatchObject({
+      code: 'idempotency_conflict',
+    });
+    await adapter.handle(reply('Same owned action again'));
+    expect(accounts.prepare.mock.calls.at(-1)).toMatchObject(['123', { action: 'restrict_user' }]);
+    accounts.check.mockRejectedValue(
+      new ApplicationError('forbidden', 'error.m7.unavailable', 403),
+    );
+    await expect(adapter.handle(callback(selected.replace('m7T:', 'm7U:')))).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(adapter.handle(reply('Borrowed prompt', 98))).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+});

@@ -901,3 +901,26 @@ revocation/reassignment/terminal review after preparation. HTTP integration exer
 selected Report preparation before a separately confirmed account action. Report Account Telegram
 controls and concrete MFA/session/provider acceptance remain open; this native port grants no
 UI or deployment authority by itself. No persistence shape changes are required.
+
+### Separately confirmed report Account Telegram UI evidence
+
+The private report picker now offers restrict, unrestrict, ban and unban according to current
+native permission, assigned ownership and Account-state eligibility. Preparation and execution
+share the same eligibility rule; restoration still requires immutable state-history resolution.
+Account controls work independently of retained review-note capability. Selecting an action
+checks native authority before an owned bounded-reason prompt; the exact prompt retains its
+first selected action and cannot be rebound by another callback. Native selected-report preparation
+derives the governing review and Account/version. A separate encrypted five-minute report-account
+vault binds the action, target selection, version, reason and stable provider operation headers.
+Protected Account-only Confirm/Cancel callbacks have one first-write winner. Native execution
+rechecks permissions, report ownership/status, Account state/version and confirmation, with one
+Account effect, immutable audit, state history, moderation action and notification under retries.
+It never closes the review, reveals evidence or accepts an appeal; accepted-appeal restoration
+continues to use its distinct exact-ban command. Migration 70 supplies six English fallback labels
+and must pass bootstrap/upgrade/replay verification before ingress activation.
+Unit evidence covers eligibility, action/payload/version substitution, purpose separation, owned
+prompts, session/cache expiry, cancellation and protected transport. Actual PostgreSQL ingress
+evidence covers all four actions, cancellation, revocation, reassignment, stale Account state and
+closed review, with concurrent preparations/confirmations and no identity disclosure.
+Concrete session/MFA composition, report photo/internal-block/evidence UI and real operator/provider
+staging acceptance remain open.

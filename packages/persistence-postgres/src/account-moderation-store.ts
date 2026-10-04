@@ -10,6 +10,7 @@ import {
 import {
   ApplicationError,
   assertAccountTransition,
+  canApplyAccountModerationAction,
   type AccountState,
   type NotificationCategory,
   type NotificationType,
@@ -97,18 +98,15 @@ async function nextState(
   current: AccountState,
   action: AccountModerationAction,
 ): Promise<AccountState> {
+  if (!canApplyAccountModerationAction(current, action)) throw unavailable();
   switch (action) {
     case 'restrict_user':
-      if (!['guest', 'incomplete', 'active'].includes(current)) throw unavailable();
       return 'restricted';
     case 'ban_user':
-      if (!['guest', 'incomplete', 'active', 'restricted'].includes(current)) throw unavailable();
       return 'banned';
     case 'unrestrict_user':
-      if (current !== 'restricted') throw unavailable();
       return restoredState(database, targetUserId, action);
     case 'unban_user':
-      if (current !== 'banned') throw unavailable();
       return restoredState(database, targetUserId, action);
   }
 }
