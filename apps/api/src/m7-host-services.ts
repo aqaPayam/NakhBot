@@ -22,6 +22,7 @@ import {
   PostgresGetAppealMetadataHandler,
   PostgresPrepareAppealReviewAccessHandler,
   PostgresPrepareAppealUnbanAccessHandler,
+  PostgresGetOwnAdminCommandReceiptHandler,
 } from '@nakh/persistence-postgres';
 import { createM7ReportHostOptions, type M7ReportHostConfiguration } from './m7-report-services.js';
 import { createM7SupportApiOptions } from './m7-support-services.js';
@@ -50,6 +51,7 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
     input.adminKey,
   );
   const adminModeration: M7AdminModerationApiOptions = Object.freeze({
+    ownCommandReceipts: new PostgresGetOwnAdminCommandReceiptHandler(input.database),
     appealUnbanActions: new PostgresPrepareAppealUnbanAccessHandler(
       input.database,
       input.adminTokens,

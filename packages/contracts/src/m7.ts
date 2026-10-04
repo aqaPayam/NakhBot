@@ -471,6 +471,11 @@ export const PreparedAppealUnbanAccessSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedAppealUnbanAccess = Static<typeof PreparedAppealUnbanAccessSchema>;
+export const GetOwnAdminCommandReceiptQuerySchema = Type.Object(
+  { actor: AdminActorSchema, requestId: UuidSchema, commandId: UuidSchema },
+  { additionalProperties: false },
+);
+export type GetOwnAdminCommandReceiptQuery = Static<typeof GetOwnAdminCommandReceiptQuerySchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,

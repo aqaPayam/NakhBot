@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  GetOwnAdminCommandReceiptHandler,
   PrepareAppealUnbanAccessHandler,
   PrepareAppealReviewAccessHandler,
   GetAppealMetadataHandler,
@@ -47,6 +48,8 @@ import {
   GetAppealMetadataQuerySchema,
   PrepareAppealReviewAccessQuerySchema,
   PrepareAppealUnbanAccessQuerySchema,
+  GetOwnAdminCommandReceiptQuerySchema,
+  type GetOwnAdminCommandReceiptQuery,
   PreparedAppealUnbanAccessSchema,
   type PrepareAppealUnbanAccessQuery,
   type PreparedAppealUnbanAccess,
@@ -147,7 +150,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   SUPPORT_ACTIONS = Symbol('M7_SUPPORT_ACTIONS'),
   APPEAL_METADATA = Symbol('M7_APPEAL_METADATA'),
   APPEAL_ACTIONS = Symbol('M7_APPEAL_ACTIONS'),
-  APPEAL_UNBAN_ACTIONS = Symbol('M7_APPEAL_UNBAN_ACTIONS');
+  APPEAL_UNBAN_ACTIONS = Symbol('M7_APPEAL_UNBAN_ACTIONS'),
+  OWN_COMMAND_RECEIPTS = Symbol('M7_OWN_COMMAND_RECEIPTS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -169,6 +173,7 @@ export interface M7AdminModerationApiOptions {
   readonly appealMetadata?: Pick<GetAppealMetadataHandler, 'execute'>;
   readonly appealActions?: Pick<PrepareAppealReviewAccessHandler, 'execute'>;
   readonly appealUnbanActions?: Pick<PrepareAppealUnbanAccessHandler, 'execute'>;
+  readonly ownCommandReceipts?: Pick<GetOwnAdminCommandReceiptHandler, 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -929,6 +934,32 @@ class AppealUnbanActionsController {
     );
   }
 }
+@Controller('v1/admin/commands/receipt')
+class OwnCommandReceiptController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(OWN_COMMAND_RECEIPTS)
+    private readonly receipts: NonNullable<M7AdminModerationApiOptions['ownCommandReceipts']>,
+  ) {}
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async receipt(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminCommandReceipt> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<GetOwnAdminCommandReceiptQuery>(
+      GetOwnAdminCommandReceiptQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(AdminCommandReceiptSchema, async () =>
+      adminCommandReceipt(await this.receipts.execute(query, actor)),
+    );
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -937,6 +968,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.ownCommandReceipts === undefined ? [] : [OwnCommandReceiptController]),
         ...(options.appealUnbanActions === undefined ? [] : [AppealUnbanActionsController]),
         ...(options.appealActions === undefined ? [] : [AppealActionsController]),
         ...(options.appealMetadata === undefined ? [] : [AppealMetadataController]),
@@ -957,6 +989,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.ownCommandReceipts === undefined
+          ? []
+          : [{ provide: OWN_COMMAND_RECEIPTS, useValue: options.ownCommandReceipts }]),
         ...(options.appealUnbanActions === undefined
           ? []
           : [{ provide: APPEAL_UNBAN_ACTIONS, useValue: options.appealUnbanActions }]),

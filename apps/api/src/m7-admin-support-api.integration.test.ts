@@ -14,6 +14,7 @@ import {
   PostgresGetSafetyQueueActionsHandler,
   PostgresGetSupportMetadataHandler,
   PostgresPrepareSupportActionHandler,
+  PostgresGetOwnAdminCommandReceiptHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { OpenSupportThreadHandler, SupportOpaqueReferences } from '@nakh/application';
@@ -85,6 +86,7 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       M7AdminModerationApiModule.register({
         authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
         journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        ownCommandReceipts: new PostgresGetOwnAdminCommandReceiptHandler(database),
         supportActions: new PostgresPrepareSupportActionHandler(
           database,
           fixture.tokens,
@@ -379,5 +381,76 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
     ).toBe(403);
     expect(denied.body).not.toContain(privateReply);
     expect(JSON.stringify(error.mock.calls)).not.toContain(privateReply);
+    const closed = await database
+      .selectFrom('administration.admin_action_logs')
+      .select(['id', 'command_id'])
+      .where('admin_user_id', '=', adminId)
+      .where('command_code', '=', 'support.close-thread')
+      .where('result', '=', 'succeeded')
+      .executeTakeFirstOrThrow();
+    // Simulate lost token storage: receipt recovery must not consult it or reload private content.
+    fixture.tokens.get = () => Promise.resolve(undefined);
+    const receiptQuery = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      commandId: closed.command_id,
+    };
+    const recovered = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/commands/receipt',
+      headers,
+      payload: receiptQuery,
+    });
+    expect(recovered.statusCode).toBe(200);
+    expect(recovered.headers['cache-control']).toBe('no-store');
+    expect(recovered.json<AdminCommandReceipt>()).toMatchObject({
+      auditId: closed.id,
+      result: 'succeeded',
+      safeCode: 'completed',
+      replayed: true,
+    });
+    for (const privateValue of [privateReply, thread.supportThreadId, userId])
+      expect(recovered.body).not.toContain(privateValue);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/commands/receipt',
+          headers,
+          payload: { ...receiptQuery, commandId: randomUUID() },
+        })
+      ).statusCode,
+    ).toBe(404);
+    const otherId = await createReportFixtureAdmin(database),
+      other = await confirmationFixture(database, otherId);
+    await expect(
+      new PostgresGetOwnAdminCommandReceiptHandler(database).execute(
+        { ...receiptQuery, actor: other.actor },
+        other.actor,
+      ),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(
+      await database
+        .selectFrom('administration.admin_action_logs')
+        .select('id')
+        .where('admin_user_id', '=', adminId)
+        .where('command_id', '=', closed.command_id)
+        .execute(),
+    ).toHaveLength(1);
+    await database
+      .updateTable('administration.admin_users')
+      .set({ is_active: false, disabled_at: new Date(), updated_at: new Date(), version: 2 })
+      .where('id', '=', adminId)
+      .execute();
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/commands/receipt',
+          headers,
+          payload: receiptQuery,
+        })
+      ).statusCode,
+    ).toBe(403);
   });
 });
