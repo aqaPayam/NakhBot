@@ -111,6 +111,20 @@ jobs:
         run: pnpm test:m6-query-plan
       - name: M6 concurrent message load smoke
         run: pnpm test:m6-load-smoke
+      - name: M7 production-shaped query-plan gate
+        run: pnpm test:m7-query-plan
+      - name: M7 shared support concurrency load smoke
+        run: pnpm test:m7-load-smoke
+      - name: Retain privacy-safe M7 plan and load evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: m7-performance-${{ github.sha }}
+          path: |
+            artifacts/m7-query-plans.json
+            artifacts/m7-load-smoke.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Retain privacy-safe M3 query plans
         if: always()
         uses: actions/upload-artifact@v6

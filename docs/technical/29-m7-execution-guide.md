@@ -632,6 +632,19 @@ integrity counts. Real exporter/alert routing drills, M7 plan/load gates and con
 Telegram/object delivery remain pending; the existing broader operational-health API contract is
 not yet backed by a current integrity-count sampler.
 
+Migration 63 adds aggregate-age indexes and all-status support ownership/sender-time indexes.
+The M7 CI plan gate runs eight reads against 20,000 synthetic rows per table (six tables), using
+the same support/appeal queue and unanswered-count statements as production. Fixture writes stay
+in an isolated trigger-bypass transaction and roll back; no synthetic captures become retained
+production history. Exported plans contain only execution time, actual row count and index names,
+never predicates or bound values. The 1,500 ms gate is a CI envelope, not a staging latency claim.
+The load smoke sends 20 concurrent support opens for each of five users, requires exactly two
+accepted writes per user, and verifies 20 concurrent replays create no duplicate messages.
+Report threshold/admission, appeal uniqueness and separate unban races remain covered by the
+existing native/HTTP PostgreSQL integration suites. The six-job workflow retains aggregate M7
+performance evidence; actual staging traffic and broader production-shaped reconciliation plans
+remain acceptance work.
+
 M7 is code-complete only when `ACC-039..041`, authorization/privacy/snapshot tests, threshold/admin/
 internal-block/support/appeal races, reconciliation, retention, production-shaped plans, operations
 docs, and CI are green. It is production-ready only after the same immutable release passes real

@@ -1,4 +1,4 @@
-import { sql } from 'kysely';
+import { sql, type RawBuilder } from 'kysely';
 
 import {
   SupportAdminWorkflow,
@@ -36,8 +36,8 @@ async function lockSupportUser(database: NakhDatabase, userId: string): Promise<
   )`.execute(database);
 }
 
-async function countUnanswered(database: NakhDatabase, userId: string): Promise<number> {
-  const result = await sql<{ count: number }>`
+export function supportUnansweredStatement(userId: string): RawBuilder<{ count: number }> {
+  return sql<{ count: number }>`
     WITH user_messages AS (
       SELECT message.created_at, message.id
       FROM support.support_messages AS message
@@ -58,7 +58,10 @@ async function countUnanswered(database: NakhDatabase, userId: string): Promise<
         OR (message.created_at, message.id) >
           (SELECT created_at, id FROM latest_admin)
       )
-  `.execute(database);
+  `;
+}
+async function countUnanswered(database: NakhDatabase, userId: string): Promise<number> {
+  const result = await supportUnansweredStatement(userId).execute(database);
   return result.rows[0]?.count ?? 0;
 }
 
