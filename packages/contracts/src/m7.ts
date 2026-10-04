@@ -801,6 +801,9 @@ export const SupportThreadResultSchema = Type.Object(
   { additionalProperties: false },
 );
 export type SupportThreadResult = Static<typeof SupportThreadResultSchema>;
+/** User HTTP clients address support exclusively through an opaque actor-bound reference. */
+export const UserSupportReceiptSchema = Type.Omit(SupportThreadResultSchema, ['supportThreadId']);
+export type UserSupportReceipt = Static<typeof UserSupportReceiptSchema>;
 
 export const AppealResultSchema = Type.Object(
   {
