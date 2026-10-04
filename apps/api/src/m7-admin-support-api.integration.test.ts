@@ -12,6 +12,7 @@ import {
   PostgresRecordAdminIngressRejectionHandler,
   PostgresSupportStore,
   PostgresGetSafetyQueueActionsHandler,
+  PostgresGetSupportMetadataHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { OpenSupportThreadHandler, SupportOpaqueReferences } from '@nakh/application';
@@ -19,6 +20,7 @@ import type {
   AdminCommandReceipt,
   PreparedAdminConfirmation,
   SafetyQueueActions,
+  SupportMetadataPage,
 } from '@nakh/contracts';
 import {
   createReportUser,
@@ -58,26 +60,34 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       })
       .execute();
     const fixture = await confirmationFixture(database, adminId);
-    const thread = await new OpenSupportThreadHandler(
+    const opener = new OpenSupportThreadHandler(
       new PostgresSupportStore(database),
       new SupportOpaqueReferences(fixture.tokens, fixture.key),
       { uuid: randomUUID },
-    ).execute({
-      actor: { kind: 'user', userId },
-      commandType: 'support.open-thread',
+    );
+    const opening = {
+      actor: { kind: 'user' as const, userId },
+      commandType: 'support.open-thread' as const,
       commandId: randomUUID(),
       requestId: randomUUID(),
       idempotencyKey: randomUUID(),
-      schemaVersion: 1,
+      schemaVersion: 1 as const,
       occurredAt: new Date().toISOString(),
       locale: 'en',
       data: { text: 'Private user support text' },
-    });
+    };
+    const thread = await opener.execute(opening);
+    await opener.execute({ ...opening, commandId: randomUUID(), idempotencyKey: randomUUID() });
     const error = vi.fn();
     app = await NestFactory.create<NestFastifyApplication>(
       M7AdminModerationApiModule.register({
         authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
         journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        supportMetadata: new PostgresGetSupportMetadataHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
         safetyQueueActions: new PostgresGetSafetyQueueActionsHandler(
           database,
           fixture.tokens,
@@ -110,6 +120,57 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
     expect(queueResponse.json<SafetyQueueActions>().adminActionToken).toMatch(/^v1\.ad\./u);
     expect(queueResponse.body).not.toContain(adminId);
     expect(queueResponse.body).not.toContain(fixture.actor.userId);
+    const metadataQuery = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: queueResponse.json<SafetyQueueActions>().adminActionToken,
+      limit: 1,
+    };
+    const firstPageResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/support/metadata',
+      headers,
+      payload: metadataQuery,
+    });
+    expect(firstPageResponse.statusCode).toBe(200);
+    expect(firstPageResponse.headers['cache-control']).toBe('no-store');
+    const firstPage = firstPageResponse.json<SupportMetadataPage>();
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.nextCursor).toBeDefined();
+    const secondPageResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/support/metadata',
+      headers,
+      payload: { ...metadataQuery, cursor: firstPage.nextCursor },
+    });
+    expect(secondPageResponse.statusCode).toBe(200);
+    expect(secondPageResponse.json<SupportMetadataPage>().items[0]!.threadId).not.toBe(
+      firstPage.items[0]!.threadId,
+    );
+    for (const response of [firstPageResponse, secondPageResponse]) {
+      expect(response.body).not.toContain('Private user support text');
+      expect(response.body).not.toContain(userId);
+    }
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/support/metadata',
+          headers,
+          payload: { ...metadataQuery, cursor: firstPage.nextCursor, status: 'closed' },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/support/metadata',
+          headers,
+          payload: { ...metadataQuery, limit: 51 },
+        })
+      ).statusCode,
+    ).toBe(400);
     expect(
       (
         await app.inject({
@@ -250,6 +311,16 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       },
     });
     expect(denied.json()).toMatchObject({ result: 'rejected', safeCode: 'forbidden' });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/support/metadata',
+          headers,
+          payload: metadataQuery,
+        })
+      ).statusCode,
+    ).toBe(403);
     expect(
       (
         await app.inject({

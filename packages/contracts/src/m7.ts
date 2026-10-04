@@ -352,6 +352,41 @@ export const SafetyQueueActionsSchema = Type.Object(
   { additionalProperties: false },
 );
 export type SafetyQueueActions = Static<typeof SafetyQueueActionsSchema>;
+const SafetyMetadataCursorSchema = Type.String({
+  pattern: '^v1\\.sq\\.[A-Za-z0-9_-]{16}\\.[A-Za-z0-9_-]{16}$',
+});
+export const GetSupportMetadataQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    limit: Type.Integer({ minimum: 1, maximum: 50 }),
+    status: Type.Optional(SupportThreadStatusSchema),
+    cursor: Type.Optional(SafetyMetadataCursorSchema),
+  },
+  { additionalProperties: false },
+);
+export type GetSupportMetadataQuery = Static<typeof GetSupportMetadataQuerySchema>;
+export const SupportMetadataPageSchema = Type.Object(
+  {
+    items: Type.Array(
+      Type.Object(
+        {
+          threadId: UuidSchema,
+          status: SupportThreadStatusSchema,
+          version: Type.Integer({ minimum: 1 }),
+          createdAt: UtcTimestampSchema,
+          lastMessageAt: UtcTimestampSchema,
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 50 },
+    ),
+    nextCursor: Type.Optional(SafetyMetadataCursorSchema),
+  },
+  { additionalProperties: false },
+);
+export type SupportMetadataPage = Static<typeof SupportMetadataPageSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,

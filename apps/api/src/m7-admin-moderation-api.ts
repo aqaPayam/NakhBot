@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  GetSupportMetadataHandler,
   GetSafetyQueueActionsHandler,
   PrepareReportPhotoActionHandler,
   PrepareReportAccountActionHandler,
@@ -37,6 +38,10 @@ import { ApplicationError } from '@nakh/domain';
 import {
   PrepareReportAccountActionQuerySchema,
   GetSafetyQueueActionsQuerySchema,
+  GetSupportMetadataQuerySchema,
+  SupportMetadataPageSchema,
+  type GetSupportMetadataQuery,
+  type SupportMetadataPage,
   SafetyQueueActionsSchema,
   type GetSafetyQueueActionsQuery,
   type SafetyQueueActions,
@@ -117,7 +122,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   REVIEW_ACTIONS = Symbol('M7_REVIEW_ACTIONS'),
   REPORT_ACCOUNT_ACTIONS = Symbol('M7_REPORT_ACCOUNT_ACTIONS'),
   REPORT_PHOTO_ACTIONS = Symbol('M7_REPORT_PHOTO_ACTIONS'),
-  SAFETY_QUEUE_ACTIONS = Symbol('M7_SAFETY_QUEUE_ACTIONS');
+  SAFETY_QUEUE_ACTIONS = Symbol('M7_SAFETY_QUEUE_ACTIONS'),
+  SUPPORT_METADATA = Symbol('M7_SUPPORT_METADATA');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -134,6 +140,7 @@ export interface M7AdminModerationApiOptions {
   readonly reportAccountActions?: Pick<PrepareReportAccountActionHandler, 'execute'>;
   readonly reportPhotoActions?: Pick<PrepareReportPhotoActionHandler, 'execute'>;
   readonly safetyQueueActions?: Pick<GetSafetyQueueActionsHandler, 'execute'>;
+  readonly supportMetadata?: Pick<GetSupportMetadataHandler, 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -764,6 +771,32 @@ class SafetyQueueActionsController {
     return this.boundary.result(SafetyQueueActionsSchema, () => this.actions.execute(query, actor));
   }
 }
+@Controller('v1/admin/support/metadata')
+class SupportMetadataController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(SUPPORT_METADATA)
+    private readonly metadata: NonNullable<M7AdminModerationApiOptions['supportMetadata']>,
+  ) {}
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async page(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<SupportMetadataPage> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<GetSupportMetadataQuery>(
+      GetSupportMetadataQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(SupportMetadataPageSchema, () =>
+      this.metadata.execute(query, actor),
+    );
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -772,6 +805,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.supportMetadata === undefined ? [] : [SupportMetadataController]),
         ...(options.safetyQueueActions === undefined ? [] : [SafetyQueueActionsController]),
         ...(options.reportPhotoActions === undefined ? [] : [ReportPhotoActionsController]),
         ...(options.reportAccountActions === undefined ? [] : [ReportAccountActionsController]),
@@ -787,6 +821,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.supportMetadata === undefined
+          ? []
+          : [{ provide: SUPPORT_METADATA, useValue: options.supportMetadata }]),
         ...(options.safetyQueueActions === undefined
           ? []
           : [{ provide: SAFETY_QUEUE_ACTIONS, useValue: options.safetyQueueActions }]),
