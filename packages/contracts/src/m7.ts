@@ -532,6 +532,12 @@ export const UnbanAppealCommandSchema = mutationSchema(
   ),
 );
 export type UnbanAppealCommand = Static<typeof UnbanAppealCommandSchema>;
+export const PrepareAppealUnbanCommandSchema = mutationSchema(
+  'moderation.unban-appeal',
+  AdminActorSchema,
+  Type.Omit(UnbanAppealCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareAppealUnbanCommand = Static<typeof PrepareAppealUnbanCommandSchema>;
 
 export const BootstrapAdminCommandSchema = mutationSchema(
   'administration.bootstrap-admin',

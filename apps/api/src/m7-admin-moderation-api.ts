@@ -31,6 +31,10 @@ import type {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
+  PrepareAppealUnbanCommandSchema,
+  UnbanAppealCommandSchema,
+  type PrepareAppealUnbanCommand,
+  type UnbanAppealCommand,
   PrepareAppealReviewCommandSchema,
   ReviewAppealCommandSchema,
   type PrepareAppealReviewCommand,
@@ -88,7 +92,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   DECISIONS = Symbol('M7_REVIEW_DECISIONS'),
   CLAIMS = Symbol('M7_REVIEW_CLAIMS'),
   SUPPORT = Symbol('M7_ADMIN_SUPPORT'),
-  APPEAL_REVIEWS = Symbol('M7_APPEAL_REVIEWS');
+  APPEAL_REVIEWS = Symbol('M7_APPEAL_REVIEWS'),
+  APPEAL_UNBANS = Symbol('M7_APPEAL_UNBANS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -100,6 +105,7 @@ export interface M7AdminModerationApiOptions {
   readonly reviewClaims?: Pick<ClaimModerationReviewsHandler, 'execute'>;
   readonly supportCommands?: Pick<ConfirmedSupportCommands, 'prepare' | 'execute'>;
   readonly appealReviews?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
+  readonly appealUnbans?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -581,6 +587,53 @@ class AppealReviewController {
     });
   }
 }
+@Controller('v1/admin/appeals/unban')
+class AppealUnbanController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(INGRESS) private readonly ingress: AuditedAdminMutationIngress,
+    @Inject(APPEAL_UNBANS)
+    private readonly unbans: NonNullable<M7AdminModerationApiOptions['appealUnbans']>,
+  ) {}
+  @Post('prepare')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAdminConfirmation> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const command = this.boundary.parse<PrepareAppealUnbanCommand>(
+      PrepareAppealUnbanCommandSchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAdminConfirmationSchema, async () => ({
+      confirmationToken: await this.unbans.prepare(command, actor),
+    }));
+  }
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async unban(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminCommandReceipt> {
+    return this.boundary.result(AdminCommandReceiptSchema, async () =>
+      adminCommandReceipt(
+        await this.ingress.execute<UnbanAppealCommand, AppealResult | AccountModerationResult>(
+          UnbanAppealCommandSchema,
+          request,
+          body,
+          { commandCode: 'moderation.unban-appeal', requiredPermission: 'unban_user' },
+          (command, actor) => this.unbans.execute(command, actor),
+        ),
+      ),
+    );
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -589,6 +642,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.appealUnbans === undefined ? [] : [AppealUnbanController]),
         ...(options.appealReviews === undefined ? [] : [AppealReviewController]),
         ...(options.supportCommands === undefined ? [] : [SupportAdminController]),
         ...(options.reviewClaims === undefined ? [] : [ReviewClaimController]),
@@ -599,6 +653,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.appealUnbans === undefined
+          ? []
+          : [{ provide: APPEAL_UNBANS, useValue: options.appealUnbans }]),
         ...(options.appealReviews === undefined
           ? []
           : [{ provide: APPEAL_REVIEWS, useValue: options.appealReviews }]),

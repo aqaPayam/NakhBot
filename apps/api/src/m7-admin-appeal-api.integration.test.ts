@@ -16,6 +16,7 @@ import type {
   AdminCommandReceipt,
   PreparedAdminConfirmation,
   PrepareAppealReviewCommand,
+  PrepareAppealUnbanCommand,
 } from '@nakh/contracts';
 import { createReportFixtureAdmin } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { createCurrentBanAppeal } from '../../../packages/persistence-postgres/src/testing/appeal-fixture.js';
@@ -38,7 +39,178 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
     await app?.close();
     await database?.destroy();
   });
+  it('unbans only an accepted current ban, rejects stale account versions, and records one effect under retry races', async () => {
+    const adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'moderator',
+        assigned_by_admin_id: adminId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, adminId),
+      appeal = await createCurrentBanAppeal(database);
+    const commands = new PostgresConfirmedAppealCommands(database, fixture.tokens, fixture.key);
+    app = await NestFactory.create<NestFastifyApplication>(
+      M7AdminModerationApiModule.register({
+        authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
+        journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        appealReviews: commands,
+        appealUnbans: commands,
+      }),
+      new FastifyAdapter(),
+      { logger: false },
+    );
+    app.useGlobalFilters(new ApiExceptionFilter({ error: vi.fn() } as unknown as Logger));
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+    const headers = { authorization: 'Bearer appeal-admin-credential' };
+    async function unbanDraft(
+      expectedAppealVersion: number,
+      expectedAccountVersion: number,
+    ): Promise<PrepareAppealUnbanCommand> {
+      return {
+        actor: fixture.actor,
+        commandType: 'moderation.unban-appeal',
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        schemaVersion: 1,
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          adminActionToken: await fixture.issue({
+            commandCode: 'moderation.unban-appeal',
+            requiredPermission: 'unban_user',
+            targetType: 'user_appeal',
+            targetId: appeal.appealId,
+            expectedTargetVersion: expectedAppealVersion,
+          }),
+          expectedTargetVersion: expectedAppealVersion,
+          expectedAccountVersion,
+          reason: 'Accepted current appeal',
+        },
+      };
+    }
+    async function confirm(path: string, draft: unknown): Promise<string> {
+      const response = await app.inject({
+        method: 'POST',
+        url: `${path}/prepare`,
+        payload: JSON.stringify(draft),
+        headers: { ...headers, 'content-type': 'application/json' },
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json<PreparedAdminConfirmation>().confirmationToken;
+    }
+    const pending = await unbanDraft(1, 2);
+    const pendingResult = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/unban',
+      headers,
+      payload: {
+        ...pending,
+        data: {
+          ...pending.data,
+          confirmationToken: await confirm('/v1/admin/appeals/unban', pending),
+        },
+      },
+    });
+    expect(pendingResult.json()).toMatchObject({ result: 'rejected', safeCode: 'unavailable' });
+    const review: PrepareAppealReviewCommand = {
+      actor: fixture.actor,
+      commandType: 'moderation.review-appeal',
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      schemaVersion: 1,
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: await fixture.issue({
+          commandCode: 'moderation.review-appeal',
+          requiredPermission: 'review_appeals',
+          targetType: 'user_appeal',
+          targetId: appeal.appealId,
+          expectedTargetVersion: 1,
+        }),
+        expectedTargetVersion: 1,
+        reason: 'Review current ban',
+        decision: 'accepted',
+      },
+    };
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/review/accepted',
+      headers,
+      payload: {
+        ...review,
+        data: {
+          ...review.data,
+          confirmationToken: await confirm('/v1/admin/appeals/review/accepted', review),
+        },
+      },
+    });
+    expect(accepted.json()).toMatchObject({ result: 'succeeded' });
+    const stale = await unbanDraft(2, 1);
+    const staleResult = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/unban',
+      headers,
+      payload: {
+        ...stale,
+        data: { ...stale.data, confirmationToken: await confirm('/v1/admin/appeals/unban', stale) },
+      },
+    });
+    expect(staleResult.json()).toMatchObject({ result: 'rejected', safeCode: 'version_conflict' });
+    const draft = await unbanDraft(2, 2);
+    const payload = {
+      ...draft,
+      data: { ...draft.data, confirmationToken: await confirm('/v1/admin/appeals/unban', draft) },
+    };
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({ method: 'POST', url: '/v1/admin/appeals/unban', headers, payload }),
+      ),
+    );
+    const results = responses.map((response) => response.json<AdminCommandReceipt>());
+    expect(results.every((result) => result.result === 'succeeded')).toBe(true);
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(new Set(results.map((result) => result.auditId)).size).toBe(1);
+    const account = await database
+      .selectFrom('identity.accounts')
+      .selectAll()
+      .where('user_id', '=', appeal.userId)
+      .executeTakeFirstOrThrow();
+    expect(account.state).toBe('active');
+    expect(account.version).toBe(3);
+    const bindings = await database
+      .selectFrom('moderation.appeal_unbans')
+      .selectAll()
+      .where('appeal_id', '=', appeal.appealId)
+      .execute();
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]!.admin_action_log_id).toBe(results[0]!.auditId);
+    const revoked = await unbanDraft(2, 3),
+      confirmationToken = await confirm('/v1/admin/appeals/unban', revoked);
+    await database
+      .updateTable('administration.admin_user_roles')
+      .set({ revoked_at: new Date(), revoked_by_admin_id: adminId })
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    const denied = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/unban',
+      headers,
+      payload: { ...revoked, data: { ...revoked.data, confirmationToken } },
+    });
+    expect(denied.json()).toMatchObject({ result: 'rejected', safeCode: 'forbidden' });
+    for (const response of responses) expect(response.body).not.toContain(appeal.userId);
+  });
   it('reviews each appeal once under races, keeps acceptance separate from unban, and audits revoked permission', async () => {
+    await app?.close();
     const adminId = await createReportFixtureAdmin(database);
     await database
       .insertInto('administration.admin_user_roles')

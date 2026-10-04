@@ -102,6 +102,65 @@ describe('authenticated route-bound account moderation HTTP', () => {
     await app.getHttpAdapter().getInstance().ready();
     return { server: app, execute, record };
   }
+  it('requires the separate unban schema and omits internal account identities from its receipt', async () => {
+    const targetUserId = randomUUID();
+    const executeUnban = vi.fn<ConfirmedAppealCommands['execute']>(() =>
+      Promise.resolve({
+        logId: randomUUID(),
+        result: 'succeeded',
+        safeCode: 'appeal_unbanned',
+        recordedAt: new Date(),
+        replayed: false,
+        value: {
+          actionId: randomUUID(),
+          targetUserId,
+          previousState: 'banned',
+          nextState: 'active',
+          accountVersion: 3,
+        },
+      }),
+    );
+    const { server, record } = await start({
+      appealUnbans: { prepare: () => Promise.resolve(confirmationToken), execute: executeUnban },
+    });
+    const payload = {
+      ...draft,
+      commandType: 'moderation.unban-appeal',
+      data: {
+        adminActionToken: token,
+        expectedTargetVersion: 2,
+        expectedAccountVersion: 2,
+        reason: 'Accepted appeal',
+        confirmationToken,
+      },
+    };
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/unban',
+      headers,
+      payload,
+    });
+    expect(response.json()).toMatchObject({ result: 'succeeded', safeCode: 'completed' });
+    expect(response.body).not.toContain(targetUserId);
+    const missing = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/unban',
+      headers,
+      payload: {
+        ...payload,
+        commandId: randomUUID(),
+        data: {
+          adminActionToken: token,
+          expectedTargetVersion: 2,
+          reason: 'Accepted appeal',
+          confirmationToken,
+        },
+      },
+    });
+    expect(missing.json()).toMatchObject({ result: 'rejected', safeCode: 'invalid_request' });
+    expect(executeUnban).toHaveBeenCalledOnce();
+    expect(record).toHaveBeenCalledOnce();
+  });
   it('binds the appeal decision to its route and never permits an unban payload on the review endpoint', async () => {
     const executeReview = vi.fn<ConfirmedAppealCommands['execute']>(() =>
       Promise.resolve({
