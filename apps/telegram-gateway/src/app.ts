@@ -51,6 +51,7 @@ import {
   TelegramWebhookAuthenticator,
   renderTelegramPhotoMenu,
   type TelegramPhotoManagementResult,
+  type TelegramAdminEvidenceAdapter,
 } from '@nakh/telegram';
 
 import {
@@ -65,6 +66,7 @@ import type { TelegramReportIngressPort } from './report-ingress.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const REPORT_INGRESS = Symbol('REPORT_INGRESS');
+const ADMIN_EVIDENCE_INGRESS = Symbol('ADMIN_EVIDENCE_INGRESS');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
@@ -151,6 +153,8 @@ class TelegramGatewayController {
     @Inject(SUPPORT_APPEAL_INGRESS)
     private readonly supportAppealIngress: TelegramSupportAppealIngressPort,
     @Inject(REPORT_INGRESS) private readonly reportIngress: TelegramReportIngressPort,
+    @Inject(ADMIN_EVIDENCE_INGRESS)
+    private readonly adminEvidenceIngress: Pick<TelegramAdminEvidenceAdapter, 'handle'>,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
     @Inject(M2_METRICS) private readonly m2Metrics: M2Metrics,
     @Inject(M3_METRICS) private readonly m3Metrics: M3Metrics,
@@ -213,6 +217,8 @@ class TelegramGatewayController {
       if ((await this.supportAppealIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
       if ((await this.reportIngress.handle(update)) !== 'unhandled') return { accepted: true };
+      if ((await this.adminEvidenceIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
     } catch (error) {
       if (error instanceof ApplicationError)
         throw new HttpException({ code: error.code }, error.status);
@@ -295,7 +301,10 @@ class DatabaseLifecycle implements OnApplicationShutdown {
 export class TelegramGatewayModule {
   public static register(
     config: AppConfig,
-    m7: Readonly<{ reports?: TelegramReportIngressPort }> = {},
+    m7: Readonly<{
+      reports?: TelegramReportIngressPort;
+      adminEvidence?: Pick<TelegramAdminEvidenceAdapter, 'handle'>;
+    }> = {},
   ): DynamicModule {
     const database = createDatabase(config.database);
     const redis = createRedisConnection(config.redis.url);
@@ -399,6 +408,10 @@ export class TelegramGatewayModule {
         {
           provide: REPORT_INGRESS,
           useValue: m7.reports ?? { handle: () => Promise.resolve('unhandled') },
+        },
+        {
+          provide: ADMIN_EVIDENCE_INGRESS,
+          useValue: m7.adminEvidence ?? { handle: () => Promise.resolve('unhandled') },
         },
         {
           provide: START_ADAPTER,

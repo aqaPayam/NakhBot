@@ -125,9 +125,14 @@ and Notification state.
 11. `000056_m7_action_report_scope.sql` — report-linked admin target/assignment and successful-attempt guards.
 12. `000057_m7_evidence_access_identity.sql` — admin-bound evidence access command identity, preserving existing audit rows.
 13. `000058_m7_unmatch_report_deadline.sql` — post-lock database-time enforcement of the immutable unmatch report window at evidence insertion.
-14. `000062_m7_reconciliation.sql` — moderation run/anomaly types in the shared reconciliation
+14. `000059_m7_photo_evidence_holds.sql` — exact retained photo variant and content binding.
+15. `000060_m7_photo_evidence_cleanup.sql` — hold-aware storage cleanup guards.
+16. `000061_m7_photo_capture_complete.sql` — complete capture/hold requirement at commit.
+17. `000062_m7_reconciliation.sql` — moderation run/anomaly types in the shared reconciliation
    registry, support/appeal status keyset indexes, and immutable subject-bound support/appeal access
-   audits linked to exact admin attempts. Scanner execution and restricted-read adapters follow separately.
+   audits linked to exact admin attempts.
+18. `000063_m7_operational_indexes.sql` — queue ages, all-status support admission and latest
+   completed moderation scan indexes, verified on empty bootstrap and every recorded upgrade baseline.
 
 Every migration must bootstrap from empty, upgrade from `000045`, replay unchanged, and have
 matching verification SQL. Applied migrations are immutable. No migration seeds an enabled admin
@@ -601,7 +606,8 @@ Moderation reconciliation now resumes one shared run and commits bounded Report/
 scans, cursor progress, counters and deduplicated quarantined findings atomically. It checks missing
 evidence, capture shape/binding and retained photo bytes without fetching text, snapshot payloads or
 keys. It does not cryptographically verify encrypted hashes; that remains the audited reader's job.
-Other integrity phases, scheduler cadence, health/metrics and M7 plan/load gates remain pending.
+The additional historical and safety phases, scheduler cadence and aggregate liveness sampling are
+implemented below; cryptographic integrity verification still belongs to the audited readers.
 
 Review/action/episode reconciliation now checks report-state agreement, terminal decision evidence,
 exact successful command and platform audit links, historical Account transitions, durable notices,
@@ -617,28 +623,38 @@ The admin command transaction now locks and rechecks the matching verified Teleg
 well as current permissions, so a previously prepared token cannot authorize execution after that
 identity binding disappears. Historical roles and terminal appeals remain valid retained history.
 
-Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
-and remaining moderation presentation need implementation. Telegram reporting now has an explicit
-gateway ingress port after webhook authentication. All five source buttons carry only opaque native
-source tokens; actor identity is resolved server-side. A user-bound first-write-wins selection receipt
-supports stable callback retries and `/report <reference> <reason> [text]` submission. The selection's
-24-hour cache does not extend the native intent grant; the native store owns replay, current source
-authorization, limits and capture. Report prose and raw Report IDs do not enter notices. Registration
-requires the configured shared report handlers and a real delivery port; ordinary startup does not
-enable reporting automatically or claim real Telegram delivery.
-The scheduler now executes at most 100
-metadata rows per moderation batch, continues incomplete runs on subsequent ticks, waits 15 minutes
-after completion, and retries failures after one minute. PostgreSQL owns durable restart recovery,
-batch serialization and finding deduplication. Only fixed phase/outcome and aggregate counts leave
-the scheduler boundary; database exceptions and run/entity identifiers are discarded. Redis provides
-best-effort leadership; the database remains authoritative if that short lease expires mid-batch.
-Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
-staging evidence remain outstanding for release acceptance. Scheduler reconciliation is implemented;
-M7 aggregate queue/scan ages and finite-phase metrics now have dashboard/runbook contracts and
-staging alarms. These do not expose content or mistake retained historical quarantines for current
-integrity counts. Real exporter/alert routing drills, M7 plan/load gates and concrete session and
-Telegram/object delivery remain pending; the existing broader operational-health API contract is
-not yet backed by a current integrity-count sampler.
+Checkpoint 8 remains partial. Telegram reporting and admin evidence now have explicit gateway
+ports after webhook authentication. All five source buttons carry only opaque native source tokens;
+reporter identity is resolved server-side. A user-bound first-write-wins selection receipt supports
+stable callback retries and `/report <reference> <reason> [text]` submission. Its 24-hour cache does
+not extend the native intent grant; the native store owns replay, current source authorization,
+limits and capture. Notices omit Report prose and raw Report IDs.
+
+Admin evidence callbacks resolve an actor-bound already-confirmed command through a server-owned
+port. A current Telegram-bound admin session and unexpired MFA are required before execution and
+checked again before delivery. Only fresh successful native reads can deliver content after both
+required audits commit. Replayed/rejected outcomes remain content-free, even if an incorrect port
+supplies a value. Text preserves Unicode boundaries, uses bounded plain chunks and requires link
+previews disabled; message/chat/evidence identities are excluded from the projection. Retained
+photos require an explicit authorized object-delivery port and never render object references as
+text. If delivery fails after the audit commit, retry does not re-expose content; use a fresh explicit
+confirmed read. These are injected interfaces and synthetic adapter tests, not a concrete MFA/session
+service, command-selection UI, real Telegram/object delivery, or deployment evidence. Ordinary startup
+does not automatically enable either port. Remaining account/review/support/appeal admin presentation
+and concrete session/delivery composition are still pending.
+
+The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
+subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
+owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome
+and aggregate counts leave the scheduler boundary; raw database errors and run/entity identifiers are
+discarded. Redis provides best-effort leadership; database guards remain authoritative if its lease
+expires mid-batch. Ten integrity phases are implemented without automatic domain mutation.
+
+M7 aggregate queue/scan ages and finite-phase metrics have dashboard/runbook contracts and staging
+alarms. Historical quarantines are not mislabeled as current integrity counts. The broader operational
+health API contract still needs a current integrity-count sampler. Broader production-shaped scanner
+plans, ingress/action telemetry, real exporter/alert routing, session/MFA and Telegram/object delivery
+acceptance remain pending. M7 is still implementation in progress, not declared code-complete or live.
 
 Migration 63 adds aggregate-age indexes and all-status support ownership/sender-time indexes.
 The M7 CI plan gate runs eight reads against 20,000 synthetic rows per table (six tables), using
