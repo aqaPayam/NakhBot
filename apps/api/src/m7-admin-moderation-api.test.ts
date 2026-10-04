@@ -12,6 +12,7 @@ import type {
   ConfirmedReviewDecisions,
   ClaimModerationReviewsHandler,
   ConfirmedSupportCommands,
+  ConfirmedAppealCommands,
   AdminIngressRejectionStore,
 } from '@nakh/application';
 import type { AdminCommandReceipt } from '@nakh/contracts';
@@ -101,6 +102,63 @@ describe('authenticated route-bound account moderation HTTP', () => {
     await app.getHttpAdapter().getInstance().ready();
     return { server: app, execute, record };
   }
+  it('binds the appeal decision to its route and never permits an unban payload on the review endpoint', async () => {
+    const executeReview = vi.fn<ConfirmedAppealCommands['execute']>(() =>
+      Promise.resolve({
+        logId: randomUUID(),
+        result: 'succeeded',
+        safeCode: 'appeal_accepted',
+        recordedAt: new Date(),
+        replayed: false,
+        value: {
+          appealId: randomUUID(),
+          status: 'accepted',
+          version: 2,
+          changedAt: new Date().toISOString(),
+          replayed: false,
+        },
+      }),
+    );
+    const { server, record } = await start({
+      appealReviews: { prepare: () => Promise.resolve(confirmationToken), execute: executeReview },
+    });
+    const payload = {
+      ...draft,
+      commandType: 'moderation.review-appeal',
+      data: {
+        adminActionToken: token,
+        expectedTargetVersion: 1,
+        reason: 'Appeal review',
+        confirmationToken,
+        decision: 'accepted',
+        note: 'Private appeal note',
+      },
+    };
+    const accepted = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/review/accepted',
+      headers,
+      payload,
+    });
+    expect(accepted.json()).toMatchObject({ result: 'succeeded', safeCode: 'completed' });
+    expect(accepted.body).not.toContain(payload.data.note);
+    const substituted = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/review/rejected',
+      headers,
+      payload: { ...payload, commandId: randomUUID() },
+    });
+    expect(substituted.json()).toMatchObject({ result: 'rejected', safeCode: 'invalid_request' });
+    const unban = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/review/accepted',
+      headers,
+      payload: { ...payload, commandId: randomUUID(), commandType: 'moderation.unban-appeal' },
+    });
+    expect(unban.json()).toMatchObject({ result: 'rejected', safeCode: 'invalid_request' });
+    expect(executeReview).toHaveBeenCalledOnce();
+    expect(record).toHaveBeenCalledTimes(2);
+  });
   it('binds support reply and close to their schemas, journals substitutions, and discards private workflow values', async () => {
     const executeSupport = vi.fn<ConfirmedSupportCommands['execute']>(() =>
       Promise.resolve({

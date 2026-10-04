@@ -516,6 +516,12 @@ export const ReviewAppealCommandSchema = mutationSchema(
   ),
 );
 export type ReviewAppealCommand = Static<typeof ReviewAppealCommandSchema>;
+export const PrepareAppealReviewCommandSchema = mutationSchema(
+  'moderation.review-appeal',
+  AdminActorSchema,
+  Type.Omit(ReviewAppealCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareAppealReviewCommand = Static<typeof PrepareAppealReviewCommandSchema>;
 
 export const UnbanAppealCommandSchema = mutationSchema(
   'moderation.unban-appeal',

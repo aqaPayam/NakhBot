@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  ConfirmedAppealCommands,
   ConfirmedSupportCommands,
   StoredSupportResult,
   ClaimModerationReviewsHandler,
@@ -30,6 +31,11 @@ import type {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
+  PrepareAppealReviewCommandSchema,
+  ReviewAppealCommandSchema,
+  type PrepareAppealReviewCommand,
+  type ReviewAppealCommand,
+  type AppealResult,
   PrepareSupportReplyCommandSchema,
   PrepareSupportCloseCommandSchema,
   ReplySupportThreadCommandSchema,
@@ -81,7 +87,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   ASSIGNMENTS = Symbol('M7_REVIEW_ASSIGNMENTS'),
   DECISIONS = Symbol('M7_REVIEW_DECISIONS'),
   CLAIMS = Symbol('M7_REVIEW_CLAIMS'),
-  SUPPORT = Symbol('M7_ADMIN_SUPPORT');
+  SUPPORT = Symbol('M7_ADMIN_SUPPORT'),
+  APPEAL_REVIEWS = Symbol('M7_APPEAL_REVIEWS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -92,6 +99,7 @@ export interface M7AdminModerationApiOptions {
   readonly reviewDecisions?: Pick<ConfirmedReviewDecisions, 'prepare' | 'execute'>;
   readonly reviewClaims?: Pick<ClaimModerationReviewsHandler, 'execute'>;
   readonly supportCommands?: Pick<ConfirmedSupportCommands, 'prepare' | 'execute'>;
+  readonly appealReviews?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -513,6 +521,66 @@ class SupportAdminController {
     });
   }
 }
+function appealDecision(value: string): 'accepted' | 'rejected' {
+  if (value === 'accepted' || value === 'rejected') return value;
+  throw new ApplicationError('not_found', 'error.m7.unavailable', 404);
+}
+@Controller('v1/admin/appeals/review')
+class AppealReviewController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(INGRESS) private readonly ingress: AuditedAdminMutationIngress,
+    @Inject(APPEAL_REVIEWS)
+    private readonly reviews: NonNullable<M7AdminModerationApiOptions['appealReviews']>,
+  ) {}
+  @Post(':decision/prepare')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Param('decision') selected: string,
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAdminConfirmation> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const command = this.boundary.parse<PrepareAppealReviewCommand>(
+      PrepareAppealReviewCommandSchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAdminConfirmationSchema, async () => {
+      if (command.data.decision !== appealDecision(selected))
+        throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+      return { confirmationToken: await this.reviews.prepare(command, actor) };
+    });
+  }
+  @Post(':decision')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async review(
+    @Param('decision') selected: string,
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminCommandReceipt> {
+    return this.boundary.result(AdminCommandReceiptSchema, async () => {
+      const decision = appealDecision(selected);
+      return adminCommandReceipt(
+        await this.ingress.execute<ReviewAppealCommand, AppealResult | AccountModerationResult>(
+          ReviewAppealCommandSchema,
+          request,
+          body,
+          { commandCode: 'moderation.review-appeal', requiredPermission: 'review_appeals' },
+          (command, actor) => {
+            if (command.data.decision !== decision)
+              throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+            return this.reviews.execute(command, actor);
+          },
+        ),
+      );
+    });
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -521,6 +589,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.appealReviews === undefined ? [] : [AppealReviewController]),
         ...(options.supportCommands === undefined ? [] : [SupportAdminController]),
         ...(options.reviewClaims === undefined ? [] : [ReviewClaimController]),
         ...(options.accounts === undefined ? [] : [AccountActionsController]),
@@ -530,6 +599,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.appealReviews === undefined
+          ? []
+          : [{ provide: APPEAL_REVIEWS, useValue: options.appealReviews }]),
         ...(options.supportCommands === undefined
           ? []
           : [{ provide: SUPPORT, useValue: options.supportCommands }]),
