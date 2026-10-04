@@ -17,6 +17,7 @@ import {
   M4Metrics,
   M5Metrics,
   M6Metrics,
+  M7Metrics,
   startTelemetry,
 } from '@nakh/observability';
 import {
@@ -30,6 +31,7 @@ import {
   PostgresNakhOperationalMetricsStore,
   PostgresNakhReconciliationStore,
   PostgresModerationReconciliationStore,
+  PostgresModerationOperationalMetricsStore,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection, RedisLease } from '@nakh/queue-redis';
 
@@ -121,6 +123,9 @@ const moderationMaintenance = new ModerationMaintenance(
   new RunModerationReconciliationBatchHandler(new PostgresModerationReconciliationStore(database)),
   randomUUID,
 );
+const moderationMetrics = new M7Metrics();
+const moderationOperationalMetrics = new PostgresModerationOperationalMetricsStore(database);
+let nextModerationHealthSampleAt = 0;
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
 let nextNakhReconciliationAt = 0;
@@ -360,10 +365,29 @@ const tick = async (): Promise<void> => {
       }
       const moderationBatch = await moderationMaintenance.executeDue();
       if (moderationBatch !== undefined) {
+        moderationMetrics.recordReconciliation(
+          moderationBatch.outcome,
+          moderationBatch.phase,
+          moderationBatch.durationMs,
+          moderationBatch.scannedCount,
+          moderationBatch.anomalyCount,
+        );
         const entry = { ...moderationBatch, operation: 'moderation.reconciliation.batch' };
         if (moderationBatch.outcome === 'failure')
           logger.error(entry, 'moderation reconciliation batch failed');
         else logger.info(entry, 'moderation reconciliation batch completed');
+      }
+      if (Date.now() >= nextModerationHealthSampleAt) {
+        nextModerationHealthSampleAt = Date.now() + 30_000;
+        try {
+          moderationMetrics.recordOperationalHealth(await moderationOperationalMetrics.measure());
+        } catch {
+          moderationMetrics.recordOperationalHealthFailure();
+          logger.error(
+            { operation: 'moderation.operational-health.measure', safeCode: 'unavailable' },
+            'moderation operational health measurement failed',
+          );
+        }
       }
       await lease.release(leaseKey, owner);
     }

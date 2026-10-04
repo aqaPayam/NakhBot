@@ -187,3 +187,4 @@ export * from './own-admin-command-receipt-store.js';
 export * from './support-reveal-store.js';
 export * from './appeal-reveal-store.js';
 export * from './moderation-reconciliation-store.js';
+export * from './moderation-operational-metrics-store.js';

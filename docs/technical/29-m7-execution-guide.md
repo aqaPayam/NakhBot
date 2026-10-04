@@ -625,7 +625,12 @@ batch serialization and finding deduplication. Only fixed phase/outcome and aggr
 the scheduler boundary; database exceptions and run/entity identifiers are discarded. Redis provides
 best-effort leadership; the database remains authoritative if that short lease expires mid-batch.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
-staging evidence remain outstanding.
+staging evidence remain outstanding for release acceptance. Scheduler reconciliation is implemented;
+M7 aggregate queue/scan ages and finite-phase metrics now have dashboard/runbook contracts and
+staging alarms. These do not expose content or mistake retained historical quarantines for current
+integrity counts. Real exporter/alert routing drills, M7 plan/load gates and concrete session and
+Telegram/object delivery remain pending; the existing broader operational-health API contract is
+not yet backed by a current integrity-count sampler.
 
 M7 is code-complete only when `ACC-039..041`, authorization/privacy/snapshot tests, threshold/admin/
 internal-block/support/appeal races, reconciliation, retention, production-shaped plans, operations
