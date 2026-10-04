@@ -264,6 +264,24 @@ export const AdminReportQueueActionsSchema = Type.Object(
   { additionalProperties: false },
 );
 export type AdminReportQueueActions = Static<typeof AdminReportQueueActionsSchema>;
+export const PrepareReportEvidenceAccessQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    reportId: UuidSchema,
+    expectedReportVersion: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type PrepareReportEvidenceAccessQuery = Static<
+  typeof PrepareReportEvidenceAccessQuerySchema
+>;
+export const PreparedReportEvidenceAccessSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema, reportVersion: Type.Integer({ minimum: 1 }) },
+  { additionalProperties: false },
+);
+export type PreparedReportEvidenceAccess = Static<typeof PreparedReportEvidenceAccessSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,

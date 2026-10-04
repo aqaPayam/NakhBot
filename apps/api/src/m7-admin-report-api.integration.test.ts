@@ -10,6 +10,7 @@ import {
   runMigrations,
   PostgresGetReportMetadataPageHandler,
   PostgresGetAdminReportQueueActionsHandler,
+  PostgresPrepareReportEvidenceAccessHandler,
   PostgresAdminAuthorizationStore,
   PostgresGetReportEvidenceActionsHandler,
   PostgresConfirmedReportEvidenceReveals,
@@ -22,6 +23,7 @@ import type {
   PreparedAdminConfirmation,
   AdminEvidenceRevealResult,
   AdminReportQueueActions,
+  PreparedReportEvidenceAccess,
 } from '@nakh/contracts';
 import {
   AesGcmPhotoReportSnapshotReader,
@@ -84,6 +86,11 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
         },
         metadata: new PostgresGetReportMetadataPageHandler(database, one.tokens, one.key),
         queueActions: new PostgresGetAdminReportQueueActionsHandler(database, one.tokens, one.key),
+        evidenceAccess: new PostgresPrepareReportEvidenceAccessHandler(
+          database,
+          one.tokens,
+          one.key,
+        ),
         evidenceActions: new PostgresGetReportEvidenceActionsHandler(
           database,
           one.tokens,
@@ -169,16 +176,39 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       payload: { ...query, actor: two.actor },
     });
     expect(cross.statusCode).toBe(403);
+    const accessQuery = {
+      actor: one.actor,
+      requestId: randomUUID(),
+      adminActionToken: query.adminActionToken,
+      reportId: source.reportId,
+      expectedReportVersion: 1,
+    };
+    const access = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/evidence/access',
+      headers: { authorization: 'Bearer metadata-admin-one' },
+      payload: accessQuery,
+    });
+    expect(access.statusCode).toBe(200);
+    expect(access.headers['cache-control']).toBe('no-store');
+    const staleAccess = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/evidence/access',
+      headers: { authorization: 'Bearer metadata-admin-one' },
+      payload: { ...accessQuery, expectedReportVersion: 2 },
+    });
+    expect(staleAccess.statusCode).toBe(409);
+    const crossAccess = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/evidence/access',
+      headers: { authorization: 'Bearer metadata-admin-two' },
+      payload: { ...accessQuery, actor: two.actor },
+    });
+    expect(crossAccess.statusCode).toBe(403);
     const selection = {
       actor: one.actor,
       requestId: randomUUID(),
-      adminActionToken: await one.issue({
-        commandCode: 'moderation.evidence-metadata',
-        requiredPermission: 'view_reports',
-        targetType: 'report',
-        targetId: source.reportId,
-        expectedTargetVersion: 1,
-      }),
+      adminActionToken: access.json<PreparedReportEvidenceAccess>().adminActionToken,
     };
     const actions = await app.inject({
       method: 'POST',
@@ -301,6 +331,13 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       payload: { actor: one.actor, requestId: randomUUID() },
     });
     expect(revokedRoot.statusCode).toBe(403);
+    const revokedAccess = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/evidence/access',
+      headers: { authorization: 'Bearer metadata-admin-one' },
+      payload: accessQuery,
+    });
+    expect(revokedAccess.statusCode).toBe(403);
     const revokedReveal = await app.inject({
       method: 'POST',
       url: '/v1/admin/reports/evidence/reveal',

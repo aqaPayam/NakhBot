@@ -6,7 +6,7 @@ import {
 } from '@nakh/application';
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
-class PostgresAdminQueueIdentityStore implements AdminQueueIdentityStore {
+export class PostgresAdminQueueIdentityStore implements AdminQueueIdentityStore {
   public constructor(private readonly database: NakhDatabase) {}
   public async get(actorUserId: string): ReturnType<AdminQueueIdentityStore['get']> {
     return this.database
