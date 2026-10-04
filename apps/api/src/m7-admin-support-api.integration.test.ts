@@ -11,10 +11,15 @@ import {
   PostgresConfirmedSupportCommands,
   PostgresRecordAdminIngressRejectionHandler,
   PostgresSupportStore,
+  PostgresGetSafetyQueueActionsHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { OpenSupportThreadHandler, SupportOpaqueReferences } from '@nakh/application';
-import type { AdminCommandReceipt, PreparedAdminConfirmation } from '@nakh/contracts';
+import type {
+  AdminCommandReceipt,
+  PreparedAdminConfirmation,
+  SafetyQueueActions,
+} from '@nakh/contracts';
 import {
   createReportUser,
   createReportFixtureAdmin,
@@ -73,6 +78,11 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       M7AdminModerationApiModule.register({
         authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
         journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        safetyQueueActions: new PostgresGetSafetyQueueActionsHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
         supportCommands: new PostgresConfirmedSupportCommands(
           database,
           fixture.tokens,
@@ -88,6 +98,38 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
     const headers = { authorization: 'Bearer support-admin-credential' },
       privateReply = 'Private admin HTTP response';
     let version = 1;
+    const queueQuery = { actor: fixture.actor, requestId: randomUUID(), queue: 'support' };
+    const queueResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/safety/queue/actions',
+      headers,
+      payload: queueQuery,
+    });
+    expect(queueResponse.statusCode).toBe(200);
+    expect(queueResponse.headers['cache-control']).toBe('no-store');
+    expect(queueResponse.json<SafetyQueueActions>().adminActionToken).toMatch(/^v1\.ad\./u);
+    expect(queueResponse.body).not.toContain(adminId);
+    expect(queueResponse.body).not.toContain(fixture.actor.userId);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/safety/queue/actions',
+          headers,
+          payload: { ...queueQuery, queue: 'appeals' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/safety/queue/actions',
+          headers,
+          payload: { ...queueQuery, targetId: adminId },
+        })
+      ).statusCode,
+    ).toBe(400);
     for (const action of ['reply', 'close'] as const) {
       const commandType = action === 'reply' ? 'support.reply-thread' : 'support.close-thread';
       const adminActionToken = await fixture.issue({
@@ -208,6 +250,16 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       },
     });
     expect(denied.json()).toMatchObject({ result: 'rejected', safeCode: 'forbidden' });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/safety/queue/actions',
+          headers,
+          payload: queueQuery,
+        })
+      ).statusCode,
+    ).toBe(403);
     expect(denied.body).not.toContain(privateReply);
     expect(JSON.stringify(error.mock.calls)).not.toContain(privateReply);
   });

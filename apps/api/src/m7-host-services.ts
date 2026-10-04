@@ -16,6 +16,7 @@ import {
   PostgresPrepareReviewActionHandler,
   PostgresPrepareReportAccountActionHandler,
   PostgresPrepareReportPhotoActionHandler,
+  PostgresGetSafetyQueueActionsHandler,
 } from '@nakh/persistence-postgres';
 import { createM7ReportHostOptions, type M7ReportHostConfiguration } from './m7-report-services.js';
 import { createM7SupportApiOptions } from './m7-support-services.js';
@@ -44,6 +45,11 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
     input.adminKey,
   );
   const adminModeration: M7AdminModerationApiOptions = Object.freeze({
+    safetyQueueActions: new PostgresGetSafetyQueueActionsHandler(
+      input.database,
+      input.adminTokens,
+      input.adminKey,
+    ),
     reportAccountActions: new PostgresPrepareReportAccountActionHandler(
       input.database,
       input.adminTokens,

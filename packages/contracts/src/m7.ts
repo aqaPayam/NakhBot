@@ -338,6 +338,20 @@ export const PreparedReportPhotoActionSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedReportPhotoAction = Static<typeof PreparedReportPhotoActionSchema>;
+export const GetSafetyQueueActionsQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    queue: Type.Union([Type.Literal('support'), Type.Literal('appeals')]),
+  },
+  { additionalProperties: false },
+);
+export type GetSafetyQueueActionsQuery = Static<typeof GetSafetyQueueActionsQuerySchema>;
+export const SafetyQueueActionsSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema },
+  { additionalProperties: false },
+);
+export type SafetyQueueActions = Static<typeof SafetyQueueActionsSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,

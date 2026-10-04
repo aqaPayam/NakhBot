@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  GetSafetyQueueActionsHandler,
   PrepareReportPhotoActionHandler,
   PrepareReportAccountActionHandler,
   PrepareReviewActionHandler,
@@ -35,6 +36,10 @@ import type {
 import { ApplicationError } from '@nakh/domain';
 import {
   PrepareReportAccountActionQuerySchema,
+  GetSafetyQueueActionsQuerySchema,
+  SafetyQueueActionsSchema,
+  type GetSafetyQueueActionsQuery,
+  type SafetyQueueActions,
   PrepareReportPhotoActionQuerySchema,
   PreparedReportPhotoActionSchema,
   type PrepareReportPhotoActionQuery,
@@ -111,7 +116,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   APPEAL_UNBANS = Symbol('M7_APPEAL_UNBANS'),
   REVIEW_ACTIONS = Symbol('M7_REVIEW_ACTIONS'),
   REPORT_ACCOUNT_ACTIONS = Symbol('M7_REPORT_ACCOUNT_ACTIONS'),
-  REPORT_PHOTO_ACTIONS = Symbol('M7_REPORT_PHOTO_ACTIONS');
+  REPORT_PHOTO_ACTIONS = Symbol('M7_REPORT_PHOTO_ACTIONS'),
+  SAFETY_QUEUE_ACTIONS = Symbol('M7_SAFETY_QUEUE_ACTIONS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -127,6 +133,7 @@ export interface M7AdminModerationApiOptions {
   readonly reviewActions?: Pick<PrepareReviewActionHandler, 'execute'>;
   readonly reportAccountActions?: Pick<PrepareReportAccountActionHandler, 'execute'>;
   readonly reportPhotoActions?: Pick<PrepareReportPhotoActionHandler, 'execute'>;
+  readonly safetyQueueActions?: Pick<GetSafetyQueueActionsHandler, 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -733,6 +740,30 @@ class ReportPhotoActionsController {
     );
   }
 }
+@Controller('v1/admin/safety/queue/actions')
+class SafetyQueueActionsController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(SAFETY_QUEUE_ACTIONS)
+    private readonly actions: NonNullable<M7AdminModerationApiOptions['safetyQueueActions']>,
+  ) {}
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async actionsFor(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<SafetyQueueActions> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<GetSafetyQueueActionsQuery>(
+      GetSafetyQueueActionsQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(SafetyQueueActionsSchema, () => this.actions.execute(query, actor));
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -741,6 +772,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.safetyQueueActions === undefined ? [] : [SafetyQueueActionsController]),
         ...(options.reportPhotoActions === undefined ? [] : [ReportPhotoActionsController]),
         ...(options.reportAccountActions === undefined ? [] : [ReportAccountActionsController]),
         ...(options.reviewActions === undefined ? [] : [ReviewActionsController]),
@@ -755,6 +787,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.safetyQueueActions === undefined
+          ? []
+          : [{ provide: SAFETY_QUEUE_ACTIONS, useValue: options.safetyQueueActions }]),
         ...(options.reportPhotoActions === undefined
           ? []
           : [{ provide: REPORT_PHOTO_ACTIONS, useValue: options.reportPhotoActions }]),
