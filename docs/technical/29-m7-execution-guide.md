@@ -821,3 +821,24 @@ availability, session/cache loss and decision races. PostgreSQL ingress evidence
 rejected and pending appeals, review-only operators, cancellation, permission revocation, stale
 account versions and a later ban, plus one effect/audit/notification under concurrent retries.
 Concrete admin session/MFA composition and real Telegram/provider staging acceptance remain open.
+
+### Queue-selected report review preparation evidence
+
+Report queue selection now has a native preparation port that resolves a selected Report and its
+expected version to the governing ModerationReview and current review version. Own-assignment uses
+the verified current admin identity; the selection contract accepts no review or assignee identity.
+The existing review preparation still checks queue authority, terminal state, assigned reviewer,
+decision-specific permission and a prior moderation action before actioned closure. Preparation
+neither assigns nor reveals evidence. Separate native confirmation binds the derived review target,
+version, reason and assignee/decision before execution; idempotency and immutable attempt logging
+remain authoritative under concurrent retries, permission revocation or competing assignment.
+Strict contracts reject extra identities/content.
+The authenticated `POST /v1/admin/moderation/reports/review-selection` route composes this native
+port, denies mismatched actors and client authority fields, disables caching and validates the
+result before exposing it. The route is absent when its trusted capability is not configured.
+Unit evidence covers forged direct inputs, actor/root mismatch, stale report and mid-preparation
+review change. PostgreSQL evidence starts from
+the actual metadata queue and proves one confirmed assignment and one confirmed dismissal audit,
+plus rejection after revocation, reassignment or confirmation-payload substitution. Test fixtures
+run in an isolated migrated database. The concrete report queue/review Telegram UI is the next
+presentation step; this port provides no deployment or live operator acceptance evidence.

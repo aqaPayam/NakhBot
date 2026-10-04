@@ -175,6 +175,7 @@ export * from './claim-reviews-store.js';
 export * from './queue-actions-store.js';
 export * from './report-evidence-access-store.js';
 export * from './prepare-review-action-store.js';
+export * from './prepare-selected-report-review-store.js';
 export * from './prepare-report-account-action-store.js';
 export * from './prepare-report-photo-action-store.js';
 export * from './safety-queue-actions-store.js';

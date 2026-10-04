@@ -303,6 +303,34 @@ export const PreparedReviewActionSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedReviewAction = Static<typeof PreparedReviewActionSchema>;
+export const PrepareSelectedReportReviewQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    reportId: UuidSchema,
+    expectedReportVersion: Type.Integer({ minimum: 1 }),
+    action: Type.Union([
+      Type.Literal('assign'),
+      Type.Literal('dismissed'),
+      Type.Literal('actioned'),
+    ]),
+  },
+  { additionalProperties: false },
+);
+export type PrepareSelectedReportReviewQuery = Static<
+  typeof PrepareSelectedReportReviewQuerySchema
+>;
+export const PreparedSelectedReportReviewSchema = Type.Object(
+  {
+    adminActionToken: AdminActionTokenSchema,
+    reviewId: UuidSchema,
+    reviewVersion: Type.Integer({ minimum: 1 }),
+    assigneeAdminId: UuidSchema,
+  },
+  { additionalProperties: false },
+);
+export type PreparedSelectedReportReview = Static<typeof PreparedSelectedReportReviewSchema>;
 export const PrepareReportAccountActionQuerySchema = Type.Object(
   {
     actor: AdminActorSchema,

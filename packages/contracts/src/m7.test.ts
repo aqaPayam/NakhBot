@@ -21,6 +21,8 @@ import {
   PreparedReportEvidenceSchema,
   ReconcileM7CommandSchema,
   ReportMetadataPageSchema,
+  PrepareSelectedReportReviewQuerySchema,
+  PreparedSelectedReportReviewSchema,
   ReportEvidenceMetadataSchema,
   ReportSubmissionResultSchema,
   RevealReportEvidenceCommandSchema,
@@ -42,6 +44,38 @@ function validator(schema: object): ValidateFunction {
 }
 
 describe('report evidence metadata privacy contract', () => {
+  it('accepts only queue report selection and server-derived review authority without content', () => {
+    const id = '20000000-0000-4000-8000-000000000000';
+    const token = `v1.ad.${'a'.repeat(16)}.${'b'.repeat(16)}`;
+    const query = {
+      actor: { kind: 'admin', userId: id },
+      requestId: id,
+      adminActionToken: token,
+      reportId: id,
+      expectedReportVersion: 2,
+      action: 'assign',
+    };
+    const validate = validator(PrepareSelectedReportReviewQuerySchema);
+    expect(validate(query)).toBe(true);
+    for (const action of ['dismissed', 'actioned'])
+      expect(validate({ ...query, action })).toBe(true);
+    for (const key of [
+      'reviewId',
+      'expectedReviewVersion',
+      'assigneeAdminId',
+      'reporterId',
+      'text',
+    ])
+      expect(validate({ ...query, [key]: id })).toBe(false);
+    expect(validate({ ...query, actor: { kind: 'user', userId: id } })).toBe(false);
+    expect(validate({ ...query, expectedReportVersion: 0 })).toBe(false);
+    expect(validate({ ...query, action: 'ban_user' })).toBe(false);
+    const result = { adminActionToken: token, reviewId: id, reviewVersion: 1, assigneeAdminId: id };
+    const validateResult = validator(PreparedSelectedReportReviewSchema);
+    expect(validateResult(result)).toBe(true);
+    for (const key of ['reporterId', 'targetUserId', 'text', 'note', 'telegramUserId'])
+      expect(validateResult({ ...result, [key]: id })).toBe(false);
+  });
   it('exposes appeal prose only on fresh audited success and never permits ban or user identity', () => {
     const validate = validator(AdminAppealRevealResultSchema);
     const receipt = {

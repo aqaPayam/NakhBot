@@ -24,6 +24,7 @@ import type {
   PrepareReportPhotoActionHandler,
   PrepareReportAccountActionHandler,
   PrepareReviewActionHandler,
+  PrepareSelectedReportReviewHandler,
   ConfirmedAppealCommands,
   ConfirmedSupportCommands,
   StoredSupportResult,
@@ -95,6 +96,10 @@ import {
   PreparedReviewActionSchema,
   type PrepareReviewActionQuery,
   type PreparedReviewAction,
+  PrepareSelectedReportReviewQuerySchema,
+  PreparedSelectedReportReviewSchema,
+  type PrepareSelectedReportReviewQuery,
+  type PreparedSelectedReportReview,
   PrepareAppealUnbanCommandSchema,
   UnbanAppealCommandSchema,
   type PrepareAppealUnbanCommand,
@@ -159,6 +164,7 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   APPEAL_REVIEWS = Symbol('M7_APPEAL_REVIEWS'),
   APPEAL_UNBANS = Symbol('M7_APPEAL_UNBANS'),
   REVIEW_ACTIONS = Symbol('M7_REVIEW_ACTIONS'),
+  SELECTED_REPORT_REVIEW = Symbol('M7_SELECTED_REPORT_REVIEW'),
   REPORT_ACCOUNT_ACTIONS = Symbol('M7_REPORT_ACCOUNT_ACTIONS'),
   REPORT_PHOTO_ACTIONS = Symbol('M7_REPORT_PHOTO_ACTIONS'),
   SAFETY_QUEUE_ACTIONS = Symbol('M7_SAFETY_QUEUE_ACTIONS'),
@@ -183,6 +189,7 @@ export interface M7AdminModerationApiOptions {
   readonly appealReviews?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
   readonly appealUnbans?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
   readonly reviewActions?: Pick<PrepareReviewActionHandler, 'execute'>;
+  readonly selectedReportReview?: Pick<PrepareSelectedReportReviewHandler, 'execute'>;
   readonly reportAccountActions?: Pick<PrepareReportAccountActionHandler, 'execute'>;
   readonly reportPhotoActions?: Pick<PrepareReportPhotoActionHandler, 'execute'>;
   readonly safetyQueueActions?: Pick<GetSafetyQueueActionsHandler, 'execute'>;
@@ -748,6 +755,32 @@ class ReviewActionsController {
     );
   }
 }
+@Controller('v1/admin/moderation/reports')
+class SelectedReportReviewController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(SELECTED_REPORT_REVIEW)
+    private readonly actions: NonNullable<M7AdminModerationApiOptions['selectedReportReview']>,
+  ) {}
+  @Post('review-selection')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedSelectedReportReview> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<PrepareSelectedReportReviewQuery>(
+      PrepareSelectedReportReviewQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedSelectedReportReviewSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
 @Controller('v1/admin/moderation/reports/account-actions')
 class ReportAccountActionsController {
   public constructor(
@@ -1116,6 +1149,7 @@ export class M7AdminModerationApiModule {
         ...(options.reportPhotoActions === undefined ? [] : [ReportPhotoActionsController]),
         ...(options.reportAccountActions === undefined ? [] : [ReportAccountActionsController]),
         ...(options.reviewActions === undefined ? [] : [ReviewActionsController]),
+        ...(options.selectedReportReview === undefined ? [] : [SelectedReportReviewController]),
         ...(options.appealUnbans === undefined ? [] : [AppealUnbanController]),
         ...(options.appealReviews === undefined ? [] : [AppealReviewController]),
         ...(options.supportCommands === undefined ? [] : [SupportAdminController]),
@@ -1163,6 +1197,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewActions === undefined
           ? []
           : [{ provide: REVIEW_ACTIONS, useValue: options.reviewActions }]),
+        ...(options.selectedReportReview === undefined
+          ? []
+          : [{ provide: SELECTED_REPORT_REVIEW, useValue: options.selectedReportReview }]),
         ...(options.appealUnbans === undefined
           ? []
           : [{ provide: APPEAL_UNBANS, useValue: options.appealUnbans }]),

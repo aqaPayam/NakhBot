@@ -1,0 +1,169 @@
+import { randomUUID } from 'node:crypto';
+import { describe, expect, it, vi } from 'vitest';
+import type { AdminActionAuthorizationService } from '../administration/admin-authorization.js';
+import type { AdminQueueIdentityStore } from './queue-actions.js';
+import type { PrepareReviewActionHandler } from './prepare-review-action.js';
+import {
+  PrepareSelectedReportReviewHandler,
+  type SelectedReportReviewStore,
+} from './prepare-selected-report-review.js';
+
+function fixture(): {
+  actor: { kind: 'admin'; userId: string };
+  adminId: string;
+  query: Parameters<PrepareSelectedReportReviewHandler['execute']>[0];
+  facts: NonNullable<Awaited<ReturnType<SelectedReportReviewStore['get']>>>;
+  authorize: ReturnType<typeof vi.fn<AdminActionAuthorizationService['authorize']>>;
+  identity: ReturnType<typeof vi.fn<AdminQueueIdentityStore['get']>>;
+  get: ReturnType<typeof vi.fn<SelectedReportReviewStore['get']>>;
+  execute: ReturnType<typeof vi.fn<PrepareReviewActionHandler['execute']>>;
+  handler: PrepareSelectedReportReviewHandler;
+} {
+  const actor = { kind: 'admin' as const, userId: randomUUID() },
+    adminId = randomUUID();
+  const authorize = vi.fn<AdminActionAuthorizationService['authorize']>(() =>
+    Promise.resolve({
+      adminUserId: adminId,
+      actorUserId: actor.userId,
+      commandCode: 'moderation.report-metadata',
+      requiredPermission: 'view_reports',
+      targetType: 'report_queue',
+      targetId: null,
+      expectedTargetVersion: null,
+    }),
+  );
+  const identity = vi.fn<AdminQueueIdentityStore['get']>(() =>
+    Promise.resolve({ adminUserId: adminId, telegramUserId: '123456789' }),
+  );
+  const facts = {
+    reportVersion: 2,
+    reportStatus: 'pending_review',
+    reviewId: randomUUID(),
+    reviewVersion: 7,
+  };
+  const get = vi.fn<SelectedReportReviewStore['get']>(() => Promise.resolve(facts));
+  const execute = vi.fn<PrepareReviewActionHandler['execute']>(() =>
+    Promise.resolve({ adminActionToken: 'native-token', reviewVersion: 7 }),
+  );
+  const query = {
+    actor,
+    requestId: randomUUID(),
+    adminActionToken: 'queue-token',
+    reportId: randomUUID(),
+    expectedReportVersion: 2,
+    action: 'assign' as const,
+  };
+  return {
+    actor,
+    adminId,
+    query,
+    facts,
+    authorize,
+    identity,
+    get,
+    execute,
+    handler: new PrepareSelectedReportReviewHandler(
+      { authorize },
+      { get: identity },
+      { get },
+      { execute },
+    ),
+  };
+}
+describe('server-derived selected report review authority', () => {
+  it('derives the governing review/version and own assignee, ignoring forged extra direct input', async () => {
+    const f = fixture();
+    const result = await f.handler.execute(
+      {
+        ...f.query,
+        ...{ reviewId: randomUUID(), expectedReviewVersion: 999, assigneeAdminId: randomUUID() },
+      },
+      f.actor,
+    );
+    expect(result).toEqual({
+      adminActionToken: 'native-token',
+      reviewId: f.facts.reviewId,
+      reviewVersion: 7,
+      assigneeAdminId: f.adminId,
+    });
+    expect(f.execute).toHaveBeenCalledWith(
+      {
+        actor: f.actor,
+        requestId: f.query.requestId,
+        adminActionToken: 'queue-token',
+        reviewId: f.facts.reviewId,
+        expectedReviewVersion: 7,
+        action: 'assign',
+      },
+      f.actor,
+    );
+    expect(f.authorize).toHaveBeenCalledWith({
+      actor: f.actor,
+      token: 'queue-token',
+      commandCode: 'moderation.report-metadata',
+      requiredPermission: 'view_reports',
+      targetType: 'report_queue',
+    });
+    expect(f.get).toHaveBeenCalledWith(f.query.reportId);
+  });
+  it('denies user/cross-actor, scoped roots, malformed versions and unknown actions before selection', async () => {
+    const f = fixture();
+    await expect(
+      f.handler.execute(f.query, { kind: 'user', userId: f.actor.userId }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    await expect(
+      f.handler.execute(f.query, { kind: 'admin', userId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(f.authorize).not.toHaveBeenCalled();
+    for (const expectedReportVersion of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
+      await expect(
+        f.handler.execute({ ...f.query, expectedReportVersion }, f.actor),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+    await expect(
+      f.handler.execute({ ...f.query, action: 'ban_user' as 'assign' }, f.actor),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    const root = await f.authorize(f.authorize.mock.calls[0]![0]);
+    f.authorize.mockResolvedValueOnce({ ...root, targetId: randomUUID() });
+    await expect(f.handler.execute(f.query, f.actor)).rejects.toMatchObject({
+      code: 'invalid_request',
+    });
+    f.authorize.mockResolvedValueOnce({ ...root, expectedTargetVersion: 1 });
+    await expect(f.handler.execute(f.query, f.actor)).rejects.toMatchObject({
+      code: 'invalid_request',
+    });
+    expect(f.get).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+  it('rejects missing/stale/terminal reports and mismatched current admin identity without issuing target authority', async () => {
+    const f = fixture();
+    f.get.mockResolvedValueOnce(undefined);
+    await expect(f.handler.execute(f.query, f.actor)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(
+      f.handler.execute({ ...f.query, expectedReportVersion: 1 }, f.actor),
+    ).rejects.toMatchObject({ code: 'version_conflict' });
+    f.get.mockResolvedValueOnce({ ...f.facts, reportStatus: 'dismissed' });
+    await expect(f.handler.execute(f.query, f.actor)).rejects.toMatchObject({ code: 'conflict' });
+    f.identity.mockResolvedValueOnce(undefined);
+    await expect(f.handler.execute(f.query, f.actor)).rejects.toMatchObject({ code: 'forbidden' });
+    f.identity.mockResolvedValueOnce({ adminUserId: randomUUID(), telegramUserId: '123456789' });
+    await expect(f.handler.execute(f.query, f.actor)).rejects.toMatchObject({ code: 'forbidden' });
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+  it('delegates permission/ownership/action checks and fails if review changed during native preparation', async () => {
+    const f = fixture();
+    for (const action of ['dismissed', 'actioned'] as const) {
+      await f.handler.execute({ ...f.query, action }, f.actor);
+      expect(f.execute.mock.calls.at(-1)![0]).toMatchObject({
+        action,
+        reviewId: f.facts.reviewId,
+        expectedReviewVersion: 7,
+      });
+    }
+    f.execute.mockRejectedValueOnce({ code: 'forbidden', status: 403 });
+    await expect(f.handler.execute(f.query, f.actor)).rejects.toMatchObject({ code: 'forbidden' });
+    f.execute.mockResolvedValueOnce({ adminActionToken: 'changed-token', reviewVersion: 8 });
+    await expect(f.handler.execute(f.query, f.actor)).rejects.toMatchObject({
+      code: 'version_conflict',
+    });
+  });
+});
