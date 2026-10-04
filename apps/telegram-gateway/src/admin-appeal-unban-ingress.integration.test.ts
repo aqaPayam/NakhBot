@@ -13,6 +13,7 @@ import {
   createReportFixtureAdmin,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
+import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
 import { createTelegramAdminSafetyReadIngress } from './admin-safety-read-ingress.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
@@ -56,17 +57,24 @@ async function ban(database: NakhDatabase, userId: string): Promise<string> {
 type Menu = { reply_markup: { inline_keyboard: { callback_data: string }[][] } };
 describe.skipIf(url === undefined)('separate accepted-appeal unban UI to PostgreSQL', () => {
   let database: NakhDatabase;
+  let isolated: Awaited<ReturnType<typeof createIsolatedTestDatabase>> | undefined;
   beforeAll(async () => {
-    await runMigrations(url!, resolve(process.cwd(), 'migrations'));
+    // Review-only test roles must not alter the shared database's immutable seed catalog.
+    isolated = await createIsolatedTestDatabase(url!, 'nakh_appeal_unban_ui');
+    await runMigrations(isolated.url, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
-      url: url!,
+      url: isolated.url,
       poolMax: 10,
       statementTimeoutMs: 15000,
       lockTimeoutMs: 10000,
     });
   });
   afterAll(async () => {
-    await database?.destroy();
+    try {
+      await database?.destroy();
+    } finally {
+      await isolated?.destroy();
+    }
   });
   it.each([
     'restored',
