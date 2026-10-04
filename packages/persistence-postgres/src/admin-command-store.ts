@@ -99,27 +99,38 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
       let value: T | undefined;
       const admin = await transaction
         .selectFrom('administration.admin_users')
-        .select('is_active')
+        .select(['is_active', 'user_id', 'telegram_user_id', 'identity_verified_at'])
         .where('id', '=', attempt.adminUserId)
         .forUpdate()
         .executeTakeFirstOrThrow();
-      const permission = admin.is_active
-        ? await transaction
-            .selectFrom('administration.admin_user_roles as assignment')
-            .innerJoin('administration.admin_roles as role', 'role.code', 'assignment.role_code')
-            .innerJoin(
-              'administration.admin_role_permissions as role_permission',
-              'role_permission.role_code',
-              'role.code',
-            )
-            .select('role_permission.permission_code')
-            .where('assignment.admin_user_id', '=', attempt.adminUserId)
-            .where('assignment.revoked_at', 'is', null)
-            .where('role.is_active', '=', true)
-            .where('role_permission.permission_code', '=', attempt.requiredPermission)
-            .forShare()
-            .executeTakeFirst()
-        : undefined;
+      const identity =
+        admin.is_active && admin.identity_verified_at !== null
+          ? await transaction
+              .selectFrom('identity.telegram_identities')
+              .select('user_id')
+              .where('user_id', '=', admin.user_id)
+              .where('telegram_user_id', '=', admin.telegram_user_id)
+              .forShare()
+              .executeTakeFirst()
+          : undefined;
+      const permission =
+        identity !== undefined
+          ? await transaction
+              .selectFrom('administration.admin_user_roles as assignment')
+              .innerJoin('administration.admin_roles as role', 'role.code', 'assignment.role_code')
+              .innerJoin(
+                'administration.admin_role_permissions as role_permission',
+                'role_permission.role_code',
+                'role.code',
+              )
+              .select('role_permission.permission_code')
+              .where('assignment.admin_user_id', '=', attempt.adminUserId)
+              .where('assignment.revoked_at', 'is', null)
+              .where('role.is_active', '=', true)
+              .where('role_permission.permission_code', '=', attempt.requiredPermission)
+              .forShare()
+              .executeTakeFirst()
+          : undefined;
       if (!admin.is_active || permission === undefined) {
         result = 'rejected';
         safeCode = 'forbidden';

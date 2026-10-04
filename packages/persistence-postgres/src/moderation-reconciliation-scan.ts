@@ -2,12 +2,25 @@ import {
   MODERATION_RECONCILIATION_PHASES,
   type ModerationReconciliationPhase,
 } from '@nakh/application';
-export type Cursor = Readonly<{ phase: ModerationReconciliationPhase; lastId?: string }>;
+export type Cursor = Readonly<{
+  phase: ModerationReconciliationPhase;
+  lastId?: string;
+  lastPairHighId?: string;
+}>;
 export type Finding = Readonly<{
   anomalyType: string;
   entityId: string;
   keyId: string;
-  entityType: 'report' | 'moderation_review' | 'moderation_action' | 'restriction_episode';
+  entityType:
+    | 'report'
+    | 'moderation_review'
+    | 'moderation_action'
+    | 'restriction_episode'
+    | 'support_thread'
+    | 'user_appeal'
+    | 'admin_user'
+    | 'admin_action_log'
+    | 'internal_block';
   safeDetail: Readonly<Record<string, string>>;
 }>;
 export type Scan = Readonly<{

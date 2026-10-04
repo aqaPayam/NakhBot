@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
+import { sql } from 'kysely';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -34,6 +35,11 @@ import { createCurrentBanAppeal } from '../../../packages/persistence-postgres/s
 import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
 import { M7AdminModerationApiModule } from './m7-admin-moderation-api.js';
 import { ApiExceptionFilter } from './app.js';
+import {
+  scanAppeals,
+  scanAdminLogs,
+} from '../../../packages/persistence-postgres/src/moderation-safety-reconciliation.js';
+import { reconciliationCursorBefore } from '../../../packages/persistence-postgres/src/testing/reconciliation-cursor.js';
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL', () => {
   let database: NakhDatabase, app: NestFastifyApplication;
@@ -236,6 +242,44 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
       admin_action_log_id: receipts[0]!.auditId,
     });
     expect(JSON.stringify(audit)).not.toContain('Private');
+    expect(
+      (
+        await scanAppeals(
+          database,
+          { phase: 'appeals', lastId: reconciliationCursorBefore(appeal.appealId) },
+          1,
+        )
+      ).findings,
+    ).toEqual([]);
+    const logCursor = {
+      phase: 'admin_logs' as const,
+      lastId: reconciliationCursorBefore(audit[0]!.admin_action_log_id),
+    };
+    expect((await scanAdminLogs(database, logCursor, 1)).findings).toEqual([]);
+    await database.connection().execute(async (connection) => {
+      await sql`SET session_replication_role = replica`.execute(connection);
+      try {
+        await connection
+          .deleteFrom('administration.safety_access_audits')
+          .where('id', '=', audit[0]!.id)
+          .execute();
+      } finally {
+        await sql`SET session_replication_role = origin`.execute(connection);
+      }
+    });
+    try {
+      expect((await scanAdminLogs(database, logCursor, 1)).findings).toEqual([
+        {
+          anomalyType: 'admin_required_access_audit_missing',
+          entityType: 'admin_action_log',
+          entityId: audit[0]!.admin_action_log_id,
+          keyId: audit[0]!.admin_action_log_id,
+          safeDetail: {},
+        },
+      ]);
+    } finally {
+      await database.insertInto('administration.safety_access_audits').values(audit[0]!).execute();
+    }
     await expect(
       database
         .insertInto('administration.safety_access_audits')

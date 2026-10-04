@@ -609,6 +609,14 @@ source ownership and one system restriction action per episode. Later Account ch
 review states do not invalidate earlier effects; rolling reporter totals are not incorrectly
 recomputed as historical episode totals. Findings remain quarantined with no automatic mutation.
 
+Safety reconciliation now checks the shared unanswered support limit and recorded admin replies/
+closures, exact appeal-ban ownership and review/unban evidence, active workforce identity, required
+access audits and successful action records. Blocked-pair scans use a composite keyset cursor and
+detect active Match/chat/Like/unlock state without copying either user's identity into findings.
+The admin command transaction now locks and rechecks the matching verified Telegram identity as
+well as current permissions, so a previously prepared token cannot authorize execution after that
+identity binding disappears. Historical roles and terminal appeals remain valid retained history.
+
 Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
 and remaining moderation presentation need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin

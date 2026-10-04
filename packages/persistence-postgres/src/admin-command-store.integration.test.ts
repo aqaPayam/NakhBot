@@ -16,6 +16,8 @@ import {
 } from './admin-command-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
+import { scanAdmins } from './moderation-safety-reconciliation.js';
+import { reconciliationCursorBefore } from './testing/reconciliation-cursor.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const genderOptionId = '20000000-0000-4000-8000-000000000001';
@@ -199,6 +201,64 @@ describe.skipIf(databaseUrl === undefined)('M7 durable admin command execution',
     await database?.destroy();
   });
 
+  it('rejects execution after verified identity loss and records a content-free attempt', async () => {
+    const adminId = await createAdmin(database),
+      targetId = await createUser(database);
+    const admin = await database
+      .selectFrom('administration.admin_users')
+      .select('user_id')
+      .where('id', '=', adminId)
+      .executeTakeFirstOrThrow();
+    const identity = await database
+      .selectFrom('identity.telegram_identities')
+      .selectAll()
+      .where('user_id', '=', admin.user_id)
+      .executeTakeFirstOrThrow();
+    const attempt = commandAttempt(adminId, targetId);
+    await database
+      .deleteFrom('identity.telegram_identities')
+      .where('user_id', '=', admin.user_id)
+      .execute();
+    try {
+      let executed = false;
+      const outcome = await new PostgresAdminCommandStore(database).execute(attempt, () => {
+        executed = true;
+        return Promise.resolve({ safeCode: 'completed', value: 'Private effect result' });
+      });
+      expect(executed).toBe(false);
+      expect(outcome).toMatchObject({
+        result: 'rejected',
+        safeCode: 'forbidden',
+        value: undefined,
+      });
+      expect(
+        (
+          await scanAdmins(
+            database,
+            { phase: 'admins', lastId: reconciliationCursorBefore(adminId) },
+            1,
+          )
+        ).findings,
+      ).toEqual([
+        {
+          anomalyType: 'active_admin_identity_mismatch',
+          entityType: 'admin_user',
+          entityId: adminId,
+          keyId: adminId,
+          safeDetail: {},
+        },
+      ]);
+      expect(
+        await database
+          .selectFrom('administration.admin_action_logs')
+          .select(['result', 'safe_code'])
+          .where('command_id', '=', attempt.commandId)
+          .execute(),
+      ).toEqual([{ result: 'rejected', safe_code: 'forbidden' }]);
+    } finally {
+      await database.insertInto('identity.telegram_identities').values(identity).execute();
+    }
+  });
   it('serializes concurrent identical commands and rejects changed replay without a second effect', async () => {
     const adminUserId = await createAdmin(database);
     const targetId = randomUUID();

@@ -19,21 +19,38 @@ import {
   scanModerationActions,
   scanRestrictionEpisodes,
 } from './moderation-review-reconciliation.js';
+import {
+  scanSupportThreads,
+  scanAppeals,
+  scanAdmins,
+  scanAdminLogs,
+  scanInternalBlocks,
+} from './moderation-safety-reconciliation.js';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 function invalid(): never {
   throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
 }
 function cursorFrom(value: Readonly<Record<string, unknown>>): Cursor {
   if (
-    Object.keys(value).some((key) => !['phase', 'lastId'].includes(key)) ||
+    Object.keys(value).some((key) => !['phase', 'lastId', 'lastPairHighId'].includes(key)) ||
     typeof value.phase !== 'string' ||
     !MODERATION_RECONCILIATION_PHASES.includes(value.phase as ModerationReconciliationPhase) ||
-    (value.lastId !== undefined && (typeof value.lastId !== 'string' || !UUID.test(value.lastId)))
+    (value.lastId !== undefined &&
+      (typeof value.lastId !== 'string' || !UUID.test(value.lastId))) ||
+    (value.lastPairHighId !== undefined &&
+      (typeof value.lastPairHighId !== 'string' || !UUID.test(value.lastPairHighId))) ||
+    (value.phase !== 'internal_blocks' && value.lastPairHighId !== undefined) ||
+    (value.phase === 'internal_blocks' &&
+      (value.lastId === undefined) !== (value.lastPairHighId === undefined)) ||
+    (typeof value.lastId === 'string' &&
+      typeof value.lastPairHighId === 'string' &&
+      value.lastId.toLowerCase() >= value.lastPairHighId.toLowerCase())
   )
     throw new ApplicationError('conflict', 'error.m7.unavailable', 409);
   return {
     phase: value.phase as ModerationReconciliationPhase,
     ...(value.lastId === undefined ? {} : { lastId: value.lastId }),
+    ...(value.lastPairHighId === undefined ? {} : { lastPairHighId: value.lastPairHighId }),
   };
 }
 /** Metadata only: never reads prose, ciphertext, snapshot payloads, or key material into memory. */
@@ -140,6 +157,16 @@ export class PostgresModerationReconciliationStore implements ModerationReconcil
         return scanModerationActions(database, cursor, limit);
       case 'episodes':
         return scanRestrictionEpisodes(database, cursor, limit);
+      case 'support_threads':
+        return scanSupportThreads(database, cursor, limit);
+      case 'appeals':
+        return scanAppeals(database, cursor, limit);
+      case 'admins':
+        return scanAdmins(database, cursor, limit);
+      case 'admin_logs':
+        return scanAdminLogs(database, cursor, limit);
+      case 'internal_blocks':
+        return scanInternalBlocks(database, cursor, limit);
     }
   }
   private async scanReports(database: NakhDatabase, cursor: Cursor, limit: number): Promise<Scan> {

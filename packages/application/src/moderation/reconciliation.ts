@@ -5,6 +5,11 @@ export const MODERATION_RECONCILIATION_PHASES = [
   'reviews',
   'actions',
   'episodes',
+  'support_threads',
+  'appeals',
+  'admins',
+  'admin_logs',
+  'internal_blocks',
 ] as const;
 export type ModerationReconciliationPhase = (typeof MODERATION_RECONCILIATION_PHASES)[number];
 export type ModerationReconciliationBatchResult = Readonly<{
