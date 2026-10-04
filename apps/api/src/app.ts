@@ -22,6 +22,7 @@ import { sql } from 'kysely';
 import type { Logger } from 'pino';
 import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
 import { M7SupportApiModule, type M7SupportApiOptions } from './m7-support-api.js';
+import { M7AppealApiModule, type M7AppealApiOptions } from './m7-appeal-api.js';
 import { M7AdminReportApiModule, type M7AdminReportApiOptions } from './m7-admin-report-api.js';
 import {
   M7AdminModerationApiModule,
@@ -204,6 +205,7 @@ export class ApiModule {
     adminReports?: M7AdminReportApiOptions,
     adminModeration?: M7AdminModerationApiOptions,
     support?: M7SupportApiOptions,
+    appeals?: M7AppealApiOptions,
   ): DynamicModule {
     const database = createDatabase(config.database);
     return {
@@ -215,6 +217,7 @@ export class ApiModule {
           ? []
           : [M7AdminModerationApiModule.register(adminModeration)]),
         ...(support === undefined ? [] : [M7SupportApiModule.register(support)]),
+        ...(appeals === undefined ? [] : [M7AppealApiModule.register(appeals)]),
       ],
       controllers: [HealthController, FoundationController],
       providers: [

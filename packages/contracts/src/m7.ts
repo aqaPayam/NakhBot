@@ -492,6 +492,16 @@ export const SubmitAppealCommandSchema = mutationSchema(
   ),
 );
 export type SubmitAppealCommand = Static<typeof SubmitAppealCommandSchema>;
+export const PrepareAppealQuerySchema = Type.Object(
+  { actor: UserActorSchema, commandId: UuidSchema, requestId: UuidSchema },
+  { additionalProperties: false },
+);
+export type PrepareAppealQuery = Static<typeof PrepareAppealQuerySchema>;
+export const PreparedAppealReferenceSchema = Type.Object(
+  { banActionToken: BanActionTokenSchema },
+  { additionalProperties: false },
+);
+export type PreparedAppealReference = Static<typeof PreparedAppealReferenceSchema>;
 
 export const ReviewAppealCommandSchema = mutationSchema(
   'moderation.review-appeal',
@@ -828,6 +838,8 @@ export const AppealResultSchema = Type.Object(
   { additionalProperties: false },
 );
 export type AppealResult = Static<typeof AppealResultSchema>;
+export const UserAppealReceiptSchema = Type.Omit(AppealResultSchema, ['appealId']);
+export type UserAppealReceipt = Static<typeof UserAppealReceiptSchema>;
 
 export const M7OperationalHealthSchema = Type.Object(
   {
