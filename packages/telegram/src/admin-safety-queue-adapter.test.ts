@@ -9,6 +9,7 @@ import type {
   PrepareAppealReviewAccessHandler,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
+import type { TelegramAdminAppealReviews } from './admin-appeal-reviews.js';
 import type { TelegramAdminSupportMutations } from './admin-support-mutations.js';
 import { TelegramAdminSafetyQueueAdapter } from './admin-safety-queue-adapter.js';
 import { TelegramAdminSafetyQueueState } from './admin-safety-queue-state.js';
@@ -120,7 +121,8 @@ class Harness {
   public mutation = vi
     .fn<TelegramAdminSupportMutations['prepare']>()
     .mockResolvedValue('a'.repeat(22));
-  public constructor(mutations = false) {
+  public review = vi.fn<TelegramAdminAppealReviews['prepare']>().mockResolvedValue('b'.repeat(22));
+  public constructor(mutations = false, reviews = false) {
     const tokens: OpaqueTokenStore = {
       get: (id) => Promise.resolve(this.values.get(id)),
       putIfAbsent: (id, value) => {
@@ -152,6 +154,7 @@ class Harness {
       },
       () => this.now,
       mutations ? { prepare: this.mutation } : undefined,
+      reviews ? { prepare: this.review } : undefined,
     );
   }
 }
@@ -298,5 +301,32 @@ describe('private Telegram admin metadata picker and exact-prompt reason entry',
     expect(f.queueMenu.mock.calls[1]![0].replyMarkup.inline_keyboard[0]![0].callback_data).toBe(
       choice.replace('m7q:', 'm7v:'),
     );
+  });
+  it('binds an appeal decision to the exact prompt and isolates it from support actions', async () => {
+    const f = new Harness(false, true);
+    await f.adapter.handle(message('/admin_appeals'));
+    const choice = f.queueMenu.mock.calls[0]![0].replyMarkup.inline_keyboard[0]![0].callback_data;
+    await f.adapter.handle(callback(choice));
+    expect(
+      f.queueMenu.mock.calls[1]![0].replyMarkup.inline_keyboard.map((row) =>
+        row[0].callback_data.slice(0, 4),
+      ),
+    ).toEqual(['m7v:', 'm7a:', 'm7b:']);
+    await f.adapter.handle(callback(choice.replace('m7q:', 'm7a:')));
+    expect(f.appealActions.mock.calls.at(-1)![0].action).toBe('review');
+    await f.adapter.handle(reply('Review reason\nPrivate note'));
+    expect(f.review.mock.calls[0]![1]).toMatchObject({
+      action: 'accepted',
+      reason: 'Review reason',
+      note: 'Private note',
+    });
+    expect(f.mutation).not.toHaveBeenCalled();
+    expect(f.select).not.toHaveBeenCalled();
+    await expect(f.adapter.handle(callback(choice.replace('m7q:', 'm7b:')))).rejects.toMatchObject({
+      code: 'idempotency_conflict',
+    });
+    await expect(f.adapter.handle(callback(choice.replace('m7q:', 'm7j:')))).rejects.toMatchObject({
+      code: 'invalid_request',
+    });
   });
 });

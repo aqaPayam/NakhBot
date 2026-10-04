@@ -3,6 +3,7 @@ import {
   PostgresConfirmedAppealReveals,
   PostgresConfirmedSupportReveals,
   PostgresConfirmedSupportCommands,
+  PostgresConfirmedAppealCommands,
   PostgresPrepareSupportActionHandler,
   PostgresPrepareAppealReviewAccessHandler,
   PostgresGetSafetyQueueActionsHandler,
@@ -20,6 +21,8 @@ import {
   TelegramAdminSafetyFeedback,
   TelegramAdminSupportMutationVault,
   TelegramAdminSupportMutations,
+  TelegramAdminAppealReviews,
+  TelegramAdminSafetyMutationVault,
   TelegramAdminReadConfirmationMenus,
   type TelegramAdminTextDelivery,
   type TelegramAdminSessionVerifier,
@@ -94,6 +97,20 @@ export function createTelegramAdminSafetyReadIngress(
     input.delivery,
     input.renderer,
   );
+  const reviews = new TelegramAdminAppealReviews(
+    input.sessions,
+    new PostgresPrepareAppealReviewAccessHandler(input.database, input.tokens, input.adminKey),
+    new PostgresConfirmedAppealCommands(input.database, input.tokens, input.adminKey),
+    new TelegramAdminSafetyMutationVault(
+      'appeal-review',
+      input.tokens,
+      input.uiEncryptionKey,
+      input.uiReferenceKey,
+    ),
+    input.uiReferenceKey,
+    input.delivery,
+    input.renderer,
+  );
   const queue = new TelegramAdminSafetyQueueAdapter(
     input.botId,
     input.sessions,
@@ -108,11 +125,12 @@ export function createTelegramAdminSafetyReadIngress(
     input.renderer,
     undefined,
     mutations,
+    reviews,
   );
   const feedback = new TelegramAdminSafetyFeedback(
     input.botId,
     input.sessions,
-    [queue, reads, mutations],
+    [queue, reads, mutations, reviews],
     input.tokens,
     input.uiReferenceKey,
     input.delivery,

@@ -782,3 +782,24 @@ payload substitution, full emoji limits and session/cache loss during preview. P
 evidence exercises actual picker/prompt/confirmation replies, closure, cancellation and permission
 revocation under concurrent confirmation retries. This is implementation evidence; concrete admin
 session/MFA composition and real Telegram/provider staging acceptance remain open gates.
+
+### Confirmed appeal review UI evidence
+
+The explicit private admin queue now offers Read, Accept and Reject for submitted/in-review
+appeals; terminal appeals retain only Read at this stage. The selected decision and exact target
+are bound to the owned bot prompt. Its first line is the bounded review reason, with an optional
+private note on remaining lines. Native review access checks current permission, appeal version
+and exact current ban before preparation. An encrypted actor/purpose-bound five-minute draft
+binds every header, selected-target binding, decision and normalized note to native confirmation.
+Protected preview handles the full 2000-scalar note limit; current session/MFA and pending state
+are rechecked before each send. Confirm and Cancel have distinct review callbacks and a single
+first-write-wins UI decision. Support storage reuses the common validated encryption mechanism
+with its own namespace and strict native-command allowlist. Review storage cannot accept unban.
+Native PostgreSQL execution and immutable audit remain authoritative for permission, exact ban,
+version, idempotency and concurrency. Acceptance/rejection never calls unban and never changes
+Account state/history. A separate permission-checked unban UI remains the next implementation.
+Migration 66 adds seven English fallback labels and requires bootstrap, upgrade and replay
+verification before ingress activation. Unit and PostgreSQL ingress evidence covers payload and
+decision substitution, purpose isolation, expiry/cache/session loss, bounded Unicode preview,
+concurrent confirmations, cancelled/revoked attempts, and a new ban after draft preparation.
+This remains implementation evidence; concrete MFA/session and live provider acceptance are open.

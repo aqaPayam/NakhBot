@@ -15,7 +15,10 @@ export type TelegramSafetyQueuePage = Readonly<{
   status: string;
   cursor: string;
 }>;
-type Prompt = Readonly<{ reference: string; action: 'read' | 'reply' | 'close' }>;
+type Prompt = Readonly<{
+  reference: string;
+  action: 'read' | 'reply' | 'close' | 'accepted' | 'rejected';
+}>;
 type State = TelegramSafetyQueueChoice | TelegramSafetyQueuePage | Prompt;
 type Purpose = 'choice' | 'page' | 'prompt';
 const referencePattern = /^[A-Za-z0-9_-]{22}$/u;
@@ -31,7 +34,7 @@ function valid(value: unknown, purpose: Purpose): value is State {
   if (purpose === 'prompt')
     return (
       Object.keys(row).length === 2 &&
-      ['read', 'reply', 'close'].includes(String(row.action)) &&
+      ['read', 'reply', 'close', 'accepted', 'rejected'].includes(String(row.action)) &&
       typeof row.reference === 'string' &&
       referencePattern.test(row.reference)
     );

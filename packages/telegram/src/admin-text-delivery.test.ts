@@ -171,4 +171,45 @@ describe('protected Telegram admin text delivery', () => {
     ).rejects.toMatchObject({ code: 'invalid_request' });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it('protects appeal review confirmation and denies support or unban callback substitution', async () => {
+    const fetcher = vi
+      .fn<(url: string, init?: RequestInit) => Promise<Response>>()
+      .mockImplementation(() =>
+        Promise.resolve(new Response('{"ok":true,"result":{"message_id":12}}')),
+      );
+    const sender = new TelegramAdminTextDelivery('123:private-token', fetcher);
+    const menu = {
+      ...input,
+      replyMarkup: {
+        inline_keyboard: [
+          [
+            { text: 'Confirm', callback_data: `m7d:${'a'.repeat(22)}` },
+            { text: 'Cancel', callback_data: `m7z:${'a'.repeat(22)}` },
+          ],
+        ] as const,
+      },
+    };
+    await sender.appealReviewMenu(menu);
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({
+      protect_content: true,
+      reply_markup: menu.replyMarkup,
+    });
+    await expect(sender.supportMutationMenu(menu)).rejects.toMatchObject({
+      code: 'invalid_request',
+    });
+    await expect(
+      sender.appealReviewMenu({
+        ...menu,
+        replyMarkup: {
+          inline_keyboard: [
+            [
+              { text: 'Confirm', callback_data: `m7m:${'a'.repeat(22)}` },
+              menu.replyMarkup.inline_keyboard[0][1],
+            ],
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
 });
