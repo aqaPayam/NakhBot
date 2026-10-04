@@ -7,6 +7,7 @@ import {
   AppealResultSchema,
   AdminEvidenceRevealResultSchema,
   AdminCommandReceiptSchema,
+  AdminSupportRevealResultSchema,
   ApplyAccountModerationActionCommandSchema,
   AssignAdminRoleCommandSchema,
   BootstrapAdminCommandSchema,
@@ -40,6 +41,39 @@ function validator(schema: object): ValidateFunction {
 }
 
 describe('report evidence metadata privacy contract', () => {
+  it('never permits support content on replay or rejection or sender identities in a fresh read', () => {
+    const validate = validator(AdminSupportRevealResultSchema);
+    const receipt = {
+      auditId: '20000000-0000-4000-8000-000000000000',
+      result: 'succeeded',
+      safeCode: 'completed',
+      recordedAt: '2026-10-04T12:00:00.000Z',
+      replayed: false,
+    };
+    const thread = {
+      threadVersion: 1,
+      status: 'open',
+      hasEarlierMessages: false,
+      messages: [{ senderType: 'user', text: 'Restricted text', createdAt: receipt.recordedAt }],
+    };
+    expect(validate({ ...receipt, thread })).toBe(true);
+    expect(validate({ ...receipt, thread, replayed: true })).toBe(false);
+    expect(validate({ ...receipt, thread, result: 'rejected', safeCode: 'forbidden' })).toBe(false);
+    expect(validate({ ...receipt, thread: { ...thread, userId: receipt.auditId } })).toBe(false);
+    expect(
+      validate({
+        ...receipt,
+        thread: { ...thread, messages: [{ ...thread.messages[0], senderUserId: receipt.auditId }] },
+      }),
+    ).toBe(false);
+    expect(
+      validate({
+        ...receipt,
+        thread: { ...thread, messages: Array.from({ length: 51 }, () => thread.messages[0]) },
+      }),
+    ).toBe(false);
+    expect(validate({ ...receipt, replayed: true })).toBe(true);
+  });
   it('forbids evidence content on replay or failed outcomes and keeps admin receipts finite', () => {
     const validate = validator(AdminEvidenceRevealResultSchema);
     const receipt = {

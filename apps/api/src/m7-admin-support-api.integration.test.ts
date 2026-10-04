@@ -9,6 +9,7 @@ import {
   createDatabase,
   runMigrations,
   PostgresConfirmedSupportCommands,
+  PostgresConfirmedSupportReveals,
   PostgresRecordAdminIngressRejectionHandler,
   PostgresSupportStore,
   PostgresGetSafetyQueueActionsHandler,
@@ -24,6 +25,9 @@ import type {
   SafetyQueueActions,
   SupportMetadataPage,
   PreparedSupportAction,
+  AdminSupportRevealResult,
+  RevealSupportThreadCommand,
+  PrepareSupportRevealCommand,
 } from '@nakh/contracts';
 import {
   createReportUser,
@@ -87,6 +91,7 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
         authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
         journal: new PostgresRecordAdminIngressRejectionHandler(database),
         ownCommandReceipts: new PostgresGetOwnAdminCommandReceiptHandler(database),
+        supportReveals: new PostgresConfirmedSupportReveals(database, fixture.tokens, fixture.key),
         supportActions: new PostgresPrepareSupportActionHandler(
           database,
           fixture.tokens,
@@ -294,6 +299,106 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       .where('support_thread_id', '=', thread.supportThreadId)
       .execute();
     expect(messages.filter((message) => message.sender_type === 'admin')).toHaveLength(1);
+    const revealAccess = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/support/actions',
+      headers,
+      payload: {
+        actor: fixture.actor,
+        requestId: randomUUID(),
+        adminActionToken: queueResponse.json<SafetyQueueActions>().adminActionToken,
+        threadId: thread.supportThreadId,
+        expectedThreadVersion: version,
+        action: 'reveal',
+      },
+    });
+    expect(revealAccess.statusCode).toBe(200);
+    const revealDraft: PrepareSupportRevealCommand = {
+      actor: fixture.actor,
+      commandType: 'support.reveal-thread',
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      schemaVersion: 1,
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: revealAccess.json<PreparedSupportAction>().adminActionToken,
+        expectedTargetVersion: version,
+        reason: 'Review retained support conversation',
+      },
+    };
+    const prepareReveal = async (
+      draft: typeof revealDraft,
+    ): Promise<RevealSupportThreadCommand> => {
+      const confirmation = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/support/reveal/prepare',
+        headers,
+        payload: draft,
+      });
+      expect(confirmation.statusCode).toBe(200);
+      return {
+        ...draft,
+        data: {
+          ...draft.data,
+          confirmationToken: confirmation.json<PreparedAdminConfirmation>().confirmationToken,
+        },
+      };
+    };
+    const revealPayload = await prepareReveal(revealDraft);
+    const reveals = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({
+          method: 'POST',
+          url: '/v1/admin/support/reveal',
+          headers,
+          payload: revealPayload,
+        }),
+      ),
+    );
+    expect(reveals.every((response) => response.statusCode === 200)).toBe(true);
+    const revealed = reveals.map((response) => response.json<AdminSupportRevealResult>());
+    const fresh = revealed.filter((receipt) => receipt.result === 'succeeded' && !receipt.replayed);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0]).toMatchObject({
+      thread: {
+        status: 'closed',
+        threadVersion: version,
+        hasEarlierMessages: false,
+        messages: [
+          { senderType: 'user', text: opening.data.text },
+          { senderType: 'admin', text: privateReply },
+        ],
+      },
+    });
+    for (const response of reveals) {
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.body).not.toContain(userId);
+      expect(response.body).not.toContain(adminId);
+      if (response.json<AdminSupportRevealResult>().replayed)
+        expect(response.body).not.toContain(privateReply);
+    }
+    const accessAudits = await database
+      .selectFrom('administration.safety_access_audits')
+      .selectAll()
+      .where('command_id', '=', revealDraft.commandId)
+      .execute();
+    expect(accessAudits).toHaveLength(1);
+    expect(accessAudits[0]).toMatchObject({
+      outcome: 'revealed',
+      item_count: 2,
+      admin_action_log_id: fresh[0]!.auditId,
+    });
+    expect(JSON.stringify(accessAudits)).not.toContain(privateReply);
+    await expect(
+      database
+        .updateTable('administration.safety_access_audits')
+        .set({ item_count: 0 })
+        .where('id', '=', accessAudits[0]!.id)
+        .execute(),
+    ).rejects.toThrow();
+    const revokedReveal = await prepareReveal({ ...revealDraft, commandId: randomUUID() });
     const token = await fixture.issue({
       commandCode: 'support.reply-thread',
       requiredPermission: 'review_support',
@@ -346,6 +451,25 @@ describe.skipIf(url === undefined)('confirmed support admin HTTP to PostgreSQL',
       .set({ revoked_at: new Date(), revoked_by_admin_id: adminId })
       .where('admin_user_id', '=', adminId)
       .execute();
+    const deniedReveal = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/support/reveal',
+      headers,
+      payload: revokedReveal,
+    });
+    expect(deniedReveal.statusCode).toBe(200);
+    expect(deniedReveal.json<AdminSupportRevealResult>()).toMatchObject({
+      result: 'rejected',
+      safeCode: 'forbidden',
+    });
+    expect(deniedReveal.body).not.toContain(privateReply);
+    expect(
+      await database
+        .selectFrom('administration.safety_access_audits')
+        .select(['outcome', 'item_count'])
+        .where('command_id', '=', revokedReveal.commandId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ outcome: 'rejected', item_count: 0 });
     const denied = await app.inject({
       method: 'POST',
       url: '/v1/admin/support/reply',

@@ -184,3 +184,4 @@ export * from './appeal-metadata-store.js';
 export * from './prepare-appeal-review-access-store.js';
 export * from './prepare-appeal-unban-access-store.js';
 export * from './own-admin-command-receipt-store.js';
+export * from './support-reveal-store.js';

@@ -585,6 +585,12 @@ HTTP-to-PostgreSQL evidence covers retry races, limits, exact-ban admission, rol
 acceptance without automatic unban. All five report/reveal flows run through the same host.
 This remains explicit host registration with an injected verifier, not real session/MFA or delivery.
 
+Support metadata can now prepare a separate confirmed content read for the selected current thread,
+including retained closed threads. The read returns at most the newest 50 messages, without sender
+identities, only after the admin attempt and immutable support access audit commit. Concurrent retries
+return content once; later permission revocation produces a content-free rejected access audit.
+Integration evidence includes bounded history and complete rollback on required-audit failure.
+
 Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
 and remaining moderation presentation need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin

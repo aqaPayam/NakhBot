@@ -62,6 +62,8 @@ describe('explicit shared M7 HTTP host', () => {
       ['/v1/admin/safety/queue/actions', 'admin'],
       ['/v1/admin/support/metadata', 'admin'],
       ['/v1/admin/support/actions', 'admin'],
+      ['/v1/admin/support/reveal/prepare', 'admin'],
+      ['/v1/admin/support/reveal', 'admin'],
       ['/v1/admin/appeals/metadata', 'admin'],
       ['/v1/admin/appeals/actions', 'admin'],
       ['/v1/admin/appeals/unban/actions', 'admin'],

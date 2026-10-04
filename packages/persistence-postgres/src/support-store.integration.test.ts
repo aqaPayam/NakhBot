@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -12,6 +13,7 @@ import {
 import type { ReplySupportThreadCommand, CloseSupportThreadCommand } from '@nakh/contracts';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 import { PostgresConfirmedSupportCommands } from './confirmed-support-store.js';
+import { PostgresSupportThreadRevealStore } from './support-reveal-store.js';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -147,6 +149,77 @@ describe.skipIf(databaseUrl === undefined)('M7 durable support messaging', () =>
 
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('bounds retained content and rolls back the command when its required access audit fails', async () => {
+    const userId = await createUser(database),
+      threadId = randomUUID(),
+      adminId = await createSupportAdmin(database);
+    await store.open(userWrite(userId, threadId, 'bounded-reveal'));
+    const workflow = new PostgresSupportAdminWorkflow(database);
+    for (let version = 1; version <= 51; version++) {
+      const result = await workflow.reply(
+        adminAttempt(adminId, threadId, 'support.reply-thread', version),
+        `Private reply ${version}`,
+      );
+      expect(result.result).toBe('succeeded');
+    }
+    const attempt = {
+      ...adminAttempt(adminId, threadId, 'support.close-thread', 52),
+      commandCode: 'support.reveal-thread',
+    };
+    const reveals = new PostgresSupportThreadRevealStore(database);
+    // A disposable, command-specific database fault proves no content or receipt escapes COMMIT.
+    const suffix = randomUUID().replaceAll('-', ''),
+      functionName = `fail_safety_access_${suffix}`;
+    await sql
+      .raw(
+        `CREATE FUNCTION administration.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.command_id = '${attempt.commandId}'::uuid THEN
+        RAISE EXCEPTION 'injected access audit failure'; END IF; RETURN NEW; END $$`,
+      )
+      .execute(database);
+    await sql
+      .raw(
+        `CREATE TRIGGER ${functionName} BEFORE INSERT ON administration.safety_access_audits
+      FOR EACH ROW EXECUTE FUNCTION administration.${functionName}()`,
+      )
+      .execute(database);
+    try {
+      await expect(reveals.reveal(attempt)).rejects.toThrow();
+      expect(
+        await database
+          .selectFrom('administration.admin_action_logs')
+          .select('id')
+          .where('command_id', '=', attempt.commandId)
+          .execute(),
+      ).toHaveLength(0);
+      expect(
+        await database
+          .selectFrom('administration.safety_access_audits')
+          .select('id')
+          .where('command_id', '=', attempt.commandId)
+          .execute(),
+      ).toHaveLength(0);
+    } finally {
+      await sql
+        .raw(`DROP TRIGGER ${functionName} ON administration.safety_access_audits`)
+        .execute(database);
+      await sql.raw(`DROP FUNCTION administration.${functionName}()`).execute(database);
+    }
+    const fresh = await reveals.reveal(attempt);
+    expect(fresh.result).toBe('succeeded');
+    expect(fresh.value?.messages).toHaveLength(50);
+    expect(fresh.value?.hasEarlierMessages).toBe(true);
+    expect(fresh.value?.messages[0]?.text).toBe('Private reply 2');
+    expect(fresh.value?.messages[49]?.text).toBe('Private reply 51');
+    expect((await reveals.reveal(attempt)).value).toBeUndefined();
+    expect(
+      await database
+        .selectFrom('administration.safety_access_audits')
+        .select(['outcome', 'item_count'])
+        .where('command_id', '=', attempt.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'revealed', item_count: 50 }]);
   });
   it('requires exact reply/close confirmation and audits changed, stale and invalid-text attempts', async () => {
     const userId = await createUser(database),

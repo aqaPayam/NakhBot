@@ -31,14 +31,14 @@ export class PrepareSupportActionHandler {
     if (
       root.targetId !== null ||
       root.expectedTargetVersion !== null ||
-      !['reply', 'close'].includes(query.action)
+      !['reply', 'close', 'reveal'].includes(query.action)
     )
       throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
     const thread = await this.threads.get(query.threadId);
     if (thread === undefined) throw new ApplicationError('not_found', 'error.m7.unavailable', 404);
     if (thread.version !== query.expectedThreadVersion)
       throw new ApplicationError('version_conflict', 'error.m7.stale_action', 409);
-    if (thread.status !== 'open')
+    if (thread.status !== 'open' && !(query.action === 'reveal' && thread.status === 'closed'))
       throw new ApplicationError('conflict', 'error.m7.unavailable', 409);
     const identity = await this.identities.get(actor.userId);
     if (identity === undefined || identity.adminUserId !== root.adminUserId)
@@ -47,7 +47,12 @@ export class PrepareSupportActionHandler {
       actorUserId: actor.userId,
       telegramUserId: identity.telegramUserId,
       scope: {
-        commandCode: query.action === 'reply' ? 'support.reply-thread' : 'support.close-thread',
+        commandCode:
+          query.action === 'reply'
+            ? 'support.reply-thread'
+            : query.action === 'close'
+              ? 'support.close-thread'
+              : 'support.reveal-thread',
         requiredPermission: 'review_support',
         targetType: 'support_thread',
         targetId: query.threadId,

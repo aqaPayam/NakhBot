@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  ConfirmedSupportReveals,
   GetOwnAdminCommandReceiptHandler,
   PrepareAppealUnbanAccessHandler,
   PrepareAppealReviewAccessHandler,
@@ -41,6 +42,13 @@ import type {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
+  RevealSupportThreadCommandSchema,
+  PrepareSupportRevealCommandSchema,
+  AdminSupportRevealResultSchema,
+  type RevealSupportThreadCommand,
+  type PrepareSupportRevealCommand,
+  type RevealedSupportThread,
+  type AdminSupportRevealResult,
   PrepareReportAccountActionQuerySchema,
   GetSafetyQueueActionsQuerySchema,
   GetSupportMetadataQuerySchema,
@@ -151,7 +159,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   APPEAL_METADATA = Symbol('M7_APPEAL_METADATA'),
   APPEAL_ACTIONS = Symbol('M7_APPEAL_ACTIONS'),
   APPEAL_UNBAN_ACTIONS = Symbol('M7_APPEAL_UNBAN_ACTIONS'),
-  OWN_COMMAND_RECEIPTS = Symbol('M7_OWN_COMMAND_RECEIPTS');
+  OWN_COMMAND_RECEIPTS = Symbol('M7_OWN_COMMAND_RECEIPTS'),
+  SUPPORT_REVEALS = Symbol('M7_SUPPORT_REVEALS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -174,6 +183,7 @@ export interface M7AdminModerationApiOptions {
   readonly appealActions?: Pick<PrepareAppealReviewAccessHandler, 'execute'>;
   readonly appealUnbanActions?: Pick<PrepareAppealUnbanAccessHandler, 'execute'>;
   readonly ownCommandReceipts?: Pick<GetOwnAdminCommandReceiptHandler, 'execute'>;
+  readonly supportReveals?: Pick<ConfirmedSupportReveals, 'prepare' | 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -960,6 +970,64 @@ class OwnCommandReceiptController {
     );
   }
 }
+@Controller('v1/admin/support/reveal')
+class SupportRevealController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(INGRESS) private readonly ingress: AuditedAdminMutationIngress,
+    @Inject(SUPPORT_REVEALS)
+    private readonly reveals: NonNullable<M7AdminModerationApiOptions['supportReveals']>,
+  ) {}
+  @Post('prepare')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAdminConfirmation> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const command = this.boundary.parse<PrepareSupportRevealCommand>(
+      PrepareSupportRevealCommandSchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAdminConfirmationSchema, async () => ({
+      confirmationToken: await this.reveals.prepare(command, actor),
+    }));
+  }
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async reveal(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminSupportRevealResult> {
+    return this.boundary.result(AdminSupportRevealResultSchema, async () => {
+      const result = await this.ingress.execute<RevealSupportThreadCommand, RevealedSupportThread>(
+        RevealSupportThreadCommandSchema,
+        request,
+        body,
+        { commandCode: 'support.reveal-thread', requiredPermission: 'review_support' },
+        (command, actor) => this.reveals.execute(command, actor),
+      );
+      const receipt = adminCommandReceipt(result);
+      if (result.result === 'succeeded' && !result.replayed) {
+        if (result.value === undefined) throw new Error('Missing audited support reveal value');
+        return {
+          ...receipt,
+          result: 'succeeded' as const,
+          replayed: false as const,
+          thread: result.value,
+        };
+      }
+      if (result.result === 'succeeded')
+        return { ...receipt, result: 'succeeded' as const, replayed: true as const };
+      return { ...receipt, result: result.result };
+    });
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -968,6 +1036,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.supportReveals === undefined ? [] : [SupportRevealController]),
         ...(options.ownCommandReceipts === undefined ? [] : [OwnCommandReceiptController]),
         ...(options.appealUnbanActions === undefined ? [] : [AppealUnbanActionsController]),
         ...(options.appealActions === undefined ? [] : [AppealActionsController]),
@@ -989,6 +1058,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.supportReveals === undefined
+          ? []
+          : [{ provide: SUPPORT_REVEALS, useValue: options.supportReveals }]),
         ...(options.ownCommandReceipts === undefined
           ? []
           : [{ provide: OWN_COMMAND_RECEIPTS, useValue: options.ownCommandReceipts }]),

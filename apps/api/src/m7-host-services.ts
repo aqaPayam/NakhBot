@@ -4,6 +4,7 @@ import type {
   ReviewNoteProtector,
 } from '@nakh/application';
 import {
+  PostgresConfirmedSupportReveals,
   PostgresConfirmedAccountActions,
   PostgresConfirmedInternalBlocks,
   PostgresConfirmedReviewAssignments,
@@ -51,6 +52,11 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
     input.adminKey,
   );
   const adminModeration: M7AdminModerationApiOptions = Object.freeze({
+    supportReveals: new PostgresConfirmedSupportReveals(
+      input.database,
+      input.adminTokens,
+      input.adminKey,
+    ),
     ownCommandReceipts: new PostgresGetOwnAdminCommandReceiptHandler(input.database),
     appealUnbanActions: new PostgresPrepareAppealUnbanAccessHandler(
       input.database,

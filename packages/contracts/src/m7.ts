@@ -394,7 +394,7 @@ export const PrepareSupportActionQuerySchema = Type.Object(
     adminActionToken: AdminActionTokenSchema,
     threadId: UuidSchema,
     expectedThreadVersion: Type.Integer({ minimum: 1 }),
-    action: Type.Union([Type.Literal('reply'), Type.Literal('close')]),
+    action: Type.Union([Type.Literal('reply'), Type.Literal('close'), Type.Literal('reveal')]),
   },
   { additionalProperties: false },
 );
@@ -698,6 +698,18 @@ export const CloseSupportThreadCommandSchema = mutationSchema(
   Type.Object(AdminMutationFields, { additionalProperties: false }),
 );
 export type CloseSupportThreadCommand = Static<typeof CloseSupportThreadCommandSchema>;
+export const RevealSupportThreadCommandSchema = mutationSchema(
+  'support.reveal-thread',
+  AdminActorSchema,
+  Type.Object(AdminMutationFields, { additionalProperties: false }),
+);
+export type RevealSupportThreadCommand = Static<typeof RevealSupportThreadCommandSchema>;
+export const PrepareSupportRevealCommandSchema = mutationSchema(
+  'support.reveal-thread',
+  AdminActorSchema,
+  Type.Omit(RevealSupportThreadCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareSupportRevealCommand = Static<typeof PrepareSupportRevealCommandSchema>;
 export const PrepareSupportCloseCommandSchema = mutationSchema(
   'support.close-thread',
   AdminActorSchema,
@@ -983,6 +995,51 @@ export const AdminCommandReceiptSchema = Type.Object(
   { additionalProperties: false },
 );
 export type AdminCommandReceipt = Static<typeof AdminCommandReceiptSchema>;
+export const RevealedSupportThreadSchema = Type.Object(
+  {
+    threadVersion: Type.Integer({ minimum: 1 }),
+    status: SupportThreadStatusSchema,
+    messages: Type.Array(
+      Type.Object(
+        {
+          senderType: Type.Union([Type.Literal('user'), Type.Literal('admin')]),
+          text: RestrictedLongTextSchema,
+          createdAt: UtcTimestampSchema,
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 50 },
+    ),
+    hasEarlierMessages: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type RevealedSupportThread = Static<typeof RevealedSupportThreadSchema>;
+/** Only a fresh successful audited read includes restricted conversation content. */
+export const AdminSupportRevealResultSchema = Type.Union([
+  Type.Object(
+    {
+      ...AdminReceiptFields,
+      result: Type.Literal('succeeded'),
+      replayed: Type.Literal(false),
+      thread: RevealedSupportThreadSchema,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { ...AdminReceiptFields, result: Type.Literal('succeeded'), replayed: Type.Literal(true) },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...AdminReceiptFields,
+      result: Type.Union([Type.Literal('rejected'), Type.Literal('failed')]),
+      replayed: Type.Boolean(),
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type AdminSupportRevealResult = Static<typeof AdminSupportRevealResultSchema>;
 export const AdminReviewClaimResultSchema = Type.Union([
   Type.Object(
     {
