@@ -261,7 +261,25 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
           .where('revoked_at', 'is', null)
           .execute();
       }
-      await Promise.all(Array.from({ length: 5 }, () => ingress.handle(update)));
+      if (entry === 'cancel') {
+        // A concurrent rejection notice has one delivery owner. Other requests may receive a
+        // sanitized retryable error until the provider acknowledgement is durably cached.
+        const attempts = await Promise.allSettled(
+          Array.from({ length: 5 }, () => ingress.handle(update)),
+        );
+        expect(attempts.some((attempt) => attempt.status === 'fulfilled')).toBe(true);
+        for (const attempt of attempts)
+          if (attempt.status === 'rejected')
+            expect(attempt.reason as unknown).toMatchObject({
+              code: 'internal_error',
+              message: 'error.m7.internal',
+              status: 500,
+            });
+        expect(sent.filter((body) => body.includes('error.m7.stale_action'))).toHaveLength(1);
+        const acknowledged = sent.length;
+        await Promise.all(Array.from({ length: 5 }, () => ingress.handle(update)));
+        expect(sent).toHaveLength(acknowledged);
+      } else await Promise.all(Array.from({ length: 5 }, () => ingress.handle(update)));
       if (['reply', 'close', 'cancel', 'revoked'].includes(entry)) {
         const thread = await database
           .selectFrom('support.support_threads')
