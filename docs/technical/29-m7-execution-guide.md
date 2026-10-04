@@ -653,6 +653,14 @@ Session revocation during delivery stops remaining chunks, and provider failures
 Synthetic adapter tests cover these boundaries. Concrete confirmation menus, session/MFA service
 and real deployed delivery remain outstanding; ordinary startup does not enable this port.
 
+The concrete admin text sender uses the fixed Telegram Bot API `sendMessage` method with plain
+text, `link_preview_options.is_disabled` and `protect_content`, as defined by the
+[Bot API](https://core.telegram.org/bots/api#sendmessage). It sends each bounded chunk once,
+uses a request deadline and bounds/cancels the provider response stream. Malformed, rejected,
+oversized and ambiguous responses expose only the finite internal-error notice, never provider
+diagnostics or token-bearing URLs. Synthetic HTTP tests verify the wire contract; this is not
+evidence of real Telegram delivery, and retained-photo delivery remains a separate capability.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome
