@@ -16,6 +16,7 @@ import {
   TelegramAdminSafetyTargetSelection,
   TelegramAdminSafetyQueueState,
   TelegramAdminSafetyQueueAdapter,
+  TelegramAdminSafetyFeedback,
   TelegramAdminReadConfirmationMenus,
   type TelegramAdminTextDelivery,
   type TelegramAdminSessionVerifier,
@@ -90,10 +91,18 @@ export function createTelegramAdminSafetyReadIngress(
     input.delivery,
     input.renderer,
   );
+  const feedback = new TelegramAdminSafetyFeedback(
+    input.botId,
+    input.sessions,
+    [queue, reads],
+    input.tokens,
+    input.uiReferenceKey,
+    input.delivery,
+    input.renderer,
+  );
   return Object.freeze({
     select: selections.select.bind(selections),
     prepare: preparation.prepare.bind(preparation),
-    handle: async (update: unknown) =>
-      (await queue.handle(update)) !== 'unhandled' ? 'notice' : reads.handle(update),
+    handle: feedback.handle.bind(feedback),
   });
 }

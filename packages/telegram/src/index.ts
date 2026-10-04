@@ -639,3 +639,4 @@ export * from './admin-safety-target-selection.js';
 export * from './admin-safety-queue-state.js';
 export * from './admin-safety-queue-menu.js';
 export * from './admin-safety-queue-adapter.js';
+export * from './admin-safety-feedback.js';

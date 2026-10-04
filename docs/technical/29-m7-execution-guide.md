@@ -719,6 +719,16 @@ Migration 64 seeds twelve English fallback labels with empty variables and boots
 verification. Deploy it before enabling the injected ingress. Concrete session/MFA, real Telegram
 acceptance and the separate mutation/support-reply/appeal-review/unban UI remain pending.
 
+The composed read ingress now acknowledges expected invalid, unauthorized, stale and rate-limited
+UI requests. Fixed localized rejection feedback is sent only to a current Telegram-bound private
+admin session with valid MFA, rechecked against the original actor before delivery. Invalid or
+expired sessions receive no message. No reason, target, token or exception is interpolated. Native
+handlers run before notice deduplication; a content-free 30-second claim serializes notice sends
+and a 24-hour successful-delivery receipt suppresses repeats. Pending/ambiguous delivery and cache
+failures remain sanitized failures, rather than false successful acknowledgements; retry after the
+claim expires can repeat only fixed rejection prose. Native confirmation, attempts, access audits
+and fresh-only content delivery remain authoritative. Real provider/session acceptance is pending.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome

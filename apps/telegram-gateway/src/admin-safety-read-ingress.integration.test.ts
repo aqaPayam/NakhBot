@@ -193,7 +193,7 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
         });
         const promptId = sent.length;
         expect(sent.at(-1)).toContain('"force_reply":true');
-        await ingress.handle({
+        const reasonUpdate = {
           update_id: updateId,
           message: {
             from,
@@ -202,7 +202,15 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
             text: draft.command.data.reason,
             reply_to_message: { message_id: promptId, from: { id: 123, is_bot: true } },
           },
-        });
+        };
+        await expect(
+          ingress.handle({ ...reasonUpdate, message: { ...reasonUpdate.message, text: '   ' } }),
+        ).resolves.toBe('notice');
+        expect(sent.at(-1)).toContain('error.admin.reason_invalid');
+        expect(
+          sent.filter((body) => body.includes('restricted support conversation')),
+        ).toHaveLength(0);
+        await ingress.handle({ ...reasonUpdate, update_id: updateId + 1 });
         const confirmation = JSON.parse(sent.at(-1)!) as {
           reply_markup: { inline_keyboard: { callback_data: string }[][] };
         };
@@ -244,7 +252,22 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
         .where('admin_user_id', '=', adminId)
         .where('revoked_at', 'is', null)
         .execute();
-      await expect(prepare()).rejects.toMatchObject({ code: 'forbidden' });
+      if (entry === 'queue') {
+        const denied = {
+          update_id: 1000,
+          message: {
+            date: Math.floor(now.getTime() / 1000),
+            text: '/admin_support',
+            from: { id: Number(admin.telegram_user_id), is_bot: false },
+            chat: { id: Number(admin.telegram_user_id), type: 'private' },
+          },
+        };
+        await expect(ingress.handle(denied)).resolves.toBe('notice');
+        expect(sent.at(-1)).toContain('error.m7.unavailable');
+        const delivered = sent.length;
+        await expect(ingress.handle(denied)).resolves.toBe('notice');
+        expect(sent).toHaveLength(delivered);
+      } else await expect(prepare()).rejects.toMatchObject({ code: 'forbidden' });
     },
   );
 });
