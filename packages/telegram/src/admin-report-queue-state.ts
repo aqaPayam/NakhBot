@@ -17,7 +17,7 @@ export type TelegramReportQueuePage = Readonly<{
 }>;
 type Prompt = Readonly<{
   reference: string;
-  action: 'assign';
+  action: 'assign' | 'dismissed' | 'actioned';
 }>;
 type State = TelegramReportQueueChoice | TelegramReportQueuePage | Prompt;
 type Purpose = 'choice' | 'page' | 'prompt';
@@ -35,7 +35,7 @@ function valid(value: unknown, purpose: Purpose): value is State {
   if (purpose === 'prompt')
     return (
       Object.keys(row).length === 2 &&
-      ['assign'].includes(String(row.action)) &&
+      ['assign', 'dismissed', 'actioned'].includes(String(row.action)) &&
       typeof row.reference === 'string' &&
       referencePattern.test(row.reference)
     );

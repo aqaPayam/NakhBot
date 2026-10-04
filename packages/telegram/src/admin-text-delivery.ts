@@ -73,6 +73,9 @@ export class TelegramAdminTextDelivery
   public async reportAssignmentMenu(input: TelegramAdminReadConfirmationMenu): Promise<void> {
     return this.confirmationMenu(input, 'm7F:', 'm7Y:');
   }
+  public async reportDecisionMenu(input: TelegramAdminReadConfirmationMenu): Promise<void> {
+    return this.confirmationMenu(input, 'm7G:', 'm7Z:');
+  }
   public async appealReviewMenu(input: TelegramAdminReadConfirmationMenu): Promise<void> {
     return this.confirmationMenu(input, 'm7d:', 'm7z:');
   }
@@ -116,7 +119,7 @@ export class TelegramAdminTextDelivery
           row.length !== 1 ||
           row[0].text.trim() === '' ||
           [...row[0].text].length > 64 ||
-          !/^m7[qpvjkabuTO]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
+          !/^m7[qpvjkabuTOIDA]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
       )
     )
       throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);

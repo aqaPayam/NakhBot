@@ -862,3 +862,21 @@ Actual PostgreSQL ingress evidence covers concurrent preparations/confirmations,
 revocation, competing assignment and terminal dismissal, with no evidence access, account change,
 notification or identity disclosure. Decision/action UI, concrete session/MFA and provider staging
 acceptance remain separate open work.
+
+### Assigned report decision Telegram UI evidence
+
+The private report picker offers Dismiss and Complete after moderation action only after native
+preparation checks current permissions, assigned ownership and the prior action required for
+completion. Each action binds an owned reason/optional note prompt to the exact selected report.
+A separate report-decision encrypted five-minute vault binds the native review target/version,
+normalized reason/note and stable provider operation headers. Protected Confirm/Cancel callbacks
+have one first-write winner; native idempotency and attempted-command audit own retries.
+The ingress activates these decisions only with an explicitly injected long-term ReviewNoteProtector.
+Temporary UI encryption keys are never implicitly used for retained domain notes.
+Migration 69 adds seven English fallback labels; apply and verify before activation.
+Unit evidence covers note/payload substitution, purpose isolation, cancellation, concurrent
+preparation/confirmation and session/cache loss. PostgreSQL ingress evidence covers dismissal,
+completion after a separately confirmed native account action, cancellation and permission
+revocation, with encrypted notes and no additional account/notification or evidence effects.
+Account/photo action UI, concrete MFA/session composition and live operator/provider acceptance
+remain open. Completion does not perform an account/photo action itself.

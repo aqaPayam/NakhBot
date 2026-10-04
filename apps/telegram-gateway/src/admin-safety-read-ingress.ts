@@ -1,4 +1,4 @@
-import type { OpaqueTokenStore } from '@nakh/application';
+import type { OpaqueTokenStore, ReviewNoteProtector } from '@nakh/application';
 import {
   PostgresConfirmedAppealReveals,
   PostgresConfirmedSupportReveals,
@@ -14,6 +14,7 @@ import {
   PostgresGetReportMetadataPageHandler,
   PostgresPrepareSelectedReportReviewHandler,
   PostgresConfirmedReviewAssignments,
+  PostgresConfirmedReviewDecisions,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -31,6 +32,7 @@ import {
   TelegramAdminSafetyMutationVault,
   TelegramAdminReadConfirmationMenus,
   TelegramAdminReportAssignments,
+  TelegramAdminReportDecisions,
   TelegramAdminReportQueue,
   TelegramAdminReportQueueState,
   type TelegramAdminTextDelivery,
@@ -51,6 +53,7 @@ export function createTelegramAdminSafetyReadIngress(
     sessions: TelegramAdminSessionVerifier;
     renderer: M7TextRenderer;
     delivery: TelegramAdminTextDelivery;
+    reviewNotes?: ReviewNoteProtector;
   }>,
 ): Readonly<{
   prepare: TelegramAdminSafetyReadPreparation['prepare'];
@@ -165,6 +168,32 @@ export function createTelegramAdminSafetyReadIngress(
     input.delivery,
     input.renderer,
   );
+  const reportDecisions =
+    input.reviewNotes === undefined
+      ? undefined
+      : new TelegramAdminReportDecisions(
+          input.sessions,
+          new PostgresPrepareSelectedReportReviewHandler(
+            input.database,
+            input.tokens,
+            input.adminKey,
+          ),
+          new PostgresConfirmedReviewDecisions(
+            input.database,
+            input.tokens,
+            input.adminKey,
+            input.reviewNotes,
+          ),
+          new TelegramAdminSafetyMutationVault(
+            'report-decision',
+            input.tokens,
+            input.uiEncryptionKey,
+            input.uiReferenceKey,
+          ),
+          input.uiReferenceKey,
+          input.delivery,
+          input.renderer,
+        );
   const reportQueue = new TelegramAdminReportQueue(
     input.botId,
     input.sessions,
@@ -174,11 +203,22 @@ export function createTelegramAdminSafetyReadIngress(
     reportAssignments,
     input.delivery,
     input.renderer,
+    undefined,
+    reportDecisions,
   );
   const feedback = new TelegramAdminSafetyFeedback(
     input.botId,
     input.sessions,
-    [queue, reads, mutations, reviews, unbans, reportQueue, reportAssignments],
+    [
+      queue,
+      reads,
+      mutations,
+      reviews,
+      unbans,
+      reportQueue,
+      reportAssignments,
+      ...(reportDecisions === undefined ? [] : [reportDecisions]),
+    ],
     input.tokens,
     input.uiReferenceKey,
     input.delivery,

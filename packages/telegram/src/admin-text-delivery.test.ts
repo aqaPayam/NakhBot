@@ -250,3 +250,46 @@ describe('protected Telegram admin text delivery', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('protected report decision confirmation', () => {
+  it('requires the report-only pair and the same opaque reference before protected plain transport', async () => {
+    const fetcher = vi
+      .fn<(url: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(new Response('{"ok":true,"result":{"message_id":12}}'));
+    const sender = new TelegramAdminTextDelivery('123:private-token', fetcher);
+    const menu = {
+      ...input,
+      replyMarkup: {
+        inline_keyboard: [
+          [
+            { text: 'Confirm', callback_data: `m7G:${'a'.repeat(22)}` },
+            { text: 'Cancel', callback_data: `m7Z:${'a'.repeat(22)}` },
+          ],
+        ] as const,
+      },
+    };
+    await sender.reportDecisionMenu(menu);
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({
+      protect_content: true,
+      link_preview_options: { is_disabled: true },
+      reply_markup: menu.replyMarkup,
+    });
+    await expect(sender.reportAssignmentMenu(menu)).rejects.toMatchObject({
+      code: 'invalid_request',
+    });
+    await expect(
+      sender.reportDecisionMenu({
+        ...menu,
+        replyMarkup: {
+          inline_keyboard: [
+            [
+              menu.replyMarkup.inline_keyboard[0][0],
+              { text: 'Cancel', callback_data: `m7Z:${'b'.repeat(22)}` },
+            ],
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});

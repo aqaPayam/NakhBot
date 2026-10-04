@@ -240,3 +240,55 @@ describe('private metadata report queue and owned assignment prompt', () => {
     });
   });
 });
+
+describe('assigned report action picker', () => {
+  it('offers only native available decisions and binds first-line reason and optional note to the exact owned action prompt', async () => {
+    const f = new Harness();
+    const decisions = {
+      check: vi.fn().mockResolvedValue(undefined),
+      available: vi
+        .fn()
+        .mockImplementation((_user, _choice, action) => Promise.resolve(action === 'dismissed')),
+      prepare: vi.fn().mockResolvedValue('decision'),
+    };
+    const adapter = new TelegramAdminReportQueue(
+      '99',
+      f.sessions,
+      { execute: f.queues },
+      { execute: f.reports },
+      f.state,
+      { check: f.check, prepare: f.prepare },
+      { queueMenu: f.menu, reasonPrompt: f.prompt, text: f.text },
+      { render: (_locale, intent) => intent.key },
+      () => f.now,
+      decisions,
+    );
+    await adapter.handle(message('/admin_reports'));
+    const choice = f.menu.mock.calls[0]![0].replyMarkup.inline_keyboard[0]![0].callback_data;
+    await adapter.handle(callback(choice));
+    expect(f.prompt).not.toHaveBeenCalled();
+    const codes = f.menu.mock.calls[1]![0].replyMarkup.inline_keyboard.flat().map(
+      (button) => button.callback_data,
+    );
+    expect(codes).toEqual([choice.replace('m7T:', 'm7I:'), choice.replace('m7T:', 'm7D:')]);
+    await adapter.handle(callback(codes[1]!));
+    await adapter.handle(reply('Reason first line\nPrivate multiline\nnote'));
+    expect(decisions.prepare.mock.calls[0]).toMatchObject([
+      '123',
+      {
+        action: 'dismissed',
+        reason: 'Reason first line',
+        note: 'Private multiline\nnote',
+        choice: { targetId: f.item.reportId, expectedVersion: 2 },
+      },
+    ]);
+    expect(f.prepare).not.toHaveBeenCalled();
+    decisions.check.mockRejectedValue(
+      new ApplicationError('forbidden', 'error.m7.unavailable', 403),
+    );
+    await expect(adapter.handle(callback(choice.replace('m7T:', 'm7A:')))).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(f.prompt).toHaveBeenCalledTimes(1);
+  });
+});
