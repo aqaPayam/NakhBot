@@ -176,3 +176,4 @@ export * from './queue-actions-store.js';
 export * from './report-evidence-access-store.js';
 export * from './prepare-review-action-store.js';
 export * from './prepare-report-account-action-store.js';
+export * from './prepare-report-photo-action-store.js';

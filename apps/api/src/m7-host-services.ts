@@ -15,6 +15,7 @@ import {
   PostgresRecordAdminIngressRejectionHandler,
   PostgresPrepareReviewActionHandler,
   PostgresPrepareReportAccountActionHandler,
+  PostgresPrepareReportPhotoActionHandler,
 } from '@nakh/persistence-postgres';
 import { createM7ReportHostOptions, type M7ReportHostConfiguration } from './m7-report-services.js';
 import { createM7SupportApiOptions } from './m7-support-services.js';
@@ -91,6 +92,11 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
     ...(input.photoDelivery === undefined
       ? {}
       : {
+          reportPhotoActions: new PostgresPrepareReportPhotoActionHandler(
+            input.database,
+            input.adminTokens,
+            input.adminKey,
+          ),
           photos: new PostgresConfirmedPhotoActions(
             input.database,
             input.adminTokens,

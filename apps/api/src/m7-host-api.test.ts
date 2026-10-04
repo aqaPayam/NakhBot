@@ -39,6 +39,7 @@ describe('explicit shared M7 HTTP host', () => {
     });
     expect(Object.isFrozen(options)).toBe(true);
     expect(options.adminModeration.photos).toBeUndefined();
+    expect(options.adminModeration.reportPhotoActions).toBeUndefined();
     app = await NestFactory.create<NestFastifyApplication>(
       M7HostApiModule.register(options),
       new FastifyAdapter(),
@@ -77,6 +78,16 @@ describe('explicit shared M7 HTTP host', () => {
       payload: {},
     });
     expect(missing.statusCode).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/reports/photo-actions',
+          headers,
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(404);
     expect(authenticate).toHaveBeenCalledTimes(routes.length);
   });
 });

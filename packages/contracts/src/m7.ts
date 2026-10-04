@@ -320,6 +320,24 @@ export const PreparedReportAccountActionSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedReportAccountAction = Static<typeof PreparedReportAccountActionSchema>;
+export const PrepareReportPhotoActionQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    reviewId: UuidSchema,
+    expectedReviewVersion: Type.Integer({ minimum: 1 }),
+    evidenceId: UuidSchema,
+    action: PhotoModerationActionSchema,
+  },
+  { additionalProperties: false },
+);
+export type PrepareReportPhotoActionQuery = Static<typeof PrepareReportPhotoActionQuerySchema>;
+export const PreparedReportPhotoActionSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema, photoVersion: Type.Integer({ minimum: 1 }) },
+  { additionalProperties: false },
+);
+export type PreparedReportPhotoAction = Static<typeof PreparedReportPhotoActionSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,

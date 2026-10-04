@@ -16,6 +16,7 @@ import {
   PostgresClaimModerationReviewsHandler,
   PostgresPrepareReviewActionHandler,
   PostgresPrepareReportAccountActionHandler,
+  PostgresPrepareReportPhotoActionHandler,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -31,11 +32,11 @@ import type {
   AdminReviewClaimResult,
   PreparedReviewAction,
   PreparedReportAccountAction,
+  PreparedReportPhotoAction,
 } from '@nakh/contracts';
 import {
   createReportUser,
   createReportFixtureAdmin,
-  createRetainedReportPhoto,
   createReportPhoto,
   createReportChat,
   createRetainedPhotoReview,
@@ -344,7 +345,7 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
   });
   it('confirms hide, restore and delete independently while retaining reported media and snapshots', async () => {
     await app.close();
-    const retained = await createRetainedReportPhoto(database);
+    const retained = await createRetainedPhotoReview(database);
     await createReportPhoto(database, retained.target, false);
     const adminId = await createReportFixtureAdmin(database);
     await database
@@ -360,6 +361,17 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
     const fixture = await confirmationFixture(database, adminId),
       revoked: string[] = [],
       error = vi.fn();
+    await database
+      .updateTable('moderation.moderation_reviews')
+      .set({
+        status: 'in_review',
+        assigned_admin_id: adminId,
+        assigned_at: new Date(),
+        updated_at: new Date(),
+        version: 2,
+      })
+      .where('id', '=', retained.reviewId)
+      .execute();
     app = await NestFactory.create<NestFastifyApplication>(
       M7AdminModerationApiModule.register({
         authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
@@ -370,6 +382,11 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
             return Promise.resolve();
           },
         }),
+        reportPhotoActions: new PostgresPrepareReportPhotoActionHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
       }),
       new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
       { logger: false },
@@ -378,8 +395,54 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
     const headers = { authorization: 'Bearer photo-admin-credential' };
+    const queueToken = await fixture.issue({
+      commandCode: 'moderation.report-metadata',
+      requiredPermission: 'view_reports',
+      targetType: 'report_queue',
+      targetId: null,
+      expectedTargetVersion: null,
+    });
     let version = 1;
     for (const action of ['hide_photo', 'restore_photo', 'delete_photo'] as const) {
+      const photoQuery = {
+        actor: fixture.actor,
+        requestId: randomUUID(),
+        adminActionToken: queueToken,
+        reviewId: retained.reviewId,
+        expectedReviewVersion: 2,
+        evidenceId: retained.evidenceId,
+        action,
+      };
+      const photoAccess = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/moderation/reports/photo-actions',
+        headers,
+        payload: photoQuery,
+      });
+      expect(photoAccess.statusCode).toBe(200);
+      expect(photoAccess.json<PreparedReportPhotoAction>().photoVersion).toBe(version);
+      expect(photoAccess.body).not.toContain(retained.photoId);
+      expect(photoAccess.body).not.toContain(retained.target);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/v1/admin/moderation/reports/photo-actions',
+            headers,
+            payload: { ...photoQuery, evidenceId: randomUUID() },
+          })
+        ).statusCode,
+      ).toBe(404);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/v1/admin/moderation/reports/photo-actions',
+            headers,
+            payload: { ...photoQuery, expectedReviewVersion: 1 },
+          })
+        ).statusCode,
+      ).toBe(409);
       const draft: PreparePhotoModerationActionCommand = {
         actor: fixture.actor,
         commandId: randomUUID(),
@@ -393,13 +456,7 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           action,
           expectedTargetVersion: version,
           reason: 'Synthetic retained photo review',
-          adminActionToken: await fixture.issue({
-            commandCode: 'moderation.apply-photo-action',
-            requiredPermission: action,
-            targetType: 'photo',
-            targetId: retained.photoId,
-            expectedTargetVersion: version,
-          }),
+          adminActionToken: photoAccess.json<PreparedReportPhotoAction>().adminActionToken,
         },
       };
       const prepared = await app.inject({
