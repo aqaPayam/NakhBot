@@ -9,7 +9,7 @@ import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js'
 import { PostgresAdminQueueIdentityStore } from './queue-actions-store.js';
 import { PostgresPrepareReviewActionHandler } from './prepare-review-action-store.js';
 
-class PostgresSelectedReportReviewStore implements SelectedReportReviewStore {
+export class PostgresSelectedReportReviewStore implements SelectedReportReviewStore {
   public constructor(private readonly database: NakhDatabase) {}
   public get(reportId: string): ReturnType<SelectedReportReviewStore['get']> {
     return this.database

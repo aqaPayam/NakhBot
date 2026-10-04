@@ -16,6 +16,7 @@ import {
   PostgresClaimModerationReviewsHandler,
   PostgresPrepareReviewActionHandler,
   PostgresPrepareReportAccountActionHandler,
+  PostgresPrepareSelectedReportAccountActionHandler,
   PostgresPrepareReportPhotoActionHandler,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
@@ -865,6 +866,11 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           fixture.tokens,
           fixture.key,
         ),
+        selectedReportAccount: new PostgresPrepareSelectedReportAccountActionHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
         reportAccountActions: new PostgresPrepareReportAccountActionHandler(
           database,
           fixture.tokens,
@@ -1024,13 +1030,50 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           actor: fixture.actor,
           requestId: randomUUID(),
           adminActionToken: queueToken,
+          reportId: report.reportId,
+          expectedReportVersion: 2,
+          action: 'restrict_user',
+        };
+        const legacyQuery = {
+          actor: fixture.actor,
+          requestId: randomUUID(),
+          adminActionToken: queueToken,
           reviewId: report.reviewId,
           expectedReviewVersion: 2,
           action: 'restrict_user',
         };
+        const legacyRoute = '/v1/admin/moderation/reports/account-actions';
+        const legacy = await app.inject({
+          method: 'POST',
+          url: legacyRoute,
+          headers,
+          payload: legacyQuery,
+        });
+        expect(legacy.statusCode).toBe(200);
+        expect(legacy.json<PreparedReportAccountAction>().accountVersion).toBe(1);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: legacyRoute,
+              headers,
+              payload: { ...legacyQuery, targetUserId: report.target },
+            })
+          ).statusCode,
+        ).toBe(400);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: legacyRoute,
+              headers,
+              payload: { ...legacyQuery, expectedReviewVersion: 1 },
+            })
+          ).statusCode,
+        ).toBe(409);
         const preparedAccountResponse = await app.inject({
           method: 'POST',
-          url: '/v1/admin/moderation/reports/account-actions',
+          url: '/v1/admin/moderation/reports/account-selection',
           headers,
           payload: accountAccessQuery,
         });
@@ -1044,7 +1087,7 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           (
             await app.inject({
               method: 'POST',
-              url: '/v1/admin/moderation/reports/account-actions',
+              url: '/v1/admin/moderation/reports/account-selection',
               headers,
               payload: { ...accountAccessQuery, targetUserId: report.target },
             })
@@ -1054,9 +1097,9 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           (
             await app.inject({
               method: 'POST',
-              url: '/v1/admin/moderation/reports/account-actions',
+              url: '/v1/admin/moderation/reports/account-selection',
               headers,
-              payload: { ...accountAccessQuery, expectedReviewVersion: 1 },
+              payload: { ...accountAccessQuery, expectedReportVersion: 1 },
             })
           ).statusCode,
         ).toBe(409);

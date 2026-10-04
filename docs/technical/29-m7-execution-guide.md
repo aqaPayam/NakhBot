@@ -880,3 +880,24 @@ completion after a separately confirmed native account action, cancellation and 
 revocation, with encrypted notes and no additional account/notification or evidence effects.
 Account/photo action UI, concrete MFA/session composition and live operator/provider acceptance
 remain open. Completion does not perform an account/photo action itself.
+
+### Queue-selected report Account preparation evidence
+
+A strict native preparation contract now accepts a metadata-root token, selected Report/version
+and one of restrict/unrestrict/ban/unban. The governing review and its version come from the
+server; native report Account preparation checks assigned ownership and the action permission,
+resolves Account/version and binds the source report. A second report/review read rejects changes
+during preparation. The result contains only an opaque action token and Account version.
+The authenticated no-store `POST /v1/admin/moderation/reports/account-selection` route composes
+this port in production and is absent without its trusted capability. Client account/review
+identities, reason, prose and version authority are rejected by the strict contract.
+Preparation performs no mutation, evidence read or attempted-command audit. Separate native
+confirmation still binds the reason, action and Account version; owning-module execution locks
+and rechecks current report state, assigned ownership, permission and Account version.
+Unit evidence covers scoped/cross-actor roots, invalid selection, changed governing report/review
+and strict ingress/result validation. PostgreSQL evidence covers all four separately confirmed
+Account actions with one effect/audit/notification under retries, payload substitution and
+revocation/reassignment/terminal review after preparation. HTTP integration exercises actual
+selected Report preparation before a separately confirmed account action. Report Account Telegram
+controls and concrete MFA/session/provider acceptance remain open; this native port grants no
+UI or deployment authority by itself. No persistence shape changes are required.

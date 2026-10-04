@@ -17,6 +17,7 @@ import {
   PostgresRecordAdminIngressRejectionHandler,
   PostgresPrepareReviewActionHandler,
   PostgresPrepareSelectedReportReviewHandler,
+  PostgresPrepareSelectedReportAccountActionHandler,
   PostgresPrepareReportAccountActionHandler,
   PostgresPrepareReportPhotoActionHandler,
   PostgresGetSafetyQueueActionsHandler,
@@ -101,6 +102,11 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
       input.adminKey,
     ),
     reviewActions: new PostgresPrepareReviewActionHandler(
+      input.database,
+      input.adminTokens,
+      input.adminKey,
+    ),
+    selectedReportAccount: new PostgresPrepareSelectedReportAccountActionHandler(
       input.database,
       input.adminTokens,
       input.adminKey,

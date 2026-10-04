@@ -331,6 +331,20 @@ export const PreparedSelectedReportReviewSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedSelectedReportReview = Static<typeof PreparedSelectedReportReviewSchema>;
+export const PrepareSelectedReportAccountActionQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    reportId: UuidSchema,
+    expectedReportVersion: Type.Integer({ minimum: 1 }),
+    action: AccountModerationActionSchema,
+  },
+  { additionalProperties: false },
+);
+export type PrepareSelectedReportAccountActionQuery = Static<
+  typeof PrepareSelectedReportAccountActionQuerySchema
+>;
 export const PrepareReportAccountActionQuerySchema = Type.Object(
   {
     actor: AdminActorSchema,

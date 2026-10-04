@@ -107,6 +107,70 @@ describe('authenticated route-bound account moderation HTTP', () => {
       (await disabled.server.inject({ method: 'POST', url: route, headers, payload })).statusCode,
     ).toBe(404);
   });
+  it('authenticates report account selection, rejects client authority/content and disables absent capability', async () => {
+    const reviewId = randomUUID();
+    const selected = { adminActionToken: token, accountVersion: 3 };
+    const executeSelection = vi.fn<
+      NonNullable<M7AdminModerationApiOptions['selectedReportAccount']>['execute']
+    >(() => Promise.resolve(selected));
+    const { server } = await start({ selectedReportAccount: { execute: executeSelection } });
+    const payload = {
+      actor,
+      requestId: randomUUID(),
+      adminActionToken: token,
+      reportId: randomUUID(),
+      expectedReportVersion: 3,
+      action: 'restrict_user',
+    };
+    const route = '/v1/admin/moderation/reports/account-selection';
+    const response = await server.inject({ method: 'POST', url: route, headers, payload });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(selected);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.headers.pragma).toBe('no-cache');
+    expect(executeSelection).toHaveBeenCalledWith(payload, actor);
+    for (const key of [
+      'reviewId',
+      'expectedReviewVersion',
+      'targetUserId',
+      'expectedAccountVersion',
+      'sourceReportId',
+      'reporterId',
+      'text',
+    ])
+      expect(
+        (
+          await server.inject({
+            method: 'POST',
+            url: route,
+            headers,
+            payload: { ...payload, [key]: reviewId },
+          })
+        ).statusCode,
+      ).toBe(400);
+    expect((await server.inject({ method: 'POST', url: route, payload })).statusCode).toBe(401);
+    expect(
+      (
+        await server.inject({
+          method: 'POST',
+          url: route,
+          headers,
+          payload: { ...payload, actor: { ...actor, userId: randomUUID() } },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(executeSelection).toHaveBeenCalledOnce();
+    executeSelection.mockResolvedValueOnce({ ...selected, ...{ text: 'Restricted evidence' } });
+    const invalid = await server.inject({ method: 'POST', url: route, headers, payload });
+    expect(invalid.statusCode).toBe(500);
+    expect(invalid.body).not.toContain('Restricted evidence');
+    await server.close();
+    app = undefined;
+    const disabled = await start();
+    expect(
+      (await disabled.server.inject({ method: 'POST', url: route, headers, payload })).statusCode,
+    ).toBe(404);
+  });
   let app: NestFastifyApplication | undefined;
   const error = vi.fn();
   afterEach(async () => {

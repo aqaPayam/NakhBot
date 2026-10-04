@@ -22,6 +22,8 @@ import {
   ReconcileM7CommandSchema,
   ReportMetadataPageSchema,
   PrepareSelectedReportReviewQuerySchema,
+  PrepareSelectedReportAccountActionQuerySchema,
+  PreparedReportAccountActionSchema,
   PreparedSelectedReportReviewSchema,
   ReportEvidenceMetadataSchema,
   ReportSubmissionResultSchema,
@@ -503,5 +505,42 @@ describe('M7 moderation, administration, support, and appeal contracts', () => {
       expect(validate(eventType)).toBe(true);
     expect(validate('moderation.report-submitted')).toBe(false);
     expect(validate('moderation.reporter-exposed.v1')).toBe(false);
+  });
+});
+
+describe('selected report Account preparation privacy contract', () => {
+  it('accepts only Report selection and one native account action with no client target authority or prose', () => {
+    const id = '20000000-0000-4000-8000-000000000000',
+      token = `v1.ad.${'a'.repeat(16)}.${'b'.repeat(16)}`;
+    const query = {
+      actor: { kind: 'admin', userId: id },
+      requestId: id,
+      adminActionToken: token,
+      reportId: id,
+      expectedReportVersion: 2,
+      action: 'restrict_user',
+    };
+    const validate = validator(PrepareSelectedReportAccountActionQuerySchema);
+    for (const action of ['restrict_user', 'unrestrict_user', 'ban_user', 'unban_user'])
+      expect(validate({ ...query, action })).toBe(true);
+    for (const key of [
+      'reviewId',
+      'expectedReviewVersion',
+      'targetUserId',
+      'expectedAccountVersion',
+      'sourceReportId',
+      'reason',
+      'note',
+      'text',
+    ])
+      expect(validate({ ...query, [key]: id })).toBe(false);
+    expect(validate({ ...query, actor: { kind: 'user', userId: id } })).toBe(false);
+    expect(validate({ ...query, expectedReportVersion: 0 })).toBe(false);
+    expect(validate({ ...query, action: 'dismissed' })).toBe(false);
+    const result = { adminActionToken: token, accountVersion: 3 },
+      output = validator(PreparedReportAccountActionSchema);
+    expect(output(result)).toBe(true);
+    for (const key of ['reviewId', 'reportId', 'targetUserId', 'telegramUserId', 'text'])
+      expect(output({ ...result, [key]: id })).toBe(false);
   });
 });

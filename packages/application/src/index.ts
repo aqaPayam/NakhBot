@@ -166,3 +166,4 @@ export * from './administration/own-command-receipt.js';
 export * from './support/confirmed-support-reveal.js';
 export * from './support/confirmed-appeal-reveal.js';
 export * from './moderation/reconciliation.js';
+export * from './moderation/prepare-selected-report-account-action.js';
