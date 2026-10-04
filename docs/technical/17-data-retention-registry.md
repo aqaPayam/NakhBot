@@ -18,6 +18,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 | `platform.idempotency_records` | short-lived reliability metadata | expire by configured TTL; redact response payloads | Platform |
 | `platform.outbox_events` | reliability/audit transport | retain until published plus operational retention window | Platform |
 | `platform.inbox_messages` | deduplication metadata | retain for consumer replay window | Platform |
+| Redis `telegram-admin-safety-read:*` | encrypted short-lived admin read command, including restricted reason and actor binding | expire after five minutes; cache loss or key rotation invalidates pending UI references; never extends native authorization | Administration/Telegram; no product content is stored and no authoritative state depends on this cache |
 | `channel_telegram.liked_by_delivery_requests`, `channel_telegram.liked_by_delivery_receipts` | Telegram ID, opaque cursor/message key, provider message ID, and short-lived delivery metadata | cancel on product deletion and purge request plus cascading receipts after the seven-day transport-deduplication window; never retain rendered cards or signed media grants | Telegram channel / Privacy |
 | `platform.audit_logs` | append-only safe audit metadata | retain by category policy; never store user prose or Telegram identifiers | Platform/Security |
 | `chat.predefined_question_sets`, `chat.predefined_questions`, `chat.predefined_answers` | public reference data | retain | Stable localized prompt catalog; Chat/Localization |

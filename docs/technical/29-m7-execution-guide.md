@@ -661,6 +661,15 @@ oversized and ambiguous responses expose only the finite internal-error notice, 
 diagnostics or token-bearing URLs. Synthetic HTTP tests verify the wire contract; this is not
 evidence of real Telegram delivery, and retained-photo delivery remains a separate capability.
 
+Support/appeal confirmation references now have a concrete encrypted Redis vault. Only the two
+native read command shapes can be stored; each requires an actor-bound action and confirmation.
+Separate keys protect AES-GCM command state and opaque HMAC callback references. Actor/reference/
+purpose binding prevents substitution. Concurrent allocations retain the first command for five
+minutes, changed payloads reject, cache loss fails closed and reads enforce expiry independently
+of cache TTL. Native permission, confirmation expiry, auditing and replay remain authoritative.
+Restricted reasons, identities and native tokens never appear in plaintext cache values or callback
+data. The vault is not a session/MFA service, mutation capability or evidence of a deployed menu.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome

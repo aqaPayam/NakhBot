@@ -632,3 +632,4 @@ export * from './report-selections.js';
 export * from './admin-evidence-adapter.js';
 export * from './admin-safety-content-adapter.js';
 export * from './admin-text-delivery.js';
+export * from './admin-safety-read-vault.js';
