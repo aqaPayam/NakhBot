@@ -164,3 +164,4 @@ export * from './support/prepare-appeal-unban-access.js';
 export * from './administration/own-command-receipt.js';
 export * from './support/confirmed-support-reveal.js';
 export * from './support/confirmed-appeal-reveal.js';
+export * from './moderation/reconciliation.js';

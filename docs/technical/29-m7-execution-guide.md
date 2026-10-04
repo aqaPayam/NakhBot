@@ -597,6 +597,12 @@ command; those commands still require the exact current ban and their own permis
 successful reads return content, after the exact admin-attempt/access-audit commit; retries, stale
 versions and revoked permissions return no text or raw user/ban/workforce identity.
 
+Moderation reconciliation now resumes one shared run and commits bounded Report/evidence keyset
+scans, cursor progress, counters and deduplicated quarantined findings atomically. It checks missing
+evidence, capture shape/binding and retained photo bytes without fetching text, snapshot payloads or
+keys. It does not cryptographically verify encrypted hashes; that remains the audited reader's job.
+Other integrity phases, scheduler cadence, health/metrics and M7 plan/load gates remain pending.
+
 Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
 and remaining moderation presentation need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
