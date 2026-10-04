@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:
 import type {
   ConfirmedSupportCommands,
   ConfirmedAppealCommands,
+  ConfirmedReviewAssignments,
   OpaqueTokenStore,
 } from '@nakh/application';
 import {
@@ -29,14 +30,23 @@ export type TelegramConfirmedAppealUnban = Readonly<{
     { commandType: 'moderation.unban-appeal' }
   >;
 }>;
-type Purpose = 'support' | 'appeal-review' | 'appeal-unban';
+export type TelegramConfirmedReportAssignment = Readonly<{
+  binding: string;
+  command: Parameters<ConfirmedReviewAssignments['execute']>[0];
+}>;
+type Purpose = 'support' | 'appeal-review' | 'appeal-unban' | 'report-assignment';
 type Selection<P extends Purpose> = P extends 'support'
   ? TelegramConfirmedSupportMutation
   : P extends 'appeal-review'
     ? TelegramConfirmedAppealReview
-    : TelegramConfirmedAppealUnban;
+    : P extends 'appeal-unban'
+      ? TelegramConfirmedAppealUnban
+      : TelegramConfirmedReportAssignment;
 type Mutation =
-  TelegramConfirmedSupportMutation | TelegramConfirmedAppealReview | TelegramConfirmedAppealUnban;
+  | TelegramConfirmedSupportMutation
+  | TelegramConfirmedAppealReview
+  | TelegramConfirmedAppealUnban
+  | TelegramConfirmedReportAssignment;
 import { m7Record } from './m7-private-update.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -84,7 +94,9 @@ function binding(selected: Mutation, includeConfirmation: boolean): string {
         ? [command.data.decision, normalizeReviewNote(command.data.note)]
         : command.commandType === 'moderation.unban-appeal'
           ? command.data.expectedAccountVersion
-          : undefined,
+          : command.commandType === 'moderation.assign-review'
+            ? command.data.assigneeAdminId
+            : undefined,
   ]);
 }
 function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is Mutation {
@@ -117,7 +129,9 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
         ? ['support.reply-thread', 'support.close-thread']
         : purpose === 'appeal-review'
           ? ['moderation.review-appeal']
-          : ['moderation.unban-appeal']
+          : purpose === 'appeal-unban'
+            ? ['moderation.unban-appeal']
+            : ['moderation.assign-review']
     ).includes(String(command.commandType)) ||
     command.schemaVersion !== 1 ||
     !keys(owner, ['kind', 'userId']) ||
@@ -154,7 +168,15 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
                 'expectedTargetVersion',
                 'expectedAccountVersion',
               ]
-            : ['adminActionToken', 'confirmationToken', 'reason', 'expectedTargetVersion'],
+            : command.commandType === 'moderation.assign-review'
+              ? [
+                  'adminActionToken',
+                  'confirmationToken',
+                  'reason',
+                  'expectedTargetVersion',
+                  'assigneeAdminId',
+                ]
+              : ['adminActionToken', 'confirmationToken', 'reason', 'expectedTargetVersion'],
     ) ||
     !string(data.adminActionToken, 1, 64) ||
     !/^v1\.ad\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u.test(data.adminActionToken) ||
@@ -168,6 +190,11 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
     return false;
   try {
     if (normalizeAdminReason(data.reason) !== data.reason) return false;
+    if (
+      command.commandType === 'moderation.assign-review' &&
+      (typeof data.assigneeAdminId !== 'string' || !UUID.test(data.assigneeAdminId))
+    )
+      return false;
     if (
       command.commandType === 'moderation.unban-appeal' &&
       (typeof data.expectedAccountVersion !== 'number' ||
@@ -216,7 +243,7 @@ export class TelegramAdminSafetyMutationVault<P extends Purpose> {
     private readonly now: () => number = Date.now,
   ) {
     if (
-      !['support', 'appeal-review', 'appeal-unban'].includes(purpose) ||
+      !['support', 'appeal-review', 'appeal-unban', 'report-assignment'].includes(purpose) ||
       encryptionKey.byteLength !== 32 ||
       referenceKey.byteLength < 32 ||
       Buffer.from(encryptionKey).equals(Buffer.from(referenceKey))

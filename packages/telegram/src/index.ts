@@ -648,3 +648,6 @@ export * from './admin-safety-mutation-vault.js';
 export * from './admin-appeal-reviews.js';
 
 export * from './admin-appeal-unbans.js';
+export * from './admin-report-assignments.js';
+export * from './admin-report-queue-state.js';
+export * from './admin-report-queue.js';

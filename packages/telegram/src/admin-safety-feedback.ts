@@ -44,10 +44,10 @@ export class TelegramAdminSafetyFeedback implements TelegramAdminSafetyHandler {
       message = m7Record(root?.message),
       callback = m7Record(root?.callback_query);
     const data = callback?.data;
-    const adminCallback = typeof data === 'string' && /^m7[qpscvjkmxabdzuhn]:/u.test(data);
+    const adminCallback = typeof data === 'string' && /^m7[qpscvjkmxabdzuhnTOFY]:/u.test(data);
     const adminCommand =
       typeof message?.text === 'string' &&
-      /^\/admin_(?:support|appeals)(?:\s|$)/u.test(message.text);
+      /^\/admin_(?:support|appeals|reports)(?:\s|$)/u.test(message.text);
     const replyAuthor = m7Record(m7Record(message?.reply_to_message)?.from);
     const botReply = replyAuthor?.is_bot === true && replyAuthor.id === Number(this.botId);
     if (!adminCallback && !adminCommand && !botReply) return 'unhandled';

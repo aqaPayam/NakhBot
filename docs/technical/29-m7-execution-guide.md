@@ -842,3 +842,23 @@ the actual metadata queue and proves one confirmed assignment and one confirmed 
 plus rejection after revocation, reassignment or confirmation-payload substitution. Test fixtures
 run in an isolated migrated database. The concrete report queue/review Telegram UI is the next
 presentation step; this port provides no deployment or live operator acceptance evidence.
+
+### Confirmed own-review assignment Telegram UI evidence
+
+The explicit private admin ingress now handles `/admin_reports [status]` with native metadata-only
+keyset pages of ten. Opaque encrypted five-minute report selections, cursor state and owned bot
+prompts have a separate purpose from support/appeal queues. Selecting a report checks native
+authority before asking for the assignment reason; it never changes ownership or reveals evidence.
+The exact owned reply prepares a native `moderation.assign-review` command with server-derived
+review/version and the current operator as assignee. Its encrypted assignment-only vault binds the
+target, assignee, headers and normalized reason; support/review/unban drafts cannot substitute.
+Protected Confirm/Cancel callbacks have one first-write winner. Current Telegram-bound session/MFA
+is rechecked before outgoing messages and native execution; PostgreSQL owns permission/version
+checks, one assignment effect and one immutable attempt audit under confirmation retries.
+Migration 68 adds eight English fallback labels and status buttons; apply and verify before enabling
+the injected ingress. Unit evidence covers queue pagination, prompt ownership, purpose isolation,
+full reason limits, cancellation races, cache/session loss and strict protected delivery.
+Actual PostgreSQL ingress evidence covers concurrent preparations/confirmations, cancellation,
+revocation, competing assignment and terminal dismissal, with no evidence access, account change,
+notification or identity disclosure. Decision/action UI, concrete session/MFA and provider staging
+acceptance remain separate open work.

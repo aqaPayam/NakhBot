@@ -7,6 +7,43 @@ const input = {
   disableLinkPreviews: true as const,
 };
 describe('protected Telegram admin text delivery', () => {
+  it('protects report assignment menus and denies other command or mixed-reference callbacks', async () => {
+    const fetcher = vi
+      .fn<(url: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(new Response('{"ok":true,"result":{"message_id":37}}'));
+    const sender = new TelegramAdminTextDelivery('99:private-token', fetcher);
+    const menu = {
+      ...input,
+      replyMarkup: {
+        inline_keyboard: [
+          [
+            { text: 'Confirm', callback_data: `m7F:${'a'.repeat(22)}` },
+            { text: 'Cancel', callback_data: `m7Y:${'a'.repeat(22)}` },
+          ],
+        ] as const,
+      },
+    };
+    await sender.reportAssignmentMenu(menu);
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({
+      protect_content: true,
+      reply_markup: menu.replyMarkup,
+    });
+    await expect(sender.appealUnbanMenu(menu)).rejects.toMatchObject({ code: 'invalid_request' });
+    await expect(
+      sender.reportAssignmentMenu({
+        ...menu,
+        replyMarkup: {
+          inline_keyboard: [
+            [
+              menu.replyMarkup.inline_keyboard[0][0],
+              { text: 'Cancel', callback_data: `m7Y:${'b'.repeat(22)}` },
+            ],
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it('delivers only opaque bounded queue buttons and returns a protected reason prompt message identity', async () => {
     const fetcher = vi
       .fn<(url: string, init?: RequestInit) => Promise<Response>>()

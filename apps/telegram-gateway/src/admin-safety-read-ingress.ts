@@ -10,6 +10,10 @@ import {
   PostgresGetSafetyQueueActionsHandler,
   PostgresGetSupportMetadataHandler,
   PostgresGetAppealMetadataHandler,
+  PostgresGetAdminReportQueueActionsHandler,
+  PostgresGetReportMetadataPageHandler,
+  PostgresPrepareSelectedReportReviewHandler,
+  PostgresConfirmedReviewAssignments,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -26,6 +30,9 @@ import {
   TelegramAdminAppealUnbans,
   TelegramAdminSafetyMutationVault,
   TelegramAdminReadConfirmationMenus,
+  TelegramAdminReportAssignments,
+  TelegramAdminReportQueue,
+  TelegramAdminReportQueueState,
   type TelegramAdminTextDelivery,
   type TelegramAdminSessionVerifier,
   type M7TextRenderer,
@@ -144,10 +151,34 @@ export function createTelegramAdminSafetyReadIngress(
     reviews,
     unbans,
   );
+  const reportAssignments = new TelegramAdminReportAssignments(
+    input.sessions,
+    new PostgresPrepareSelectedReportReviewHandler(input.database, input.tokens, input.adminKey),
+    new PostgresConfirmedReviewAssignments(input.database, input.tokens, input.adminKey),
+    new TelegramAdminSafetyMutationVault(
+      'report-assignment',
+      input.tokens,
+      input.uiEncryptionKey,
+      input.uiReferenceKey,
+    ),
+    input.uiReferenceKey,
+    input.delivery,
+    input.renderer,
+  );
+  const reportQueue = new TelegramAdminReportQueue(
+    input.botId,
+    input.sessions,
+    new PostgresGetAdminReportQueueActionsHandler(input.database, input.tokens, input.adminKey),
+    new PostgresGetReportMetadataPageHandler(input.database, input.tokens, input.adminKey),
+    new TelegramAdminReportQueueState(input.tokens, input.uiEncryptionKey, input.uiReferenceKey),
+    reportAssignments,
+    input.delivery,
+    input.renderer,
+  );
   const feedback = new TelegramAdminSafetyFeedback(
     input.botId,
     input.sessions,
-    [queue, reads, mutations, reviews, unbans],
+    [queue, reads, mutations, reviews, unbans, reportQueue, reportAssignments],
     input.tokens,
     input.uiReferenceKey,
     input.delivery,
