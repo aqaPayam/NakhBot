@@ -22,11 +22,21 @@ export type TelegramConfirmedAppealReview = Readonly<{
     { commandType: 'moderation.review-appeal' }
   >;
 }>;
-type Purpose = 'support' | 'appeal-review';
+export type TelegramConfirmedAppealUnban = Readonly<{
+  binding: string;
+  command: Extract<
+    Parameters<ConfirmedAppealCommands['execute']>[0],
+    { commandType: 'moderation.unban-appeal' }
+  >;
+}>;
+type Purpose = 'support' | 'appeal-review' | 'appeal-unban';
 type Selection<P extends Purpose> = P extends 'support'
   ? TelegramConfirmedSupportMutation
-  : TelegramConfirmedAppealReview;
-type Mutation = TelegramConfirmedSupportMutation | TelegramConfirmedAppealReview;
+  : P extends 'appeal-review'
+    ? TelegramConfirmedAppealReview
+    : TelegramConfirmedAppealUnban;
+type Mutation =
+  TelegramConfirmedSupportMutation | TelegramConfirmedAppealReview | TelegramConfirmedAppealUnban;
 import { m7Record } from './m7-private-update.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -72,7 +82,9 @@ function binding(selected: Mutation, includeConfirmation: boolean): string {
       ? normalizeSupportText(command.data.text)
       : command.commandType === 'moderation.review-appeal'
         ? [command.data.decision, normalizeReviewNote(command.data.note)]
-        : undefined,
+        : command.commandType === 'moderation.unban-appeal'
+          ? command.data.expectedAccountVersion
+          : undefined,
   ]);
 }
 function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is Mutation {
@@ -103,7 +115,9 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
     !(
       purpose === 'support'
         ? ['support.reply-thread', 'support.close-thread']
-        : ['moderation.review-appeal']
+        : purpose === 'appeal-review'
+          ? ['moderation.review-appeal']
+          : ['moderation.unban-appeal']
     ).includes(String(command.commandType)) ||
     command.schemaVersion !== 1 ||
     !keys(owner, ['kind', 'userId']) ||
@@ -132,7 +146,15 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
               'decision',
               'note',
             ]
-          : ['adminActionToken', 'confirmationToken', 'reason', 'expectedTargetVersion'],
+          : command.commandType === 'moderation.unban-appeal'
+            ? [
+                'adminActionToken',
+                'confirmationToken',
+                'reason',
+                'expectedTargetVersion',
+                'expectedAccountVersion',
+              ]
+            : ['adminActionToken', 'confirmationToken', 'reason', 'expectedTargetVersion'],
     ) ||
     !string(data.adminActionToken, 1, 64) ||
     !/^v1\.ad\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u.test(data.adminActionToken) ||
@@ -146,6 +168,13 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
     return false;
   try {
     if (normalizeAdminReason(data.reason) !== data.reason) return false;
+    if (
+      command.commandType === 'moderation.unban-appeal' &&
+      (typeof data.expectedAccountVersion !== 'number' ||
+        !Number.isSafeInteger(data.expectedAccountVersion) ||
+        data.expectedAccountVersion < 1)
+    )
+      return false;
     if (command.commandType === 'support.reply-thread') {
       if (typeof data.text !== 'string' || normalizeSupportText(data.text) !== data.text)
         return false;
@@ -187,7 +216,7 @@ export class TelegramAdminSafetyMutationVault<P extends Purpose> {
     private readonly now: () => number = Date.now,
   ) {
     if (
-      !['support', 'appeal-review'].includes(purpose) ||
+      !['support', 'appeal-review', 'appeal-unban'].includes(purpose) ||
       encryptionKey.byteLength !== 32 ||
       referenceKey.byteLength < 32 ||
       Buffer.from(encryptionKey).equals(Buffer.from(referenceKey))

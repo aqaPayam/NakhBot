@@ -9,6 +9,7 @@ import type {
   PrepareAppealReviewAccessHandler,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
+import type { TelegramAdminAppealUnbans } from './admin-appeal-unbans.js';
 import type { TelegramAdminAppealReviews } from './admin-appeal-reviews.js';
 import type { TelegramAdminSupportMutations } from './admin-support-mutations.js';
 import { TelegramAdminSafetyQueueAdapter } from './admin-safety-queue-adapter.js';
@@ -122,7 +123,10 @@ class Harness {
     .fn<TelegramAdminSupportMutations['prepare']>()
     .mockResolvedValue('a'.repeat(22));
   public review = vi.fn<TelegramAdminAppealReviews['prepare']>().mockResolvedValue('b'.repeat(22));
-  public constructor(mutations = false, reviews = false) {
+  public unban = vi.fn<TelegramAdminAppealUnbans['prepare']>().mockResolvedValue('c'.repeat(22));
+  public unbanCheck = vi.fn<TelegramAdminAppealUnbans['check']>().mockResolvedValue(undefined);
+  public unbanAvailable = vi.fn<TelegramAdminAppealUnbans['available']>().mockResolvedValue(true);
+  public constructor(mutations = false, reviews = false, unbans = false) {
     const tokens: OpaqueTokenStore = {
       get: (id) => Promise.resolve(this.values.get(id)),
       putIfAbsent: (id, value) => {
@@ -155,6 +159,9 @@ class Harness {
       () => this.now,
       mutations ? { prepare: this.mutation } : undefined,
       reviews ? { prepare: this.review } : undefined,
+      unbans
+        ? { prepare: this.unban, check: this.unbanCheck, available: this.unbanAvailable }
+        : undefined,
     );
   }
 }
@@ -328,5 +335,59 @@ describe('private Telegram admin metadata picker and exact-prompt reason entry',
     await expect(f.adapter.handle(callback(choice.replace('m7q:', 'm7j:')))).rejects.toMatchObject({
       code: 'invalid_request',
     });
+  });
+  it('offers unban only after native availability and binds its separately checked reason prompt', async () => {
+    const f = new Harness(false, true, true);
+    f.appeals.mockResolvedValue({
+      items: [
+        {
+          appealId: f.targetId,
+          status: 'accepted',
+          version: 2,
+          submittedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+    await f.adapter.handle(message('/admin_appeals accepted'));
+    const choice = f.queueMenu.mock.calls[0]![0].replyMarkup.inline_keyboard[0]![0].callback_data;
+    await f.adapter.handle(callback(choice));
+    expect(f.unbanAvailable).toHaveBeenCalledWith(
+      '123',
+      expect.objectContaining({ targetId: f.targetId }),
+    );
+    expect(
+      f.queueMenu.mock.calls[1]![0].replyMarkup.inline_keyboard.map((row) =>
+        row[0].callback_data.slice(0, 4),
+      ),
+    ).toEqual(['m7v:', 'm7u:']);
+    await f.adapter.handle(callback(choice.replace('m7q:', 'm7u:')));
+    expect(f.unbanCheck).toHaveBeenCalledTimes(1);
+    await f.adapter.handle(reply('Restore for accepted appeal'));
+    expect(f.unban.mock.calls[0]![1]).toMatchObject({
+      action: 'unban',
+      reason: 'Restore for accepted appeal',
+    });
+    expect(f.review).not.toHaveBeenCalled();
+    expect(f.select).not.toHaveBeenCalled();
+    await expect(f.adapter.handle(callback(choice.replace('m7q:', 'm7v:')))).rejects.toMatchObject({
+      code: 'idempotency_conflict',
+    });
+    const hidden = new Harness(false, true, true);
+    hidden.appeals.mockResolvedValue({
+      items: [
+        {
+          appealId: hidden.targetId,
+          status: 'accepted',
+          version: 2,
+          submittedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+    hidden.unbanAvailable.mockResolvedValue(false);
+    await hidden.adapter.handle(message('/admin_appeals accepted'));
+    await hidden.adapter.handle(
+      callback(hidden.queueMenu.mock.calls[0]![0].replyMarkup.inline_keyboard[0]![0].callback_data),
+    );
+    expect(hidden.queueMenu.mock.calls[1]![0].replyMarkup.inline_keyboard).toHaveLength(1);
   });
 });

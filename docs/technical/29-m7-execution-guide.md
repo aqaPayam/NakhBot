@@ -803,3 +803,21 @@ verification before ingress activation. Unit and PostgreSQL ingress evidence cov
 decision substitution, purpose isolation, expiry/cache/session loss, bounded Unicode preview,
 concurrent confirmations, cancelled/revoked attempts, and a new ban after draft preparation.
 This remains implementation evidence; concrete MFA/session and live provider acceptance are open.
+
+### Separately confirmed accepted-appeal unban UI evidence
+
+Accepted appeals now offer Restore access only after native preparation checks current
+`unban_user` permission, the exact accepted appeal and its current ban. A separate owned reason
+prompt and protected Confirm/Cancel menu bind a native `moderation.unban-appeal` command.
+The encrypted five-minute unban draft has its own actor/purpose namespace and callback pair;
+support/review drafts cannot substitute for it. Both appeal and account versions come from native
+preparation and are bound to confirmation, including concurrent preparation retries.
+Acceptance alone still leaves Account banned. Confirmation uses the owning native account command
+and its transactional audit, immutable unban proof, state history, moderation action, notification
+and outbox. Cancel cannot undo Confirm, and native idempotency owns repeated confirmations.
+Migration 67 adds four English fallback labels; apply and verify before ingress activation.
+Unit evidence covers version/payload substitution, purpose isolation, encrypted expiry, permission
+availability, session/cache loss and decision races. PostgreSQL ingress evidence covers accepted,
+rejected and pending appeals, review-only operators, cancellation, permission revocation, stale
+account versions and a later ban, plus one effect/audit/notification under concurrent retries.
+Concrete admin session/MFA composition and real Telegram/provider staging acceptance remain open.

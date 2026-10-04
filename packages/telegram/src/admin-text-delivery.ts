@@ -67,6 +67,9 @@ export class TelegramAdminTextDelivery
   public async text(input: Parameters<TelegramAdminEvidenceDelivery['text']>[0]): Promise<void> {
     await this.send(input);
   }
+  public async appealUnbanMenu(input: TelegramAdminReadConfirmationMenu): Promise<void> {
+    return this.confirmationMenu(input, 'm7h:', 'm7n:');
+  }
   public async appealReviewMenu(input: TelegramAdminReadConfirmationMenu): Promise<void> {
     return this.confirmationMenu(input, 'm7d:', 'm7z:');
   }
@@ -110,7 +113,7 @@ export class TelegramAdminTextDelivery
           row.length !== 1 ||
           row[0].text.trim() === '' ||
           [...row[0].text].length > 64 ||
-          !/^m7[qpvjkab]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
+          !/^m7[qpvjkabu]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
       )
     )
       throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);

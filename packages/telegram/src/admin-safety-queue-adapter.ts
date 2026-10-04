@@ -1,3 +1,4 @@
+import type { TelegramAdminAppealUnbans } from './admin-appeal-unbans.js';
 import type { TelegramAdminAppealReviews } from './admin-appeal-reviews.js';
 import type { TelegramAdminSupportMutations } from './admin-support-mutations.js';
 import { randomUUID } from 'node:crypto';
@@ -51,6 +52,7 @@ export class TelegramAdminSafetyQueueAdapter {
     private readonly now: () => Date = () => new Date(),
     private readonly mutations?: Pick<TelegramAdminSupportMutations, 'prepare'>,
     private readonly reviews?: Pick<TelegramAdminAppealReviews, 'prepare'>,
+    private readonly unbans?: Pick<TelegramAdminAppealUnbans, 'prepare' | 'check' | 'available'>,
   ) {
     if (!/^[1-9][0-9]{0,19}$/u.test(botId) || !Number.isSafeInteger(Number(botId)))
       throw new Error('Admin queue bot identity invalid.');
@@ -64,7 +66,7 @@ export class TelegramAdminSafetyQueueAdapter {
       typeof message?.text === 'string'
         ? /^\/admin_(support|appeals)(?:\s+(\S+))?$/u.exec(message.text)
         : null;
-    const callbackHandled = typeof data === 'string' && /^m7[qpvjkab]:/u.test(data);
+    const callbackHandled = typeof data === 'string' && /^m7[qpvjkabu]:/u.test(data);
     const replied = m7Record(message?.reply_to_message);
     if (!callbackHandled && command === null && replied === undefined) return 'unhandled';
     if (
@@ -102,7 +104,7 @@ export class TelegramAdminSafetyQueueAdapter {
         return 'notice';
       }
       if (callbackHandled) {
-        const match = /^m7([qpvjkab]):([A-Za-z0-9_-]{22})$/u.exec(data);
+        const match = /^m7([qpvjkabu]):([A-Za-z0-9_-]{22})$/u.exec(data);
         if (match === null)
           throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
         const reference = match[2]!;
@@ -123,15 +125,17 @@ export class TelegramAdminSafetyQueueAdapter {
           if (choice === undefined)
             throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
           const action =
-            match[1] === 'a'
-              ? 'accepted'
-              : match[1] === 'b'
-                ? 'rejected'
-                : match[1] === 'j'
-                  ? 'reply'
-                  : match[1] === 'k'
-                    ? 'close'
-                    : 'read';
+            match[1] === 'u'
+              ? 'unban'
+              : match[1] === 'a'
+                ? 'accepted'
+                : match[1] === 'b'
+                  ? 'rejected'
+                  : match[1] === 'j'
+                    ? 'reply'
+                    : match[1] === 'k'
+                      ? 'close'
+                      : 'read';
           if (
             (action === 'reply' || action === 'close') &&
             (choice.kind !== 'support' || this.mutations === undefined)
@@ -142,15 +146,20 @@ export class TelegramAdminSafetyQueueAdapter {
             (choice.kind !== 'appeal' || this.reviews === undefined)
           )
             throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
-          await this.validateChoice(
-            session,
-            choice,
-            action === 'read'
-              ? 'reveal'
-              : action === 'accepted' || action === 'rejected'
-                ? 'review'
-                : action,
-          );
+          if (action === 'unban') {
+            if (choice.kind !== 'appeal' || this.unbans === undefined)
+              throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+            await this.unbans.check(context.telegramUserId, choice);
+          } else
+            await this.validateChoice(
+              session,
+              choice,
+              action === 'read'
+                ? 'reveal'
+                : action === 'accepted' || action === 'rejected'
+                  ? 'review'
+                  : action,
+            );
           await requireTelegramAdminSession(
             this.sessions,
             context.telegramUserId,
@@ -190,11 +199,30 @@ export class TelegramAdminSafetyQueueAdapter {
             });
             return 'notice';
           }
-          if (match[1] === 'q' && choice.kind === 'appeal' && this.reviews !== undefined) {
+          if (
+            match[1] === 'q' &&
+            choice.kind === 'appeal' &&
+            (this.reviews !== undefined || this.unbans !== undefined)
+          ) {
             const codes =
-              choice.status === 'submitted' || choice.status === 'in_review'
+              this.reviews !== undefined &&
+              (choice.status === 'submitted' || choice.status === 'in_review')
                 ? ['v', 'a', 'b']
                 : ['v'];
+            if (
+              choice.status === 'accepted' &&
+              this.unbans !== undefined &&
+              (await this.unbans.available(context.telegramUserId, choice))
+            )
+              codes.push('u');
+            await requireTelegramAdminSession(
+              this.sessions,
+              context.telegramUserId,
+              this.now,
+              session.actor,
+            );
+            if ((await this.state.choice(session.actor, reference)) === undefined)
+              throw new ApplicationError('version_conflict', 'error.m7.stale_action', 409);
             await this.delivery.queueMenu({
               recipient: context.telegramUserId,
               text: this.renderer.render(session.locale, {
@@ -211,9 +239,11 @@ export class TelegramAdminSafetyQueueAdapter {
                           key:
                             code === 'v'
                               ? 'admin.appeal.read'
-                              : code === 'a'
-                                ? 'admin.appeal.accepted'
-                                : 'admin.appeal.rejected',
+                              : code === 'u'
+                                ? 'admin.appeal.unban'
+                                : code === 'a'
+                                  ? 'admin.appeal.accepted'
+                                  : 'admin.appeal.rejected',
                           variables: {},
                         }),
                         callback_data: `m7${code}:${reference}`,
@@ -228,11 +258,13 @@ export class TelegramAdminSafetyQueueAdapter {
             recipient: context.telegramUserId,
             text: this.renderer.render(session.locale, {
               key:
-                action === 'read'
-                  ? 'admin.queue.reason_prompt'
-                  : action === 'accepted' || action === 'rejected'
-                    ? 'admin.appeal.review_prompt'
-                    : `admin.support.${action}_prompt`,
+                action === 'unban'
+                  ? 'admin.appeal.unban_prompt'
+                  : action === 'read'
+                    ? 'admin.queue.reason_prompt'
+                    : action === 'accepted' || action === 'rejected'
+                      ? 'admin.appeal.review_prompt'
+                      : `admin.support.${action}_prompt`,
               variables: {},
             }),
             disableLinkPreviews: true,
@@ -256,6 +288,18 @@ export class TelegramAdminSafetyQueueAdapter {
       const choice = await this.state.choice(session.actor, prompt.reference);
       if (choice === undefined)
         throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+      if (prompt.action === 'unban') {
+        if (choice.kind !== 'appeal' || this.unbans === undefined)
+          throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+        await this.unbans.prepare(context.telegramUserId, {
+          choice,
+          action: 'unban',
+          reason: message.text,
+          operationId,
+          occurredAt: context.occurredAt,
+        });
+        return 'notice';
+      }
       if (prompt.action === 'accepted' || prompt.action === 'rejected') {
         if (choice.kind !== 'appeal' || this.reviews === undefined)
           throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);

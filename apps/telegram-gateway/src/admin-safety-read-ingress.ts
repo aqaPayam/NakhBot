@@ -4,6 +4,7 @@ import {
   PostgresConfirmedSupportReveals,
   PostgresConfirmedSupportCommands,
   PostgresConfirmedAppealCommands,
+  PostgresPrepareAppealUnbanAccessHandler,
   PostgresPrepareSupportActionHandler,
   PostgresPrepareAppealReviewAccessHandler,
   PostgresGetSafetyQueueActionsHandler,
@@ -22,6 +23,7 @@ import {
   TelegramAdminSupportMutationVault,
   TelegramAdminSupportMutations,
   TelegramAdminAppealReviews,
+  TelegramAdminAppealUnbans,
   TelegramAdminSafetyMutationVault,
   TelegramAdminReadConfirmationMenus,
   type TelegramAdminTextDelivery,
@@ -111,6 +113,20 @@ export function createTelegramAdminSafetyReadIngress(
     input.delivery,
     input.renderer,
   );
+  const unbans = new TelegramAdminAppealUnbans(
+    input.sessions,
+    new PostgresPrepareAppealUnbanAccessHandler(input.database, input.tokens, input.adminKey),
+    new PostgresConfirmedAppealCommands(input.database, input.tokens, input.adminKey),
+    new TelegramAdminSafetyMutationVault(
+      'appeal-unban',
+      input.tokens,
+      input.uiEncryptionKey,
+      input.uiReferenceKey,
+    ),
+    input.uiReferenceKey,
+    input.delivery,
+    input.renderer,
+  );
   const queue = new TelegramAdminSafetyQueueAdapter(
     input.botId,
     input.sessions,
@@ -126,11 +142,12 @@ export function createTelegramAdminSafetyReadIngress(
     undefined,
     mutations,
     reviews,
+    unbans,
   );
   const feedback = new TelegramAdminSafetyFeedback(
     input.botId,
     input.sessions,
-    [queue, reads, mutations, reviews],
+    [queue, reads, mutations, reviews, unbans],
     input.tokens,
     input.uiReferenceKey,
     input.delivery,
