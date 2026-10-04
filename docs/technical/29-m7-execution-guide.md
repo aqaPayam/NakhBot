@@ -708,6 +708,17 @@ overwriting that receipt. Cached selection never bypasses native permission/vers
 extends expiry. No read or mutation executes until the existing confirmation callback. Target queue
 presentation, reason-entry ingress and concrete sessions remain pending acceptance work.
 
+The explicit Telegram read ingress now handles `/admin_support` and `/admin_appeals` with their
+native status filters, ten metadata rows per page and opaque next-page/target buttons. Encrypted
+five-minute UI state binds each selection to its admin and purpose; callbacks expose no target,
+queue action or cursor. Native permissions and exact versions are checked before a protected reason
+prompt. Only a reply to that admin's exact bot prompt can prepare the read; actor, operation identity
+and timestamp come from the authenticated private update. Confirmation and cancellation still use
+the existing encrypted read vault. Browsing, choosing and entering a reason disclose no user prose.
+Migration 64 seeds twelve English fallback labels with empty variables and bootstrap/upgrade/replay
+verification. Deploy it before enabling the injected ingress. Concrete session/MFA, real Telegram
+acceptance and the separate mutation/support-reply/appeal-review/unban UI remain pending.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome

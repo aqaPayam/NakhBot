@@ -8,7 +8,11 @@ import {
   PostgresSupportStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
-import { TelegramAdminTextDelivery, type TelegramSafetyReadDraft } from '@nakh/telegram';
+import {
+  TelegramAdminTextDelivery,
+  TelegramAdminSafetyQueueState,
+  type TelegramSafetyReadDraft,
+} from '@nakh/telegram';
 import {
   createReportUser,
   createReportFixtureAdmin,
@@ -30,7 +34,7 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
   afterAll(async () => {
     await database?.destroy();
   });
-  it.each(['prepared', 'selected'] as const)(
+  it.each(['prepared', 'selected', 'queue'] as const)(
     'converges %s menus and confirmed callbacks to one audited content delivery, then denies revoked permission',
     async (entry) => {
       const userId = await createReportUser(database),
@@ -97,9 +101,12 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
         .fn<(url: string, init?: RequestInit) => Promise<Response>>()
         .mockImplementation((_endpoint, init) => {
           sent.push(init!.body as string);
-          return Promise.resolve(new Response('{"ok":true,"result":{"message_id":1}}'));
+          return Promise.resolve(
+            new Response(JSON.stringify({ ok: true, result: { message_id: sent.length } })),
+          );
         });
       const ingress = createTelegramAdminSafetyReadIngress({
+        botId: '123',
         database,
         tokens: fixture.tokens,
         adminKey: fixture.key,
@@ -134,11 +141,77 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
         operationId: 'selected-operation',
         occurredAt: now.toISOString(),
       };
-      const prepare = (): Promise<string> =>
-        entry === 'prepared'
-          ? ingress.prepare(admin.telegram_user_id, draft, 'operation')
-          : ingress.select(admin.telegram_user_id, selected);
-      const refs = await Promise.all(Array.from({ length: 5 }, () => prepare()));
+      const prepare = async (): Promise<string> => {
+        if (entry === 'prepared')
+          return ingress.prepare(admin.telegram_user_id, draft, 'operation');
+        if (entry === 'selected') return ingress.select(admin.telegram_user_id, selected);
+        const state = new TelegramAdminSafetyQueueState(
+          fixture.tokens,
+          new Uint8Array(32).fill(1),
+          new Uint8Array(32).fill(2),
+        );
+        const from = { id: Number(admin.telegram_user_id), is_bot: false },
+          chat = { id: Number(admin.telegram_user_id), type: 'private' };
+        let updateId = 100;
+        const date = Math.floor(now.getTime() / 1000);
+        await ingress.handle({
+          update_id: updateId++,
+          message: { from, chat, date, text: '/admin_support' },
+        });
+        const count = await database
+          .selectFrom('support.support_threads')
+          .select(({ fn }) => fn.countAll<string>().as('count'))
+          .where('status', '=', 'open')
+          .executeTakeFirstOrThrow();
+        let choice: string | undefined;
+        for (let page = 0; page < Math.ceil(Number(count.count) / 10) + 1; page++) {
+          const menu = JSON.parse(sent.at(-1)!) as {
+            reply_markup: { inline_keyboard: { callback_data: string }[][] };
+          };
+          const buttons = menu.reply_markup.inline_keyboard.flat();
+          for (const button of buttons.filter((button) =>
+            button.callback_data.startsWith('m7q:'),
+          )) {
+            if (
+              (await state.choice(fixture.actor, button.callback_data.slice(4)))?.targetId ===
+              opened.supportThreadId
+            )
+              choice = button.callback_data;
+          }
+          if (choice !== undefined) break;
+          const next = buttons.find((button) => button.callback_data.startsWith('m7p:'));
+          if (next === undefined) break;
+          await ingress.handle({
+            update_id: updateId++,
+            callback_query: { from, data: next.callback_data, message: { chat } },
+          });
+        }
+        expect(choice).toBeDefined();
+        await ingress.handle({
+          update_id: updateId++,
+          callback_query: { from, data: choice!, message: { chat } },
+        });
+        const promptId = sent.length;
+        expect(sent.at(-1)).toContain('"force_reply":true');
+        await ingress.handle({
+          update_id: updateId,
+          message: {
+            from,
+            chat,
+            date,
+            text: draft.command.data.reason,
+            reply_to_message: { message_id: promptId, from: { id: 123, is_bot: true } },
+          },
+        });
+        const confirmation = JSON.parse(sent.at(-1)!) as {
+          reply_markup: { inline_keyboard: { callback_data: string }[][] };
+        };
+        return confirmation.reply_markup.inline_keyboard[0]![0]!.callback_data.slice(4);
+      };
+      const refs =
+        entry === 'queue'
+          ? [await prepare()]
+          : await Promise.all(Array.from({ length: 5 }, () => prepare()));
       expect(new Set(refs).size).toBe(1);
       expect(sent.join('')).not.toContain('restricted support conversation');
       const update = {

@@ -7,6 +7,44 @@ const input = {
   disableLinkPreviews: true as const,
 };
 describe('protected Telegram admin text delivery', () => {
+  it('delivers only opaque bounded queue buttons and returns a protected reason prompt message identity', async () => {
+    const fetcher = vi
+      .fn<(url: string, init?: RequestInit) => Promise<Response>>()
+      .mockImplementation(() =>
+        Promise.resolve(new Response('{"ok":true,"result":{"message_id":37}}')),
+      );
+    const sender = new TelegramAdminTextDelivery('99:private-token', fetcher);
+    const extraButton = {
+      text: 'Open request',
+      callback_data: `m7q:${'a'.repeat(22)}`,
+      url: 'https://private.invalid',
+    };
+    await sender.queueMenu({
+      ...input,
+      replyMarkup: {
+        inline_keyboard: [[extraButton]],
+      },
+    });
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({
+      protect_content: true,
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Open request', callback_data: `m7q:${'a'.repeat(22)}` }]],
+      },
+    });
+    expect(fetcher.mock.calls[0]![1]!.body).not.toContain('"url"');
+    await expect(sender.reasonPrompt(input)).resolves.toBe(37);
+    expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).toMatchObject({
+      protect_content: true,
+      reply_markup: { force_reply: true, selective: true },
+    });
+    await expect(
+      sender.queueMenu({
+        ...input,
+        replyMarkup: { inline_keyboard: [[{ text: 'Unsafe', callback_data: 'unban:target' }]] },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it('sends one plain protected message with current preview controls and a timeout', async () => {
     const fetcher = vi
       .fn<(url: string, init?: RequestInit) => Promise<Response>>()

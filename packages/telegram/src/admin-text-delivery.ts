@@ -2,6 +2,10 @@ import { ApplicationError } from '@nakh/domain';
 import type { TelegramAdminEvidenceDelivery } from './admin-evidence-adapter.js';
 import { m7Record } from './m7-private-update.js';
 import type {
+  TelegramAdminQueueMenu,
+  TelegramAdminQueueDelivery,
+} from './admin-safety-queue-menu.js';
+import type {
   TelegramAdminReadConfirmationMenu,
   TelegramAdminReadMenuDelivery,
 } from './admin-read-confirmation-menu.js';
@@ -10,7 +14,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 function unavailable(): ApplicationError {
   return new ApplicationError('internal_error', 'error.m7.internal', 500);
 }
-async function requireAcknowledgement(response: Response): Promise<void> {
+async function requireAcknowledgement(response: Response): Promise<number> {
   if (response.body === null) throw unavailable();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -35,6 +39,7 @@ async function requireAcknowledgement(response: Response): Promise<void> {
       messageId < 1
     )
       throw unavailable();
+    return messageId;
   } finally {
     try {
       await reader.cancel();
@@ -47,7 +52,10 @@ async function requireAcknowledgement(response: Response): Promise<void> {
 /** One protected plain-text send to the fixed Bot API. No persistence, tracing, or retry.
  * A failed/ambiguous send requires a new confirmed audited read, never a replayed read. */
 export class TelegramAdminTextDelivery
-  implements Pick<TelegramAdminEvidenceDelivery, 'text'>, TelegramAdminReadMenuDelivery
+  implements
+    Pick<TelegramAdminEvidenceDelivery, 'text'>,
+    TelegramAdminReadMenuDelivery,
+    TelegramAdminQueueDelivery
 {
   public constructor(
     private readonly botToken: string,
@@ -79,10 +87,38 @@ export class TelegramAdminTextDelivery
       ],
     });
   }
+  public async queueMenu(input: TelegramAdminQueueMenu): Promise<void> {
+    const rows = input.replyMarkup.inline_keyboard;
+    if (
+      rows.length < 1 ||
+      rows.length > 11 ||
+      rows.some(
+        (row) =>
+          row.length !== 1 ||
+          row[0].text.trim() === '' ||
+          [...row[0].text].length > 64 ||
+          !/^m7[qp]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
+      )
+    )
+      throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+    await this.send(input, {
+      inline_keyboard: rows.map((row) => [
+        { text: row[0].text, callback_data: row[0].callback_data },
+      ]),
+    });
+  }
+  public async reasonPrompt(
+    input: Readonly<{ recipient: string; text: string; disableLinkPreviews: true }>,
+  ): Promise<number> {
+    return this.send(input, { force_reply: true, selective: true });
+  }
   private async send(
     input: Parameters<TelegramAdminEvidenceDelivery['text']>[0],
-    replyMarkup?: TelegramAdminReadConfirmationMenu['replyMarkup'],
-  ): Promise<void> {
+    replyMarkup?:
+      | TelegramAdminReadConfirmationMenu['replyMarkup']
+      | TelegramAdminQueueMenu['replyMarkup']
+      | Readonly<{ force_reply: true; selective: true }>,
+  ): Promise<number> {
     if (
       !/^[1-9][0-9]{0,19}$/u.test(input.recipient) ||
       input.text.length < 1 ||
@@ -107,7 +143,7 @@ export class TelegramAdminTextDelivery
           signal: AbortSignal.timeout(15000),
         },
       );
-      await requireAcknowledgement(response);
+      return await requireAcknowledgement(response);
     } catch {
       throw unavailable();
     }

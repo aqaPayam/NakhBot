@@ -4,6 +4,9 @@ import {
   PostgresConfirmedSupportReveals,
   PostgresPrepareSupportActionHandler,
   PostgresPrepareAppealReviewAccessHandler,
+  PostgresGetSafetyQueueActionsHandler,
+  PostgresGetSupportMetadataHandler,
+  PostgresGetAppealMetadataHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -11,6 +14,8 @@ import {
   TelegramAdminSafetyReadVault,
   TelegramAdminSafetyReadPreparation,
   TelegramAdminSafetyTargetSelection,
+  TelegramAdminSafetyQueueState,
+  TelegramAdminSafetyQueueAdapter,
   TelegramAdminReadConfirmationMenus,
   type TelegramAdminTextDelivery,
   type TelegramAdminSessionVerifier,
@@ -22,6 +27,7 @@ import {
 export function createTelegramAdminSafetyReadIngress(
   input: Readonly<{
     database: NakhDatabase;
+    botId: string;
     tokens: OpaqueTokenStore;
     adminKey: Uint8Array;
     uiEncryptionKey: Uint8Array;
@@ -71,9 +77,23 @@ export function createTelegramAdminSafetyReadIngress(
     input.uiReferenceKey,
     preparation,
   );
+  const queue = new TelegramAdminSafetyQueueAdapter(
+    input.botId,
+    input.sessions,
+    new PostgresGetSafetyQueueActionsHandler(input.database, input.tokens, input.adminKey),
+    new PostgresGetSupportMetadataHandler(input.database, input.tokens, input.adminKey),
+    new PostgresGetAppealMetadataHandler(input.database, input.tokens, input.adminKey),
+    new PostgresPrepareSupportActionHandler(input.database, input.tokens, input.adminKey),
+    new PostgresPrepareAppealReviewAccessHandler(input.database, input.tokens, input.adminKey),
+    new TelegramAdminSafetyQueueState(input.tokens, input.uiEncryptionKey, input.uiReferenceKey),
+    selections,
+    input.delivery,
+    input.renderer,
+  );
   return Object.freeze({
     select: selections.select.bind(selections),
     prepare: preparation.prepare.bind(preparation),
-    handle: reads.handle.bind(reads),
+    handle: async (update: unknown) =>
+      (await queue.handle(update)) !== 'unhandled' ? 'notice' : reads.handle(update),
   });
 }
