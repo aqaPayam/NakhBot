@@ -9,6 +9,7 @@ import type {
   ConfirmedPhotoActions,
   ConfirmedInternalBlocks,
   ConfirmedReviewAssignments,
+  ConfirmedReviewDecisions,
   AdminIngressRejectionStore,
 } from '@nakh/application';
 import type { AdminCommandReceipt } from '@nakh/contracts';
@@ -340,6 +341,88 @@ describe('authenticated route-bound account moderation HTTP', () => {
     expect(malformed.json()).toMatchObject({ result: 'rejected' });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(record.mock.calls[0]?.[0].requiredPermission).toBe('view_reports');
+  });
+  it('binds review decisions and private notes to confirmation without returning effect details', async () => {
+    const execute = vi.fn<ConfirmedReviewDecisions['execute']>(() =>
+      Promise.resolve({
+        logId: randomUUID(),
+        result: 'succeeded',
+        safeCode: 'review_dismissed',
+        recordedAt: new Date(),
+        replayed: false,
+        value: { reviewId: randomUUID(), reportId: randomUUID(), status: 'dismissed', version: 3 },
+      }),
+    );
+    const prepare = vi.fn<ConfirmedReviewDecisions['prepare']>(() =>
+      Promise.resolve(confirmationToken),
+    );
+    const { server, record } = await start({ reviewDecisions: { execute, prepare } }, false);
+    const privateNote = 'PRIVATE REVIEW NOTE';
+    const decisionDraft = {
+      ...draft,
+      commandType: 'moderation.decide-review',
+      data: {
+        adminActionToken: draft.data.adminActionToken,
+        expectedTargetVersion: 2,
+        reason: draft.data.reason,
+        decision: 'dismissed',
+        note: privateNote,
+      },
+    };
+    expect(
+      (
+        await server.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/reviews/decision/dismissed/prepare',
+          headers,
+          payload: decisionDraft,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(prepare).toHaveBeenCalledWith(decisionDraft, actor);
+    const decisionCommand = {
+      ...decisionDraft,
+      data: { ...decisionDraft.data, confirmationToken },
+    };
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reviews/decision/dismissed',
+      headers,
+      payload: decisionCommand,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ result: 'succeeded', safeCode: 'completed' });
+    expect(execute).toHaveBeenCalledWith(decisionCommand, actor);
+    for (const privateValue of [privateNote, 'reportId', 'reviewId', draft.data.reason])
+      expect(response.body).not.toContain(privateValue);
+    expect(
+      (
+        await server.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/reviews/decision/actioned',
+          headers,
+          payload: { ...decisionCommand, commandId: randomUUID() },
+        })
+      ).json(),
+    ).toMatchObject({ result: 'rejected' });
+    expect(record.mock.calls[0]?.[0].requiredPermission).toBe('view_reports');
+    expect(
+      (
+        await server.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/reviews/decision/dismissed',
+          headers,
+          payload: {
+            ...decisionCommand,
+            commandId: randomUUID(),
+            data: { ...decisionCommand.data, note: 'x'.repeat(2001) },
+          },
+        })
+      ).json(),
+    ).toMatchObject({ result: 'rejected' });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(record.mock.calls)).not.toContain(privateNote);
   });
   it('rejects a mismatched route action and audits only the server-selected permission before delegation', async () => {
     const { server, execute, record } = await start();

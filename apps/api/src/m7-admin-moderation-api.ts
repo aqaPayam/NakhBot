@@ -21,6 +21,8 @@ import type {
   InternalBlockResult,
   ConfirmedReviewAssignments,
   AssignedModerationReview,
+  ConfirmedReviewDecisions,
+  ReviewDecisionResult,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
@@ -34,6 +36,10 @@ import {
   PrepareInternalBlockCommandSchema,
   AssignModerationReviewCommandSchema,
   PrepareReviewAssignmentCommandSchema,
+  DecideModerationReviewCommandSchema,
+  PrepareReviewDecisionCommandSchema,
+  type DecideModerationReviewCommand,
+  type PrepareReviewDecisionCommand,
   type AssignModerationReviewCommand,
   type PrepareReviewAssignmentCommand,
   type ChangeInternalBlockCommand,
@@ -56,7 +62,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   ACCOUNTS = Symbol('M7_MODERATION_ACCOUNTS'),
   PHOTOS = Symbol('M7_MODERATION_PHOTOS'),
   BLOCKS = Symbol('M7_MODERATION_BLOCKS'),
-  ASSIGNMENTS = Symbol('M7_REVIEW_ASSIGNMENTS');
+  ASSIGNMENTS = Symbol('M7_REVIEW_ASSIGNMENTS'),
+  DECISIONS = Symbol('M7_REVIEW_DECISIONS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -64,6 +71,7 @@ export interface M7AdminModerationApiOptions {
   readonly photos?: Pick<ConfirmedPhotoActions, 'prepare' | 'execute'>;
   readonly internalBlocks?: Pick<ConfirmedInternalBlocks, 'prepare' | 'execute'>;
   readonly reviewAssignments?: Pick<ConfirmedReviewAssignments, 'prepare' | 'execute'>;
+  readonly reviewDecisions?: Pick<ConfirmedReviewDecisions, 'prepare' | 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -310,6 +318,71 @@ class ReviewAssignmentController {
     );
   }
 }
+function reviewDecision(value: string): 'dismissed' | 'actioned' {
+  if (value === 'dismissed' || value === 'actioned') return value;
+  throw new ApplicationError('not_found', 'error.m7.unavailable', 404);
+}
+@Controller('v1/admin/moderation/reviews/decision')
+class ReviewDecisionController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(INGRESS) private readonly ingress: AuditedAdminMutationIngress,
+    @Inject(DECISIONS)
+    private readonly decisions: NonNullable<M7AdminModerationApiOptions['reviewDecisions']>,
+  ) {}
+  @Post(':decision/prepare')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Param('decision') selected: string,
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAdminConfirmation> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const command = this.boundary.parse<PrepareReviewDecisionCommand>(
+      PrepareReviewDecisionCommandSchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAdminConfirmationSchema, async () => {
+      if (command.data.decision !== reviewDecision(selected))
+        throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+      return { confirmationToken: await this.decisions.prepare(command, actor) };
+    });
+  }
+  @Post(':decision')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async decide(
+    @Param('decision') selected: string,
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminCommandReceipt> {
+    return this.boundary.result(AdminCommandReceiptSchema, async () => {
+      const decision = reviewDecision(selected);
+      const result = await this.ingress.execute<
+        DecideModerationReviewCommand,
+        ReviewDecisionResult
+      >(
+        DecideModerationReviewCommandSchema,
+        request,
+        body,
+        {
+          commandCode: 'moderation.decide-review',
+          requiredPermission: decision === 'dismissed' ? 'dismiss_report' : 'view_reports',
+        },
+        (command, actor) => {
+          if (command.data.decision !== decision)
+            throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+          return this.decisions.execute(command, actor);
+        },
+      );
+      return adminCommandReceipt(result);
+    });
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -322,6 +395,7 @@ export class M7AdminModerationApiModule {
         ...(options.photos === undefined ? [] : [PhotoActionsController]),
         ...(options.internalBlocks === undefined ? [] : [InternalBlocksController]),
         ...(options.reviewAssignments === undefined ? [] : [ReviewAssignmentController]),
+        ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
         { provide: BOUNDARY, useValue: boundary },
@@ -336,6 +410,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewAssignments === undefined
           ? []
           : [{ provide: ASSIGNMENTS, useValue: options.reviewAssignments }]),
+        ...(options.reviewDecisions === undefined
+          ? []
+          : [{ provide: DECISIONS, useValue: options.reviewDecisions }]),
       ],
     };
   }

@@ -291,6 +291,12 @@ export const DecideModerationReviewCommandSchema = mutationSchema(
   ),
 );
 export type DecideModerationReviewCommand = Static<typeof DecideModerationReviewCommandSchema>;
+export const PrepareReviewDecisionCommandSchema = mutationSchema(
+  'moderation.decide-review',
+  AdminActorSchema,
+  Type.Omit(DecideModerationReviewCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareReviewDecisionCommand = Static<typeof PrepareReviewDecisionCommandSchema>;
 
 export const RevealReportEvidenceCommandSchema = mutationSchema(
   'moderation.reveal-evidence',

@@ -12,6 +12,7 @@ import {
   PostgresConfirmedPhotoActions,
   PostgresConfirmedInternalBlocks,
   PostgresConfirmedReviewAssignments,
+  PostgresConfirmedReviewDecisions,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -22,6 +23,7 @@ import type {
   PreparePhotoModerationActionCommand,
   PrepareInternalBlockCommand,
   PrepareReviewAssignmentCommand,
+  PrepareReviewDecisionCommand,
 } from '@nakh/contracts';
 import {
   createReportUser,
@@ -32,7 +34,7 @@ import {
   createRetainedPhotoReview,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
-import { canonicalAdminPairTargetId } from '@nakh/application';
+import { canonicalAdminPairTargetId, AesGcmReviewNoteProtector } from '@nakh/application';
 import { normalizeUserPair } from '@nakh/domain';
 import { ApiExceptionFilter } from './app.js';
 import { M7AdminModerationApiModule } from './m7-admin-moderation-api.js';
@@ -665,5 +667,215 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
         .execute(),
     ).toEqual([{ result: 'rejected', safe_code: 'reviewer_unauthorized' }]);
     expect(JSON.stringify(error.mock.calls)).not.toContain('Synthetic assignment review');
+  });
+  it('confirms dismissal and evidence-backed action decisions, encrypts notes and commits once under retry races', async () => {
+    await app.close();
+    const adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'super_admin',
+        assigned_by_admin_id: adminId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, adminId),
+      error = vi.fn();
+    app = await NestFactory.create<NestFastifyApplication>(
+      M7AdminModerationApiModule.register({
+        authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
+        journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        reviewAssignments: new PostgresConfirmedReviewAssignments(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
+        reviewDecisions: new PostgresConfirmedReviewDecisions(
+          database,
+          fixture.tokens,
+          fixture.key,
+          new AesGcmReviewNoteProtector('http-review-notes', 1, Buffer.alloc(32, 71)),
+        ),
+        accounts: new PostgresConfirmedAccountActions(database, fixture.tokens, fixture.key),
+      }),
+      new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
+      { logger: false },
+    );
+    app.useGlobalFilters(new ApiExceptionFilter({ error } as unknown as Logger));
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+    const headers = { authorization: 'Bearer review-admin-credential' },
+      privateNote = 'PRIVATE ENCRYPTED REVIEW NOTE';
+    const identity = (): Omit<PrepareReviewDecisionCommand, 'commandType' | 'data'> => ({
+      actor: fixture.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      schemaVersion: 1 as const,
+      idempotencyKey: randomUUID(),
+      locale: 'en',
+      occurredAt: new Date().toISOString(),
+    });
+    const confirm = async (path: string, draft: unknown): Promise<string> => {
+      const prepared = await app.inject({
+        method: 'POST',
+        url: `${path}/prepare`,
+        headers: { ...headers, 'content-type': 'application/json' },
+        payload: JSON.stringify(draft),
+      });
+      expect(prepared.statusCode).toBe(200);
+      return prepared.json<PreparedAdminConfirmation>().confirmationToken;
+    };
+    for (const decision of ['dismissed', 'actioned'] as const) {
+      const report = await createRetainedPhotoReview(database);
+      const assignment: PrepareReviewAssignmentCommand = {
+        ...identity(),
+        commandType: 'moderation.assign-review',
+        data: {
+          expectedTargetVersion: 1,
+          reason: 'Synthetic review owner',
+          assigneeAdminId: adminId,
+          adminActionToken: await fixture.issue({
+            commandCode: 'moderation.assign-review',
+            requiredPermission: 'view_reports',
+            targetType: 'moderation_review',
+            targetId: report.reviewId,
+            expectedTargetVersion: 1,
+          }),
+        },
+      };
+      const assigned = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/moderation/reviews/assignment',
+        headers,
+        payload: {
+          ...assignment,
+          data: {
+            ...assignment.data,
+            confirmationToken: await confirm('/v1/admin/moderation/reviews/assignment', assignment),
+          },
+        },
+      });
+      expect(assigned.json()).toMatchObject({ result: 'succeeded' });
+      const draft: PrepareReviewDecisionCommand = {
+        ...identity(),
+        commandType: 'moderation.decide-review',
+        data: {
+          expectedTargetVersion: 2,
+          reason: 'Synthetic report decision',
+          decision,
+          note: privateNote,
+          adminActionToken: await fixture.issue({
+            commandCode: 'moderation.decide-review',
+            requiredPermission: decision === 'dismissed' ? 'dismiss_report' : 'view_reports',
+            targetType: 'moderation_review',
+            targetId: report.reviewId,
+            expectedTargetVersion: 2,
+          }),
+        },
+      };
+      const path = `/v1/admin/moderation/reviews/decision/${decision}`;
+      if (decision === 'actioned') {
+        const denied = await app.inject({
+          method: 'POST',
+          url: path,
+          headers,
+          payload: {
+            ...draft,
+            data: { ...draft.data, confirmationToken: await confirm(path, draft) },
+          },
+        });
+        expect(denied.json()).toMatchObject({ result: 'rejected', safeCode: 'unavailable' });
+        expect(
+          await database
+            .selectFrom('moderation.moderation_reviews')
+            .select(['status', 'version'])
+            .where('id', '=', report.reviewId)
+            .executeTakeFirstOrThrow(),
+        ).toEqual({ status: 'in_review', version: 2 });
+        const action: PrepareAccountModerationActionCommand = {
+          ...identity(),
+          commandType: 'moderation.apply-account-action',
+          data: {
+            expectedTargetVersion: 1,
+            reason: 'Synthetic report account action',
+            action: 'restrict_user',
+            adminActionToken: await fixture.issue({
+              commandCode: 'moderation.apply-account-action',
+              requiredPermission: 'restrict_user',
+              targetType: 'user',
+              targetId: report.target,
+              expectedTargetVersion: 1,
+              sourceReportId: report.reportId,
+            }),
+          },
+        };
+        const actionPath = '/v1/admin/moderation/accounts/restrict_user';
+        const acted = await app.inject({
+          method: 'POST',
+          url: actionPath,
+          headers,
+          payload: {
+            ...action,
+            data: { ...action.data, confirmationToken: await confirm(actionPath, action) },
+          },
+        });
+        expect(acted.json()).toMatchObject({ result: 'succeeded' });
+        draft.commandId = randomUUID();
+        draft.requestId = randomUUID();
+      }
+      const command = {
+        ...draft,
+        data: { ...draft.data, confirmationToken: await confirm(path, draft) },
+      };
+      const responses = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          app.inject({ method: 'POST', url: path, headers, payload: command }),
+        ),
+      );
+      const receipts = responses.map((response) => response.json<AdminCommandReceipt>());
+      expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+      expect(receipts.every((receipt) => receipt.result === 'succeeded')).toBe(true);
+      expect(receipts.filter((receipt) => !receipt.replayed)).toHaveLength(1);
+      const row = await database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['status', 'version', 'decision_note_ciphertext', 'decision_note_key_id'])
+        .where('id', '=', report.reviewId)
+        .executeTakeFirstOrThrow();
+      expect(row).toMatchObject({
+        status: decision,
+        version: 3,
+        decision_note_key_id: 'http-review-notes',
+      });
+      expect(row.decision_note_ciphertext).not.toBeNull();
+      expect(row.decision_note_ciphertext!.toString('utf8')).not.toContain(privateNote);
+      expect(
+        await database
+          .selectFrom('moderation.reports')
+          .select('status')
+          .where('id', '=', report.reportId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ status: decision });
+      expect(
+        await database
+          .selectFrom('administration.admin_action_logs')
+          .select('id')
+          .where('admin_user_id', '=', adminId)
+          .where('command_id', '=', draft.commandId)
+          .execute(),
+      ).toHaveLength(1);
+      for (const response of responses)
+        for (const privateValue of [privateNote, report.target, report.reporter, report.reviewId])
+          expect(response.body).not.toContain(privateValue);
+      const events = await database
+        .selectFrom('platform.outbox_events')
+        .select('payload')
+        .where('aggregate_id', '=', report.reviewId)
+        .execute();
+      expect(events).toHaveLength(1);
+      expect(JSON.stringify(events)).not.toContain(privateNote);
+    }
+    expect(JSON.stringify(error.mock.calls)).not.toContain(privateNote);
   });
 });
