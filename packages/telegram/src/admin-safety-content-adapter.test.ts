@@ -33,6 +33,7 @@ const fixture = (
   appeals: ReturnType<typeof vi.fn<ConfirmedAppealReveals['execute']>>;
   text: ReturnType<typeof vi.fn<TelegramAdminEvidenceDelivery['text']>>;
   resolve: ReturnType<typeof vi.fn<TelegramConfirmedSafetyReads['resolve']>>;
+  withdraw: ReturnType<typeof vi.fn<NonNullable<TelegramConfirmedSafetyReads['withdraw']>>>;
   adapter: TelegramAdminSafetyContentAdapter;
 }> => {
   const actor = { kind: 'admin' as const, userId: randomUUID() };
@@ -88,6 +89,9 @@ const fixture = (
   });
   const text = vi.fn<TelegramAdminEvidenceDelivery['text']>().mockResolvedValue(undefined);
   const resolve = vi.fn<TelegramConfirmedSafetyReads['resolve']>().mockResolvedValue(selected);
+  const withdraw = vi
+    .fn<NonNullable<TelegramConfirmedSafetyReads['withdraw']>>()
+    .mockResolvedValue(true);
   return {
     actor,
     session,
@@ -98,9 +102,10 @@ const fixture = (
     appeals,
     text,
     resolve,
+    withdraw,
     adapter: new TelegramAdminSafetyContentAdapter(
       { current },
-      { resolve },
+      { resolve, withdraw },
       { execute: support },
       { execute: appeals },
       { text },
@@ -200,5 +205,33 @@ describe('audited Telegram support and appeal content', () => {
     expect(f.appeals).toHaveBeenCalledTimes(1);
     await expect(f.adapter.handle({ message: { text: '/support' } })).resolves.toBe('unhandled');
     expect(f.appeals).toHaveBeenCalledTimes(1);
+  });
+  it('withdraws an owned confirmation without calling either native reader', async () => {
+    const f = fixture('support');
+    const cancelled = {
+      ...update,
+      callback_query: { ...update.callback_query, data: `m7c:${'x'.repeat(22)}` },
+    };
+    await expect(f.adapter.handle(cancelled)).resolves.toBe('notice');
+    expect(f.withdraw).toHaveBeenCalledWith(f.actor, 'x'.repeat(22));
+    expect(f.support).not.toHaveBeenCalled();
+    expect(f.appeals).not.toHaveBeenCalled();
+    expect(f.resolve).not.toHaveBeenCalled();
+    f.withdraw.mockResolvedValueOnce(false);
+    await expect(f.adapter.handle(cancelled)).rejects.toMatchObject({ code: 'forbidden' });
+    expect(f.text).toHaveBeenCalledTimes(1);
+  });
+  it('stops content when cancellation or cache loss occurs while native execution waits or between chunks', async () => {
+    const f = fixture('support');
+    f.resolve.mockResolvedValueOnce(f.selected).mockResolvedValueOnce(undefined);
+    await expect(f.adapter.handle(update)).rejects.toMatchObject({ code: 'version_conflict' });
+    expect(f.support).toHaveBeenCalledTimes(1);
+    expect(f.text).not.toHaveBeenCalled();
+    f.resolve
+      .mockResolvedValueOnce(f.selected)
+      .mockResolvedValueOnce(f.selected)
+      .mockResolvedValueOnce(undefined);
+    await expect(f.adapter.handle(update)).rejects.toMatchObject({ code: 'version_conflict' });
+    expect(f.text.mock.calls.map(([input]) => input.text)).toEqual(['admin.outcome.succeeded']);
   });
 });

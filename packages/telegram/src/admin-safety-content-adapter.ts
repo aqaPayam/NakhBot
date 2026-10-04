@@ -16,6 +16,8 @@ export type TelegramConfirmedSafetyRead =
 export interface TelegramConfirmedSafetyReads {
   /** Short actor-bound reference to one explicitly confirmed native read, never a mutation. */
   resolve(actor: Actor, reference: string): Promise<TelegramConfirmedSafetyRead | undefined>;
+  /** Optional owned UI cancellation; never a business mutation or substitute for native audit. */
+  withdraw?(actor: Actor, reference: string): Promise<boolean>;
 }
 
 /** Content leaves only a fresh successful audited read. No review/unban capability is granted. */
@@ -31,10 +33,11 @@ export class TelegramAdminSafetyContentAdapter {
   ) {}
   public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
     const data = m7Record(m7Record(update)?.callback_query)?.data;
-    if (typeof data !== 'string' || !data.startsWith('m7s:')) return 'unhandled';
+    if (typeof data !== 'string' || (!data.startsWith('m7s:') && !data.startsWith('m7c:')))
+      return 'unhandled';
     try {
       const context = requirePrivateM7Actor(update, 'callback');
-      const match = /^m7s:([A-Za-z0-9_-]{22,40})$/u.exec(data);
+      const match = /^m7([sc]):([A-Za-z0-9_-]{22,40})$/u.exec(data);
       if (match === null)
         throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
       const session = await requireTelegramAdminSession(
@@ -42,7 +45,34 @@ export class TelegramAdminSafetyContentAdapter {
         context.telegramUserId,
         this.now,
       );
-      const selected = await this.commands.resolve(session.actor, match[1]!);
+      const reference = match[2]!;
+      if (match[1] === 'c') {
+        if (!(await this.commands.withdraw?.(session.actor, reference)))
+          throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+        await requireTelegramAdminSession(
+          this.sessions,
+          context.telegramUserId,
+          this.now,
+          session.actor,
+        );
+        for (const chunk of chunkM7EvidenceText(
+          renderM7Notice(this.renderer, session.locale, presentM7AdminOutcome('succeeded')).text,
+        )) {
+          await requireTelegramAdminSession(
+            this.sessions,
+            context.telegramUserId,
+            this.now,
+            session.actor,
+          );
+          await this.delivery.text({
+            recipient: context.telegramUserId,
+            text: chunk,
+            disableLinkPreviews: true,
+          });
+        }
+        return 'notice';
+      }
+      const selected = await this.commands.resolve(session.actor, reference);
       if (
         selected === undefined ||
         selected.command.actor.kind !== 'admin' ||
@@ -57,6 +87,15 @@ export class TelegramAdminSafetyContentAdapter {
             this.now,
             session.actor,
           );
+          const current = await this.commands.resolve(session.actor, reference);
+          if (
+            current === undefined ||
+            current.kind !== selected.kind ||
+            current.command.commandId !== selected.command.commandId ||
+            current.command.actor.kind !== 'admin' ||
+            current.command.actor.userId !== session.actor.userId
+          )
+            throw new ApplicationError('version_conflict', 'error.m7.stale_action', 409);
           await this.delivery.text({
             recipient: context.telegramUserId,
             text: chunk,

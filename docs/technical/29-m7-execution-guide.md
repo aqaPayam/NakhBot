@@ -670,6 +670,15 @@ of cache TTL. Native permission, confirmation expiry, auditing and replay remain
 Restricted reasons, identities and native tokens never appear in plaintext cache values or callback
 data. The vault is not a session/MFA service, mutation capability or evidence of a deployed menu.
 
+Owned support/appeal confirmation references can be withdrawn through private `m7c:` callbacks.
+Cancellation checks the current verified admin session and cryptographic ownership, writes only a
+five-minute content-free cache marker and invokes neither native reader nor mutation. Duplicate
+cancellation keeps the first marker. Read delivery re-resolves the exact stored command before
+each outgoing chunk, so cancellation/cache loss during a database wait or between sends stops
+remaining content. Already-sent messages and committed access audits are not undone. This closes
+pending UI state without replacing the native permission/audit boundary; a fresh read needs a new
+explicit confirmation reference. Synthetic tests cover withdrawal, expiry and delivery races.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome

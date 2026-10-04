@@ -188,7 +188,7 @@ export class TelegramAdminSafetyReadVault implements TelegramConfirmedSafetyRead
       throw unavailable();
     }
   }
-  public async resolve(
+  private async read(
     actor: Actor,
     reference: string,
   ): Promise<TelegramConfirmedSafetyRead | undefined> {
@@ -241,6 +241,31 @@ export class TelegramAdminSafetyReadVault implements TelegramConfirmedSafetyRead
       return state.selected;
     } catch {
       return undefined;
+    }
+  }
+  public async resolve(
+    actor: Actor,
+    reference: string,
+  ): Promise<TelegramConfirmedSafetyRead | undefined> {
+    const selected = await this.read(actor, reference);
+    if (selected === undefined) return undefined;
+    try {
+      return (await this.store.get(`telegram-admin-safety-read-withdrawn:${reference}`)) ===
+        undefined
+        ? selected
+        : undefined;
+    } catch {
+      throw unavailable();
+    }
+  }
+  /** Withdraws only owned pending UI state. Repeating cancellation does not extend authorization. */
+  public async withdraw(actor: Actor, reference: string): Promise<boolean> {
+    if ((await this.read(actor, reference)) === undefined) return false;
+    try {
+      await this.store.putIfAbsent(`telegram-admin-safety-read-withdrawn:${reference}`, '1', 300);
+      return true;
+    } catch {
+      throw unavailable();
     }
   }
 }

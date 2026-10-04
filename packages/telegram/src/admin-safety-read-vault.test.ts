@@ -207,4 +207,22 @@ describe('encrypted Telegram admin read confirmations', () => {
       ).rejects.toMatchObject({ code: 'invalid_request' });
     expect(f.rows.size).toBe(0);
   });
+  it('withdraws owned references idempotently and never permits a cancelled confirmation to be replaced', async () => {
+    const f = fixture();
+    const reference = await f.vault.issue(actor, command, 'operation');
+    await expect(
+      f.vault.withdraw({ kind: 'admin', userId: randomUUID() }, reference),
+    ).resolves.toBe(false);
+    await expect(f.vault.resolve(actor, reference)).resolves.toEqual(command);
+    await expect(f.vault.withdraw(actor, reference)).resolves.toBe(true);
+    await expect(f.vault.withdraw(actor, reference)).resolves.toBe(true);
+    await expect(f.vault.resolve(actor, reference)).resolves.toBeUndefined();
+    await expect(f.vault.issue(actor, command, 'operation')).rejects.toMatchObject({
+      code: 'internal_error',
+    });
+    const fresh = await f.vault.issue(actor, command, 'fresh-operation');
+    await expect(f.vault.resolve(actor, fresh)).resolves.toEqual(command);
+    f.advance(400000);
+    await expect(f.vault.withdraw(actor, fresh)).resolves.toBe(false);
+  });
 });
