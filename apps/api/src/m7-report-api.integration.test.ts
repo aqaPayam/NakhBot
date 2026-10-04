@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
-import { Module } from '@nestjs/common';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Logger } from 'pino';
 import { sql } from 'kysely';
@@ -18,6 +17,7 @@ import {
   AesGcmUnmatchedReportSnapshotReader,
   IntegrityMessageReportSnapshotReader,
   ReportTokens,
+  AesGcmReviewNoteProtector,
   type ReportSource,
 } from '@nakh/application';
 import type {
@@ -41,13 +41,9 @@ import {
   createReportPhoto,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { ApiExceptionFilter } from './app.js';
-import { M7ReportApiModule } from './m7-report-api.js';
-import { M7AdminReportApiModule } from './m7-admin-report-api.js';
-import { createM7ReportHostOptions } from './m7-report-services.js';
+import { M7HostApiModule } from './m7-host-api.js';
+import { createM7HostOptions } from './m7-host-services.js';
 import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
-
-@Module({})
-class ReportTestHost {}
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts', () => {
@@ -90,11 +86,14 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
       })
       .execute();
     admin = await confirmationFixture(database, adminId);
-    const options = createM7ReportHostOptions({
+    const options = createM7HostOptions({
       database,
       reportTokens: tokens,
       adminTokens: admin.tokens,
       adminKey: admin.key,
+      safetyTokens: admin.tokens,
+      safetyKey: Buffer.alloc(32, 94),
+      reviewNotes: new AesGcmReviewNoteProtector('http-review-notes', 1, key),
       capabilities: {
         profile: {
           protector: new AesGcmProfileReportSnapshotProtector('http-key', 1, key),
@@ -126,13 +125,7 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
       },
     });
     app = await NestFactory.create<NestFastifyApplication>(
-      {
-        module: ReportTestHost,
-        imports: [
-          M7ReportApiModule.register(options.reports),
-          M7AdminReportApiModule.register(options.adminReports),
-        ],
-      },
+      M7HostApiModule.register(options),
       new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
       { logger: false },
     );

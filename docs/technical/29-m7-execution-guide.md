@@ -575,8 +575,17 @@ cover all five types, concurrent reveal retries, cross-admin token reuse and per
 between preparation and execution. These use synthetic fixtures and an injected test authenticator,
 not real admin MFA/session infrastructure or actual Telegram/object delivery.
 
-Checkpoint 8 remains partial. Telegram report/evidence presentation, remaining authenticated admin
-mutation endpoints, concrete session ingress and remaining moderation presentation need implementation.
+The shared M7 HTTP host now composes reporting, audited account/photo/internal-block actions,
+review claims/assignments/decisions, user support and appeals, confirmed support reply/close,
+appeal review and separate permission-checked unban. User support and appeal receipts omit raw
+thread/appeal identities; opaque references remain actor-bound. Photo mutation routes are absent
+without an explicitly supplied delivery revoker. Review notes require a preloaded protector.
+HTTP-to-PostgreSQL evidence covers retry races, limits, exact-ban admission, role revocation and
+acceptance without automatic unban. All five report/reveal flows run through the same host.
+This remains explicit host registration with an injected verifier, not real session/MFA or delivery.
+
+Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
+and remaining moderation presentation need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
 staging evidence remain outstanding.
 
