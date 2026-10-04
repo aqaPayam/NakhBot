@@ -10,7 +10,7 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
-  it.each([45, 51, 56, 57, 58, 59, 60, 61, 62, 63])(
+  it.each([45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64])(
     'upgrades from migration %i and preserves legacy appeal identity',
     async (baseline) => {
       const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
@@ -54,7 +54,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           );
         }
         expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-          64 - baseline,
+          65 - baseline,
         );
         await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
         expect((await runMigrations(targetUrl.toString(), directory)).applied).toEqual([]);
@@ -164,6 +164,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000062_m7_reconciliation.sql',
         '000063_m7_operational_indexes.sql',
         '000064_m7_admin_queue_localization.sql',
+        '000065_m7_admin_support_mutation_localization.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -222,9 +223,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000062_m7_reconciliation.sql');
       expect(verified).toContain('000063_m7_operational_indexes.sql');
       expect(verified).toContain('000064_m7_admin_queue_localization.sql');
+      expect(verified).toContain('000065_m7_admin_support_mutation_localization.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(64);
+      expect(replay.existing).toHaveLength(65);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

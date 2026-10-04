@@ -202,7 +202,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(518);
+    expect(Object.keys(english.messages)).toHaveLength(525);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(english.messages['media.photos.button.delete']).toBe('Delete');
     expect(english.messages['liked_by.title']).toBe('Liked By ({count})');
@@ -216,6 +216,10 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     expect(english.messages['notification.new_chat_message.title']).toBe('New message');
     expect(english.messages['report.reason.harassment']).toBe('Harassment');
     expect(english.messages['admin.outcome.succeeded']).toBe('The action completed.');
+    expect(english.messages['admin.support.reply']).toBe('Reply to request');
+    expect(inactiveFallback.messages['admin.support.reply']).toBe(
+      english.messages['admin.support.reply'],
+    );
     expect(english.messages['admin.queue.support_title']).toBe('Support requests');
     expect(english.messages['admin.queue.reason_prompt']).toBe(
       'Reply to this message with your reason for reading the selected request (1 to 1024 characters). You will confirm before any content is shown.',

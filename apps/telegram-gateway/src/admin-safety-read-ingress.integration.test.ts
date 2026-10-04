@@ -34,7 +34,7 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
   afterAll(async () => {
     await database?.destroy();
   });
-  it.each(['prepared', 'selected', 'queue'] as const)(
+  it.each(['prepared', 'selected', 'queue', 'reply', 'close', 'cancel', 'revoked'] as const)(
     'converges %s menus and confirmed callbacks to one audited content delivery, then denies revoked permission',
     async (entry) => {
       const userId = await createReportUser(database),
@@ -191,6 +191,17 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
           update_id: updateId++,
           callback_query: { from, data: choice!, message: { chat } },
         });
+        await ingress.handle({
+          update_id: updateId++,
+          callback_query: {
+            from,
+            data: choice!.replace(
+              'm7q:',
+              entry === 'close' ? 'm7k:' : entry === 'queue' ? 'm7v:' : 'm7j:',
+            ),
+            message: { chat },
+          },
+        });
         const promptId = sent.length;
         expect(sent.at(-1)).toContain('"force_reply":true');
         const reasonUpdate = {
@@ -199,7 +210,10 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
             from,
             chat,
             date,
-            text: draft.command.data.reason,
+            text:
+              entry === 'queue' || entry === 'close'
+                ? draft.command.data.reason
+                : `${draft.command.data.reason}\nPrivate operator reply`,
             reply_to_message: { message_id: promptId, from: { id: 123, is_bot: true } },
           },
         };
@@ -217,7 +231,7 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
         return confirmation.reply_markup.inline_keyboard[0]![0]!.callback_data.slice(4);
       };
       const refs =
-        entry === 'queue'
+        entry !== 'prepared' && entry !== 'selected'
           ? [await prepare()]
           : await Promise.all(Array.from({ length: 5 }, () => prepare()));
       expect(new Set(refs).size).toBe(1);
@@ -225,12 +239,62 @@ describe.skipIf(url === undefined)('Telegram admin read composition to PostgreSQ
       const update = {
         update_id: 5,
         callback_query: {
-          data: `m7s:${refs[0]!}`,
+          data: `${entry === 'prepared' || entry === 'selected' || entry === 'queue' ? 'm7s:' : 'm7m:'}${refs[0]!}`,
           from: { id: Number(admin.telegram_user_id), is_bot: false },
           message: { chat: { type: 'private', id: Number(admin.telegram_user_id) } },
         },
       };
+      if (entry === 'cancel') {
+        await ingress.handle({
+          ...update,
+          callback_query: {
+            ...update.callback_query,
+            data: update.callback_query.data.replace('m7m:', 'm7x:'),
+          },
+        });
+      }
+      if (entry === 'revoked') {
+        await database
+          .updateTable('administration.admin_user_roles')
+          .set({ revoked_at: new Date(), revoked_by_admin_id: adminId })
+          .where('admin_user_id', '=', adminId)
+          .where('revoked_at', 'is', null)
+          .execute();
+      }
       await Promise.all(Array.from({ length: 5 }, () => ingress.handle(update)));
+      if (['reply', 'close', 'cancel', 'revoked'].includes(entry)) {
+        const thread = await database
+          .selectFrom('support.support_threads')
+          .select(['version', 'status'])
+          .where('id', '=', opened.supportThreadId)
+          .executeTakeFirstOrThrow();
+        const effect = entry === 'reply' || entry === 'close';
+        expect(thread).toMatchObject({
+          version: effect ? 2 : 1,
+          status: entry === 'close' ? 'closed' : 'open',
+        });
+        const replies = await database
+          .selectFrom('support.support_messages')
+          .select('message_text')
+          .where('support_thread_id', '=', opened.supportThreadId)
+          .where('sender_type', '=', 'admin')
+          .execute();
+        expect(replies).toEqual(
+          entry === 'reply' ? [{ message_text: 'Private operator reply' }] : [],
+        );
+        const logs = await database
+          .selectFrom('administration.admin_action_logs')
+          .select(['result', 'metadata'])
+          .where('target_id', '=', opened.supportThreadId)
+          .execute();
+        expect(logs).toHaveLength(entry === 'cancel' ? 0 : 1);
+        if (logs.length)
+          expect(logs[0]!.result).toBe(entry === 'revoked' ? 'rejected' : 'succeeded');
+        expect(JSON.stringify(logs)).not.toContain('Private operator reply');
+        expect(JSON.stringify(logs)).not.toContain(draft.command.data.reason);
+        expect(sent.join('')).not.toContain('restricted support conversation');
+        return;
+      }
       expect(sent.filter((body) => body.includes('restricted support conversation'))).toHaveLength(
         1,
       );

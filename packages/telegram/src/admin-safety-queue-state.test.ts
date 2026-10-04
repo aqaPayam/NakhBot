@@ -56,6 +56,10 @@ describe('encrypted admin queue selections and prompt correlation', () => {
     expect([...values.entries()]).toEqual(preserved);
     await state.bindPrompt(actor, 7, reference);
     await expect(state.prompt(actor, 7)).resolves.toBe(reference);
+    await expect(state.promptSelection(actor, 7)).resolves.toEqual({ reference, action: 'read' });
+    await expect(state.bindPrompt(actor, 7, reference, 'reply')).rejects.toMatchObject({
+      code: 'idempotency_conflict',
+    });
     await expect(state.prompt(actor, 8)).resolves.toBeUndefined();
     await expect(state.prompt({ kind: 'admin', userId: randomUUID() }, 7)).resolves.toBeUndefined();
     const second = await state.putChoice(actor, 'second', choice);

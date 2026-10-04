@@ -9,6 +9,7 @@ import type {
   PrepareAppealReviewAccessHandler,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
+import type { TelegramAdminSupportMutations } from './admin-support-mutations.js';
 import { TelegramAdminSafetyQueueAdapter } from './admin-safety-queue-adapter.js';
 import { TelegramAdminSafetyQueueState } from './admin-safety-queue-state.js';
 import type { TelegramAdminSafetyTargetSelection } from './admin-safety-target-selection.js';
@@ -116,7 +117,10 @@ class Harness {
     .mockResolvedValue(undefined);
   public state: TelegramAdminSafetyQueueState;
   public adapter: TelegramAdminSafetyQueueAdapter;
-  public constructor() {
+  public mutation = vi
+    .fn<TelegramAdminSupportMutations['prepare']>()
+    .mockResolvedValue('a'.repeat(22));
+  public constructor(mutations = false) {
     const tokens: OpaqueTokenStore = {
       get: (id) => Promise.resolve(this.values.get(id)),
       putIfAbsent: (id, value) => {
@@ -147,6 +151,7 @@ class Harness {
           intent.key === 'admin.queue.status.open' ? 'Open' : intent.key,
       },
       () => this.now,
+      mutations ? { prepare: this.mutation } : undefined,
     );
   }
 }
@@ -245,5 +250,53 @@ describe('private Telegram admin metadata picker and exact-prompt reason entry',
         message: { reply_to_message: {}, chat: { type: 'group' } },
       }),
     ).resolves.toBe('unhandled');
+  });
+  it('offers support actions, binds exact prompt action, and routes reply text separately from its reason', async () => {
+    const f = new Harness(true);
+    await f.adapter.handle(message('/admin_support'));
+    const choice = f.queueMenu.mock.calls[0]![0].replyMarkup.inline_keyboard[0]![0].callback_data;
+    await f.adapter.handle(callback(choice));
+    expect(f.reasonPrompt).not.toHaveBeenCalled();
+    expect(
+      f.queueMenu.mock.calls[1]![0].replyMarkup.inline_keyboard.map((row) => row[0].callback_data),
+    ).toEqual(['v', 'j', 'k'].map((code) => choice.replace('m7q:', `m7${code}:`)));
+    await f.adapter.handle(callback(choice.replace('m7q:', 'm7j:')));
+    expect(f.supportActions.mock.calls.at(-1)![0].action).toBe('reply');
+    await f.adapter.handle(reply('Review reason\nPrivate reply\nsecond line'));
+    expect(f.mutation).toHaveBeenCalledWith(
+      '123',
+      expect.objectContaining({
+        action: 'reply',
+        reason: 'Review reason',
+        text: 'Private reply\nsecond line',
+      }),
+    );
+    expect(f.mutation.mock.calls[0]![1].choice.targetId).toBe(f.targetId);
+    expect(f.select).not.toHaveBeenCalled();
+    await expect(f.adapter.handle(callback(choice.replace('m7q:', 'm7k:')))).rejects.toMatchObject({
+      code: 'idempotency_conflict',
+    });
+    expect([...f.values.values()].join('')).not.toContain('Private reply');
+  });
+  it('offers closed support threads only a read action while native selection still owns status checks', async () => {
+    const f = new Harness(true);
+    f.support.mockResolvedValueOnce({
+      items: [
+        {
+          threadId: f.targetId,
+          status: 'closed',
+          version: 2,
+          createdAt: '2026-01-01T00:00:00Z',
+          lastMessageAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+    await f.adapter.handle(message('/admin_support closed'));
+    const choice = f.queueMenu.mock.calls[0]![0].replyMarkup.inline_keyboard[0]![0].callback_data;
+    await f.adapter.handle(callback(choice));
+    expect(f.queueMenu.mock.calls[1]![0].replyMarkup.inline_keyboard).toHaveLength(1);
+    expect(f.queueMenu.mock.calls[1]![0].replyMarkup.inline_keyboard[0]![0].callback_data).toBe(
+      choice.replace('m7q:', 'm7v:'),
+    );
   });
 });

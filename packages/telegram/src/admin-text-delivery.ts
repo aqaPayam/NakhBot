@@ -67,15 +67,25 @@ export class TelegramAdminTextDelivery
   public async text(input: Parameters<TelegramAdminEvidenceDelivery['text']>[0]): Promise<void> {
     await this.send(input);
   }
+  public async supportMutationMenu(input: TelegramAdminReadConfirmationMenu): Promise<void> {
+    return this.confirmationMenu(input, 'm7m:', 'm7x:');
+  }
   public async menu(input: TelegramAdminReadConfirmationMenu): Promise<void> {
+    return this.confirmationMenu(input, 'm7s:', 'm7c:');
+  }
+  private async confirmationMenu(
+    input: TelegramAdminReadConfirmationMenu,
+    confirm: string,
+    cancel: string,
+  ): Promise<void> {
     const rows = input.replyMarkup.inline_keyboard;
     const buttons = rows[0];
     if (
       rows.length !== 1 ||
       buttons.length !== 2 ||
       buttons.some((button) => button.text.trim() === '' || [...button.text].length > 64) ||
-      !/^m7s:[A-Za-z0-9_-]{22}$/u.test(buttons[0].callback_data) ||
-      buttons[1].callback_data !== buttons[0].callback_data.replace('m7s:', 'm7c:')
+      !new RegExp(`^${confirm}[A-Za-z0-9_-]{22}$`, 'u').test(buttons[0].callback_data) ||
+      buttons[1].callback_data !== buttons[0].callback_data.replace(confirm, cancel)
     )
       throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
     await this.send(input, {
@@ -97,7 +107,7 @@ export class TelegramAdminTextDelivery
           row.length !== 1 ||
           row[0].text.trim() === '' ||
           [...row[0].text].length > 64 ||
-          !/^m7[qp]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
+          !/^m7[qpvjk]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
       )
     )
       throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);

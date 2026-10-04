@@ -8,13 +8,15 @@ export type TelegramSafetyQueueChoice = Readonly<{
   queueActionToken: string;
   targetId: string;
   expectedVersion: number;
+  status?: string;
 }>;
 export type TelegramSafetyQueuePage = Readonly<{
   kind: 'support' | 'appeal';
   status: string;
   cursor: string;
 }>;
-type State = TelegramSafetyQueueChoice | TelegramSafetyQueuePage | Readonly<{ reference: string }>;
+type Prompt = Readonly<{ reference: string; action: 'read' | 'reply' | 'close' }>;
+type State = TelegramSafetyQueueChoice | TelegramSafetyQueuePage | Prompt;
 type Purpose = 'choice' | 'page' | 'prompt';
 const referencePattern = /^[A-Za-z0-9_-]{22}$/u;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -28,7 +30,8 @@ function valid(value: unknown, purpose: Purpose): value is State {
   if (row === undefined) return false;
   if (purpose === 'prompt')
     return (
-      Object.keys(row).length === 1 &&
+      Object.keys(row).length === 2 &&
+      ['read', 'reply', 'close'].includes(String(row.action)) &&
       typeof row.reference === 'string' &&
       referencePattern.test(row.reference)
     );
@@ -42,7 +45,11 @@ function valid(value: unknown, purpose: Purpose): value is State {
       /^v1\.sq\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u.test(row.cursor)
     );
   return (
-    Object.keys(row).length === 4 &&
+    Object.keys(row).every((key) =>
+      ['kind', 'queueActionToken', 'targetId', 'expectedVersion', 'status'].includes(key),
+    ) &&
+    (row.status === undefined ||
+      (typeof row.status === 'string' && validSafetyQueueStatus(row.kind, row.status))) &&
     typeof row.queueActionToken === 'string' &&
     /^v1\.ad\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u.test(row.queueActionToken) &&
     typeof row.targetId === 'string' &&
@@ -128,7 +135,7 @@ export class TelegramAdminSafetyQueueState {
       // metadata selection; native authority is rechecked before prompting and preparing reads.
       const binding = (value: State): string =>
         purpose === 'choice' && 'targetId' in value
-          ? JSON.stringify([value.kind, value.targetId, value.expectedVersion])
+          ? JSON.stringify([value.kind, value.targetId, value.expectedVersion, value.status])
           : purpose === 'page' && 'cursor' in value
             ? JSON.stringify([value.kind, value.status])
             : JSON.stringify(value);
@@ -223,17 +230,25 @@ export class TelegramAdminSafetyQueueState {
     const state = await this.get(actor, 'page', reference);
     return state !== undefined && 'cursor' in state ? state : undefined;
   }
-  public async bindPrompt(actor: Actor, messageId: number, reference: string): Promise<void> {
+  public async bindPrompt(
+    actor: Actor,
+    messageId: number,
+    reference: string,
+    action: Prompt['action'] = 'read',
+  ): Promise<void> {
     if (!Number.isSafeInteger(messageId) || messageId < 1) throw unavailable();
-    await this.put(actor, 'prompt', `message:${messageId}`, { reference });
+    await this.put(actor, 'prompt', `message:${messageId}`, { reference, action });
   }
   public async prompt(actor: Actor, messageId: number): Promise<string | undefined> {
+    return (await this.promptSelection(actor, messageId))?.reference;
+  }
+  public async promptSelection(actor: Actor, messageId: number): Promise<Prompt | undefined> {
     if (!Number.isSafeInteger(messageId) || messageId < 1) return undefined;
     const state = await this.get(
       actor,
       'prompt',
       this.reference(actor, 'prompt', `message:${messageId}`),
     );
-    return state !== undefined && 'reference' in state ? state.reference : undefined;
+    return state !== undefined && 'reference' in state ? state : undefined;
   }
 }

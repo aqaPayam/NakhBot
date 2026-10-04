@@ -1,3 +1,4 @@
+import type { TelegramAdminSupportMutations } from './admin-support-mutations.js';
 import { randomUUID } from 'node:crypto';
 import type {
   GetSafetyQueueActionsHandler,
@@ -47,6 +48,7 @@ export class TelegramAdminSafetyQueueAdapter {
       }>,
     private readonly renderer: M7TextRenderer,
     private readonly now: () => Date = () => new Date(),
+    private readonly mutations?: Pick<TelegramAdminSupportMutations, 'prepare'>,
   ) {
     if (!/^[1-9][0-9]{0,19}$/u.test(botId) || !Number.isSafeInteger(Number(botId)))
       throw new Error('Admin queue bot identity invalid.');
@@ -60,8 +62,7 @@ export class TelegramAdminSafetyQueueAdapter {
       typeof message?.text === 'string'
         ? /^\/admin_(support|appeals)(?:\s+(\S+))?$/u.exec(message.text)
         : null;
-    const callbackHandled =
-      typeof data === 'string' && (data.startsWith('m7q:') || data.startsWith('m7p:'));
+    const callbackHandled = typeof data === 'string' && /^m7[qpvjk]:/u.test(data);
     const replied = m7Record(message?.reply_to_message);
     if (!callbackHandled && command === null && replied === undefined) return 'unhandled';
     if (
@@ -99,7 +100,7 @@ export class TelegramAdminSafetyQueueAdapter {
         return 'notice';
       }
       if (callbackHandled) {
-        const match = /^m7([qp]):([A-Za-z0-9_-]{22})$/u.exec(data);
+        const match = /^m7([qpvjk]):([A-Za-z0-9_-]{22})$/u.exec(data);
         if (match === null)
           throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
         const reference = match[2]!;
@@ -119,7 +120,10 @@ export class TelegramAdminSafetyQueueAdapter {
           const choice = await this.state.choice(session.actor, reference);
           if (choice === undefined)
             throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
-          await this.validateChoice(session, choice);
+          const action = match[1] === 'j' ? 'reply' : match[1] === 'k' ? 'close' : 'read';
+          if (action !== 'read' && (choice.kind !== 'support' || this.mutations === undefined))
+            throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+          await this.validateChoice(session, choice, action === 'read' ? 'reveal' : action);
           await requireTelegramAdminSession(
             this.sessions,
             context.telegramUserId,
@@ -128,23 +132,55 @@ export class TelegramAdminSafetyQueueAdapter {
           );
           if ((await this.state.choice(session.actor, reference)) === undefined)
             throw new ApplicationError('version_conflict', 'error.m7.stale_action', 409);
+          if (match[1] === 'q' && choice.kind === 'support' && this.mutations !== undefined) {
+            const codes = choice.status === 'closed' ? ['v'] : ['v', 'j', 'k'];
+            await this.delivery.queueMenu({
+              recipient: context.telegramUserId,
+              text: this.renderer.render(session.locale, {
+                key: 'admin.support.choose_action',
+                variables: {},
+              }),
+              disableLinkPreviews: true,
+              replyMarkup: {
+                inline_keyboard: codes.map(
+                  (code) =>
+                    [
+                      {
+                        text: this.renderer.render(session.locale, {
+                          key:
+                            code === 'v'
+                              ? 'admin.support.read'
+                              : code === 'j'
+                                ? 'admin.support.reply'
+                                : 'admin.support.close',
+                          variables: {},
+                        }),
+                        callback_data: `m7${code}:${reference}`,
+                      },
+                    ] as const,
+                ),
+              },
+            });
+            return 'notice';
+          }
           const promptId = await this.delivery.reasonPrompt({
             recipient: context.telegramUserId,
             text: this.renderer.render(session.locale, {
-              key: 'admin.queue.reason_prompt',
+              key:
+                action === 'read' ? 'admin.queue.reason_prompt' : `admin.support.${action}_prompt`,
               variables: {},
             }),
             disableLinkPreviews: true,
           });
-          await this.state.bindPrompt(session.actor, promptId, reference);
+          await this.state.bindPrompt(session.actor, promptId, reference, action);
         }
         return 'notice';
       }
       const replyId = replied?.message_id;
       if (typeof replyId !== 'number' || !Number.isSafeInteger(replyId) || replyId < 1)
         return 'unhandled';
-      const reference = await this.state.prompt(session.actor, replyId);
-      if (reference === undefined) return 'unhandled';
+      const prompt = await this.state.promptSelection(session.actor, replyId);
+      if (prompt === undefined) return 'unhandled';
       const author = m7Record(replied?.from);
       if (
         author?.id !== Number(this.botId) ||
@@ -152,9 +188,30 @@ export class TelegramAdminSafetyQueueAdapter {
         typeof message?.text !== 'string'
       )
         throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
-      const choice = await this.state.choice(session.actor, reference);
+      const choice = await this.state.choice(session.actor, prompt.reference);
       if (choice === undefined)
         throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+      if (prompt.action !== 'read') {
+        if (this.mutations === undefined || choice.kind !== 'support')
+          throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+        const newline = message.text.indexOf('\n');
+        await this.mutations.prepare(context.telegramUserId, {
+          choice,
+          action: prompt.action,
+          reason:
+            prompt.action === 'reply'
+              ? newline < 0
+                ? ''
+                : message.text.slice(0, newline)
+              : message.text,
+          ...(prompt.action === 'reply'
+            ? { text: newline < 0 ? '' : message.text.slice(newline + 1) }
+            : {}),
+          operationId,
+          occurredAt: context.occurredAt,
+        });
+        return 'notice';
+      }
       await this.selections.select(context.telegramUserId, {
         ...choice,
         reason: message.text,
@@ -170,6 +227,7 @@ export class TelegramAdminSafetyQueueAdapter {
   private async validateChoice(
     session: Awaited<ReturnType<typeof requireTelegramAdminSession>>,
     choice: TelegramSafetyQueueChoice,
+    action: 'reveal' | 'reply' | 'close' = 'reveal',
   ): Promise<void> {
     const actor = { kind: 'admin' as const, userId: session.actor.userId };
     if (choice.kind === 'support')
@@ -180,7 +238,7 @@ export class TelegramAdminSafetyQueueAdapter {
           adminActionToken: choice.queueActionToken,
           threadId: choice.targetId,
           expectedThreadVersion: choice.expectedVersion,
-          action: 'reveal',
+          action,
         },
         actor,
       );
@@ -242,6 +300,7 @@ export class TelegramAdminSafetyQueueAdapter {
         queueActionToken: root.adminActionToken,
         targetId: support ? item.threadId : item.appealId,
         expectedVersion: item.version,
+        status: item.status,
       });
       pending.push(reference);
       const date = support ? item.createdAt : item.submittedAt;

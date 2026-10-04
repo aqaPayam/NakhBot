@@ -640,3 +640,6 @@ export * from './admin-safety-queue-state.js';
 export * from './admin-safety-queue-menu.js';
 export * from './admin-safety-queue-adapter.js';
 export * from './admin-safety-feedback.js';
+
+export * from './admin-support-mutation-vault.js';
+export * from './admin-support-mutations.js';

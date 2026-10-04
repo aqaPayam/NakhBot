@@ -762,3 +762,23 @@ Telegram evidence reveal, admin permission/failure logging, fifth-report restric
 internal-block, support/appeal, rollback, alert, and privacy drills with named backend, product,
 operations, moderation, and security sign-off. Without infrastructure it may be called **code
 complete / staging blocked**, never live.
+
+### Confirmed support mutation UI evidence
+
+The explicit authenticated Telegram admin ingress now composes native support replies and closure
+from the metadata picker. Selecting an open thread offers Read, Reply and Close; closed threads offer
+Read. Reply entry binds the first-line review reason and remaining support text to the exact owned
+private prompt. Normalized drafts use encrypted actor-bound five-minute UI state with separate
+confirmation callbacks; full 2000-scalar replies are previewed in protected bounded chunks.
+Native queue selection, confirmed-command authorization, current permission/version checks and
+transactional attempted-command audit remain authoritative. Concurrent preparations retain one
+exact draft; native execution retries use the same command, yielding one effect and one audit.
+A first-write-wins UI Confirm/Cancel decision prevents cancellation from reversing a confirmation.
+No historical user content is fetched by this mutation flow. Draft reasons/replies never enter
+plain Redis values, callback handles, admin log metadata or operational telemetry.
+Migration 65 adds seven English fallback labels; apply and verify it before enabling this ingress.
+Unit evidence covers encrypted state, cross-actor/tampered/expired handles, mixed decision races,
+payload substitution, full emoji limits and session/cache loss during preview. PostgreSQL ingress
+evidence exercises actual picker/prompt/confirmation replies, closure, cancellation and permission
+revocation under concurrent confirmation retries. This is implementation evidence; concrete admin
+session/MFA composition and real Telegram/provider staging acceptance remain open gates.

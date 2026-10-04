@@ -2,6 +2,7 @@ import type { OpaqueTokenStore } from '@nakh/application';
 import {
   PostgresConfirmedAppealReveals,
   PostgresConfirmedSupportReveals,
+  PostgresConfirmedSupportCommands,
   PostgresPrepareSupportActionHandler,
   PostgresPrepareAppealReviewAccessHandler,
   PostgresGetSafetyQueueActionsHandler,
@@ -17,6 +18,8 @@ import {
   TelegramAdminSafetyQueueState,
   TelegramAdminSafetyQueueAdapter,
   TelegramAdminSafetyFeedback,
+  TelegramAdminSupportMutationVault,
+  TelegramAdminSupportMutations,
   TelegramAdminReadConfirmationMenus,
   type TelegramAdminTextDelivery,
   type TelegramAdminSessionVerifier,
@@ -78,6 +81,19 @@ export function createTelegramAdminSafetyReadIngress(
     input.uiReferenceKey,
     preparation,
   );
+  const mutations = new TelegramAdminSupportMutations(
+    input.sessions,
+    new PostgresPrepareSupportActionHandler(input.database, input.tokens, input.adminKey),
+    new PostgresConfirmedSupportCommands(input.database, input.tokens, input.adminKey),
+    new TelegramAdminSupportMutationVault(
+      input.tokens,
+      input.uiEncryptionKey,
+      input.uiReferenceKey,
+    ),
+    input.uiReferenceKey,
+    input.delivery,
+    input.renderer,
+  );
   const queue = new TelegramAdminSafetyQueueAdapter(
     input.botId,
     input.sessions,
@@ -90,11 +106,13 @@ export function createTelegramAdminSafetyReadIngress(
     selections,
     input.delivery,
     input.renderer,
+    undefined,
+    mutations,
   );
   const feedback = new TelegramAdminSafetyFeedback(
     input.botId,
     input.sessions,
-    [queue, reads],
+    [queue, reads, mutations],
     input.tokens,
     input.uiReferenceKey,
     input.delivery,
