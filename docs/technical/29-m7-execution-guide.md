@@ -125,8 +125,9 @@ and Notification state.
 11. `000056_m7_action_report_scope.sql` — report-linked admin target/assignment and successful-attempt guards.
 12. `000057_m7_evidence_access_identity.sql` — admin-bound evidence access command identity, preserving existing audit rows.
 13. `000058_m7_unmatch_report_deadline.sql` — post-lock database-time enforcement of the immutable unmatch report window at evidence insertion.
-14. `000062_m7_reconciliation.sql` (planned) — resumable bounded M7 reconciliation runs, anomaly types, query
-   indexes, and verification hardening.
+14. `000062_m7_reconciliation.sql` — moderation run/anomaly types in the shared reconciliation
+   registry, support/appeal status keyset indexes, and immutable subject-bound support/appeal access
+   audits linked to exact admin attempts. Scanner execution and restricted-read adapters follow separately.
 
 Every migration must bootstrap from empty, upgrade from `000045`, replay unchanged, and have
 matching verification SQL. Applied migrations are immutable. No migration seeds an enabled admin

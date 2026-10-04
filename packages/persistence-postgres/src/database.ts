@@ -741,7 +741,7 @@ export interface RefundRecordTable {
 
 export interface ReconciliationRunTable {
   id: string;
-  run_type: Generated<'billing' | 'nakh' | 'chat'>;
+  run_type: Generated<'billing' | 'nakh' | 'chat' | 'moderation'>;
   status: 'started' | 'succeeded' | 'failed';
   cursor: ColumnType<JsonObject, object, object>;
   scanned_count: Generated<string>;
@@ -770,7 +770,16 @@ export interface ReconciliationAnomalyTable {
     | 'chat_session'
     | 'chat_message'
     | 'match'
-    | 'notification_delivery';
+    | 'notification_delivery'
+    | 'report'
+    | 'moderation_review'
+    | 'moderation_action'
+    | 'restriction_episode'
+    | 'internal_block'
+    | 'admin_user'
+    | 'admin_action_log'
+    | 'support_thread'
+    | 'user_appeal';
   entity_id: string;
   disposition: 'repair_scheduled' | 'quarantined';
   safe_detail: ColumnType<JsonObject, object, object>;
@@ -1176,6 +1185,20 @@ export interface AppealSubmissionTable {
 }
 
 export interface DatabaseSchema {
+  'administration.safety_access_audits': {
+    id: string;
+    admin_user_id: string;
+    admin_action_log_id: string;
+    command_id: string;
+    request_id: string;
+    support_thread_id: string | null;
+    user_appeal_id: string | null;
+    permission_code: 'review_support' | 'review_appeals';
+    outcome: 'revealed' | 'rejected';
+    safe_code: string;
+    item_count: number;
+    occurred_at: Generated<Date>;
+  };
   'moderation.appeal_unbans': {
     appeal_id: string;
     action_id: string;
