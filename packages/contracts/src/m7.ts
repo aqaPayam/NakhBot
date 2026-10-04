@@ -282,6 +282,27 @@ export const PreparedReportEvidenceAccessSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedReportEvidenceAccess = Static<typeof PreparedReportEvidenceAccessSchema>;
+export const PrepareReviewActionQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    reviewId: UuidSchema,
+    expectedReviewVersion: Type.Integer({ minimum: 1 }),
+    action: Type.Union([
+      Type.Literal('assign'),
+      Type.Literal('dismissed'),
+      Type.Literal('actioned'),
+    ]),
+  },
+  { additionalProperties: false },
+);
+export type PrepareReviewActionQuery = Static<typeof PrepareReviewActionQuerySchema>;
+export const PreparedReviewActionSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema, reviewVersion: Type.Integer({ minimum: 1 }) },
+  { additionalProperties: false },
+);
+export type PreparedReviewAction = Static<typeof PreparedReviewActionSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,

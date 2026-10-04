@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  PrepareReviewActionHandler,
   ConfirmedAppealCommands,
   ConfirmedSupportCommands,
   StoredSupportResult,
@@ -31,6 +32,10 @@ import type {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
+  PrepareReviewActionQuerySchema,
+  PreparedReviewActionSchema,
+  type PrepareReviewActionQuery,
+  type PreparedReviewAction,
   PrepareAppealUnbanCommandSchema,
   UnbanAppealCommandSchema,
   type PrepareAppealUnbanCommand,
@@ -93,7 +98,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   CLAIMS = Symbol('M7_REVIEW_CLAIMS'),
   SUPPORT = Symbol('M7_ADMIN_SUPPORT'),
   APPEAL_REVIEWS = Symbol('M7_APPEAL_REVIEWS'),
-  APPEAL_UNBANS = Symbol('M7_APPEAL_UNBANS');
+  APPEAL_UNBANS = Symbol('M7_APPEAL_UNBANS'),
+  REVIEW_ACTIONS = Symbol('M7_REVIEW_ACTIONS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -106,6 +112,7 @@ export interface M7AdminModerationApiOptions {
   readonly supportCommands?: Pick<ConfirmedSupportCommands, 'prepare' | 'execute'>;
   readonly appealReviews?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
   readonly appealUnbans?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
+  readonly reviewActions?: Pick<PrepareReviewActionHandler, 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -634,6 +641,32 @@ class AppealUnbanController {
     );
   }
 }
+@Controller('v1/admin/moderation/reviews/actions')
+class ReviewActionsController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(REVIEW_ACTIONS)
+    private readonly actions: NonNullable<M7AdminModerationApiOptions['reviewActions']>,
+  ) {}
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedReviewAction> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<PrepareReviewActionQuery>(
+      PrepareReviewActionQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedReviewActionSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -642,6 +675,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.reviewActions === undefined ? [] : [ReviewActionsController]),
         ...(options.appealUnbans === undefined ? [] : [AppealUnbanController]),
         ...(options.appealReviews === undefined ? [] : [AppealReviewController]),
         ...(options.supportCommands === undefined ? [] : [SupportAdminController]),
@@ -653,6 +687,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.reviewActions === undefined
+          ? []
+          : [{ provide: REVIEW_ACTIONS, useValue: options.reviewActions }]),
         ...(options.appealUnbans === undefined
           ? []
           : [{ provide: APPEAL_UNBANS, useValue: options.appealUnbans }]),

@@ -14,6 +14,7 @@ import {
   PostgresConfirmedReviewAssignments,
   PostgresConfirmedReviewDecisions,
   PostgresClaimModerationReviewsHandler,
+  PostgresPrepareReviewActionHandler,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -27,6 +28,7 @@ import type {
   PrepareReviewDecisionCommand,
   ClaimModerationReviewsCommand,
   AdminReviewClaimResult,
+  PreparedReviewAction,
 } from '@nakh/contracts';
 import {
   createReportUser,
@@ -799,6 +801,11 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           new AesGcmReviewNoteProtector('http-review-notes', 1, Buffer.alloc(32, 71)),
         ),
         accounts: new PostgresConfirmedAccountActions(database, fixture.tokens, fixture.key),
+        reviewActions: new PostgresPrepareReviewActionHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
       }),
       new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
       { logger: false },
@@ -827,8 +834,52 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
       expect(prepared.statusCode).toBe(200);
       return prepared.json<PreparedAdminConfirmation>().confirmationToken;
     };
+    const queueToken = await fixture.issue({
+      commandCode: 'moderation.report-metadata',
+      requiredPermission: 'view_reports',
+      targetType: 'report_queue',
+      targetId: null,
+      expectedTargetVersion: null,
+    });
+    async function reviewToken(
+      reviewId: string,
+      version: number,
+      action: 'assign' | 'dismissed' | 'actioned',
+    ): Promise<string> {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/moderation/reviews/actions',
+        headers,
+        payload: {
+          actor: fixture.actor,
+          requestId: randomUUID(),
+          adminActionToken: queueToken,
+          reviewId,
+          expectedReviewVersion: version,
+          action,
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.body).not.toContain(adminId);
+      return response.json<PreparedReviewAction>().adminActionToken;
+    }
     for (const decision of ['dismissed', 'actioned'] as const) {
       const report = await createRetainedPhotoReview(database);
+      const pendingDecision = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/moderation/reviews/actions',
+        headers,
+        payload: {
+          actor: fixture.actor,
+          requestId: randomUUID(),
+          adminActionToken: queueToken,
+          reviewId: report.reviewId,
+          expectedReviewVersion: 1,
+          action: 'dismissed',
+        },
+      });
+      expect(pendingDecision.statusCode).toBe(403);
       const assignment: PrepareReviewAssignmentCommand = {
         ...identity(),
         commandType: 'moderation.assign-review',
@@ -836,13 +887,7 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           expectedTargetVersion: 1,
           reason: 'Synthetic review owner',
           assigneeAdminId: adminId,
-          adminActionToken: await fixture.issue({
-            commandCode: 'moderation.assign-review',
-            requiredPermission: 'view_reports',
-            targetType: 'moderation_review',
-            targetId: report.reviewId,
-            expectedTargetVersion: 1,
-          }),
+          adminActionToken: await reviewToken(report.reviewId, 1, 'assign'),
         },
       };
       const assigned = await app.inject({
@@ -866,17 +911,34 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           reason: 'Synthetic report decision',
           decision,
           note: privateNote,
-          adminActionToken: await fixture.issue({
-            commandCode: 'moderation.decide-review',
-            requiredPermission: decision === 'dismissed' ? 'dismiss_report' : 'view_reports',
-            targetType: 'moderation_review',
-            targetId: report.reviewId,
-            expectedTargetVersion: 2,
-          }),
+          adminActionToken:
+            decision === 'dismissed'
+              ? await reviewToken(report.reviewId, 2, 'dismissed')
+              : await fixture.issue({
+                  commandCode: 'moderation.decide-review',
+                  requiredPermission: 'view_reports',
+                  targetType: 'moderation_review',
+                  targetId: report.reviewId,
+                  expectedTargetVersion: 2,
+                }),
         },
       };
       const path = `/v1/admin/moderation/reviews/decision/${decision}`;
       if (decision === 'actioned') {
+        const unavailableAction = await app.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/reviews/actions',
+          headers,
+          payload: {
+            actor: fixture.actor,
+            requestId: randomUUID(),
+            adminActionToken: queueToken,
+            reviewId: report.reviewId,
+            expectedReviewVersion: 2,
+            action: 'actioned',
+          },
+        });
+        expect(unavailableAction.statusCode).toBe(409);
         const denied = await app.inject({
           method: 'POST',
           url: path,
@@ -924,6 +986,7 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
         expect(acted.json()).toMatchObject({ result: 'succeeded' });
         draft.commandId = randomUUID();
         draft.requestId = randomUUID();
+        draft.data.adminActionToken = await reviewToken(report.reviewId, 2, 'actioned');
       }
       const command = {
         ...draft,

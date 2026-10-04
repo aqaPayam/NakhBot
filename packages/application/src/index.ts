@@ -151,3 +151,4 @@ export * from './administration/admin-ingress-rejection.js';
 export * from './moderation/claim-reviews.js';
 export * from './moderation/queue-actions.js';
 export * from './moderation/report-evidence-access.js';
+export * from './moderation/prepare-review-action.js';
