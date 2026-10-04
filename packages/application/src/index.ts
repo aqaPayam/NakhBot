@@ -152,3 +152,4 @@ export * from './moderation/claim-reviews.js';
 export * from './moderation/queue-actions.js';
 export * from './moderation/report-evidence-access.js';
 export * from './moderation/prepare-review-action.js';
+export * from './moderation/prepare-report-account-action.js';

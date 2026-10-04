@@ -303,6 +303,23 @@ export const PreparedReviewActionSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedReviewAction = Static<typeof PreparedReviewActionSchema>;
+export const PrepareReportAccountActionQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    reviewId: UuidSchema,
+    expectedReviewVersion: Type.Integer({ minimum: 1 }),
+    action: AccountModerationActionSchema,
+  },
+  { additionalProperties: false },
+);
+export type PrepareReportAccountActionQuery = Static<typeof PrepareReportAccountActionQuerySchema>;
+export const PreparedReportAccountActionSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema, accountVersion: Type.Integer({ minimum: 1 }) },
+  { additionalProperties: false },
+);
+export type PreparedReportAccountAction = Static<typeof PreparedReportAccountActionSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,

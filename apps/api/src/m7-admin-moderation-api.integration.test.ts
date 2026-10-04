@@ -15,6 +15,7 @@ import {
   PostgresConfirmedReviewDecisions,
   PostgresClaimModerationReviewsHandler,
   PostgresPrepareReviewActionHandler,
+  PostgresPrepareReportAccountActionHandler,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -29,6 +30,7 @@ import type {
   ClaimModerationReviewsCommand,
   AdminReviewClaimResult,
   PreparedReviewAction,
+  PreparedReportAccountAction,
 } from '@nakh/contracts';
 import {
   createReportUser,
@@ -806,6 +808,11 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
           fixture.tokens,
           fixture.key,
         ),
+        reportAccountActions: new PostgresPrepareReportAccountActionHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
       }),
       new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
       { logger: false },
@@ -956,6 +963,46 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
             .where('id', '=', report.reviewId)
             .executeTakeFirstOrThrow(),
         ).toEqual({ status: 'in_review', version: 2 });
+        const accountAccessQuery = {
+          actor: fixture.actor,
+          requestId: randomUUID(),
+          adminActionToken: queueToken,
+          reviewId: report.reviewId,
+          expectedReviewVersion: 2,
+          action: 'restrict_user',
+        };
+        const preparedAccountResponse = await app.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/reports/account-actions',
+          headers,
+          payload: accountAccessQuery,
+        });
+        expect(preparedAccountResponse.statusCode).toBe(200);
+        expect(preparedAccountResponse.headers['cache-control']).toBe('no-store');
+        expect(preparedAccountResponse.body).not.toContain(report.target);
+        expect(preparedAccountResponse.body).not.toContain(report.reportId);
+        const preparedAccount = preparedAccountResponse.json<PreparedReportAccountAction>();
+        expect(preparedAccount.accountVersion).toBe(1);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: '/v1/admin/moderation/reports/account-actions',
+              headers,
+              payload: { ...accountAccessQuery, targetUserId: report.target },
+            })
+          ).statusCode,
+        ).toBe(400);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: '/v1/admin/moderation/reports/account-actions',
+              headers,
+              payload: { ...accountAccessQuery, expectedReviewVersion: 1 },
+            })
+          ).statusCode,
+        ).toBe(409);
         const action: PrepareAccountModerationActionCommand = {
           ...identity(),
           commandType: 'moderation.apply-account-action',
@@ -963,14 +1010,7 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
             expectedTargetVersion: 1,
             reason: 'Synthetic report account action',
             action: 'restrict_user',
-            adminActionToken: await fixture.issue({
-              commandCode: 'moderation.apply-account-action',
-              requiredPermission: 'restrict_user',
-              targetType: 'user',
-              targetId: report.target,
-              expectedTargetVersion: 1,
-              sourceReportId: report.reportId,
-            }),
+            adminActionToken: preparedAccount.adminActionToken,
           },
         };
         const actionPath = '/v1/admin/moderation/accounts/restrict_user';

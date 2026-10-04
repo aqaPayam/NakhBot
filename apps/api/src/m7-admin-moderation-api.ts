@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  PrepareReportAccountActionHandler,
   PrepareReviewActionHandler,
   ConfirmedAppealCommands,
   ConfirmedSupportCommands,
@@ -32,6 +33,10 @@ import type {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
+  PrepareReportAccountActionQuerySchema,
+  PreparedReportAccountActionSchema,
+  type PrepareReportAccountActionQuery,
+  type PreparedReportAccountAction,
   PrepareReviewActionQuerySchema,
   PreparedReviewActionSchema,
   type PrepareReviewActionQuery,
@@ -99,7 +104,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   SUPPORT = Symbol('M7_ADMIN_SUPPORT'),
   APPEAL_REVIEWS = Symbol('M7_APPEAL_REVIEWS'),
   APPEAL_UNBANS = Symbol('M7_APPEAL_UNBANS'),
-  REVIEW_ACTIONS = Symbol('M7_REVIEW_ACTIONS');
+  REVIEW_ACTIONS = Symbol('M7_REVIEW_ACTIONS'),
+  REPORT_ACCOUNT_ACTIONS = Symbol('M7_REPORT_ACCOUNT_ACTIONS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -113,6 +119,7 @@ export interface M7AdminModerationApiOptions {
   readonly appealReviews?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
   readonly appealUnbans?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
   readonly reviewActions?: Pick<PrepareReviewActionHandler, 'execute'>;
+  readonly reportAccountActions?: Pick<PrepareReportAccountActionHandler, 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -667,6 +674,32 @@ class ReviewActionsController {
     );
   }
 }
+@Controller('v1/admin/moderation/reports/account-actions')
+class ReportAccountActionsController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(REPORT_ACCOUNT_ACTIONS)
+    private readonly actions: NonNullable<M7AdminModerationApiOptions['reportAccountActions']>,
+  ) {}
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedReportAccountAction> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<PrepareReportAccountActionQuery>(
+      PrepareReportAccountActionQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedReportAccountActionSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -675,6 +708,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.reportAccountActions === undefined ? [] : [ReportAccountActionsController]),
         ...(options.reviewActions === undefined ? [] : [ReviewActionsController]),
         ...(options.appealUnbans === undefined ? [] : [AppealUnbanController]),
         ...(options.appealReviews === undefined ? [] : [AppealReviewController]),
@@ -687,6 +721,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.reportAccountActions === undefined
+          ? []
+          : [{ provide: REPORT_ACCOUNT_ACTIONS, useValue: options.reportAccountActions }]),
         ...(options.reviewActions === undefined
           ? []
           : [{ provide: REVIEW_ACTIONS, useValue: options.reviewActions }]),
