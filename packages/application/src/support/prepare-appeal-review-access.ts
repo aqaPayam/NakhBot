@@ -36,13 +36,21 @@ export class PrepareAppealReviewAccessHandler {
       requiredPermission: 'review_appeals',
       targetType: 'appeal_queue',
     });
-    if (root.targetId !== null || root.expectedTargetVersion !== null)
+    const action = query.action ?? 'review';
+    if (
+      root.targetId !== null ||
+      root.expectedTargetVersion !== null ||
+      !['review', 'reveal'].includes(action)
+    )
       throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
     const appeal = await this.appeals.get(query.appealId);
     if (appeal === undefined) throw new ApplicationError('not_found', 'error.m7.unavailable', 404);
     if (appeal.appealVersion !== query.expectedAppealVersion)
       throw new ApplicationError('version_conflict', 'error.m7.stale_action', 409);
-    if (!appeal.currentBan || !['submitted', 'in_review'].includes(appeal.status))
+    if (
+      action === 'review' &&
+      (!appeal.currentBan || !['submitted', 'in_review'].includes(appeal.status))
+    )
       throw new ApplicationError('conflict', 'error.m7.unavailable', 409);
     const identity = await this.identities.get(actor.userId);
     if (identity === undefined || identity.adminUserId !== root.adminUserId)
@@ -51,7 +59,7 @@ export class PrepareAppealReviewAccessHandler {
       actorUserId: actor.userId,
       telegramUserId: identity.telegramUserId,
       scope: {
-        commandCode: 'moderation.review-appeal',
+        commandCode: action === 'review' ? 'moderation.review-appeal' : 'moderation.reveal-appeal',
         requiredPermission: 'review_appeals',
         targetType: 'user_appeal',
         targetId: query.appealId,

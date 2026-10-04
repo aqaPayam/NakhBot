@@ -591,6 +591,12 @@ identities, only after the admin attempt and immutable support access audit comm
 return content once; later permission revocation produces a content-free rejected access audit.
 Integration evidence includes bounded history and complete rollback on required-audit failure.
 
+Appeal content now has a separate `review_appeals` capability and confirmed audited read. It can
+inspect retained terminal/historical text and decision notes without granting a review or unban
+command; those commands still require the exact current ban and their own permissions. Only fresh
+successful reads return content, after the exact admin-attempt/access-audit commit; retries, stale
+versions and revoked permissions return no text or raw user/ban/workforce identity.
+
 Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
 and remaining moderation presentation need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin

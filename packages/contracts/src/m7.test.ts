@@ -8,6 +8,7 @@ import {
   AdminEvidenceRevealResultSchema,
   AdminCommandReceiptSchema,
   AdminSupportRevealResultSchema,
+  AdminAppealRevealResultSchema,
   ApplyAccountModerationActionCommandSchema,
   AssignAdminRoleCommandSchema,
   BootstrapAdminCommandSchema,
@@ -41,6 +42,30 @@ function validator(schema: object): ValidateFunction {
 }
 
 describe('report evidence metadata privacy contract', () => {
+  it('exposes appeal prose only on fresh audited success and never permits ban or user identity', () => {
+    const validate = validator(AdminAppealRevealResultSchema);
+    const receipt = {
+      auditId: '20000000-0000-4000-8000-000000000000',
+      result: 'succeeded',
+      safeCode: 'completed',
+      recordedAt: '2026-10-04T12:00:00.000Z',
+      replayed: false,
+    };
+    const appeal = {
+      appealVersion: 2,
+      status: 'accepted',
+      text: 'Private appeal',
+      note: 'Private note',
+    };
+    expect(validate({ ...receipt, appeal })).toBe(true);
+    expect(validate({ ...receipt, appeal, replayed: true })).toBe(false);
+    expect(validate({ ...receipt, appeal, result: 'rejected', safeCode: 'forbidden' })).toBe(false);
+    for (const identity of ['userId', 'banHistoryId', 'reviewedByAdminId'])
+      expect(validate({ ...receipt, appeal: { ...appeal, [identity]: receipt.auditId } })).toBe(
+        false,
+      );
+    expect(validate({ ...receipt, replayed: true })).toBe(true);
+  });
   it('never permits support content on replay or rejection or sender identities in a fresh read', () => {
     const validate = validator(AdminSupportRevealResultSchema);
     const receipt = {

@@ -5,6 +5,7 @@ import type {
 } from '@nakh/application';
 import {
   PostgresConfirmedSupportReveals,
+  PostgresConfirmedAppealReveals,
   PostgresConfirmedAccountActions,
   PostgresConfirmedInternalBlocks,
   PostgresConfirmedReviewAssignments,
@@ -52,6 +53,11 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
     input.adminKey,
   );
   const adminModeration: M7AdminModerationApiOptions = Object.freeze({
+    appealReveals: new PostgresConfirmedAppealReveals(
+      input.database,
+      input.adminTokens,
+      input.adminKey,
+    ),
     supportReveals: new PostgresConfirmedSupportReveals(
       input.database,
       input.adminTokens,

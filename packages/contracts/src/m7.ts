@@ -442,6 +442,7 @@ export const PrepareAppealReviewAccessQuerySchema = Type.Object(
     adminActionToken: AdminActionTokenSchema,
     appealId: UuidSchema,
     expectedAppealVersion: Type.Integer({ minimum: 1 }),
+    action: Type.Optional(Type.Union([Type.Literal('review'), Type.Literal('reveal')])),
   },
   { additionalProperties: false },
 );
@@ -750,6 +751,18 @@ export const ReviewAppealCommandSchema = mutationSchema(
   ),
 );
 export type ReviewAppealCommand = Static<typeof ReviewAppealCommandSchema>;
+export const RevealAppealCommandSchema = mutationSchema(
+  'moderation.reveal-appeal',
+  AdminActorSchema,
+  Type.Object(AdminMutationFields, { additionalProperties: false }),
+);
+export type RevealAppealCommand = Static<typeof RevealAppealCommandSchema>;
+export const PrepareAppealRevealCommandSchema = mutationSchema(
+  'moderation.reveal-appeal',
+  AdminActorSchema,
+  Type.Omit(RevealAppealCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareAppealRevealCommand = Static<typeof PrepareAppealRevealCommandSchema>;
 export const PrepareAppealReviewCommandSchema = mutationSchema(
   'moderation.review-appeal',
   AdminActorSchema,
@@ -1040,6 +1053,40 @@ export const AdminSupportRevealResultSchema = Type.Union([
   ),
 ]);
 export type AdminSupportRevealResult = Static<typeof AdminSupportRevealResultSchema>;
+export const RevealedAppealSchema = Type.Object(
+  {
+    appealVersion: Type.Integer({ minimum: 1 }),
+    status: AppealStatusSchema,
+    text: RestrictedLongTextSchema,
+    note: Type.Optional(ReviewNoteSchema),
+  },
+  { additionalProperties: false },
+);
+export type RevealedAppeal = Static<typeof RevealedAppealSchema>;
+export const AdminAppealRevealResultSchema = Type.Union([
+  Type.Object(
+    {
+      ...AdminReceiptFields,
+      result: Type.Literal('succeeded'),
+      replayed: Type.Literal(false),
+      appeal: RevealedAppealSchema,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { ...AdminReceiptFields, result: Type.Literal('succeeded'), replayed: Type.Literal(true) },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...AdminReceiptFields,
+      result: Type.Union([Type.Literal('rejected'), Type.Literal('failed')]),
+      replayed: Type.Boolean(),
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type AdminAppealRevealResult = Static<typeof AdminAppealRevealResultSchema>;
 export const AdminReviewClaimResultSchema = Type.Union([
   Type.Object(
     {

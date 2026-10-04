@@ -9,6 +9,7 @@ import {
   createDatabase,
   runMigrations,
   PostgresConfirmedAppealCommands,
+  PostgresConfirmedAppealReveals,
   PostgresRecordAdminIngressRejectionHandler,
   PostgresGetAppealMetadataHandler,
   PostgresGetSafetyQueueActionsHandler,
@@ -25,6 +26,8 @@ import type {
   AppealMetadataPage,
   PreparedAppealReviewAccess,
   PreparedAppealUnbanAccess,
+  PrepareAppealRevealCommand,
+  AdminAppealRevealResult,
 } from '@nakh/contracts';
 import { createReportFixtureAdmin } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { createCurrentBanAppeal } from '../../../packages/persistence-postgres/src/testing/appeal-fixture.js';
@@ -47,7 +50,254 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
     await app?.close();
     await database?.destroy();
   });
+  it('audits retained appeal reads after separate unban, releases content once, and denies stale or revoked attempts', async () => {
+    const adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'moderator',
+        assigned_by_admin_id: adminId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, adminId),
+      appeal = await createCurrentBanAppeal(database);
+    const commands = new PostgresConfirmedAppealCommands(database, fixture.tokens, fixture.key);
+    const review: PrepareAppealReviewCommand = {
+      actor: fixture.actor,
+      commandType: 'moderation.review-appeal',
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      schemaVersion: 1,
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        adminActionToken: await fixture.issue({
+          commandCode: 'moderation.review-appeal',
+          requiredPermission: 'review_appeals',
+          targetType: 'user_appeal',
+          targetId: appeal.appealId,
+          expectedTargetVersion: 1,
+        }),
+        expectedTargetVersion: 1,
+        decision: 'accepted',
+        reason: 'Review exact ban',
+        note: 'Private retained decision note',
+      },
+    };
+    const reviewed = await commands.execute(
+      {
+        ...review,
+        data: { ...review.data, confirmationToken: await commands.prepare(review, fixture.actor) },
+      },
+      fixture.actor,
+    );
+    expect(reviewed.result).toBe('succeeded');
+    const unban: PrepareAppealUnbanCommand = {
+      ...review,
+      commandId: randomUUID(),
+      commandType: 'moderation.unban-appeal',
+      data: {
+        adminActionToken: await fixture.issue({
+          commandCode: 'moderation.unban-appeal',
+          requiredPermission: 'unban_user',
+          targetType: 'user_appeal',
+          targetId: appeal.appealId,
+          expectedTargetVersion: 2,
+        }),
+        expectedTargetVersion: 2,
+        expectedAccountVersion: 2,
+        reason: 'Separately unban accepted appeal',
+      },
+    };
+    expect(
+      (
+        await commands.execute(
+          {
+            ...unban,
+            data: {
+              ...unban.data,
+              confirmationToken: await commands.prepare(unban, fixture.actor),
+            },
+          },
+          fixture.actor,
+        )
+      ).result,
+    ).toBe('succeeded');
+    await app?.close();
+    app = await NestFactory.create<NestFastifyApplication>(
+      M7AdminModerationApiModule.register({
+        authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
+        journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        appealActions: new PostgresPrepareAppealReviewAccessHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
+        appealReveals: new PostgresConfirmedAppealReveals(database, fixture.tokens, fixture.key),
+      }),
+      new FastifyAdapter(),
+      { logger: false },
+    );
+    app.useGlobalFilters(new ApiExceptionFilter({ error: vi.fn() } as unknown as Logger));
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+    const headers = { authorization: 'Bearer appeal-admin-credential' };
+    const actionQuery = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: await fixture.issue({
+        commandCode: 'moderation.appeal-metadata',
+        requiredPermission: 'review_appeals',
+        targetType: 'appeal_queue',
+        targetId: null,
+        expectedTargetVersion: null,
+      }),
+      appealId: appeal.appealId,
+      expectedAppealVersion: 2,
+    };
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/appeals/actions',
+          headers,
+          payload: actionQuery,
+        })
+      ).statusCode,
+    ).toBe(409);
+    const access = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/actions',
+      headers,
+      payload: { ...actionQuery, action: 'reveal' },
+    });
+    expect(access.statusCode).toBe(200);
+    const draft: PrepareAppealRevealCommand = {
+      ...review,
+      commandType: 'moderation.reveal-appeal',
+      commandId: randomUUID(),
+      data: {
+        adminActionToken: access.json<PreparedAppealReviewAccess>().adminActionToken,
+        expectedTargetVersion: 2,
+        reason: 'Inspect retained appeal decision',
+      },
+    };
+    const confirmation = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/reveal/prepare',
+      headers,
+      payload: draft,
+    });
+    expect(confirmation.statusCode).toBe(200);
+    const payload = {
+      ...draft,
+      data: {
+        ...draft.data,
+        confirmationToken: confirmation.json<PreparedAdminConfirmation>().confirmationToken,
+      },
+    };
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({ method: 'POST', url: '/v1/admin/appeals/reveal', headers, payload }),
+      ),
+    );
+    expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+    const receipts = responses.map((response) => response.json<AdminAppealRevealResult>());
+    expect(receipts.filter((receipt) => !receipt.replayed)).toHaveLength(1);
+    expect(receipts.find((receipt) => !receipt.replayed)).toMatchObject({
+      result: 'succeeded',
+      appeal: {
+        appealVersion: 2,
+        status: 'accepted',
+        text: 'Private fixture appeal',
+        note: review.data.note,
+      },
+    });
+    for (const response of responses) {
+      expect(response.headers['cache-control']).toBe('no-store');
+      for (const identity of [appeal.userId, appeal.banId, adminId])
+        expect(response.body).not.toContain(identity);
+      if (response.json<AdminAppealRevealResult>().replayed)
+        expect(response.body).not.toContain('Private');
+    }
+    const audit = await database
+      .selectFrom('administration.safety_access_audits')
+      .selectAll()
+      .where('command_id', '=', draft.commandId)
+      .execute();
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      outcome: 'revealed',
+      item_count: 1,
+      admin_action_log_id: receipts[0]!.auditId,
+    });
+    expect(JSON.stringify(audit)).not.toContain('Private');
+    await expect(
+      database
+        .insertInto('administration.safety_access_audits')
+        .values({ ...audit[0]!, id: randomUUID(), admin_action_log_id: reviewed.logId })
+        .execute(),
+    ).rejects.toThrow(/must match its recorded attempt/u);
+    const stale = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/reveal',
+      headers,
+      payload: {
+        ...payload,
+        commandId: randomUUID(),
+        data: { ...payload.data, expectedTargetVersion: 1 },
+      },
+    });
+    expect(stale.json<AdminAppealRevealResult>()).toMatchObject({
+      result: 'rejected',
+      safeCode: 'version_conflict',
+    });
+    expect(stale.body).not.toContain('Private');
+    const revokedDraft = { ...draft, commandId: randomUUID() };
+    const revokedConfirmation = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/reveal/prepare',
+      headers,
+      payload: revokedDraft,
+    });
+    expect(revokedConfirmation.statusCode).toBe(200);
+    await database
+      .updateTable('administration.admin_user_roles')
+      .set({ revoked_at: new Date(), revoked_by_admin_id: adminId })
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    const denied = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/reveal',
+      headers,
+      payload: {
+        ...revokedDraft,
+        data: {
+          ...revokedDraft.data,
+          confirmationToken:
+            revokedConfirmation.json<PreparedAdminConfirmation>().confirmationToken,
+        },
+      },
+    });
+    expect(denied.json<AdminAppealRevealResult>()).toMatchObject({
+      result: 'rejected',
+      safeCode: 'forbidden',
+    });
+    expect(denied.body).not.toContain('Private');
+    expect(
+      await database
+        .selectFrom('administration.safety_access_audits')
+        .select(['outcome', 'item_count'])
+        .where('command_id', '=', revokedDraft.commandId)
+        .execute(),
+    ).toEqual([{ outcome: 'rejected', item_count: 0 }]);
+  });
   it('unbans only an accepted current ban, rejects stale account versions, and records one effect under retry races', async () => {
+    await app?.close();
     const adminId = await createReportFixtureAdmin(database);
     await database
       .insertInto('administration.admin_user_roles')

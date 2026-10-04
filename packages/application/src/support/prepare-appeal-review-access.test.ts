@@ -56,5 +56,8 @@ describe('current-ban appeal review preparation', () => {
       targetId: query.appealId,
       expectedTargetVersion: 1,
     });
+    get.mockResolvedValueOnce({ ...facts, currentBan: false, status: 'accepted' });
+    await handler.execute({ ...query, action: 'reveal' }, actor);
+    expect(issue.mock.calls[1]![0].scope.commandCode).toBe('moderation.reveal-appeal');
   });
 });
