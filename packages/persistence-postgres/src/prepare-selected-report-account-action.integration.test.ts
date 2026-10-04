@@ -205,9 +205,34 @@ describe.skipIf(url === undefined)('selected report to native Account preparatio
           .executeTakeFirstOrThrow(),
       ).toEqual(before);
       const final = { ...command, data: { ...command.data, confirmationToken } };
+      const alteredDraft = draft(f, targets[0]!, action);
+      const alteredToken = await commands.prepare(alteredDraft, f.actor);
+      const altered = {
+        ...alteredDraft,
+        data: { ...alteredDraft.data, confirmationToken: alteredToken, reason: 'Changed reason' },
+      };
+      const rejected = await Promise.all(
+        Array.from({ length: 10 }, () => commands.execute(altered, f.actor)),
+      );
+      expect(
+        rejected.every(
+          (result) => result.result === 'rejected' && result.safeCode === 'invalid_request',
+        ),
+      ).toBe(true);
+      expect(rejected.filter((result) => !result.replayed)).toHaveLength(1);
+      expect(
+        await database
+          .selectFrom('identity.accounts')
+          .selectAll()
+          .where('user_id', '=', report.target)
+          .executeTakeFirstOrThrow(),
+      ).toEqual(before);
       await expect(
-        commands.execute({ ...final, data: { ...final.data, reason: 'Changed reason' } }, f.actor),
-      ).rejects.toMatchObject({ status: 409 });
+        commands.execute(
+          { ...alteredDraft, data: { ...alteredDraft.data, confirmationToken: alteredToken } },
+          f.actor,
+        ),
+      ).rejects.toMatchObject({ code: 'idempotency_conflict', status: 409 });
       const results = await Promise.all(
         Array.from({ length: 20 }, () => commands.execute(final, f.actor)),
       );
@@ -249,8 +274,9 @@ describe.skipIf(url === undefined)('selected report to native Account preparatio
       .where('admin_user_id', '=', f.adminId)
       .where('command_code', '=', 'moderation.apply-account-action')
       .execute();
-    expect(logs).toHaveLength(4);
-    expect(logs.every((log) => log.result === 'succeeded')).toBe(true);
+    expect(logs).toHaveLength(8);
+    expect(logs.filter((log) => log.result === 'succeeded')).toHaveLength(4);
+    expect(logs.filter((log) => log.result === 'rejected')).toHaveLength(4);
     expect(JSON.stringify(logs)).not.toContain('Exact selected report Account action');
     expect(
       await database
