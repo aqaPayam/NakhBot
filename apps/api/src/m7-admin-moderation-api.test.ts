@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   ConfirmedAccountActions,
   ConfirmedPhotoActions,
+  ConfirmedInternalBlocks,
   AdminIngressRejectionStore,
 } from '@nakh/application';
 import type { AdminCommandReceipt } from '@nakh/contracts';
@@ -193,6 +194,83 @@ describe('authenticated route-bound account moderation HTTP', () => {
     expect(mismatch.json()).toMatchObject({ result: 'rejected' });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(record.mock.calls[0]?.[0].requiredPermission).toBe('delete_photo');
+  });
+  it('binds internal block changes to signed server-held pairs and hides their effect references', async () => {
+    const execute = vi.fn<ConfirmedInternalBlocks['execute']>(() =>
+      Promise.resolve({
+        logId: randomUUID(),
+        result: 'succeeded',
+        safeCode: 'internal_block_created',
+        recordedAt: new Date(),
+        replayed: false,
+        value: {
+          actionId: randomUUID(),
+          userLowId: randomUUID(),
+          userHighId: randomUUID(),
+          previousState: 'matched',
+          nextState: 'blocked',
+          pairVersion: 2,
+          closedMatchId: randomUUID(),
+          closedChatSessionId: randomUUID(),
+          closedLikeCount: 2,
+          revokedUnlockCount: 0,
+        },
+      }),
+    );
+    const prepare = vi.fn<ConfirmedInternalBlocks['prepare']>(() =>
+      Promise.resolve(confirmationToken),
+    );
+    const { server, record } = await start({ internalBlocks: { execute, prepare } }, false);
+    const blockDraft = {
+      ...draft,
+      commandType: 'moderation.change-internal-block',
+      data: { ...draft.data, action: 'create' },
+    };
+    expect(
+      (
+        await server.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/internal-blocks/create/prepare',
+          headers,
+          payload: blockDraft,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(prepare).toHaveBeenCalledWith(blockDraft, actor);
+    const blockCommand = { ...blockDraft, data: { ...blockDraft.data, confirmationToken } };
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/internal-blocks/create',
+      headers,
+      payload: blockCommand,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ result: 'succeeded', safeCode: 'completed' });
+    expect(execute).toHaveBeenCalledWith(blockCommand, actor);
+    for (const privateField of ['userLowId', 'userHighId', 'closedMatchId', 'closedChatSessionId'])
+      expect(response.body).not.toContain(privateField);
+    const forged = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/internal-blocks/create',
+      headers,
+      payload: {
+        ...blockCommand,
+        data: { ...blockCommand.data, userLowId: randomUUID(), userHighId: randomUUID() },
+      },
+    });
+    expect(forged.json()).toMatchObject({ result: 'rejected' });
+    const mismatch = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/internal-blocks/remove',
+      headers,
+      payload: blockCommand,
+    });
+    expect(mismatch.json()).toMatchObject({ result: 'rejected' });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledTimes(2);
+    expect(
+      record.mock.calls.every(([input]) => input.requiredPermission === 'manage_internal_blocks'),
+    ).toBe(true);
   });
   it('rejects a mismatched route action and audits only the server-selected permission before delegation', async () => {
     const { server, execute, record } = await start();

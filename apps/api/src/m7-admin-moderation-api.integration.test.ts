@@ -10,6 +10,7 @@ import {
   runMigrations,
   PostgresConfirmedAccountActions,
   PostgresConfirmedPhotoActions,
+  PostgresConfirmedInternalBlocks,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -18,14 +19,18 @@ import type {
   AdminCommandReceipt,
   PrepareAccountModerationActionCommand,
   PreparePhotoModerationActionCommand,
+  PrepareInternalBlockCommand,
 } from '@nakh/contracts';
 import {
   createReportUser,
   createReportFixtureAdmin,
   createRetainedReportPhoto,
   createReportPhoto,
+  createReportChat,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
+import { canonicalAdminPairTargetId } from '@nakh/application';
+import { normalizeUserPair } from '@nakh/domain';
 import { ApiExceptionFilter } from './app.js';
 import { M7AdminModerationApiModule } from './m7-admin-moderation-api.js';
 
@@ -366,5 +371,153 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
         .execute(),
     ).toHaveLength(1);
     expect(JSON.stringify(error.mock.calls)).not.toContain('Synthetic retained photo review');
+  });
+  it('confirms opaque pair blocking and removal without disclosing the pair or reviving closed chats', async () => {
+    await app.close();
+    const first = await createReportUser(database),
+      second = await createReportUser(database);
+    const pair = normalizeUserPair(first, second),
+      chat = await createReportChat(database, first, second);
+    await database
+      .insertInto('interaction.user_pair_states')
+      .values({
+        user_low_id: pair.userLowId,
+        user_high_id: pair.userHighId,
+        state: 'matched',
+        reason_code: 'match',
+        changed_at: new Date(),
+      })
+      .execute();
+    const adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'super_admin',
+        assigned_by_admin_id: adminId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, adminId),
+      error = vi.fn();
+    app = await NestFactory.create<NestFastifyApplication>(
+      M7AdminModerationApiModule.register({
+        authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
+        journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        internalBlocks: new PostgresConfirmedInternalBlocks(database, fixture.tokens, fixture.key),
+      }),
+      new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
+      { logger: false },
+    );
+    app.useGlobalFilters(new ApiExceptionFilter({ error } as unknown as Logger));
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+    const headers = { authorization: 'Bearer block-admin-credential' };
+    let version = 1;
+    for (const action of ['create', 'remove'] as const) {
+      const draft: PrepareInternalBlockCommand = {
+        actor: fixture.actor,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        commandType: 'moderation.change-internal-block',
+        schemaVersion: 1,
+        idempotencyKey: randomUUID(),
+        locale: 'en',
+        occurredAt: new Date().toISOString(),
+        data: {
+          action,
+          expectedTargetVersion: version,
+          reason: 'Synthetic pair review',
+          adminActionToken: await fixture.issue({
+            commandCode: 'moderation.change-internal-block',
+            requiredPermission: 'manage_internal_blocks',
+            targetType: 'user_pair',
+            targetId: canonicalAdminPairTargetId(pair),
+            targetPair: pair,
+            expectedTargetVersion: version,
+          }),
+        },
+      };
+      const prepared = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/moderation/internal-blocks/${action}/prepare`,
+        headers,
+        payload: draft,
+      });
+      expect(prepared.statusCode).toBe(200);
+      const command = {
+        ...draft,
+        data: {
+          ...draft.data,
+          confirmationToken: prepared.json<PreparedAdminConfirmation>().confirmationToken,
+        },
+      };
+      const responses = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          app.inject({
+            method: 'POST',
+            url: `/v1/admin/moderation/internal-blocks/${action}`,
+            headers,
+            payload: command,
+          }),
+        ),
+      );
+      const receipts = responses.map((response) => response.json<AdminCommandReceipt>());
+      expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+      expect(receipts.every((receipt) => receipt.result === 'succeeded')).toBe(true);
+      expect(receipts.filter((receipt) => !receipt.replayed)).toHaveLength(1);
+      for (const response of responses)
+        for (const privateValue of [
+          first,
+          second,
+          chat.matchId,
+          chat.chatSessionId,
+          draft.data.reason,
+        ])
+          expect(response.body).not.toContain(privateValue);
+      if (action === 'create')
+        expect(
+          await database
+            .selectFrom('interaction.user_pair_states')
+            .select(['state', 'version'])
+            .where('user_low_id', '=', pair.userLowId)
+            .where('user_high_id', '=', pair.userHighId)
+            .executeTakeFirstOrThrow(),
+        ).toEqual({ state: 'blocked', version: 2 });
+      else
+        expect(
+          await database
+            .selectFrom('interaction.user_pair_states')
+            .select('state')
+            .where('user_low_id', '=', pair.userLowId)
+            .where('user_high_id', '=', pair.userHighId)
+            .execute(),
+        ).toHaveLength(0);
+      expect(
+        await database
+          .selectFrom('matching.matches')
+          .select('status')
+          .where('id', '=', chat.matchId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ status: 'closed' });
+      expect(
+        await database
+          .selectFrom('chat.chat_sessions')
+          .select('status')
+          .where('id', '=', chat.chatSessionId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ status: 'closed' });
+      expect(
+        await database
+          .selectFrom('administration.admin_action_logs')
+          .select('id')
+          .where('admin_user_id', '=', adminId)
+          .where('command_id', '=', command.commandId)
+          .execute(),
+      ).toHaveLength(1);
+      version++;
+    }
+    expect(JSON.stringify(error.mock.calls)).not.toContain('Synthetic pair review');
   });
 });

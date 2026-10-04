@@ -414,6 +414,12 @@ export const ChangeInternalBlockCommandSchema = mutationSchema(
   ),
 );
 export type ChangeInternalBlockCommand = Static<typeof ChangeInternalBlockCommandSchema>;
+export const PrepareInternalBlockCommandSchema = mutationSchema(
+  'moderation.change-internal-block',
+  AdminActorSchema,
+  Type.Omit(ChangeInternalBlockCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareInternalBlockCommand = Static<typeof PrepareInternalBlockCommandSchema>;
 
 export const OpenSupportThreadCommandSchema = mutationSchema(
   'support.open-thread',

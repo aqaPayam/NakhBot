@@ -17,6 +17,8 @@ import type {
   AccountModerationResult,
   ConfirmedPhotoActions,
   PhotoModerationResult,
+  ConfirmedInternalBlocks,
+  InternalBlockResult,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
@@ -26,6 +28,10 @@ import {
   PrepareAccountModerationActionCommandSchema,
   ApplyPhotoModerationActionCommandSchema,
   PreparePhotoModerationActionCommandSchema,
+  ChangeInternalBlockCommandSchema,
+  PrepareInternalBlockCommandSchema,
+  type ChangeInternalBlockCommand,
+  type PrepareInternalBlockCommand,
   type ApplyPhotoModerationActionCommand,
   type PreparePhotoModerationActionCommand,
   type PhotoModerationAction,
@@ -42,12 +48,14 @@ import { adminCommandReceipt } from './m7-admin-outcome.js';
 const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   INGRESS = Symbol('M7_MODERATION_INGRESS'),
   ACCOUNTS = Symbol('M7_MODERATION_ACCOUNTS'),
-  PHOTOS = Symbol('M7_MODERATION_PHOTOS');
+  PHOTOS = Symbol('M7_MODERATION_PHOTOS'),
+  BLOCKS = Symbol('M7_MODERATION_BLOCKS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
   readonly accounts?: Pick<ConfirmedAccountActions, 'prepare' | 'execute'>;
   readonly photos?: Pick<ConfirmedPhotoActions, 'prepare' | 'execute'>;
+  readonly internalBlocks?: Pick<ConfirmedInternalBlocks, 'prepare' | 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -118,7 +126,6 @@ class AccountActionsController {
     });
   }
 }
-/** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 function photoAction(value: string): PhotoModerationAction {
   switch (value) {
     case 'hide_photo':
@@ -186,6 +193,69 @@ class PhotoActionsController {
     });
   }
 }
+function blockAction(value: string): 'create' | 'remove' {
+  if (value === 'create' || value === 'remove') return value;
+  throw new ApplicationError('not_found', 'error.m7.unavailable', 404);
+}
+@Controller('v1/admin/moderation/internal-blocks')
+class InternalBlocksController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(INGRESS) private readonly ingress: AuditedAdminMutationIngress,
+    @Inject(BLOCKS)
+    private readonly blocks: NonNullable<M7AdminModerationApiOptions['internalBlocks']>,
+  ) {}
+  @Post(':action/prepare')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Param('action') selected: string,
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAdminConfirmation> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const command = this.boundary.parse<PrepareInternalBlockCommand>(
+      PrepareInternalBlockCommandSchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAdminConfirmationSchema, async () => {
+      if (command.data.action !== blockAction(selected))
+        throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+      return { confirmationToken: await this.blocks.prepare(command, actor) };
+    });
+  }
+  @Post(':action')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async change(
+    @Param('action') selected: string,
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminCommandReceipt> {
+    return this.boundary.result(AdminCommandReceiptSchema, async () => {
+      const action = blockAction(selected);
+      const result = await this.ingress.execute<ChangeInternalBlockCommand, InternalBlockResult>(
+        ChangeInternalBlockCommandSchema,
+        request,
+        body,
+        {
+          commandCode: 'moderation.change-internal-block',
+          requiredPermission: 'manage_internal_blocks',
+        },
+        (command, actor) => {
+          if (command.data.action !== action)
+            throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
+          return this.blocks.execute(command, actor);
+        },
+      );
+      return adminCommandReceipt(result);
+    });
+  }
+}
+/** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
   public static register(options: M7AdminModerationApiOptions): DynamicModule {
@@ -195,6 +265,7 @@ export class M7AdminModerationApiModule {
       controllers: [
         ...(options.accounts === undefined ? [] : [AccountActionsController]),
         ...(options.photos === undefined ? [] : [PhotoActionsController]),
+        ...(options.internalBlocks === undefined ? [] : [InternalBlocksController]),
       ],
       providers: [
         { provide: BOUNDARY, useValue: boundary },
@@ -203,6 +274,9 @@ export class M7AdminModerationApiModule {
           ? []
           : [{ provide: ACCOUNTS, useValue: options.accounts }]),
         ...(options.photos === undefined ? [] : [{ provide: PHOTOS, useValue: options.photos }]),
+        ...(options.internalBlocks === undefined
+          ? []
+          : [{ provide: BLOCKS, useValue: options.internalBlocks }]),
       ],
     };
   }
