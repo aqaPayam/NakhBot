@@ -8,20 +8,17 @@ import {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
-
-type Cursor = Readonly<{ phase: ModerationReconciliationPhase; lastId?: string }>;
-type Finding = Readonly<{
-  anomalyType: string;
-  entityId: string;
-  keyId: string;
-  entityType: 'report';
-  safeDetail: Readonly<Record<string, string>>;
-}>;
-type Scan = Readonly<{
-  findings: readonly Finding[];
-  scannedCount: number;
-  nextCursor: Cursor | undefined;
-}>;
+import {
+  nextPage,
+  type Cursor,
+  type Finding,
+  type Scan,
+} from './moderation-reconciliation-scan.js';
+import {
+  scanModerationReviews,
+  scanModerationActions,
+  scanRestrictionEpisodes,
+} from './moderation-review-reconciliation.js';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 function invalid(): never {
   throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
@@ -38,17 +35,6 @@ function cursorFrom(value: Readonly<Record<string, unknown>>): Cursor {
     phase: value.phase as ModerationReconciliationPhase,
     ...(value.lastId === undefined ? {} : { lastId: value.lastId }),
   };
-}
-function nextPage(
-  cursor: Cursor,
-  rows: readonly Readonly<{ id: string }>[],
-  limit: number,
-): Cursor | undefined {
-  const lastId = rows.at(-1)?.id;
-  if (rows.length === limit && lastId !== undefined) return { phase: cursor.phase, lastId };
-  const nextPhase =
-    MODERATION_RECONCILIATION_PHASES[MODERATION_RECONCILIATION_PHASES.indexOf(cursor.phase) + 1];
-  return nextPhase === undefined ? undefined : { phase: nextPhase };
 }
 /** Metadata only: never reads prose, ciphertext, snapshot payloads, or key material into memory. */
 export class PostgresModerationReconciliationStore implements ModerationReconciliationStore {
@@ -99,10 +85,7 @@ export class PostgresModerationReconciliationStore implements ModerationReconcil
       if (run.status !== 'started')
         throw new ApplicationError('conflict', 'error.m7.unavailable', 409);
       const cursor = cursorFrom(run.cursor);
-      const scan =
-        cursor.phase === 'reports'
-          ? await this.scanReports(transaction, cursor, limit)
-          : await this.scanEvidence(transaction, cursor, limit);
+      const scan = await this.scanPhase(transaction, cursor, limit);
       let anomalyCount = 0;
       for (const finding of scan.findings) {
         const inserted = await transaction
@@ -144,6 +127,20 @@ export class PostgresModerationReconciliationStore implements ModerationReconcil
         completed,
       };
     });
+  }
+  private scanPhase(database: NakhDatabase, cursor: Cursor, limit: number): Promise<Scan> {
+    switch (cursor.phase) {
+      case 'reports':
+        return this.scanReports(database, cursor, limit);
+      case 'evidence':
+        return this.scanEvidence(database, cursor, limit);
+      case 'reviews':
+        return scanModerationReviews(database, cursor, limit);
+      case 'actions':
+        return scanModerationActions(database, cursor, limit);
+      case 'episodes':
+        return scanRestrictionEpisodes(database, cursor, limit);
+    }
   }
   private async scanReports(database: NakhDatabase, cursor: Cursor, limit: number): Promise<Scan> {
     const rows = (

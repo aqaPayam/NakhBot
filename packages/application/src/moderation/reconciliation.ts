@@ -1,5 +1,11 @@
 import { ApplicationError } from '@nakh/domain';
-export const MODERATION_RECONCILIATION_PHASES = ['reports', 'evidence'] as const;
+export const MODERATION_RECONCILIATION_PHASES = [
+  'reports',
+  'evidence',
+  'reviews',
+  'actions',
+  'episodes',
+] as const;
 export type ModerationReconciliationPhase = (typeof MODERATION_RECONCILIATION_PHASES)[number];
 export type ModerationReconciliationBatchResult = Readonly<{
   runId: string;

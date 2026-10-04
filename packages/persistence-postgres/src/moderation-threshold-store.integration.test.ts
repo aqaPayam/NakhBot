@@ -12,6 +12,11 @@ import {
   PostgresModerationThresholdStore,
 } from './moderation-threshold-store.js';
 import { runMigrations } from './migrations.js';
+import {
+  scanRestrictionEpisodes,
+  scanModerationActions,
+} from './moderation-review-reconciliation.js';
+import { reconciliationCursorBefore } from './testing/reconciliation-cursor.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const genderOptionId = '20000000-0000-4000-8000-000000000001';
@@ -417,5 +422,45 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
       'moderation.threshold-reached.v1',
       'notification.delivery-requested.v1',
     ]);
+    const episode = episodes[0]!,
+      action = actions[0]!;
+    const episodeCursor = {
+      phase: 'episodes' as const,
+      lastId: reconciliationCursorBefore(episode.id),
+    };
+    expect((await scanRestrictionEpisodes(database, episodeCursor, 1)).findings).toEqual([]);
+    expect(
+      (
+        await scanModerationActions(
+          database,
+          { phase: 'actions', lastId: reconciliationCursorBefore(action.id) },
+          1,
+        )
+      ).findings,
+    ).toEqual([]);
+    await database.connection().execute(async (connection) => {
+      await sql`SET session_replication_role = replica`.execute(connection);
+      try {
+        await connection
+          .deleteFrom('moderation.moderation_actions')
+          .where('id', '=', action.id)
+          .execute();
+      } finally {
+        await sql`SET session_replication_role = origin`.execute(connection);
+      }
+    });
+    try {
+      expect((await scanRestrictionEpisodes(database, episodeCursor, 1)).findings).toEqual([
+        {
+          anomalyType: 'threshold_episode_action_missing',
+          entityType: 'restriction_episode',
+          entityId: episode.id,
+          keyId: episode.id,
+          safeDetail: {},
+        },
+      ]);
+    } finally {
+      await database.insertInto('moderation.moderation_actions').values(action).execute();
+    }
   });
 });

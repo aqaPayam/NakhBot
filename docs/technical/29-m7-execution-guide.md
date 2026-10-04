@@ -603,6 +603,12 @@ evidence, capture shape/binding and retained photo bytes without fetching text, 
 keys. It does not cryptographically verify encrypted hashes; that remains the audited reader's job.
 Other integrity phases, scheduler cadence, health/metrics and M7 plan/load gates remain pending.
 
+Review/action/episode reconciliation now checks report-state agreement, terminal decision evidence,
+exact successful command and platform audit links, historical Account transitions, durable notices,
+source ownership and one system restriction action per episode. Later Account changes or terminal
+review states do not invalidate earlier effects; rolling reporter totals are not incorrectly
+recomputed as historical episode totals. Findings remain quarantined with no automatic mutation.
+
 Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
 and remaining moderation presentation need implementation.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
