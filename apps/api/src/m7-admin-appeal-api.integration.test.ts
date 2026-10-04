@@ -12,6 +12,7 @@ import {
   PostgresRecordAdminIngressRejectionHandler,
   PostgresGetAppealMetadataHandler,
   PostgresGetSafetyQueueActionsHandler,
+  PostgresPrepareAppealReviewAccessHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import type {
@@ -21,6 +22,7 @@ import type {
   PrepareAppealUnbanCommand,
   SafetyQueueActions,
   AppealMetadataPage,
+  PreparedAppealReviewAccess,
 } from '@nakh/contracts';
 import { createReportFixtureAdmin } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { createCurrentBanAppeal } from '../../../packages/persistence-postgres/src/testing/appeal-fixture.js';
@@ -233,6 +235,11 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
         authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
         journal: new PostgresRecordAdminIngressRejectionHandler(database),
         appealReviews: new PostgresConfirmedAppealCommands(database, fixture.tokens, fixture.key),
+        appealActions: new PostgresPrepareAppealReviewAccessHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
         safetyQueueActions: new PostgresGetSafetyQueueActionsHandler(
           database,
           fixture.tokens,
@@ -315,13 +322,45 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
     ).toBe(400);
     for (const decision of ['accepted', 'rejected'] as const) {
       const appeal = pending[decision === 'accepted' ? 0 : 1]!;
-      const token = await fixture.issue({
-        commandCode: 'moderation.review-appeal',
-        requiredPermission: 'review_appeals',
-        targetType: 'user_appeal',
-        targetId: appeal.appealId,
-        expectedTargetVersion: 1,
+      const accessQuery = {
+        actor: fixture.actor,
+        requestId: randomUUID(),
+        adminActionToken: metadataQuery.adminActionToken,
+        appealId: appeal.appealId,
+        expectedAppealVersion: 1,
+      };
+      const access = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/appeals/actions',
+        headers,
+        payload: accessQuery,
       });
+      expect(access.statusCode).toBe(200);
+      expect(access.headers['cache-control']).toBe('no-store');
+      expect(access.json<PreparedAppealReviewAccess>().appealVersion).toBe(1);
+      expect(access.body).not.toContain(appeal.appealId);
+      expect(access.body).not.toContain(appeal.banId);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/v1/admin/appeals/actions',
+            headers,
+            payload: { ...accessQuery, expectedAppealVersion: 2 },
+          })
+        ).statusCode,
+      ).toBe(409);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/v1/admin/appeals/actions',
+            headers,
+            payload: { ...accessQuery, userId: appeal.userId },
+          })
+        ).statusCode,
+      ).toBe(400);
+      const token = access.json<PreparedAppealReviewAccess>().adminActionToken;
       const draft: PrepareAppealReviewCommand = {
         actor: fixture.actor,
         commandType: 'moderation.review-appeal',
@@ -382,6 +421,16 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
         .executeTakeFirstOrThrow();
       expect(account.state).toBe('banned');
       expect(account.version).toBe(2);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/v1/admin/appeals/actions',
+            headers,
+            payload: { ...accessQuery, expectedAppealVersion: 2 },
+          })
+        ).statusCode,
+      ).toBe(409);
       const logs = await database
         .selectFrom('administration.admin_action_logs')
         .selectAll()

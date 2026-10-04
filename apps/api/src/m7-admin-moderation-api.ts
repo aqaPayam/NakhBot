@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  PrepareAppealReviewAccessHandler,
   GetAppealMetadataHandler,
   PrepareSupportActionHandler,
   GetSupportMetadataHandler,
@@ -43,6 +44,10 @@ import {
   GetSupportMetadataQuerySchema,
   PrepareSupportActionQuerySchema,
   GetAppealMetadataQuerySchema,
+  PrepareAppealReviewAccessQuerySchema,
+  PreparedAppealReviewAccessSchema,
+  type PrepareAppealReviewAccessQuery,
+  type PreparedAppealReviewAccess,
   AppealMetadataPageSchema,
   type GetAppealMetadataQuery,
   type AppealMetadataPage,
@@ -135,7 +140,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   SAFETY_QUEUE_ACTIONS = Symbol('M7_SAFETY_QUEUE_ACTIONS'),
   SUPPORT_METADATA = Symbol('M7_SUPPORT_METADATA'),
   SUPPORT_ACTIONS = Symbol('M7_SUPPORT_ACTIONS'),
-  APPEAL_METADATA = Symbol('M7_APPEAL_METADATA');
+  APPEAL_METADATA = Symbol('M7_APPEAL_METADATA'),
+  APPEAL_ACTIONS = Symbol('M7_APPEAL_ACTIONS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -155,6 +161,7 @@ export interface M7AdminModerationApiOptions {
   readonly supportMetadata?: Pick<GetSupportMetadataHandler, 'execute'>;
   readonly supportActions?: Pick<PrepareSupportActionHandler, 'execute'>;
   readonly appealMetadata?: Pick<GetAppealMetadataHandler, 'execute'>;
+  readonly appealActions?: Pick<PrepareAppealReviewAccessHandler, 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -863,6 +870,32 @@ class AppealMetadataController {
     );
   }
 }
+@Controller('v1/admin/appeals/actions')
+class AppealActionsController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(APPEAL_ACTIONS)
+    private readonly actions: NonNullable<M7AdminModerationApiOptions['appealActions']>,
+  ) {}
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAppealReviewAccess> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<PrepareAppealReviewAccessQuery>(
+      PrepareAppealReviewAccessQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAppealReviewAccessSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -871,6 +904,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.appealActions === undefined ? [] : [AppealActionsController]),
         ...(options.appealMetadata === undefined ? [] : [AppealMetadataController]),
         ...(options.supportActions === undefined ? [] : [SupportActionsController]),
         ...(options.supportMetadata === undefined ? [] : [SupportMetadataController]),
@@ -889,6 +923,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.appealActions === undefined
+          ? []
+          : [{ provide: APPEAL_ACTIONS, useValue: options.appealActions }]),
         ...(options.appealMetadata === undefined
           ? []
           : [{ provide: APPEAL_METADATA, useValue: options.appealMetadata }]),

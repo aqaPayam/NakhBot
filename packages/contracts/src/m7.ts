@@ -435,6 +435,22 @@ export const AppealMetadataPageSchema = Type.Object(
   { additionalProperties: false },
 );
 export type AppealMetadataPage = Static<typeof AppealMetadataPageSchema>;
+export const PrepareAppealReviewAccessQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    appealId: UuidSchema,
+    expectedAppealVersion: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type PrepareAppealReviewAccessQuery = Static<typeof PrepareAppealReviewAccessQuerySchema>;
+export const PreparedAppealReviewAccessSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema, appealVersion: Type.Integer({ minimum: 1 }) },
+  { additionalProperties: false },
+);
+export type PreparedAppealReviewAccess = Static<typeof PreparedAppealReviewAccessSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,
