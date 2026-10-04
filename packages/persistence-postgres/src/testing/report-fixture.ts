@@ -134,6 +134,41 @@ export async function createRetainedReportPhoto(database: NakhDatabase): Promise
   return { reporter, target, photoId, reportId, evidenceId, key, content };
 }
 
+/** A pending review with retained synthetic evidence; no real object or moderator provisioning. */
+export async function createRetainedPhotoReview(
+  database: NakhDatabase,
+): Promise<Awaited<ReturnType<typeof createRetainedReportPhoto>> & Readonly<{ reviewId: string }>> {
+  const photo = await createRetainedReportPhoto(database),
+    reviewId = randomUUID(),
+    now = new Date();
+  await database.transaction().execute(async (tx) => {
+    await tx
+      .updateTable('moderation.reports')
+      .set({ status: 'pending_review', version: 2 })
+      .where('id', '=', photo.reportId)
+      .execute();
+    await tx
+      .insertInto('moderation.moderation_reviews')
+      .values({
+        id: reviewId,
+        report_id: photo.reportId,
+        status: 'pending',
+        assigned_admin_id: null,
+        assigned_at: null,
+        decided_at: null,
+        decision_note_ciphertext: null,
+        decision_note_key_id: null,
+        decision_note_key_version: null,
+        decision_note_nonce: null,
+        decision_note_sha256: null,
+        created_at: now,
+        updated_at: now,
+      })
+      .execute();
+  });
+  return { ...photo, reviewId };
+}
+
 export async function createReportPhoto(
   database: NakhDatabase,
   target: string,

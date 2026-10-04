@@ -19,6 +19,8 @@ import type {
   PhotoModerationResult,
   ConfirmedInternalBlocks,
   InternalBlockResult,
+  ConfirmedReviewAssignments,
+  AssignedModerationReview,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
@@ -30,6 +32,10 @@ import {
   PreparePhotoModerationActionCommandSchema,
   ChangeInternalBlockCommandSchema,
   PrepareInternalBlockCommandSchema,
+  AssignModerationReviewCommandSchema,
+  PrepareReviewAssignmentCommandSchema,
+  type AssignModerationReviewCommand,
+  type PrepareReviewAssignmentCommand,
   type ChangeInternalBlockCommand,
   type PrepareInternalBlockCommand,
   type ApplyPhotoModerationActionCommand,
@@ -49,13 +55,15 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   INGRESS = Symbol('M7_MODERATION_INGRESS'),
   ACCOUNTS = Symbol('M7_MODERATION_ACCOUNTS'),
   PHOTOS = Symbol('M7_MODERATION_PHOTOS'),
-  BLOCKS = Symbol('M7_MODERATION_BLOCKS');
+  BLOCKS = Symbol('M7_MODERATION_BLOCKS'),
+  ASSIGNMENTS = Symbol('M7_REVIEW_ASSIGNMENTS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
   readonly accounts?: Pick<ConfirmedAccountActions, 'prepare' | 'execute'>;
   readonly photos?: Pick<ConfirmedPhotoActions, 'prepare' | 'execute'>;
   readonly internalBlocks?: Pick<ConfirmedInternalBlocks, 'prepare' | 'execute'>;
+  readonly reviewAssignments?: Pick<ConfirmedReviewAssignments, 'prepare' | 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -255,6 +263,53 @@ class InternalBlocksController {
     });
   }
 }
+@Controller('v1/admin/moderation/reviews/assignment')
+class ReviewAssignmentController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(INGRESS) private readonly ingress: AuditedAdminMutationIngress,
+    @Inject(ASSIGNMENTS)
+    private readonly assignments: NonNullable<M7AdminModerationApiOptions['reviewAssignments']>,
+  ) {}
+  @Post('prepare')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAdminConfirmation> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const command = this.boundary.parse<PrepareReviewAssignmentCommand>(
+      PrepareReviewAssignmentCommandSchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAdminConfirmationSchema, async () => ({
+      confirmationToken: await this.assignments.prepare(command, actor),
+    }));
+  }
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async assign(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminCommandReceipt> {
+    return this.boundary.result(AdminCommandReceiptSchema, async () =>
+      adminCommandReceipt(
+        await this.ingress.execute<AssignModerationReviewCommand, AssignedModerationReview>(
+          AssignModerationReviewCommandSchema,
+          request,
+          body,
+          { commandCode: 'moderation.assign-review', requiredPermission: 'view_reports' },
+          (command, actor) => this.assignments.execute(command, actor),
+        ),
+      ),
+    );
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -266,6 +321,7 @@ export class M7AdminModerationApiModule {
         ...(options.accounts === undefined ? [] : [AccountActionsController]),
         ...(options.photos === undefined ? [] : [PhotoActionsController]),
         ...(options.internalBlocks === undefined ? [] : [InternalBlocksController]),
+        ...(options.reviewAssignments === undefined ? [] : [ReviewAssignmentController]),
       ],
       providers: [
         { provide: BOUNDARY, useValue: boundary },
@@ -277,6 +333,9 @@ export class M7AdminModerationApiModule {
         ...(options.internalBlocks === undefined
           ? []
           : [{ provide: BLOCKS, useValue: options.internalBlocks }]),
+        ...(options.reviewAssignments === undefined
+          ? []
+          : [{ provide: ASSIGNMENTS, useValue: options.reviewAssignments }]),
       ],
     };
   }

@@ -11,6 +11,7 @@ import {
   PostgresConfirmedAccountActions,
   PostgresConfirmedPhotoActions,
   PostgresConfirmedInternalBlocks,
+  PostgresConfirmedReviewAssignments,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -20,6 +21,7 @@ import type {
   PrepareAccountModerationActionCommand,
   PreparePhotoModerationActionCommand,
   PrepareInternalBlockCommand,
+  PrepareReviewAssignmentCommand,
 } from '@nakh/contracts';
 import {
   createReportUser,
@@ -27,6 +29,7 @@ import {
   createRetainedReportPhoto,
   createReportPhoto,
   createReportChat,
+  createRetainedPhotoReview,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
 import { canonicalAdminPairTargetId } from '@nakh/application';
@@ -519,5 +522,148 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
       version++;
     }
     expect(JSON.stringify(error.mock.calls)).not.toContain('Synthetic pair review');
+  });
+  it('assigns a review once under retry races and rejects a prospective reviewer whose grant was revoked', async () => {
+    await app.close();
+    const report = await createRetainedPhotoReview(database),
+      adminId = await createReportFixtureAdmin(database),
+      assigneeId = await createReportFixtureAdmin(database);
+    for (const id of [adminId, assigneeId])
+      await database
+        .insertInto('administration.admin_user_roles')
+        .values({
+          admin_user_id: id,
+          role_code: 'super_admin',
+          assigned_by_admin_id: id,
+          revoked_by_admin_id: null,
+          revoked_at: null,
+        })
+        .execute();
+    const fixture = await confirmationFixture(database, adminId),
+      error = vi.fn();
+    app = await NestFactory.create<NestFastifyApplication>(
+      M7AdminModerationApiModule.register({
+        authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
+        journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        reviewAssignments: new PostgresConfirmedReviewAssignments(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
+      }),
+      new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
+      { logger: false },
+    );
+    app.useGlobalFilters(new ApiExceptionFilter({ error } as unknown as Logger));
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+    const headers = { authorization: 'Bearer review-admin-credential' };
+    const draft = async (
+      version: number,
+      assigneeAdminId: string,
+    ): Promise<PrepareReviewAssignmentCommand> => ({
+      actor: fixture.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.assign-review',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      locale: 'en',
+      occurredAt: new Date().toISOString(),
+      data: {
+        expectedTargetVersion: version,
+        assigneeAdminId,
+        reason: 'Synthetic assignment review',
+        adminActionToken: await fixture.issue({
+          commandCode: 'moderation.assign-review',
+          requiredPermission: 'view_reports',
+          targetType: 'moderation_review',
+          targetId: report.reviewId,
+          expectedTargetVersion: version,
+        }),
+      },
+    });
+    const confirm = async (value: PrepareReviewAssignmentCommand): Promise<string> => {
+      const prepared = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/moderation/reviews/assignment/prepare',
+        headers,
+        payload: value,
+      });
+      expect(prepared.statusCode).toBe(200);
+      return prepared.json<PreparedAdminConfirmation>().confirmationToken;
+    };
+    const first = await draft(1, adminId),
+      command = { ...first, data: { ...first.data, confirmationToken: await confirm(first) } };
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/reviews/assignment',
+          headers,
+          payload: command,
+        }),
+      ),
+    );
+    const receipts = responses.map((response) => response.json<AdminCommandReceipt>());
+    expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+    expect(receipts.every((receipt) => receipt.result === 'succeeded')).toBe(true);
+    expect(receipts.filter((receipt) => !receipt.replayed)).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['assigned_admin_id', 'version', 'status'])
+        .where('id', '=', report.reviewId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ assigned_admin_id: adminId, version: 2, status: 'in_review' });
+    expect(
+      await database
+        .selectFrom('administration.admin_action_logs')
+        .select('id')
+        .where('admin_user_id', '=', adminId)
+        .where('command_id', '=', first.commandId)
+        .execute(),
+    ).toHaveLength(1);
+    for (const response of responses)
+      for (const privateValue of [
+        adminId,
+        assigneeId,
+        report.reporter,
+        report.target,
+        report.reviewId,
+      ])
+        expect(response.body).not.toContain(privateValue);
+    const next = await draft(2, assigneeId),
+      confirmationToken = await confirm(next);
+    await database
+      .updateTable('administration.admin_user_roles')
+      .set({ revoked_at: new Date(), revoked_by_admin_id: assigneeId })
+      .where('admin_user_id', '=', assigneeId)
+      .where('revoked_at', 'is', null)
+      .execute();
+    const rejected = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reviews/assignment',
+      headers,
+      payload: { ...next, data: { ...next.data, confirmationToken } },
+    });
+    expect(rejected.statusCode).toBe(200);
+    expect(rejected.json()).toMatchObject({ result: 'rejected', safeCode: 'unavailable' });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_reviews')
+        .select(['assigned_admin_id', 'version'])
+        .where('id', '=', report.reviewId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ assigned_admin_id: adminId, version: 2 });
+    expect(
+      await database
+        .selectFrom('administration.admin_action_logs')
+        .select(['result', 'safe_code'])
+        .where('admin_user_id', '=', adminId)
+        .where('command_id', '=', next.commandId)
+        .execute(),
+    ).toEqual([{ result: 'rejected', safe_code: 'reviewer_unauthorized' }]);
+    expect(JSON.stringify(error.mock.calls)).not.toContain('Synthetic assignment review');
   });
 });

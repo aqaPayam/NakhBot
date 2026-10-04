@@ -271,6 +271,12 @@ export const AssignModerationReviewCommandSchema = mutationSchema(
   ),
 );
 export type AssignModerationReviewCommand = Static<typeof AssignModerationReviewCommandSchema>;
+export const PrepareReviewAssignmentCommandSchema = mutationSchema(
+  'moderation.assign-review',
+  AdminActorSchema,
+  Type.Omit(AssignModerationReviewCommandSchema.properties.data, ['confirmationToken']),
+);
+export type PrepareReviewAssignmentCommand = Static<typeof PrepareReviewAssignmentCommandSchema>;
 
 export const DecideModerationReviewCommandSchema = mutationSchema(
   'moderation.decide-review',

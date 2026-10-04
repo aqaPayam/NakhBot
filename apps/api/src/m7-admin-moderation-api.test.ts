@@ -8,6 +8,7 @@ import type {
   ConfirmedAccountActions,
   ConfirmedPhotoActions,
   ConfirmedInternalBlocks,
+  ConfirmedReviewAssignments,
   AdminIngressRejectionStore,
 } from '@nakh/application';
 import type { AdminCommandReceipt } from '@nakh/contracts';
@@ -271,6 +272,74 @@ describe('authenticated route-bound account moderation HTTP', () => {
     expect(
       record.mock.calls.every(([input]) => input.requiredPermission === 'manage_internal_blocks'),
     ).toBe(true);
+  });
+  it('confirms review assignment while omitting assignee and report references from its receipt', async () => {
+    const execute = vi.fn<ConfirmedReviewAssignments['execute']>(() =>
+      Promise.resolve({
+        logId: randomUUID(),
+        result: 'succeeded',
+        safeCode: 'review_assigned',
+        recordedAt: new Date(),
+        replayed: false,
+        value: {
+          reviewId: randomUUID(),
+          reportId: randomUUID(),
+          assignedAdminId: randomUUID(),
+          reviewVersion: 2,
+        },
+      }),
+    );
+    const prepare = vi.fn<ConfirmedReviewAssignments['prepare']>(() =>
+      Promise.resolve(confirmationToken),
+    );
+    const { server, record } = await start({ reviewAssignments: { execute, prepare } }, false);
+    const assignmentDraft = {
+      ...draft,
+      commandType: 'moderation.assign-review',
+      data: {
+        adminActionToken: draft.data.adminActionToken,
+        expectedTargetVersion: draft.data.expectedTargetVersion,
+        reason: draft.data.reason,
+        assigneeAdminId: randomUUID(),
+      },
+    };
+    expect(
+      (
+        await server.inject({
+          method: 'POST',
+          url: '/v1/admin/moderation/reviews/assignment/prepare',
+          headers,
+          payload: assignmentDraft,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(prepare).toHaveBeenCalledWith(assignmentDraft, actor);
+    const assigned = { ...assignmentDraft, data: { ...assignmentDraft.data, confirmationToken } };
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reviews/assignment',
+      headers,
+      payload: assigned,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ result: 'succeeded', safeCode: 'completed' });
+    expect(execute).toHaveBeenCalledWith(assigned, actor);
+    for (const privateField of [
+      'assignedAdminId',
+      'reviewId',
+      'reportId',
+      assignmentDraft.data.assigneeAdminId,
+    ])
+      expect(response.body).not.toContain(privateField);
+    const malformed = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reviews/assignment',
+      headers,
+      payload: { ...assigned, data: { ...assigned.data, permissions: ['view_reports'] } },
+    });
+    expect(malformed.json()).toMatchObject({ result: 'rejected' });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0]?.[0].requiredPermission).toBe('view_reports');
   });
   it('rejects a mismatched route action and audits only the server-selected permission before delegation', async () => {
     const { server, execute, record } = await start();
