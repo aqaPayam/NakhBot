@@ -27,7 +27,7 @@ function utcTimestamp(value: string): boolean {
   const canonical = new Date(time).toISOString();
   return value === canonical || value === canonical.replace('.000Z', 'Z');
 }
-function binding(selected: TelegramConfirmedSafetyRead): string {
+function binding(selected: TelegramConfirmedSafetyRead, includeConfirmation: boolean): string {
   const command = selected.command;
   return JSON.stringify([
     selected.kind,
@@ -43,7 +43,7 @@ function binding(selected: TelegramConfirmedSafetyRead): string {
     command.channelContext?.channel,
     command.channelContext?.channelIdentityId,
     command.data.adminActionToken,
-    command.data.confirmationToken,
+    includeConfirmation ? command.data.confirmationToken : undefined,
     command.data.expectedTargetVersion,
     normalizeAdminReason(command.data.reason),
   ]);
@@ -147,6 +147,23 @@ export class TelegramAdminSafetyReadVault implements TelegramConfirmedSafetyRead
     selected: TelegramConfirmedSafetyRead,
     operationId: string,
   ): Promise<string> {
+    return this.allocate(actor, selected, operationId, true);
+  }
+  /** Only for freshly native-prepared reads. Retains the winning confirmation token when
+   * concurrent preparations issue different valid tokens for the same exact draft. */
+  public async retainPrepared(
+    actor: Actor,
+    selected: TelegramConfirmedSafetyRead,
+    operationId: string,
+  ): Promise<string> {
+    return this.allocate(actor, selected, operationId, false);
+  }
+  private async allocate(
+    actor: Actor,
+    selected: TelegramConfirmedSafetyRead,
+    operationId: string,
+    includeConfirmation: boolean,
+  ): Promise<string> {
     if (
       actor.kind !== 'admin' ||
       !UUID.test(actor.userId) ||
@@ -180,7 +197,7 @@ export class TelegramAdminSafetyReadVault implements TelegramConfirmedSafetyRead
       );
       const stored = await this.resolve(actor, reference);
       if (stored === undefined) throw unavailable();
-      if (binding(stored) !== binding(selected))
+      if (binding(stored, includeConfirmation) !== binding(selected, includeConfirmation))
         throw new ApplicationError('idempotency_conflict', 'error.m7.stale_action', 409);
       return reference;
     } catch (error) {

@@ -688,6 +688,16 @@ read; the sender disallows arbitrary callback actions. Synthetic wire tests cove
 revocation, withdrawal/cache loss and callback substitution. Target selection and native draft
 preparation still need gateway composition; real Telegram menu/session acceptance remains pending.
 
+An explicit gateway composition now shares native PostgreSQL support/appeal preparation and read
+handlers, one encrypted vault, menu presenter, protected sender and read/cancel adapter. Selected
+targets and stable command/operation IDs are supplied by the trusted UI boundary. Every preparation
+rechecks native permission. Concurrent preparations may issue different valid confirmation tokens;
+the vault retains the first for the same exact draft, rejects other payload changes and never
+extends its expiry or replaces withdrawn state. Menus fetch no user prose. PostgreSQL composition
+evidence connects repeated preparation and callback races to one fresh content delivery and one
+required access/admin audit, with permission-revoked preparation denied. Selected-target ingress,
+concrete session/MFA and real provider staging evidence remain pending; ordinary startup is disabled.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome
