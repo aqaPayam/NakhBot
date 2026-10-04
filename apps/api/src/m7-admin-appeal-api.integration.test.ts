@@ -10,6 +10,8 @@ import {
   runMigrations,
   PostgresConfirmedAppealCommands,
   PostgresRecordAdminIngressRejectionHandler,
+  PostgresGetAppealMetadataHandler,
+  PostgresGetSafetyQueueActionsHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import type {
@@ -17,6 +19,8 @@ import type {
   PreparedAdminConfirmation,
   PrepareAppealReviewCommand,
   PrepareAppealUnbanCommand,
+  SafetyQueueActions,
+  AppealMetadataPage,
 } from '@nakh/contracts';
 import { createReportFixtureAdmin } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { createCurrentBanAppeal } from '../../../packages/persistence-postgres/src/testing/appeal-fixture.js';
@@ -229,6 +233,12 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
         authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
         journal: new PostgresRecordAdminIngressRejectionHandler(database),
         appealReviews: new PostgresConfirmedAppealCommands(database, fixture.tokens, fixture.key),
+        safetyQueueActions: new PostgresGetSafetyQueueActionsHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
+        appealMetadata: new PostgresGetAppealMetadataHandler(database, fixture.tokens, fixture.key),
       }),
       new FastifyAdapter(),
       { logger: false },
@@ -238,8 +248,73 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
     await app.getHttpAdapter().getInstance().ready();
     const headers = { authorization: 'Bearer appeal-admin-credential' },
       note = 'Private HTTP appeal review note';
+    const pending = [
+      await createCurrentBanAppeal(database),
+      await createCurrentBanAppeal(database),
+    ];
+    const queueResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/safety/queue/actions',
+      headers,
+      payload: { actor: fixture.actor, requestId: randomUUID(), queue: 'appeals' },
+    });
+    expect(queueResponse.statusCode).toBe(200);
+    const metadataQuery = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: queueResponse.json<SafetyQueueActions>().adminActionToken,
+      limit: 1,
+    };
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/metadata',
+      headers,
+      payload: metadataQuery,
+    });
+    expect(firstResponse.statusCode).toBe(200);
+    expect(firstResponse.headers['cache-control']).toBe('no-store');
+    const first = firstResponse.json<AppealMetadataPage>();
+    expect(first.items).toHaveLength(1);
+    expect(first.nextCursor).toBeDefined();
+    const nextResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/metadata',
+      headers,
+      payload: { ...metadataQuery, cursor: first.nextCursor },
+    });
+    expect(nextResponse.statusCode).toBe(200);
+    expect(nextResponse.json<AppealMetadataPage>().items[0]!.appealId).not.toBe(
+      first.items[0]!.appealId,
+    );
+    for (const response of [firstResponse, nextResponse]) {
+      expect(response.body).not.toContain('Private fixture appeal');
+      for (const appeal of pending) {
+        expect(response.body).not.toContain(appeal.userId);
+        expect(response.body).not.toContain(appeal.banId);
+      }
+    }
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/appeals/metadata',
+          headers,
+          payload: { ...metadataQuery, cursor: first.nextCursor, status: 'accepted' },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/appeals/metadata',
+          headers,
+          payload: { ...metadataQuery, limit: 51 },
+        })
+      ).statusCode,
+    ).toBe(400);
     for (const decision of ['accepted', 'rejected'] as const) {
-      const appeal = await createCurrentBanAppeal(database);
+      const appeal = pending[decision === 'accepted' ? 0 : 1]!;
       const token = await fixture.issue({
         commandCode: 'moderation.review-appeal',
         requiredPermission: 'review_appeals',
@@ -374,6 +449,16 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
       .where('id', '=', appeal.appealId)
       .executeTakeFirstOrThrow();
     expect(unchanged.status).toBe('submitted');
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/appeals/metadata',
+          headers,
+          payload: metadataQuery,
+        })
+      ).statusCode,
+    ).toBe(403);
     expect(JSON.stringify(error.mock.calls)).not.toContain(note);
   });
 });

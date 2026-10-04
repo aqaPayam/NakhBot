@@ -158,3 +158,4 @@ export * from './support/safety-queue-actions.js';
 export * from './support/support-metadata.js';
 export * from './support/safety-metadata-cursor.js';
 export * from './support/prepare-support-action.js';
+export * from './support/appeal-metadata.js';

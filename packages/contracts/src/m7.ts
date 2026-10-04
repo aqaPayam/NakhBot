@@ -404,6 +404,37 @@ export const PreparedSupportActionSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedSupportAction = Static<typeof PreparedSupportActionSchema>;
+export const GetAppealMetadataQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    limit: Type.Integer({ minimum: 1, maximum: 50 }),
+    status: Type.Optional(AppealStatusSchema),
+    cursor: Type.Optional(SafetyMetadataCursorSchema),
+  },
+  { additionalProperties: false },
+);
+export type GetAppealMetadataQuery = Static<typeof GetAppealMetadataQuerySchema>;
+export const AppealMetadataPageSchema = Type.Object(
+  {
+    items: Type.Array(
+      Type.Object(
+        {
+          appealId: UuidSchema,
+          status: AppealStatusSchema,
+          version: Type.Integer({ minimum: 1 }),
+          submittedAt: UtcTimestampSchema,
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 50 },
+    ),
+    nextCursor: Type.Optional(SafetyMetadataCursorSchema),
+  },
+  { additionalProperties: false },
+);
+export type AppealMetadataPage = Static<typeof AppealMetadataPageSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,
