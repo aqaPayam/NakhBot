@@ -698,6 +698,16 @@ evidence connects repeated preparation and callback races to one fresh content d
 required access/admin audit, with permission-revoked preparation denied. Selected-target ingress,
 concrete session/MFA and real provider staging evidence remain pending; ordinary startup is disabled.
 
+The explicit read composition also accepts a trusted metadata target selection. It invokes the
+native queue-authorized support/appeal reveal-action preparation, then the existing confirmed-read
+preparation. The host supplies a stable operation identity and authenticated provider timestamp;
+the service derives actor-bound command IDs and accepts no caller-selected actor or permission.
+Concurrent native target preparations retain the first opaque action in a five-minute content-free
+receipt. Keyed bindings reject changed target, version, reason, timestamp or queue authority without
+overwriting that receipt. Cached selection never bypasses native permission/version checks or
+extends expiry. No read or mutation executes until the existing confirmation callback. Target queue
+presentation, reason-entry ingress and concrete sessions remain pending acceptance work.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome

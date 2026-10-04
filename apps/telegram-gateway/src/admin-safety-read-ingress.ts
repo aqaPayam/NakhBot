@@ -2,12 +2,15 @@ import type { OpaqueTokenStore } from '@nakh/application';
 import {
   PostgresConfirmedAppealReveals,
   PostgresConfirmedSupportReveals,
+  PostgresPrepareSupportActionHandler,
+  PostgresPrepareAppealReviewAccessHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
   TelegramAdminSafetyContentAdapter,
   TelegramAdminSafetyReadVault,
   TelegramAdminSafetyReadPreparation,
+  TelegramAdminSafetyTargetSelection,
   TelegramAdminReadConfirmationMenus,
   type TelegramAdminTextDelivery,
   type TelegramAdminSessionVerifier,
@@ -29,6 +32,7 @@ export function createTelegramAdminSafetyReadIngress(
   }>,
 ): Readonly<{
   prepare: TelegramAdminSafetyReadPreparation['prepare'];
+  select: TelegramAdminSafetyTargetSelection['select'];
   handle: TelegramAdminSafetyContentAdapter['handle'];
 }> {
   const support = new PostgresConfirmedSupportReveals(input.database, input.tokens, input.adminKey);
@@ -59,7 +63,16 @@ export function createTelegramAdminSafetyReadIngress(
     input.delivery,
     input.renderer,
   );
+  const selections = new TelegramAdminSafetyTargetSelection(
+    input.sessions,
+    new PostgresPrepareSupportActionHandler(input.database, input.tokens, input.adminKey),
+    new PostgresPrepareAppealReviewAccessHandler(input.database, input.tokens, input.adminKey),
+    input.tokens,
+    input.uiReferenceKey,
+    preparation,
+  );
   return Object.freeze({
+    select: selections.select.bind(selections),
     prepare: preparation.prepare.bind(preparation),
     handle: reads.handle.bind(reads),
   });
