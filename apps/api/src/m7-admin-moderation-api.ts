@@ -28,6 +28,7 @@ import type {
   PrepareSelectedReportAccountActionHandler,
   PrepareSelectedReportPhotoActionHandler,
   GetSelectedReportEvidenceMetadataHandler,
+  PrepareSelectedReportEvidenceRevealHandler,
   ConfirmedAppealCommands,
   ConfirmedSupportCommands,
   StoredSupportResult,
@@ -106,6 +107,10 @@ import {
   type PrepareSelectedReportPhotoActionQuery,
   GetSelectedReportEvidenceMetadataQuerySchema,
   type GetSelectedReportEvidenceMetadataQuery,
+  PrepareSelectedReportEvidenceRevealQuerySchema,
+  PreparedReportEvidenceRevealSchema,
+  type PrepareSelectedReportEvidenceRevealQuery,
+  type PreparedReportEvidenceReveal,
   ReportEvidenceMetadataSchema,
   type ReportEvidenceMetadata,
   PreparedSelectedReportReviewSchema,
@@ -179,6 +184,7 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   SELECTED_REPORT_ACCOUNT = Symbol('M7_SELECTED_REPORT_ACCOUNT'),
   SELECTED_REPORT_PHOTO = Symbol('M7_SELECTED_REPORT_PHOTO'),
   SELECTED_REPORT_EVIDENCE = Symbol('M7_SELECTED_REPORT_EVIDENCE'),
+  SELECTED_REPORT_EVIDENCE_REVEAL = Symbol('M7_SELECTED_REPORT_EVIDENCE_REVEAL'),
   REPORT_ACCOUNT_ACTIONS = Symbol('M7_REPORT_ACCOUNT_ACTIONS'),
   REPORT_PHOTO_ACTIONS = Symbol('M7_REPORT_PHOTO_ACTIONS'),
   SAFETY_QUEUE_ACTIONS = Symbol('M7_SAFETY_QUEUE_ACTIONS'),
@@ -205,6 +211,10 @@ export interface M7AdminModerationApiOptions {
   readonly reviewActions?: Pick<PrepareReviewActionHandler, 'execute'>;
   readonly selectedReportPhoto?: Pick<PrepareSelectedReportPhotoActionHandler, 'execute'>;
   readonly selectedReportEvidence?: Pick<GetSelectedReportEvidenceMetadataHandler, 'execute'>;
+  readonly selectedReportEvidenceReveal?: Pick<
+    PrepareSelectedReportEvidenceRevealHandler,
+    'execute'
+  >;
   readonly selectedReportAccount?: Pick<PrepareSelectedReportAccountActionHandler, 'execute'>;
   readonly selectedReportReview?: Pick<PrepareSelectedReportReviewHandler, 'execute'>;
   readonly reportAccountActions?: Pick<PrepareReportAccountActionHandler, 'execute'>;
@@ -876,6 +886,34 @@ class SelectedReportEvidenceController {
     );
   }
 }
+@Controller('v1/admin/moderation/reports')
+class SelectedReportEvidenceRevealController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(SELECTED_REPORT_EVIDENCE_REVEAL)
+    private readonly actions: NonNullable<
+      M7AdminModerationApiOptions['selectedReportEvidenceReveal']
+    >,
+  ) {}
+  @Post('evidence-reveal-selection')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedReportEvidenceReveal> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<PrepareSelectedReportEvidenceRevealQuery>(
+      PrepareSelectedReportEvidenceRevealQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedReportEvidenceRevealSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
 @Controller('v1/admin/moderation/reports/account-actions')
 class ReportAccountActionsController {
   public constructor(
@@ -1248,6 +1286,9 @@ export class M7AdminModerationApiModule {
         ...(options.selectedReportAccount === undefined ? [] : [SelectedReportAccountController]),
         ...(options.selectedReportPhoto === undefined ? [] : [SelectedReportPhotoController]),
         ...(options.selectedReportEvidence === undefined ? [] : [SelectedReportEvidenceController]),
+        ...(options.selectedReportEvidenceReveal === undefined
+          ? []
+          : [SelectedReportEvidenceRevealController]),
         ...(options.appealUnbans === undefined ? [] : [AppealUnbanController]),
         ...(options.appealReviews === undefined ? [] : [AppealReviewController]),
         ...(options.supportCommands === undefined ? [] : [SupportAdminController]),
@@ -1259,6 +1300,14 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.selectedReportEvidenceReveal === undefined
+          ? []
+          : [
+              {
+                provide: SELECTED_REPORT_EVIDENCE_REVEAL,
+                useValue: options.selectedReportEvidenceReveal,
+              },
+            ]),
         ...(options.selectedReportPhoto === undefined
           ? []
           : [{ provide: SELECTED_REPORT_PHOTO, useValue: options.selectedReportPhoto }]),

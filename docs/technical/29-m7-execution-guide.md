@@ -1,5 +1,29 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
+## Current increment: selected Report evidence reveal preparation
+
+The authenticated `POST /v1/admin/moderation/reports/evidence-reveal-selection` bridge accepts
+only the actor, request, queue metadata token, selected Report/version and exact evidence ID.
+It derives report-scoped metadata authority through the existing native boundary, checks current
+admin identity and Report stability before returning the owning evidence action token, and denies
+borrowed evidence, unsupported readers and snapshot schemas other than version 1. All five valid
+Report statuses remain browsable without a Review assignment. The response contains only one
+opaque token and has no-store/no-cache headers; preparation reads no content and creates no
+evidence-access audit. Host composition shares the existing evidence actions capability rather
+than advertising independently configured reader support.
+
+The separate native reveal preparation still requires the operator's reason and binds immutable
+evidence version 1 internally. Confirmed execution rechecks current permission and commits both
+the attempted-command and access audits before returning content. Concurrent execution retries
+return content only on the first successful execution, never on replay. Unit and PostgreSQL HTTP
+evidence cover concurrent selection, exact source binding, stale Reports, cross-admin reuse,
+missing reader support, permission revocation, and one audited content-bearing execution.
+
+This increment introduces no durable schema or catalog changes, so migration 72 remains current.
+Existing migration bootstrap, upgrade and replay gates remain required. Telegram content reveal,
+retained-photo byte delivery, internal-block controls, concrete session/MFA, and real staging
+provider/operator acceptance remain open; this bridge alone does not complete M7.
+
 Status: approved implementation guide for M7. This guide converts the canonical reporting,
 restriction, review, admin, internal-block, support, appeal, privacy, and acceptance rules into an
 ordered backend plan.

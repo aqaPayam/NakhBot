@@ -390,6 +390,21 @@ export const GetSelectedReportEvidenceMetadataQuerySchema = Type.Object(
 export type GetSelectedReportEvidenceMetadataQuery = Static<
   typeof GetSelectedReportEvidenceMetadataQuerySchema
 >;
+export const PrepareSelectedReportEvidenceRevealQuerySchema = Type.Object(
+  {
+    ...GetSelectedReportEvidenceMetadataQuerySchema.properties,
+    evidenceId: UuidSchema,
+  },
+  { additionalProperties: false },
+);
+export type PrepareSelectedReportEvidenceRevealQuery = Static<
+  typeof PrepareSelectedReportEvidenceRevealQuerySchema
+>;
+export const PreparedReportEvidenceRevealSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema },
+  { additionalProperties: false },
+);
+export type PreparedReportEvidenceReveal = Static<typeof PreparedReportEvidenceRevealSchema>;
 export const PrepareReportPhotoActionQuerySchema = Type.Object(
   {
     actor: AdminActorSchema,

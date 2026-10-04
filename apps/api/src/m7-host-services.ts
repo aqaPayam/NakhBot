@@ -20,6 +20,7 @@ import {
   PostgresPrepareSelectedReportAccountActionHandler,
   PostgresPrepareSelectedReportPhotoActionHandler,
   PostgresGetSelectedReportEvidenceMetadataHandler,
+  PostgresPrepareSelectedReportEvidenceRevealHandler,
   PostgresPrepareReportAccountActionHandler,
   PostgresPrepareReportPhotoActionHandler,
   PostgresGetSafetyQueueActionsHandler,
@@ -118,6 +119,16 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
       input.adminTokens,
       input.adminKey,
     ),
+    ...(reportHost.adminReports.evidenceActions === undefined
+      ? {}
+      : {
+          selectedReportEvidenceReveal: new PostgresPrepareSelectedReportEvidenceRevealHandler(
+            input.database,
+            input.adminTokens,
+            input.adminKey,
+            reportHost.adminReports.evidenceActions,
+          ),
+        }),
     selectedReportAccount: new PostgresPrepareSelectedReportAccountActionHandler(
       input.database,
       input.adminTokens,

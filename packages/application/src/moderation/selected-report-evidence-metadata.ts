@@ -1,5 +1,6 @@
 import type {
   GetSelectedReportEvidenceMetadataQuery,
+  GetReportEvidenceMetadataQuery,
   ReportEvidenceMetadata,
 } from '@nakh/contracts';
 import { ApplicationError, type Actor } from '@nakh/domain';
@@ -10,19 +11,22 @@ export interface SelectedReportEvidenceMetadataStore {
     reportId: string,
   ): Promise<Readonly<{ reportVersion: number; reportStatus: string }> | undefined>;
 }
-import type { GetReportEvidenceMetadataHandler } from './report-evidence-metadata.js';
-/** Metadata selection grants no evidence reveal and performs no content or attempted-command audit. */
-export class GetSelectedReportEvidenceMetadataHandler {
+/** Rechecks selected Report authority around a native metadata reader; never reads content. */
+export class GetSelectedReportEvidenceMetadataHandler<
+  Result extends ReportEvidenceMetadata = ReportEvidenceMetadata,
+> {
   public constructor(
     private readonly authorization: Pick<AdminActionAuthorizationService, 'authorize' | 'issue'>,
     private readonly identities: AdminQueueIdentityStore,
     private readonly reports: SelectedReportEvidenceMetadataStore,
-    private readonly metadata: Pick<GetReportEvidenceMetadataHandler, 'execute'>,
+    private readonly metadata: {
+      execute(query: GetReportEvidenceMetadataQuery, actor: Actor): Promise<Result>;
+    },
   ) {}
   public async execute(
     query: GetSelectedReportEvidenceMetadataQuery,
     actor: Actor,
-  ): Promise<ReportEvidenceMetadata> {
+  ): Promise<Result> {
     if (
       actor.kind !== 'admin' ||
       query.actor.kind !== 'admin' ||

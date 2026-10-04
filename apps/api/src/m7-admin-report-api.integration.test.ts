@@ -14,6 +14,7 @@ import {
   PostgresAdminAuthorizationStore,
   PostgresGetReportEvidenceActionsHandler,
   PostgresConfirmedReportEvidenceReveals,
+  PostgresPrepareSelectedReportEvidenceRevealHandler,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -24,6 +25,7 @@ import type {
   AdminEvidenceRevealResult,
   AdminReportQueueActions,
   PreparedReportEvidenceAccess,
+  PreparedReportEvidenceReveal,
 } from '@nakh/contracts';
 import {
   AesGcmPhotoReportSnapshotReader,
@@ -35,6 +37,7 @@ import {
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { confirmationFixture } from '../../../packages/persistence-postgres/src/testing/admin-confirmation.js';
 import { ApiExceptionFilter } from './app.js';
+import { M7AdminModerationApiModule } from './m7-admin-moderation-api.js';
 import { M7AdminReportApiModule } from './m7-admin-report-api.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
@@ -71,43 +74,75 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
     const one = await confirmationFixture(database, first),
       two = await confirmationFixture(database, second);
     app = await NestFactory.create<NestFastifyApplication>(
-      M7AdminReportApiModule.register({
-        authenticator: {
-          authenticate: ({ bearerToken, audience }) =>
-            Promise.resolve(
-              audience !== 'admin'
-                ? undefined
-                : bearerToken === 'metadata-admin-one'
-                  ? one.actor
-                  : bearerToken === 'metadata-admin-two'
-                    ? two.actor
-                    : undefined,
+      {
+        module: class SelectedEvidenceHttpModule {},
+        imports: [
+          M7AdminReportApiModule.register({
+            authenticator: {
+              authenticate: ({ bearerToken, audience }) =>
+                Promise.resolve(
+                  audience !== 'admin'
+                    ? undefined
+                    : bearerToken === 'metadata-admin-one'
+                      ? one.actor
+                      : bearerToken === 'metadata-admin-two'
+                        ? two.actor
+                        : undefined,
+                ),
+            },
+            metadata: new PostgresGetReportMetadataPageHandler(database, one.tokens, one.key),
+            queueActions: new PostgresGetAdminReportQueueActionsHandler(
+              database,
+              one.tokens,
+              one.key,
             ),
-        },
-        metadata: new PostgresGetReportMetadataPageHandler(database, one.tokens, one.key),
-        queueActions: new PostgresGetAdminReportQueueActionsHandler(database, one.tokens, one.key),
-        evidenceAccess: new PostgresPrepareReportEvidenceAccessHandler(
-          database,
-          one.tokens,
-          one.key,
-        ),
-        evidenceActions: new PostgresGetReportEvidenceActionsHandler(
-          database,
-          one.tokens,
-          one.key,
-          Date.now,
-          ['photo'],
-        ),
-        evidenceReveals: {
-          commands: new PostgresConfirmedReportEvidenceReveals(database, one.tokens, one.key, {
-            photo: new AesGcmPhotoReportSnapshotReader({
-              resolve: (keyId, version) =>
-                keyId === 'photo-fixture' && version === 1 ? source.key : undefined,
-            }),
+            evidenceAccess: new PostgresPrepareReportEvidenceAccessHandler(
+              database,
+              one.tokens,
+              one.key,
+            ),
+            evidenceActions: new PostgresGetReportEvidenceActionsHandler(
+              database,
+              one.tokens,
+              one.key,
+              Date.now,
+              ['photo'],
+            ),
+            evidenceReveals: {
+              commands: new PostgresConfirmedReportEvidenceReveals(database, one.tokens, one.key, {
+                photo: new AesGcmPhotoReportSnapshotReader({
+                  resolve: (keyId, version) =>
+                    keyId === 'photo-fixture' && version === 1 ? source.key : undefined,
+                }),
+              }),
+              journal: new PostgresRecordAdminIngressRejectionHandler(database),
+            },
           }),
-          journal: new PostgresRecordAdminIngressRejectionHandler(database),
-        },
-      }),
+          M7AdminModerationApiModule.register({
+            journal: new PostgresRecordAdminIngressRejectionHandler(database),
+            authenticator: {
+              authenticate: ({ bearerToken, audience }) =>
+                Promise.resolve(
+                  audience !== 'admin'
+                    ? undefined
+                    : bearerToken === 'metadata-admin-one'
+                      ? one.actor
+                      : bearerToken === 'metadata-admin-two'
+                        ? two.actor
+                        : undefined,
+                ),
+            },
+            selectedReportEvidenceReveal: new PostgresPrepareSelectedReportEvidenceRevealHandler(
+              database,
+              one.tokens,
+              one.key,
+              new PostgresGetReportEvidenceActionsHandler(database, one.tokens, one.key, Date.now, [
+                'photo',
+              ]),
+            ),
+          }),
+        ],
+      },
       new FastifyAdapter({ bodyLimit: 256 * 1024, trustProxy: false }),
       { logger: false },
     );
@@ -225,6 +260,71 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       snapshotSchemaVersion: 1,
     });
     expect(selectedItems[0]?.revealActionToken).toMatch(/^v1\.ad\./u);
+    const revealSelectionQuery = { ...accessQuery, evidenceId: source.evidenceId };
+    const selectionRoute = '/v1/admin/moderation/reports/evidence-reveal-selection';
+    const revealSelections = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        app.inject({
+          method: 'POST',
+          url: selectionRoute,
+          headers: { authorization: 'Bearer metadata-admin-one' },
+          payload: revealSelectionQuery,
+        }),
+      ),
+    );
+    expect(revealSelections.every((response) => response.statusCode === 200)).toBe(true);
+    for (const response of revealSelections) {
+      expect(Object.keys(response.json())).toEqual(['adminActionToken']);
+      expect(response.headers['cache-control']).toBe('no-store');
+      for (const value of [
+        source.reporter,
+        source.target,
+        source.photoId,
+        source.reportId,
+        source.evidenceId,
+        source.content.evidenceObjectRef,
+      ])
+        expect(response.body).not.toContain(value);
+    }
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('id')
+        .where('report_id', '=', source.reportId)
+        .execute(),
+    ).toHaveLength(0);
+    const otherSource = await createRetainedReportPhoto(database);
+    for (const [payload, status] of [
+      [{ ...revealSelectionQuery, evidenceId: otherSource.evidenceId }, 404],
+      [{ ...revealSelectionQuery, expectedReportVersion: 2 }, 409],
+      [{ ...revealSelectionQuery, actor: two.actor }, 403],
+      [{ ...revealSelectionQuery, expectedTargetVersion: 999 }, 400],
+    ] as const) {
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: selectionRoute,
+            headers: {
+              authorization:
+                payload.actor.userId === two.actor.userId
+                  ? 'Bearer metadata-admin-two'
+                  : 'Bearer metadata-admin-one',
+            },
+            payload,
+          })
+        ).statusCode,
+      ).toBe(status);
+    }
+    const unsupported = new PostgresPrepareSelectedReportEvidenceRevealHandler(
+      database,
+      one.tokens,
+      one.key,
+      new PostgresGetReportEvidenceActionsHandler(database, one.tokens, one.key, Date.now, []),
+    );
+    await expect(unsupported.execute(revealSelectionQuery, one.actor)).rejects.toMatchObject({
+      code: 'report_unavailable',
+    });
     const draft = {
       actor: one.actor,
       commandId: randomUUID(),
@@ -235,7 +335,8 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       locale: 'en',
       idempotencyKey: randomUUID(),
       data: {
-        adminActionToken: selectedItems[0]!.revealActionToken,
+        adminActionToken:
+          revealSelections[0]!.json<PreparedReportEvidenceReveal>().adminActionToken,
         evidenceId: source.evidenceId,
         reason: 'Review synthetic retained photo',
       },
@@ -338,6 +439,16 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       payload: accessQuery,
     });
     expect(revokedAccess.statusCode).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: selectionRoute,
+          headers: { authorization: 'Bearer metadata-admin-one' },
+          payload: revealSelectionQuery,
+        })
+      ).statusCode,
+    ).toBe(403);
     const revokedReveal = await app.inject({
       method: 'POST',
       url: '/v1/admin/reports/evidence/reveal',

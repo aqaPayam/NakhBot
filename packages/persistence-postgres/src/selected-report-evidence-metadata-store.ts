@@ -7,7 +7,7 @@ import {
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 import { PostgresAdminQueueIdentityStore } from './queue-actions-store.js';
-class PostgresSelectedReportEvidenceMetadataStore implements SelectedReportEvidenceMetadataStore {
+export class PostgresSelectedReportEvidenceMetadataStore implements SelectedReportEvidenceMetadataStore {
   public constructor(private readonly database: NakhDatabase) {}
   public get(reportId: string): ReturnType<SelectedReportEvidenceMetadataStore['get']> {
     return this.database
