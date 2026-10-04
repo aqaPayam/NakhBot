@@ -368,4 +368,25 @@ describe('authenticated route-bound account moderation HTTP', () => {
       ).statusCode,
     ).toBe(404);
   });
+  it('sanitizes malformed JSON and oversized bodies before authenticated command delegation', async () => {
+    const { server, execute, record } = await start();
+    const privateValue = 'PRIVATE PARSER INPUT';
+    for (const [payload, status] of [
+      [`{"text":"${privateValue}"`, 400],
+      [JSON.stringify({ text: privateValue.repeat(20000) }), 413],
+    ] as const) {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/v1/admin/moderation/accounts/ban_user',
+        headers: { ...headers, 'content-type': 'application/json' },
+        payload,
+      });
+      expect(response.statusCode).toBe(status);
+      expect(response.body).not.toContain(privateValue);
+      expect(JSON.stringify(error.mock.calls)).not.toContain(privateValue);
+      expect(JSON.stringify(error.mock.calls)).not.toContain(headers.authorization);
+    }
+    expect(execute).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  });
 });

@@ -91,11 +91,43 @@ export class ApiExceptionFilter implements ExceptionFilter {
       )
         ? requestHeader
         : randomUUID();
+    const parserStatuses: Readonly<Record<string, number>> = {
+      FST_ERR_CTP_INVALID_JSON_BODY: 400,
+      FST_ERR_CTP_EMPTY_JSON_BODY: 400,
+      FST_ERR_CTP_INVALID_CONTENT_LENGTH: 400,
+      FST_ERR_CTP_BODY_TOO_LARGE: 413,
+      FST_ERR_CTP_INVALID_MEDIA_TYPE: 415,
+    };
+    const transportStatus =
+      exception instanceof HttpException
+        ? exception.getStatus()
+        : typeof exception === 'object' &&
+            exception !== null &&
+            'code' in exception &&
+            typeof exception.code === 'string'
+          ? parserStatuses[exception.code]
+          : undefined;
+    const transportError =
+      transportStatus !== undefined && transportStatus >= 400 && transportStatus < 500
+        ? new ApplicationError(
+            transportStatus === 401
+              ? 'unauthorized'
+              : transportStatus === 403
+                ? 'forbidden'
+                : transportStatus === 404
+                  ? 'not_found'
+                  : transportStatus === 429
+                    ? 'rate_limited'
+                    : 'invalid_request',
+            'error.m7.unavailable',
+            transportStatus,
+          )
+        : undefined;
     const error =
       exception instanceof ApplicationError
         ? exception
-        : exception instanceof HttpException && exception.getStatus() === 404
-          ? new ApplicationError('not_found', 'error.m7.unavailable', 404)
+        : transportError !== undefined
+          ? transportError
           : new ApplicationError('internal_error', 'An internal error occurred.', 500);
     if (error.status >= 500) {
       this.logger.error(
