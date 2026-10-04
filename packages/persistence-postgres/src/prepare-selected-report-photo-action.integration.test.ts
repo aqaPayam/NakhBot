@@ -205,6 +205,9 @@ describe.skipIf(url === undefined)('selected report to native photo preparation'
       prepare.execute({ ...query, evidenceId: foreign.evidenceId }, f.actor),
     ).rejects.toMatchObject({ status: 404 });
     let version = 1;
+    await expect(
+      prepare.execute({ ...query, action: 'restore_photo' }, f.actor),
+    ).rejects.toMatchObject({ code: 'media_invalid_state', status: 409 });
     for (const [action, state] of [
       ['hide_photo', 'hidden'],
       ['restore_photo', 'visible'],
@@ -281,6 +284,17 @@ describe.skipIf(url === undefined)('selected report to native photo preparation'
           .where('action_type', '=', action)
           .execute(),
       ).toHaveLength(1);
+      // Preparation uses live owning-module state, not the retained snapshot's original visibility.
+      const unavailableActions =
+        state === 'hidden'
+          ? (['hide_photo'] as const)
+          : state === 'visible'
+            ? (['restore_photo'] as const)
+            : (['hide_photo', 'restore_photo', 'delete_photo'] as const);
+      for (const unavailable of unavailableActions)
+        await expect(
+          prepare.execute({ ...query, action: unavailable }, f.actor),
+        ).rejects.toMatchObject({ code: 'media_invalid_state', status: 409 });
     }
     expect(
       await database
@@ -337,6 +351,95 @@ describe.skipIf(url === undefined)('selected report to native photo preparation'
         .selectFrom('moderation.evidence_access_audits')
         .select('id')
         .where('report_id', '=', report.reportId)
+        .execute(),
+    ).toHaveLength(0);
+  });
+  it('rejects a separately confirmed stale photo action once under retries after another action wins', async () => {
+    const f = await operator(),
+      report = await createRetainedPhotoReview(database),
+      token = await assign(f, report);
+    await createReportPhoto(database, report.target, false);
+    const prepare = new PostgresPrepareSelectedReportPhotoActionHandler(database, f.tokens, f.key);
+    const query = {
+      actor: f.actor,
+      requestId: randomUUID(),
+      adminActionToken: token,
+      reportId: report.reportId,
+      expectedReportVersion: 2,
+      evidenceId: report.evidenceId,
+      action: 'hide_photo' as const,
+    };
+    const targets = await Promise.all([
+      prepare.execute(query, f.actor),
+      prepare.execute(query, f.actor),
+    ]);
+    const commands = new PostgresConfirmedPhotoActions(database, f.tokens, f.key, {
+      execute: () => Promise.resolve(),
+    });
+    const first = draft(f, targets[0], 'hide_photo'),
+      stale = draft(f, targets[1], 'hide_photo');
+    const firstConfirmation = await commands.prepare(first, f.actor),
+      staleConfirmation = await commands.prepare(stale, f.actor);
+    const applied = await commands.execute(
+      { ...first, data: { ...first.data, confirmationToken: firstConfirmation } },
+      f.actor,
+    );
+    expect(applied).toMatchObject({ result: 'succeeded' });
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        commands.execute(
+          { ...stale, data: { ...stale.data, confirmationToken: staleConfirmation } },
+          f.actor,
+        ),
+      ),
+    );
+    expect(
+      results.every(
+        (result) => result.result === 'rejected' && result.safeCode === 'version_conflict',
+      ),
+    ).toBe(true);
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    await expect(prepare.execute(query, f.actor)).rejects.toMatchObject({
+      code: 'media_invalid_state',
+      status: 409,
+    });
+    expect(
+      await database
+        .selectFrom('media.profile_photos')
+        .select(['status', 'version'])
+        .where('id', '=', report.photoId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'hidden', version: 2 });
+    expect(
+      await database
+        .selectFrom('moderation.moderation_actions')
+        .select('id')
+        .where('source_report_id', '=', report.reportId)
+        .where('action_type', '=', 'hide_photo')
+        .execute(),
+    ).toHaveLength(1);
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .select(['result', 'safe_code'])
+      .where('admin_user_id', '=', f.adminId)
+      .where('command_code', '=', 'moderation.apply-photo-action')
+      .execute();
+    expect(logs).toHaveLength(2);
+    expect(logs.filter((log) => log.result === 'rejected')).toEqual([
+      { result: 'rejected', safe_code: 'version_conflict' },
+    ]);
+    expect(
+      await database
+        .selectFrom('media.report_photo_evidence_holds')
+        .select('report_evidence_id')
+        .where('report_evidence_id', '=', report.evidenceId)
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('moderation.evidence_access_audits')
+        .select('id')
+        .where('admin_user_id', '=', f.adminId)
         .execute(),
     ).toHaveLength(0);
   });

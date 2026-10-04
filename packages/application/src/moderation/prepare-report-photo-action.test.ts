@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ApplicationError } from '@nakh/domain';
 import { describe, expect, it, vi } from 'vitest';
 import type { AdminActionAuthorizationService } from '../administration/admin-authorization.js';
 import {
@@ -31,6 +32,7 @@ describe('report-bound photo action preparation', () => {
       reportStatus: 'pending_review',
       photoId: randomUUID(),
       photoVersion: 5,
+      photoStatus: 'visible',
     };
     const get = vi.fn<ReportPhotoActionPreparationStore['get']>(() => Promise.resolve(facts));
     const handler = new PrepareReportPhotoActionHandler(
@@ -68,5 +70,37 @@ describe('report-bound photo action preparation', () => {
       handler.execute({ ...query, expectedReviewVersion: 1 }, actor),
     ).rejects.toMatchObject({ code: 'version_conflict' });
     expect(issue).toHaveBeenCalledOnce();
+    for (const [photoStatus, action, allowed] of [
+      ['visible', 'hide_photo', true],
+      ['visible', 'restore_photo', false],
+      ['visible', 'delete_photo', true],
+      ['hidden', 'hide_photo', false],
+      ['hidden', 'restore_photo', true],
+      ['hidden', 'delete_photo', true],
+      ['deleted', 'hide_photo', false],
+      ['deleted', 'restore_photo', false],
+      ['deleted', 'delete_photo', false],
+      ['unknown', 'hide_photo', false],
+      ['unknown', 'restore_photo', false],
+      ['unknown', 'delete_photo', false],
+    ] as const) {
+      get.mockResolvedValueOnce({ ...facts, photoStatus });
+      const prepared = handler.execute({ ...query, action }, actor);
+      if (allowed)
+        await expect(prepared).resolves.toEqual({
+          adminActionToken: 'photo-token',
+          photoVersion: 5,
+        });
+      else
+        await expect(prepared).rejects.toMatchObject({ code: 'media_invalid_state', status: 409 });
+      expect(issue.mock.lastCall![0].scope.requiredPermission).toBe(action);
+    }
+    // Permission is checked before eligibility; no state-specific error reaches a revoked operator.
+    get.mockResolvedValueOnce({ ...facts, photoStatus: 'deleted' });
+    issue.mockRejectedValueOnce(new ApplicationError('forbidden', 'error.m7.unavailable', 403));
+    await expect(handler.execute(query, actor)).rejects.toMatchObject({
+      code: 'forbidden',
+      status: 403,
+    });
   });
 });

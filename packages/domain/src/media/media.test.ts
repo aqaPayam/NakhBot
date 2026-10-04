@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assertDecodedImage,
   assertUploadAttemptAvailable,
+  canModeratePhoto,
   deleteOwnPhoto,
   evaluatePhotoCollection,
   MEDIA_LIMITS,
@@ -22,6 +23,36 @@ const photos: readonly PhotoState[] = [
 ];
 
 describe('M2 media rules', () => {
+  it.each([
+    ['visible', 'hide', true],
+    ['visible', 'restore', false],
+    ['visible', 'delete', true],
+    ['hidden', 'hide', false],
+    ['hidden', 'restore', true],
+    ['hidden', 'delete', true],
+    ['deleted', 'hide', false],
+    ['deleted', 'restore', false],
+    ['deleted', 'delete', false],
+  ] as const)(
+    'keeps %s/%s preparation and owning lifecycle eligibility aligned',
+    (status, action, allowed) => {
+      expect(canModeratePhoto(status, action)).toBe(allowed);
+      const selected: PhotoState = { id: 'selected', status, isPrimary: false, displayOrder: 0 };
+      const apply = (): readonly PhotoState[] => moderatePhoto([selected], selected.id, action);
+      if (allowed) expect(apply).not.toThrow();
+      else
+        expect(apply).toThrowError(
+          expect.objectContaining({
+            code: status === 'deleted' ? 'photo_not_found' : 'media_invalid_state',
+          }),
+        );
+    },
+  );
+
+  it('fails closed for unknown photo states', () => {
+    for (const action of ['hide', 'restore', 'delete'] as const)
+      expect(canModeratePhoto('unknown', action)).toBe(false);
+  });
   it('ACC-008 requires two visible photos and exactly one visible primary', () => {
     expect(evaluatePhotoCollection([photos[0]!, photos[2]!])).toMatchObject({
       savedCount: 2,

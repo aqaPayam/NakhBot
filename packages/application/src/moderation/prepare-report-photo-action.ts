@@ -1,5 +1,5 @@
 import type { PrepareReportPhotoActionQuery, PreparedReportPhotoAction } from '@nakh/contracts';
-import { ApplicationError, type Actor } from '@nakh/domain';
+import { ApplicationError, canModeratePhoto, type Actor } from '@nakh/domain';
 import type { AdminActionAuthorizationService } from '../administration/admin-authorization.js';
 import type { AdminQueueIdentityStore } from './queue-actions.js';
 export interface ReportPhotoActionPreparationStore {
@@ -15,6 +15,7 @@ export interface ReportPhotoActionPreparationStore {
         reportStatus: string;
         photoId: string;
         photoVersion: number;
+        photoStatus: string;
       }>
     | undefined
   >;
@@ -72,6 +73,14 @@ export class PrepareReportPhotoActionHandler {
         sourceReportId: source.reportId,
       },
     });
+    const nativeAction =
+      query.action === 'hide_photo'
+        ? 'hide'
+        : query.action === 'restore_photo'
+          ? 'restore'
+          : 'delete';
+    if (!canModeratePhoto(source.photoStatus, nativeAction))
+      throw new ApplicationError('media_invalid_state', 'error.media.state', 409);
     return { adminActionToken, photoVersion: source.photoVersion };
   }
 }

@@ -946,3 +946,19 @@ and terminal reviews after preparation produce no photo effect. HTTP integration
 route coverage and executes actual selected-Report photo actions with independent confirmation.
 Photo/evidence Telegram controls, concrete session/MFA composition and provider/operator staging
 acceptance remain open. No new persistence shape or migration is required.
+
+### Shared photo-state preparation eligibility evidence
+
+Report photo preparation now reads the live owning-module photo status and uses the same pure
+eligibility policy as the M2 moderation lifecycle: hide requires visible, restore requires hidden,
+and delete permits visible or hidden. Deleted and unknown states produce no prepared result.
+Current action permission is checked before a state-specific eligibility rejection. Status stays
+internal; preparation still returns only the opaque action token and photo version.
+The owning lifecycle preserves its version checks, terminal deletion, primary-photo replacement
+and profile-completion behavior. Previously prepared confirmations remain version-bound.
+Unit evidence compares all nine valid-state/action combinations with actual lifecycle behavior
+and denies unknown states and revoked authority. PostgreSQL evidence verifies fresh preparation
+after each hide/restore/delete effect and one audited stale rejection under concurrent retries
+after another separately confirmed command wins. Retained evidence remains intact and no evidence
+content is revealed. This requires no schema migration; current migration 70 bootstrap, upgrade
+and replay checks remain mandatory. Photo/evidence Telegram UI and provider staging remain open.

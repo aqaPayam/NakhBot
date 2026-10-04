@@ -31,6 +31,7 @@ class PostgresReportPhotoActionPreparationStore implements ReportPhotoActionPrep
         'report.status as reportStatus',
         'photo.id as photoId',
         'photo.version as photoVersion',
+        'photo.status as photoStatus',
       ])
       .where('review.id', '=', reviewId)
       .where('evidence.id', '=', evidenceId)

@@ -200,16 +200,25 @@ export function deleteOwnPhoto(
   );
 }
 
+/** Shared preparation/lifecycle eligibility; deletion is terminal. */
+export function canModeratePhoto(status: string, action: PhotoModerationAction): boolean {
+  switch (action) {
+    case 'hide':
+      return status === 'visible';
+    case 'restore':
+      return status === 'hidden';
+    case 'delete':
+      return status === 'visible' || status === 'hidden';
+  }
+}
+
 export function moderatePhoto(
   photos: readonly PhotoState[],
   photoId: string,
   action: PhotoModerationAction,
 ): readonly PhotoState[] {
   const selected = activePhoto(photos, photoId);
-  if (action === 'hide' && selected.status !== 'visible') {
-    throw new ApplicationError('media_invalid_state', 'error.media.state', 409);
-  }
-  if (action === 'restore' && selected.status !== 'hidden') {
+  if (!canModeratePhoto(selected.status, action)) {
     throw new ApplicationError('media_invalid_state', 'error.media.state', 409);
   }
 
