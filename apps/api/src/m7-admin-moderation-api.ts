@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  ClaimModerationReviewsHandler,
+  ClaimedModerationReview,
   ConfirmedAccountActions,
   RecordAdminIngressRejectionHandler,
   AccountModerationResult,
@@ -26,6 +28,10 @@ import type {
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import {
+  ClaimModerationReviewsCommandSchema,
+  AdminReviewClaimResultSchema,
+  type ClaimModerationReviewsCommand,
+  type AdminReviewClaimResult,
   AdminCommandReceiptSchema,
   ApplyAccountModerationActionCommandSchema,
   PreparedAdminConfirmationSchema,
@@ -63,7 +69,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   PHOTOS = Symbol('M7_MODERATION_PHOTOS'),
   BLOCKS = Symbol('M7_MODERATION_BLOCKS'),
   ASSIGNMENTS = Symbol('M7_REVIEW_ASSIGNMENTS'),
-  DECISIONS = Symbol('M7_REVIEW_DECISIONS');
+  DECISIONS = Symbol('M7_REVIEW_DECISIONS'),
+  CLAIMS = Symbol('M7_REVIEW_CLAIMS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -72,6 +79,7 @@ export interface M7AdminModerationApiOptions {
   readonly internalBlocks?: Pick<ConfirmedInternalBlocks, 'prepare' | 'execute'>;
   readonly reviewAssignments?: Pick<ConfirmedReviewAssignments, 'prepare' | 'execute'>;
   readonly reviewDecisions?: Pick<ConfirmedReviewDecisions, 'prepare' | 'execute'>;
+  readonly reviewClaims?: Pick<ClaimModerationReviewsHandler, 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -383,6 +391,55 @@ class ReviewDecisionController {
     });
   }
 }
+@Controller('v1/admin/moderation/reviews/claim')
+class ReviewClaimController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(INGRESS) private readonly ingress: AuditedAdminMutationIngress,
+    @Inject(CLAIMS)
+    private readonly claims: NonNullable<M7AdminModerationApiOptions['reviewClaims']>,
+  ) {}
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async claim(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminReviewClaimResult> {
+    return this.boundary.result(AdminReviewClaimResultSchema, async () => {
+      const outcome = await this.ingress.execute<
+        ClaimModerationReviewsCommand,
+        readonly ClaimedModerationReview[]
+      >(
+        ClaimModerationReviewsCommandSchema,
+        request,
+        body,
+        { commandCode: 'moderation.claim-reviews', requiredPermission: 'view_reports' },
+        (command, actor) => this.claims.execute(command, actor),
+      );
+      const receipt = adminCommandReceipt(outcome);
+      if (receipt.result === 'succeeded' && !receipt.replayed) {
+        if (outcome.value === undefined)
+          throw new ApplicationError('internal_error', 'error.m7.internal', 500);
+        return {
+          ...receipt,
+          result: 'succeeded' as const,
+          replayed: false as const,
+          claims: outcome.value.map(({ reviewId, reportId, reviewVersion, priority }) => ({
+            reviewId,
+            reportId,
+            reviewVersion,
+            priority,
+          })),
+        };
+      }
+      if (receipt.result === 'succeeded')
+        return { ...receipt, result: 'succeeded' as const, replayed: true as const };
+      return { ...receipt, result: receipt.result };
+    });
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -391,6 +448,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.reviewClaims === undefined ? [] : [ReviewClaimController]),
         ...(options.accounts === undefined ? [] : [AccountActionsController]),
         ...(options.photos === undefined ? [] : [PhotoActionsController]),
         ...(options.internalBlocks === undefined ? [] : [InternalBlocksController]),
@@ -398,6 +456,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.reviewClaims === undefined
+          ? []
+          : [{ provide: CLAIMS, useValue: options.reviewClaims }]),
         { provide: BOUNDARY, useValue: boundary },
         { provide: INGRESS, useValue: new AuditedAdminMutationIngress(boundary, options.journal) },
         ...(options.accounts === undefined

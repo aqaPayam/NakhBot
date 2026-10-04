@@ -727,6 +727,41 @@ export const AdminCommandReceiptSchema = Type.Object(
   { additionalProperties: false },
 );
 export type AdminCommandReceipt = Static<typeof AdminCommandReceiptSchema>;
+export const AdminReviewClaimResultSchema = Type.Union([
+  Type.Object(
+    {
+      ...AdminReceiptFields,
+      result: Type.Literal('succeeded'),
+      replayed: Type.Literal(false),
+      claims: Type.Array(
+        Type.Object(
+          {
+            reviewId: UuidSchema,
+            reportId: UuidSchema,
+            reviewVersion: Type.Integer({ minimum: 1 }),
+            priority: Type.Union([Type.Literal('normal'), Type.Literal('threshold')]),
+          },
+          { additionalProperties: false },
+        ),
+        { maxItems: 50 },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { ...AdminReceiptFields, result: Type.Literal('succeeded'), replayed: Type.Literal(true) },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...AdminReceiptFields,
+      result: Type.Union([Type.Literal('rejected'), Type.Literal('failed')]),
+      replayed: Type.Boolean(),
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type AdminReviewClaimResult = Static<typeof AdminReviewClaimResultSchema>;
 /** Only the process that committed a successful audited reveal may return its content. */
 export const AdminEvidenceRevealResultSchema = Type.Union([
   Type.Object(

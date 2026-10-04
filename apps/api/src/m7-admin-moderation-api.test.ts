@@ -10,6 +10,7 @@ import type {
   ConfirmedInternalBlocks,
   ConfirmedReviewAssignments,
   ConfirmedReviewDecisions,
+  ClaimModerationReviewsHandler,
   AdminIngressRejectionStore,
 } from '@nakh/application';
 import type { AdminCommandReceipt } from '@nakh/contracts';
@@ -99,6 +100,66 @@ describe('authenticated route-bound account moderation HTTP', () => {
     await app.getHttpAdapter().getInstance().ready();
     return { server: app, execute, record };
   }
+  it('returns only fresh bounded claims, omits replay contents, and rejects an oversized batch before delegation', async () => {
+    const claims = [
+      {
+        reviewId: randomUUID(),
+        reportId: randomUUID(),
+        reviewVersion: 2,
+        priority: 'threshold' as const,
+      },
+    ];
+    const auditId = randomUUID();
+    const executeClaims = vi.fn<ClaimModerationReviewsHandler['execute']>(() =>
+      Promise.resolve({
+        logId: auditId,
+        result: 'succeeded',
+        safeCode: 'reviews_claimed',
+        recordedAt: new Date(),
+        replayed: false,
+        value: claims,
+      }),
+    );
+    const { server, record } = await start({ reviewClaims: { execute: executeClaims } });
+    const payload = {
+      ...draft,
+      commandType: 'moderation.claim-reviews',
+      data: { adminActionToken: token, limit: 1 },
+    };
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reviews/claim',
+      headers,
+      payload,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ auditId, claims, replayed: false });
+    expect(response.headers['cache-control']).toBe('no-store');
+    executeClaims.mockResolvedValueOnce({
+      logId: auditId,
+      result: 'succeeded',
+      safeCode: 'reviews_claimed',
+      recordedAt: new Date(),
+      replayed: true,
+      value: claims,
+    });
+    const replay = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reviews/claim',
+      headers,
+      payload,
+    });
+    expect(replay.json()).not.toHaveProperty('claims');
+    const invalid = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reviews/claim',
+      headers,
+      payload: { ...payload, commandId: randomUUID(), data: { ...payload.data, limit: 51 } },
+    });
+    expect(invalid.json()).toMatchObject({ result: 'rejected', safeCode: 'invalid_request' });
+    expect(executeClaims).toHaveBeenCalledTimes(2);
+    expect(record).toHaveBeenCalledOnce();
+  });
   it('prepares and delegates the exact confirmed action, returning a finite receipt without the internal account result', async () => {
     const { server, execute, record } = await start();
     const prepared = await server.inject({

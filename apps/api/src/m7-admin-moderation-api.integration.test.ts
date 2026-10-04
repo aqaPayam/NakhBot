@@ -13,6 +13,7 @@ import {
   PostgresConfirmedInternalBlocks,
   PostgresConfirmedReviewAssignments,
   PostgresConfirmedReviewDecisions,
+  PostgresClaimModerationReviewsHandler,
   PostgresRecordAdminIngressRejectionHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -24,6 +25,8 @@ import type {
   PrepareInternalBlockCommand,
   PrepareReviewAssignmentCommand,
   PrepareReviewDecisionCommand,
+  ClaimModerationReviewsCommand,
+  AdminReviewClaimResult,
 } from '@nakh/contracts';
 import {
   createReportUser,
@@ -55,7 +58,104 @@ describe.skipIf(url === undefined)('confirmed account moderation HTTP to Postgre
     await app?.close();
     await database?.destroy();
   });
+  it('claims a bounded queue once under concurrent retries and preserves ownership after a conflicting retry', async () => {
+    const adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'super_admin',
+        assigned_by_admin_id: adminId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const fixture = await confirmationFixture(database, adminId);
+    const report = await createRetainedPhotoReview(database);
+    const adminActionToken = await fixture.issue({
+      commandCode: 'moderation.claim-reviews',
+      requiredPermission: 'view_reports',
+      targetType: 'admin_user',
+      targetId: adminId,
+      expectedTargetVersion: null,
+    });
+    app = await NestFactory.create<NestFastifyApplication>(
+      M7AdminModerationApiModule.register({
+        authenticator: { authenticate: () => Promise.resolve(fixture.actor) },
+        journal: new PostgresRecordAdminIngressRejectionHandler(database),
+        reviewClaims: new PostgresClaimModerationReviewsHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
+      }),
+      new FastifyAdapter({ trustProxy: false }),
+      { logger: false },
+    );
+    app.useGlobalFilters(new ApiExceptionFilter({ error: vi.fn() } as unknown as Logger));
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+    const payload: ClaimModerationReviewsCommand = {
+      actor: fixture.actor,
+      commandType: 'moderation.claim-reviews',
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      schemaVersion: 1,
+      locale: 'en',
+      occurredAt: new Date().toISOString(),
+      idempotencyKey: randomUUID(),
+      data: { adminActionToken, limit: 1 },
+    };
+    const headers = { authorization: 'Bearer queue-admin-credential' };
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({ method: 'POST', url: '/v1/admin/moderation/reviews/claim', headers, payload }),
+      ),
+    );
+    expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+    const results = responses.map((response) => response.json<AdminReviewClaimResult>());
+    expect(new Set(results.map((result) => result.auditId)).size).toBe(1);
+    const fresh = results.find((result) => result.result === 'succeeded' && !result.replayed);
+    if (fresh?.result !== 'succeeded' || fresh.replayed) throw new Error('Missing fresh claim');
+    expect(fresh.claims).toHaveLength(1);
+    expect(results.filter((result) => result.replayed)).toHaveLength(5);
+    for (const result of results.filter((result) => result.replayed))
+      expect(result).not.toHaveProperty('claims');
+    const owned = await database
+      .selectFrom('moderation.moderation_reviews')
+      .selectAll()
+      .where('id', '=', fresh.claims[0]!.reviewId)
+      .executeTakeFirstOrThrow();
+    expect(owned.assigned_admin_id).toBe(adminId);
+    expect(owned.version).toBe(fresh.claims[0]!.reviewVersion);
+    const conflict = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/moderation/reviews/claim',
+      headers,
+      payload: { ...payload, data: { ...payload.data, limit: 2 } },
+    });
+    expect(conflict.statusCode).toBe(409);
+    const logs = await database
+      .selectFrom('administration.admin_action_logs')
+      .select('id')
+      .where('command_id', '=', payload.commandId)
+      .execute();
+    expect(logs).toHaveLength(1);
+    await database
+      .updateTable('moderation.moderation_reviews')
+      .set({
+        status: 'in_review',
+        assigned_admin_id: adminId,
+        assigned_at: new Date(),
+        updated_at: new Date(),
+        version: 2,
+      })
+      .where('id', '=', report.reviewId)
+      .where('status', '=', 'pending')
+      .execute();
+  });
   it('binds each action and permission, commits one effect under retry races and audits revocation without leaking account identities', async () => {
+    await app?.close();
     const targetId = await createReportUser(database, true),
       adminId = await createReportFixtureAdmin(database);
     await database
