@@ -925,6 +925,31 @@ closed review, with concurrent preparations/confirmations and no identity disclo
 Concrete session/MFA composition, report photo/internal-block/evidence UI and real operator/provider
 staging acceptance remain open.
 
+### Separately confirmed report photo Telegram UI evidence
+
+With an explicitly injected trusted PhotoDeliveryRevocation capability, the private evidence picker
+offers only native-eligible hide/restore/delete actions for the exact selected reported photo.
+Metadata browsing remains available without that capability, for other evidence types and when no
+photo action is authorized. The UI accepts no client photo identity or version authority.
+Each action checks native permission, assigned review ownership and live photo state before its
+owned bounded-reason prompt. A separate photo-prompt cache purpose retains the first exact evidence
+reference/action; assignment, decision and Account handlers cannot consume that reply.
+Native selected-report preparation derives the photo target/version. A photo-only encrypted
+five-minute mutation vault binds action, evidence selection, reason and stable operation headers.
+Protected photo Confirm/Cancel callbacks have one first-write winner; native execution owns current
+permission/report ownership, photo-version rejection, one immutable attempt audit and one effect.
+Delivery revocation remains idempotent and required before hide/delete can commit. Logical photo
+deletion preserves the Report evidence hold, encrypted snapshot and retained physical media.
+No evidence content is opened, no Account is changed and the review is not closed by a photo action.
+Migration 72 supplies six English fallback labels with baseline-71 upgrade, bootstrap, verification
+and immutable replay checks. Unit evidence covers native action eligibility, purpose separation,
+stable preparations, payload/version/reason substitution, cancellation, session/cache expiry,
+owned prompt isolation and protected transport. Actual PostgreSQL ingress evidence covers all three
+actions and concurrent confirmations plus cancellation, revoked permission, reassigned/closed
+review and stale photo, with retained evidence and no restricted identities in provider messages.
+Evidence content reveal, internal-block controls, concrete session/MFA and real provider/operator
+staging acceptance remain open. Ordinary startup does not inject a no-op revocation provider.
+
 ### Queue-selected report evidence and photo preparation evidence
 
 Strict selected-Report contracts now list bounded evidence metadata and prepare hide/restore/delete

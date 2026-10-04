@@ -45,7 +45,7 @@ export class TelegramAdminSafetyFeedback implements TelegramAdminSafetyHandler {
       callback = m7Record(root?.callback_query);
     const data = callback?.data;
     const adminCallback =
-      typeof data === 'string' && /^m7[qpscvjkmxabdzuhnTOFYIDAGZREBUHXCJ]:/u.test(data);
+      typeof data === 'string' && /^m7[qpscvjkmxabdzuhnTOFYIDAGZREBUHXCJVSPLN]:/u.test(data);
     const adminCommand =
       typeof message?.text === 'string' &&
       /^\/admin_(?:support|appeals|reports)(?:\s|$)/u.test(message.text);

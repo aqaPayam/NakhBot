@@ -1,4 +1,8 @@
-import type { OpaqueTokenStore, ReviewNoteProtector } from '@nakh/application';
+import type {
+  OpaqueTokenStore,
+  ReviewNoteProtector,
+  PhotoDeliveryRevocation,
+} from '@nakh/application';
 import {
   PostgresConfirmedAppealReveals,
   PostgresConfirmedSupportReveals,
@@ -18,6 +22,8 @@ import {
   PostgresPrepareSelectedReportAccountActionHandler,
   PostgresConfirmedAccountActions,
   PostgresGetSelectedReportEvidenceMetadataHandler,
+  PostgresPrepareSelectedReportPhotoActionHandler,
+  PostgresConfirmedPhotoActions,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -40,6 +46,9 @@ import {
   TelegramAdminReportQueue,
   TelegramAdminReportQueueState,
   TelegramAdminReportEvidence,
+  TelegramAdminReportPhotoActions,
+  TelegramAdminReportPhotoPicker,
+  type TelegramSelectedReportEvidence,
   type TelegramAdminTextDelivery,
   type TelegramAdminSessionVerifier,
   type M7TextRenderer,
@@ -59,6 +68,7 @@ export function createTelegramAdminSafetyReadIngress(
     renderer: M7TextRenderer;
     delivery: TelegramAdminTextDelivery;
     reviewNotes?: ReviewNoteProtector;
+    photoDelivery?: PhotoDeliveryRevocation;
   }>,
 ): Readonly<{
   prepare: TelegramAdminSafetyReadPreparation['prepare'];
@@ -222,7 +232,48 @@ export function createTelegramAdminSafetyReadIngress(
     input.uiEncryptionKey,
     input.uiReferenceKey,
   );
-  const reportEvidence = new TelegramAdminReportEvidence(
+  const photoActions =
+    input.photoDelivery === undefined
+      ? undefined
+      : new TelegramAdminReportPhotoActions(
+          input.sessions,
+          new PostgresPrepareSelectedReportPhotoActionHandler(
+            input.database,
+            input.tokens,
+            input.adminKey,
+          ),
+          new PostgresConfirmedPhotoActions(
+            input.database,
+            input.tokens,
+            input.adminKey,
+            input.photoDelivery,
+          ),
+          new TelegramAdminSafetyMutationVault(
+            'report-photo',
+            input.tokens,
+            input.uiEncryptionKey,
+            input.uiReferenceKey,
+          ),
+          input.uiReferenceKey,
+          input.delivery,
+          input.renderer,
+        );
+  const photoPicker =
+    photoActions === undefined
+      ? undefined
+      : new TelegramAdminReportPhotoPicker(
+          input.botId,
+          input.sessions,
+          {
+            selection: (id: string, reference: string): Promise<TelegramSelectedReportEvidence> =>
+              reportEvidence.selection(id, reference),
+          },
+          reportState,
+          photoActions,
+          input.delivery,
+          input.renderer,
+        );
+  const reportEvidence: TelegramAdminReportEvidence = new TelegramAdminReportEvidence(
     input.botId,
     input.sessions,
     new PostgresGetSelectedReportEvidenceMetadataHandler(
@@ -233,6 +284,8 @@ export function createTelegramAdminSafetyReadIngress(
     reportState,
     input.delivery,
     input.renderer,
+    undefined,
+    photoPicker,
   );
   const reportQueue = new TelegramAdminReportQueue(
     input.botId,
@@ -261,6 +314,8 @@ export function createTelegramAdminSafetyReadIngress(
       reportAssignments,
       reportAccounts,
       reportEvidence,
+      ...(photoActions === undefined ? [] : [photoActions]),
+      ...(photoPicker === undefined ? [] : [photoPicker]),
       ...(reportDecisions === undefined ? [] : [reportDecisions]),
     ],
     input.tokens,

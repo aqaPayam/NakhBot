@@ -5,6 +5,7 @@ import type {
   ConfirmedReviewAssignments,
   ConfirmedReviewDecisions,
   ConfirmedAccountActions,
+  ConfirmedPhotoActions,
   OpaqueTokenStore,
 } from '@nakh/application';
 import {
@@ -44,13 +45,18 @@ export type TelegramConfirmedReportAccountAction = Readonly<{
   binding: string;
   command: Parameters<ConfirmedAccountActions['execute']>[0];
 }>;
+export type TelegramConfirmedReportPhotoAction = Readonly<{
+  binding: string;
+  command: Parameters<ConfirmedPhotoActions['execute']>[0];
+}>;
 type Purpose =
   | 'support'
   | 'appeal-review'
   | 'appeal-unban'
   | 'report-assignment'
   | 'report-decision'
-  | 'report-account';
+  | 'report-account'
+  | 'report-photo';
 type Selection<P extends Purpose> = P extends 'support'
   ? TelegramConfirmedSupportMutation
   : P extends 'appeal-review'
@@ -61,14 +67,17 @@ type Selection<P extends Purpose> = P extends 'support'
         ? TelegramConfirmedReportAssignment
         : P extends 'report-decision'
           ? TelegramConfirmedReportDecision
-          : TelegramConfirmedReportAccountAction;
+          : P extends 'report-account'
+            ? TelegramConfirmedReportAccountAction
+            : TelegramConfirmedReportPhotoAction;
 type Mutation =
   | TelegramConfirmedSupportMutation
   | TelegramConfirmedAppealReview
   | TelegramConfirmedAppealUnban
   | TelegramConfirmedReportAssignment
   | TelegramConfirmedReportDecision
-  | TelegramConfirmedReportAccountAction;
+  | TelegramConfirmedReportAccountAction
+  | TelegramConfirmedReportPhotoAction;
 import { m7Record } from './m7-private-update.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -117,7 +126,8 @@ function binding(selected: Mutation, includeConfirmation: boolean): string {
         ? [command.data.decision, normalizeReviewNote(command.data.note)]
         : command.commandType === 'moderation.unban-appeal'
           ? command.data.expectedAccountVersion
-          : command.commandType === 'moderation.apply-account-action'
+          : command.commandType === 'moderation.apply-account-action' ||
+              command.commandType === 'moderation.apply-photo-action'
             ? command.data.action
             : command.commandType === 'moderation.assign-review'
               ? command.data.assigneeAdminId
@@ -160,7 +170,9 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
               ? ['moderation.assign-review']
               : purpose === 'report-decision'
                 ? ['moderation.decide-review']
-                : ['moderation.apply-account-action']
+                : purpose === 'report-account'
+                  ? ['moderation.apply-account-action']
+                  : ['moderation.apply-photo-action']
     ).includes(String(command.commandType)) ||
     command.schemaVersion !== 1 ||
     !keys(owner, ['kind', 'userId']) ||
@@ -206,7 +218,8 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
                   'expectedTargetVersion',
                   'assigneeAdminId',
                 ]
-              : command.commandType === 'moderation.apply-account-action'
+              : command.commandType === 'moderation.apply-account-action' ||
+                  command.commandType === 'moderation.apply-photo-action'
                 ? [
                     'adminActionToken',
                     'confirmationToken',
@@ -228,6 +241,11 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
     return false;
   try {
     if (normalizeAdminReason(data.reason) !== data.reason) return false;
+    if (
+      command.commandType === 'moderation.apply-photo-action' &&
+      !['hide_photo', 'restore_photo', 'delete_photo'].includes(String(data.action))
+    )
+      return false;
     if (
       command.commandType === 'moderation.apply-account-action' &&
       !['restrict_user', 'unrestrict_user', 'ban_user', 'unban_user'].includes(String(data.action))
@@ -300,6 +318,7 @@ export class TelegramAdminSafetyMutationVault<P extends Purpose> {
         'report-assignment',
         'report-decision',
         'report-account',
+        'report-photo',
       ].includes(purpose) ||
       encryptionKey.byteLength !== 32 ||
       referenceKey.byteLength < 32 ||

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
-import type { OpaqueTokenStore } from '@nakh/application';
+import type { OpaqueTokenStore, PhotoActionDraft } from '@nakh/application';
 import {
   ApplicationError,
   REPORT_EVIDENCE_TYPES,
@@ -25,6 +25,7 @@ type Prompt = Readonly<{
   reference: string;
   action: 'assign' | 'dismissed' | 'actioned' | TelegramReportAccountAction;
 }>;
+type PhotoPrompt = Readonly<{ reference: string; photoAction: PhotoActionDraft['data']['action'] }>;
 export type TelegramReportEvidenceChoice = Readonly<{
   reportReference: string;
   evidenceId: string;
@@ -32,8 +33,12 @@ export type TelegramReportEvidenceChoice = Readonly<{
   snapshotSchemaVersion: number;
 }>;
 type State =
-  TelegramReportQueueChoice | TelegramReportQueuePage | Prompt | TelegramReportEvidenceChoice;
-type Purpose = 'choice' | 'page' | 'prompt' | 'evidence';
+  | TelegramReportQueueChoice
+  | TelegramReportQueuePage
+  | Prompt
+  | TelegramReportEvidenceChoice
+  | PhotoPrompt;
+type Purpose = 'choice' | 'page' | 'prompt' | 'evidence' | 'photo-prompt';
 const referencePattern = /^[A-Za-z0-9_-]{22}$/u;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export function validReportQueueStatus(kind: 'report', status: string): boolean {
@@ -45,6 +50,13 @@ export function validReportQueueStatus(kind: 'report', status: string): boolean 
 function valid(value: unknown, purpose: Purpose): value is State {
   const row = m7Record(value);
   if (row === undefined) return false;
+  if (purpose === 'photo-prompt')
+    return (
+      Object.keys(row).length === 2 &&
+      typeof row.reference === 'string' &&
+      referencePattern.test(row.reference) &&
+      ['hide_photo', 'restore_photo', 'delete_photo'].includes(String(row.photoAction))
+    );
   if (purpose === 'evidence')
     return (
       Object.keys(row).length === 4 &&
@@ -300,6 +312,24 @@ export class TelegramAdminReportQueueState {
       'prompt',
       this.reference(actor, 'prompt', `message:${messageId}`),
     );
-    return state !== undefined && 'reference' in state ? state : undefined;
+    return state !== undefined && 'action' in state ? state : undefined;
+  }
+  public async bindPhotoPrompt(
+    actor: Actor,
+    messageId: number,
+    reference: string,
+    photoAction: PhotoPrompt['photoAction'],
+  ): Promise<void> {
+    if (!Number.isSafeInteger(messageId) || messageId < 1) throw unavailable();
+    await this.put(actor, 'photo-prompt', `message:${messageId}`, { reference, photoAction });
+  }
+  public async photoPrompt(actor: Actor, messageId: number): Promise<PhotoPrompt | undefined> {
+    if (!Number.isSafeInteger(messageId) || messageId < 1) return undefined;
+    const state = await this.get(
+      actor,
+      'photo-prompt',
+      this.reference(actor, 'photo-prompt', `message:${messageId}`),
+    );
+    return state !== undefined && 'photoAction' in state ? state : undefined;
   }
 }
