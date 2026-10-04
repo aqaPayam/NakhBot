@@ -160,3 +160,4 @@ export * from './support/safety-metadata-cursor.js';
 export * from './support/prepare-support-action.js';
 export * from './support/appeal-metadata.js';
 export * from './support/prepare-appeal-review-access.js';
+export * from './support/prepare-appeal-unban-access.js';

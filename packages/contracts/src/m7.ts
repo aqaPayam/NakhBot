@@ -451,6 +451,26 @@ export const PreparedAppealReviewAccessSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedAppealReviewAccess = Static<typeof PreparedAppealReviewAccessSchema>;
+export const PrepareAppealUnbanAccessQuerySchema = Type.Object(
+  {
+    actor: AdminActorSchema,
+    requestId: UuidSchema,
+    adminActionToken: AdminActionTokenSchema,
+    appealId: UuidSchema,
+    expectedAppealVersion: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type PrepareAppealUnbanAccessQuery = Static<typeof PrepareAppealUnbanAccessQuerySchema>;
+export const PreparedAppealUnbanAccessSchema = Type.Object(
+  {
+    adminActionToken: AdminActionTokenSchema,
+    appealVersion: Type.Integer({ minimum: 1 }),
+    accountVersion: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type PreparedAppealUnbanAccess = Static<typeof PreparedAppealUnbanAccessSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,

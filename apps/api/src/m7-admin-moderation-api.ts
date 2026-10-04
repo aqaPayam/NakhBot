@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  PrepareAppealUnbanAccessHandler,
   PrepareAppealReviewAccessHandler,
   GetAppealMetadataHandler,
   PrepareSupportActionHandler,
@@ -45,6 +46,10 @@ import {
   PrepareSupportActionQuerySchema,
   GetAppealMetadataQuerySchema,
   PrepareAppealReviewAccessQuerySchema,
+  PrepareAppealUnbanAccessQuerySchema,
+  PreparedAppealUnbanAccessSchema,
+  type PrepareAppealUnbanAccessQuery,
+  type PreparedAppealUnbanAccess,
   PreparedAppealReviewAccessSchema,
   type PrepareAppealReviewAccessQuery,
   type PreparedAppealReviewAccess,
@@ -141,7 +146,8 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   SUPPORT_METADATA = Symbol('M7_SUPPORT_METADATA'),
   SUPPORT_ACTIONS = Symbol('M7_SUPPORT_ACTIONS'),
   APPEAL_METADATA = Symbol('M7_APPEAL_METADATA'),
-  APPEAL_ACTIONS = Symbol('M7_APPEAL_ACTIONS');
+  APPEAL_ACTIONS = Symbol('M7_APPEAL_ACTIONS'),
+  APPEAL_UNBAN_ACTIONS = Symbol('M7_APPEAL_UNBAN_ACTIONS');
 export interface M7AdminModerationApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly journal: Pick<RecordAdminIngressRejectionHandler, 'record' | 'recover'>;
@@ -162,6 +168,7 @@ export interface M7AdminModerationApiOptions {
   readonly supportActions?: Pick<PrepareSupportActionHandler, 'execute'>;
   readonly appealMetadata?: Pick<GetAppealMetadataHandler, 'execute'>;
   readonly appealActions?: Pick<PrepareAppealReviewAccessHandler, 'execute'>;
+  readonly appealUnbanActions?: Pick<PrepareAppealUnbanAccessHandler, 'execute'>;
 }
 function accountAction(value: string): AccountModerationAction {
   switch (value) {
@@ -896,6 +903,32 @@ class AppealActionsController {
     );
   }
 }
+@Controller('v1/admin/appeals/unban/actions')
+class AppealUnbanActionsController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(APPEAL_UNBAN_ACTIONS)
+    private readonly actions: NonNullable<M7AdminModerationApiOptions['appealUnbanActions']>,
+  ) {}
+  @Post()
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedAppealUnbanAccess> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<PrepareAppealUnbanAccessQuery>(
+      PrepareAppealUnbanAccessQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedAppealUnbanAccessSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
 /** Trusted host registration supplies owned workflows and a mandatory failure journal. */
 @Module({})
 export class M7AdminModerationApiModule {
@@ -904,6 +937,7 @@ export class M7AdminModerationApiModule {
     return {
       module: M7AdminModerationApiModule,
       controllers: [
+        ...(options.appealUnbanActions === undefined ? [] : [AppealUnbanActionsController]),
         ...(options.appealActions === undefined ? [] : [AppealActionsController]),
         ...(options.appealMetadata === undefined ? [] : [AppealMetadataController]),
         ...(options.supportActions === undefined ? [] : [SupportActionsController]),
@@ -923,6 +957,9 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.appealUnbanActions === undefined
+          ? []
+          : [{ provide: APPEAL_UNBAN_ACTIONS, useValue: options.appealUnbanActions }]),
         ...(options.appealActions === undefined
           ? []
           : [{ provide: APPEAL_ACTIONS, useValue: options.appealActions }]),

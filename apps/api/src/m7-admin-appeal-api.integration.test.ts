@@ -13,6 +13,7 @@ import {
   PostgresGetAppealMetadataHandler,
   PostgresGetSafetyQueueActionsHandler,
   PostgresPrepareAppealReviewAccessHandler,
+  PostgresPrepareAppealUnbanAccessHandler,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import type {
@@ -23,6 +24,7 @@ import type {
   SafetyQueueActions,
   AppealMetadataPage,
   PreparedAppealReviewAccess,
+  PreparedAppealUnbanAccess,
 } from '@nakh/contracts';
 import { createReportFixtureAdmin } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { createCurrentBanAppeal } from '../../../packages/persistence-postgres/src/testing/appeal-fixture.js';
@@ -66,6 +68,16 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
         journal: new PostgresRecordAdminIngressRejectionHandler(database),
         appealReviews: commands,
         appealUnbans: commands,
+        safetyQueueActions: new PostgresGetSafetyQueueActionsHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
+        appealUnbanActions: new PostgresPrepareAppealUnbanAccessHandler(
+          database,
+          fixture.tokens,
+          fixture.key,
+        ),
       }),
       new FastifyAdapter(),
       { logger: false },
@@ -74,9 +86,34 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
     const headers = { authorization: 'Bearer appeal-admin-credential' };
+    const queueResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/safety/queue/actions',
+      headers,
+      payload: { actor: fixture.actor, requestId: randomUUID(), queue: 'appeals' },
+    });
+    expect(queueResponse.statusCode).toBe(200);
+    const unbanQuery = {
+      actor: fixture.actor,
+      requestId: randomUUID(),
+      adminActionToken: queueResponse.json<SafetyQueueActions>().adminActionToken,
+      appealId: appeal.appealId,
+      expectedAppealVersion: 1,
+    };
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/appeals/unban/actions',
+          headers,
+          payload: unbanQuery,
+        })
+      ).statusCode,
+    ).toBe(409);
     async function unbanDraft(
       expectedAppealVersion: number,
       expectedAccountVersion: number,
+      actionToken?: string,
     ): Promise<PrepareAppealUnbanCommand> {
       return {
         actor: fixture.actor,
@@ -88,13 +125,15 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
         occurredAt: new Date().toISOString(),
         locale: 'en',
         data: {
-          adminActionToken: await fixture.issue({
-            commandCode: 'moderation.unban-appeal',
-            requiredPermission: 'unban_user',
-            targetType: 'user_appeal',
-            targetId: appeal.appealId,
-            expectedTargetVersion: expectedAppealVersion,
-          }),
+          adminActionToken:
+            actionToken ??
+            (await fixture.issue({
+              commandCode: 'moderation.unban-appeal',
+              requiredPermission: 'unban_user',
+              targetType: 'user_appeal',
+              targetId: appeal.appealId,
+              expectedTargetVersion: expectedAppealVersion,
+            })),
           expectedTargetVersion: expectedAppealVersion,
           expectedAccountVersion,
           reason: 'Accepted current appeal',
@@ -160,7 +199,39 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
       },
     });
     expect(accepted.json()).toMatchObject({ result: 'succeeded' });
-    const stale = await unbanDraft(2, 1);
+    expect(
+      await database
+        .selectFrom('identity.accounts')
+        .select(['state', 'version'])
+        .where('user_id', '=', appeal.userId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ state: 'banned', version: 2 });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/appeals/unban/actions',
+          headers,
+          payload: unbanQuery,
+        })
+      ).statusCode,
+    ).toBe(409);
+    const access = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/appeals/unban/actions',
+      headers,
+      payload: { ...unbanQuery, expectedAppealVersion: 2 },
+    });
+    expect(access.statusCode).toBe(200);
+    expect(access.headers['cache-control']).toBe('no-store');
+    expect(access.json<PreparedAppealUnbanAccess>()).toMatchObject({
+      appealVersion: 2,
+      accountVersion: 2,
+    });
+    expect(access.body).not.toContain(appeal.userId);
+    expect(access.body).not.toContain(appeal.banId);
+    const preparedUnbanToken = access.json<PreparedAppealUnbanAccess>().adminActionToken;
+    const stale = await unbanDraft(2, 1, preparedUnbanToken);
     const staleResult = await app.inject({
       method: 'POST',
       url: '/v1/admin/appeals/unban',
@@ -171,7 +242,7 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
       },
     });
     expect(staleResult.json()).toMatchObject({ result: 'rejected', safeCode: 'version_conflict' });
-    const draft = await unbanDraft(2, 2);
+    const draft = await unbanDraft(2, 2, preparedUnbanToken);
     const payload = {
       ...draft,
       data: { ...draft.data, confirmationToken: await confirm('/v1/admin/appeals/unban', draft) },
@@ -184,6 +255,16 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
     const results = responses.map((response) => response.json<AdminCommandReceipt>());
     expect(results.every((result) => result.result === 'succeeded')).toBe(true);
     expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/appeals/unban/actions',
+          headers,
+          payload: { ...unbanQuery, expectedAppealVersion: 2 },
+        })
+      ).statusCode,
+    ).toBe(409);
     expect(new Set(results.map((result) => result.auditId)).size).toBe(1);
     const account = await database
       .selectFrom('identity.accounts')
@@ -199,7 +280,7 @@ describe.skipIf(url === undefined)('confirmed appeal review HTTP to PostgreSQL',
       .execute();
     expect(bindings).toHaveLength(1);
     expect(bindings[0]!.admin_action_log_id).toBe(results[0]!.auditId);
-    const revoked = await unbanDraft(2, 3),
+    const revoked = await unbanDraft(2, 3, preparedUnbanToken),
       confirmationToken = await confirm('/v1/admin/appeals/unban', revoked);
     await database
       .updateTable('administration.admin_user_roles')
