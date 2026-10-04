@@ -4,6 +4,7 @@ import {
   PostgresGetReportReasonsHandler,
   PostgresGetReportMetadataPageHandler,
   PostgresRecordAdminIngressRejectionHandler,
+  PostgresGetAdminReportQueueActionsHandler,
   type NakhDatabase,
   type ReportEvidenceCapabilities,
 } from '@nakh/persistence-postgres';
@@ -39,6 +40,11 @@ export function createM7ReportHostOptions(input: M7ReportHostConfiguration): Rea
     submit: services.submit,
   });
   const adminReports: M7AdminReportApiOptions = Object.freeze({
+    queueActions: new PostgresGetAdminReportQueueActionsHandler(
+      input.database,
+      input.adminTokens,
+      input.adminKey,
+    ),
     authenticator: input.authenticator,
     metadata: new PostgresGetReportMetadataPageHandler(
       input.database,

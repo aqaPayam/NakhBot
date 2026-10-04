@@ -149,3 +149,4 @@ export * from './moderation/unmatched-report-snapshot.js';
 export * from './moderation/message-report-snapshot-reader.js';
 export * from './administration/admin-ingress-rejection.js';
 export * from './moderation/claim-reviews.js';
+export * from './moderation/queue-actions.js';

@@ -9,6 +9,8 @@ import {
   createDatabase,
   runMigrations,
   PostgresGetReportMetadataPageHandler,
+  PostgresGetAdminReportQueueActionsHandler,
+  PostgresAdminAuthorizationStore,
   PostgresGetReportEvidenceActionsHandler,
   PostgresConfirmedReportEvidenceReveals,
   PostgresRecordAdminIngressRejectionHandler,
@@ -19,8 +21,12 @@ import type {
   ReportEvidenceActions,
   PreparedAdminConfirmation,
   AdminEvidenceRevealResult,
+  AdminReportQueueActions,
 } from '@nakh/contracts';
-import { AesGcmPhotoReportSnapshotReader } from '@nakh/application';
+import {
+  AesGcmPhotoReportSnapshotReader,
+  AdminActionAuthorizationService,
+} from '@nakh/application';
 import {
   createRetainedReportPhoto,
   createReportFixtureAdmin,
@@ -77,6 +83,7 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
             ),
         },
         metadata: new PostgresGetReportMetadataPageHandler(database, one.tokens, one.key),
+        queueActions: new PostgresGetAdminReportQueueActionsHandler(database, one.tokens, one.key),
         evidenceActions: new PostgresGetReportEvidenceActionsHandler(
           database,
           one.tokens,
@@ -101,18 +108,43 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
     app.useGlobalFilters(new ApiExceptionFilter({ error } as unknown as Logger));
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
+    const root = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/queue/actions',
+      headers: { authorization: 'Bearer metadata-admin-one' },
+      payload: { actor: one.actor, requestId: randomUUID() },
+    });
+    expect(root.statusCode).toBe(200);
+    expect(root.headers['cache-control']).toBe('no-store');
+    expect(root.body).not.toContain(first);
+    expect(root.body).not.toContain(one.actor.userId);
+    const claimScope = await new AdminActionAuthorizationService(
+      new PostgresAdminAuthorizationStore(database),
+      one.tokens,
+      one.key,
+    ).authorize({
+      actor: one.actor,
+      token: root.json<AdminReportQueueActions>().claimActionToken,
+      commandCode: 'moderation.claim-reviews',
+      requiredPermission: 'view_reports',
+      targetType: 'admin_user',
+    });
+    expect(claimScope.targetId).toBe(first);
+    expect(claimScope.adminUserId).toBe(first);
+    expect(claimScope.expectedTargetVersion).toBeNull();
+    const invalidRoot = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/queue/actions',
+      headers: { authorization: 'Bearer metadata-admin-one' },
+      payload: { actor: one.actor, requestId: randomUUID(), targetId: second },
+    });
+    expect(invalidRoot.statusCode).toBe(400);
     const query = {
       actor: one.actor,
       requestId: randomUUID(),
       status: 'submitted',
       limit: 1,
-      adminActionToken: await one.issue({
-        commandCode: 'moderation.report-metadata',
-        requiredPermission: 'view_reports',
-        targetType: 'report_queue',
-        targetId: null,
-        expectedTargetVersion: null,
-      }),
+      adminActionToken: root.json<AdminReportQueueActions>().metadataActionToken,
     };
     const response = await app.inject({
       method: 'POST',
@@ -262,6 +294,13 @@ describe.skipIf(url === undefined)('M7 admin HTTP current PostgreSQL permission 
       payload: query,
     });
     expect(revoked.statusCode).toBe(403);
+    const revokedRoot = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/reports/queue/actions',
+      headers: { authorization: 'Bearer metadata-admin-one' },
+      payload: { actor: one.actor, requestId: randomUUID() },
+    });
+    expect(revokedRoot.statusCode).toBe(403);
     const revokedReveal = await app.inject({
       method: 'POST',
       url: '/v1/admin/reports/evidence/reveal',

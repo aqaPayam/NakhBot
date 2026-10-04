@@ -53,6 +53,7 @@ describe('explicit shared M7 HTTP host', () => {
       ['/v1/support/threads', 'user'],
       ['/v1/appeals/prepare', 'user'],
       ['/v1/admin/reports/metadata', 'admin'],
+      ['/v1/admin/reports/queue/actions', 'admin'],
       ['/v1/admin/moderation/reviews/claim', 'admin'],
       ['/v1/admin/support/reply/prepare', 'admin'],
       ['/v1/admin/appeals/review/accepted/prepare', 'admin'],

@@ -11,10 +11,15 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import type {
+  GetAdminReportQueueActionsHandler,
   GetReportMetadataPageHandler,
   GetReportEvidenceActionsHandler,
 } from '@nakh/application';
 import {
+  GetAdminReportQueueActionsQuerySchema,
+  AdminReportQueueActionsSchema,
+  type GetAdminReportQueueActionsQuery,
+  type AdminReportQueueActions,
   GetReportMetadataPageQuerySchema,
   ReportMetadataPageSchema,
   GetReportEvidenceMetadataQuerySchema,
@@ -32,12 +37,14 @@ import {
 
 const BOUNDARY = Symbol('M7_ADMIN_API_BOUNDARY'),
   METADATA = Symbol('M7_ADMIN_REPORT_METADATA'),
-  ACTIONS = Symbol('M7_ADMIN_EVIDENCE_ACTIONS');
+  ACTIONS = Symbol('M7_ADMIN_EVIDENCE_ACTIONS'),
+  QUEUE_ACTIONS = Symbol('M7_ADMIN_QUEUE_ACTIONS');
 export interface M7AdminReportApiOptions {
   readonly authenticator: M7ApiAuthenticator;
   readonly metadata: Pick<GetReportMetadataPageHandler, 'execute'>;
   readonly evidenceActions?: Pick<GetReportEvidenceActionsHandler, 'execute'>;
   readonly evidenceReveals?: Omit<M7AdminEvidenceApiOptions, 'authenticator'>;
+  readonly queueActions?: Pick<GetAdminReportQueueActionsHandler, 'execute'>;
 }
 @Controller('v1/admin/reports/evidence')
 class EvidenceActionsController {
@@ -89,6 +96,32 @@ class ReportMetadataController {
     );
   }
 }
+@Controller('v1/admin/reports/queue')
+class ReportQueueActionsController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(QUEUE_ACTIONS)
+    private readonly actions: NonNullable<M7AdminReportApiOptions['queueActions']>,
+  ) {}
+  @Post('actions')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<AdminReportQueueActions> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<GetAdminReportQueueActionsQuery>(
+      GetAdminReportQueueActionsQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(AdminReportQueueActionsSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
 /** Explicit host registration; admin credentials require the separate admin audience and MFA. */
 @Module({})
 export class M7AdminReportApiModule {
@@ -105,10 +138,14 @@ export class M7AdminReportApiModule {
               }),
             ],
       controllers: [
+        ...(options.queueActions === undefined ? [] : [ReportQueueActionsController]),
         ReportMetadataController,
         ...(options.evidenceActions === undefined ? [] : [EvidenceActionsController]),
       ],
       providers: [
+        ...(options.queueActions === undefined
+          ? []
+          : [{ provide: QUEUE_ACTIONS, useValue: options.queueActions }]),
         { provide: BOUNDARY, useValue: new M7ApiBoundary(options.authenticator) },
         { provide: METADATA, useValue: options.metadata },
         ...(options.evidenceActions === undefined

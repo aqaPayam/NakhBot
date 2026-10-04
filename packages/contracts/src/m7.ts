@@ -254,6 +254,16 @@ export const ClaimModerationReviewsCommandSchema = mutationSchema(
   ),
 );
 export type ClaimModerationReviewsCommand = Static<typeof ClaimModerationReviewsCommandSchema>;
+export const GetAdminReportQueueActionsQuerySchema = Type.Object(
+  { actor: AdminActorSchema, requestId: UuidSchema },
+  { additionalProperties: false },
+);
+export type GetAdminReportQueueActionsQuery = Static<typeof GetAdminReportQueueActionsQuerySchema>;
+export const AdminReportQueueActionsSchema = Type.Object(
+  { metadataActionToken: AdminActionTokenSchema, claimActionToken: AdminActionTokenSchema },
+  { additionalProperties: false },
+);
+export type AdminReportQueueActions = Static<typeof AdminReportQueueActionsSchema>;
 
 const AdminMutationFields = {
   adminActionToken: AdminActionTokenSchema,
