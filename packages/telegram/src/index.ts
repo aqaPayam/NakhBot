@@ -651,5 +651,6 @@ export * from './admin-appeal-unbans.js';
 export * from './admin-report-assignments.js';
 export * from './admin-report-queue-state.js';
 export * from './admin-report-queue.js';
+export * from './admin-report-evidence.js';
 export * from './admin-report-decisions.js';
 export * from './admin-report-account-actions.js';

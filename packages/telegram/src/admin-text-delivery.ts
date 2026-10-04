@@ -122,7 +122,7 @@ export class TelegramAdminTextDelivery
           row.length !== 1 ||
           row[0].text.trim() === '' ||
           [...row[0].text].length > 64 ||
-          !/^m7[qpvjkabuTOIDAREBU]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
+          !/^m7[qpvjkabuTOIDAREBUCJ]:[A-Za-z0-9_-]{22}$/u.test(row[0].callback_data),
       )
     )
       throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);

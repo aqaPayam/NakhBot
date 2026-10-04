@@ -294,6 +294,47 @@ describe('assigned report action picker', () => {
 });
 
 describe('report Account action picker and prompt', () => {
+  it('offers metadata independently of assignment eligibility and still rejects forged assignment callbacks', async () => {
+    const f = new Harness();
+    const evidence = { check: vi.fn().mockResolvedValue(undefined) };
+    f.check.mockRejectedValue(new ApplicationError('forbidden', 'error.m7.unavailable', 403));
+    const adapter = new TelegramAdminReportQueue(
+      '99',
+      f.sessions,
+      { execute: f.queues },
+      { execute: f.reports },
+      f.state,
+      { check: f.check, prepare: f.prepare },
+      { queueMenu: f.menu, reasonPrompt: f.prompt, text: f.text },
+      { render: (_locale, intent) => intent.key },
+      () => f.now,
+      undefined,
+      undefined,
+      evidence,
+    );
+    await adapter.handle(message('/admin_reports'));
+    const selected = f.menu.mock.calls[0]![0].replyMarkup.inline_keyboard[0]![0].callback_data;
+    await adapter.handle(callback(selected));
+    expect(evidence.check).toHaveBeenCalledWith(
+      '123',
+      expect.objectContaining({ targetId: f.item.reportId }),
+    );
+    expect(
+      f.menu.mock
+        .lastCall![0].replyMarkup.inline_keyboard.flat()
+        .map((button) => button.callback_data),
+    ).toEqual([selected.replace('m7T:', 'm7C:')]);
+    await expect(adapter.handle(callback(selected.replace('m7T:', 'm7I:')))).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    expect(f.prompt).not.toHaveBeenCalled();
+    evidence.check.mockRejectedValueOnce(
+      new ApplicationError('version_conflict', 'error.m7.stale_action', 409),
+    );
+    await expect(adapter.handle(callback(selected))).rejects.toMatchObject({
+      code: 'version_conflict',
+    });
+  });
   it('offers native eligible actions without retained-note capability and binds the exact owned prompt action', async () => {
     const f = new Harness(),
       accounts = {

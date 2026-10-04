@@ -10,6 +10,7 @@ import {
 } from './admin-report-queue-state.js';
 import type { TelegramAdminReportAssignments } from './admin-report-assignments.js';
 import type { TelegramAdminReportDecisions } from './admin-report-decisions.js';
+import type { TelegramAdminReportEvidence } from './admin-report-evidence.js';
 import {
   isTelegramReportAccountAction,
   type TelegramAdminReportAccountActions,
@@ -49,6 +50,7 @@ export class TelegramAdminReportQueue {
       TelegramAdminReportAccountActions,
       'prepare' | 'check' | 'available'
     >,
+    private readonly evidence?: Pick<TelegramAdminReportEvidence, 'check'>,
   ) {
     if (!/^[1-9][0-9]{0,19}$/u.test(botId) || !Number.isSafeInteger(Number(botId)))
       throw new Error('Report queue bot identity invalid.');
@@ -117,7 +119,10 @@ export class TelegramAdminReportQueue {
           const action =
             ACCOUNT_CHOICES.find(([code]) => code === match[1])?.[1] ??
             (match[1] === 'D' ? 'dismissed' : match[1] === 'A' ? 'actioned' : 'assign');
-          if (action === 'assign') await this.assignments.check(context.telegramUserId, choice);
+          if (match[1] === 'T' && this.evidence !== undefined)
+            await this.evidence.check(context.telegramUserId, choice);
+          else if (action === 'assign')
+            await this.assignments.check(context.telegramUserId, choice);
           else if (isTelegramReportAccountAction(action)) {
             if (this.accounts === undefined)
               throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
@@ -135,8 +140,21 @@ export class TelegramAdminReportQueue {
           );
           if ((await this.state.choice(session.actor, reference)) === undefined)
             throw new ApplicationError('version_conflict', 'error.m7.stale_action', 409);
-          if (match[1] === 'T' && (this.decisions !== undefined || this.accounts !== undefined)) {
-            const options = ['I'];
+          if (
+            match[1] === 'T' &&
+            (this.decisions !== undefined ||
+              this.accounts !== undefined ||
+              this.evidence !== undefined)
+          ) {
+            const options = this.evidence === undefined ? ['I'] : ['C'];
+            if (this.evidence !== undefined) {
+              try {
+                await this.assignments.check(context.telegramUserId, choice);
+                options.unshift('I');
+              } catch (error) {
+                if (!(error instanceof ApplicationError) || error.status >= 500) throw error;
+              }
+            }
             if (await this.decisions?.available(context.telegramUserId, choice, 'dismissed'))
               options.push('D');
             if (await this.decisions?.available(context.telegramUserId, choice, 'actioned'))
@@ -164,13 +182,15 @@ export class TelegramAdminReportQueue {
                   {
                     text: this.renderer.render(session.locale, {
                       key:
-                        code === 'I'
-                          ? 'admin.report.assign'
-                          : code === 'D'
-                            ? 'admin.report.dismissed'
-                            : code === 'A'
-                              ? 'admin.report.actioned'
-                              : `admin.report.account.${ACCOUNT_CHOICES.find(([item]) => item === code)?.[1]}`,
+                        code === 'C'
+                          ? 'admin.report.evidence'
+                          : code === 'I'
+                            ? 'admin.report.assign'
+                            : code === 'D'
+                              ? 'admin.report.dismissed'
+                              : code === 'A'
+                                ? 'admin.report.actioned'
+                                : `admin.report.account.${ACCOUNT_CHOICES.find(([item]) => item === code)?.[1]}`,
                       variables: {},
                     }),
                     callback_data: `m7${code}:${reference}`,
@@ -315,7 +335,13 @@ export class TelegramAdminReportQueue {
     const text =
       render('admin.report.queue_title') +
       '\n' +
-      render(rows.length === 0 ? 'admin.queue.empty' : 'admin.report.queue_choose');
+      render(
+        rows.length === 0
+          ? 'admin.queue.empty'
+          : this.evidence === undefined
+            ? 'admin.report.queue_choose'
+            : 'admin.report.queue_choose_evidence',
+      );
     if (rows.length === 0)
       await this.delivery.text({ recipient: telegramUserId, text, disableLinkPreviews: true });
     else

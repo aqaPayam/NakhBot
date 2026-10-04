@@ -1,6 +1,11 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import type { OpaqueTokenStore } from '@nakh/application';
-import { ApplicationError, type Actor } from '@nakh/domain';
+import {
+  ApplicationError,
+  REPORT_EVIDENCE_TYPES,
+  type Actor,
+  type ReportEvidenceType,
+} from '@nakh/domain';
 import type { TelegramReportAccountAction } from './admin-report-account-actions.js';
 import { m7Record } from './m7-private-update.js';
 
@@ -20,8 +25,15 @@ type Prompt = Readonly<{
   reference: string;
   action: 'assign' | 'dismissed' | 'actioned' | TelegramReportAccountAction;
 }>;
-type State = TelegramReportQueueChoice | TelegramReportQueuePage | Prompt;
-type Purpose = 'choice' | 'page' | 'prompt';
+export type TelegramReportEvidenceChoice = Readonly<{
+  reportReference: string;
+  evidenceId: string;
+  evidenceType: ReportEvidenceType;
+  snapshotSchemaVersion: number;
+}>;
+type State =
+  TelegramReportQueueChoice | TelegramReportQueuePage | Prompt | TelegramReportEvidenceChoice;
+type Purpose = 'choice' | 'page' | 'prompt' | 'evidence';
 const referencePattern = /^[A-Za-z0-9_-]{22}$/u;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export function validReportQueueStatus(kind: 'report', status: string): boolean {
@@ -33,6 +45,18 @@ export function validReportQueueStatus(kind: 'report', status: string): boolean 
 function valid(value: unknown, purpose: Purpose): value is State {
   const row = m7Record(value);
   if (row === undefined) return false;
+  if (purpose === 'evidence')
+    return (
+      Object.keys(row).length === 4 &&
+      typeof row.reportReference === 'string' &&
+      referencePattern.test(row.reportReference) &&
+      typeof row.evidenceId === 'string' &&
+      uuidPattern.test(row.evidenceId) &&
+      REPORT_EVIDENCE_TYPES.some((type) => type === row.evidenceType) &&
+      typeof row.snapshotSchemaVersion === 'number' &&
+      Number.isSafeInteger(row.snapshotSchemaVersion) &&
+      row.snapshotSchemaVersion > 0
+    );
   if (purpose === 'prompt')
     return (
       Object.keys(row).length === 2 &&
@@ -238,6 +262,20 @@ export class TelegramAdminReportQueueState {
     page: TelegramReportQueuePage,
   ): Promise<string> {
     return this.put(actor, 'page', operationId, page);
+  }
+  public async putEvidence(
+    actor: Actor,
+    operationId: string,
+    choice: TelegramReportEvidenceChoice,
+  ): Promise<string> {
+    return this.put(actor, 'evidence', operationId, choice);
+  }
+  public async evidence(
+    actor: Actor,
+    reference: string,
+  ): Promise<TelegramReportEvidenceChoice | undefined> {
+    const state = await this.get(actor, 'evidence', reference);
+    return state !== undefined && 'reportReference' in state ? state : undefined;
   }
   public async page(actor: Actor, reference: string): Promise<TelegramReportQueuePage | undefined> {
     const state = await this.get(actor, 'page', reference);

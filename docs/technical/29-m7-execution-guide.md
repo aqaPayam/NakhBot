@@ -962,3 +962,25 @@ after each hide/restore/delete effect and one audited stale rejection under conc
 after another separately confirmed command wins. Retained evidence remains intact and no evidence
 content is revealed. This requires no schema migration; current migration 70 bootstrap, upgrade
 and replay checks remain mandatory. Photo/evidence Telegram UI and provider staging remain open.
+
+### Private report evidence metadata picker evidence
+
+The private report menu now offers a bounded evidence metadata picker independently of review
+assignment eligibility and retained-note capabilities. Submitted and terminal reports remain
+browsable with current `view_reports` authority; evidence metadata does not require a review.
+Each item has an encrypted five-minute actor/purpose-bound reference to its exact report selection,
+evidence identity/type and snapshot schema version. Provider messages contain only localized type
+labels and opaque references. Native metadata is rechecked on every selection, including retries;
+current session/MFA and both cache records are checked again after native work waits.
+No content reveal, mutation or evidence-access audit occurs. Trusted downstream preparation can
+resolve a selection only through the same fresh native checks. Photo action and content reveal
+commands still require their separate permissions, reasons and confirmations.
+Migration 71 adds eleven English fallback labels, with baseline-70 upgrade, bootstrap, verification
+and immutable replay evidence. Existing localization migrations and verifiers remain unchanged.
+Unit evidence covers all five types, bounded/strict metadata, stable concurrent choices, actor and
+purpose substitution, cache loss/expiry, stale metadata, revoked session/permission and protected
+plain delivery. Actual PostgreSQL ingress evidence covers metadata-only operators, submitted and
+dismissed reports, retries, borrowed actor, stale Report version and revoked permission, with no
+account/photo effects, content access or identity disclosure and intact retained evidence.
+Confirmed photo controls, evidence content reveal, concrete session/MFA and provider/operator
+staging acceptance remain open.

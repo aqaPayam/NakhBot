@@ -202,7 +202,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(557);
+    expect(Object.keys(english.messages)).toHaveLength(568);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(english.messages['media.photos.button.delete']).toBe('Delete');
     expect(english.messages['liked_by.title']).toBe('Liked By ({count})');
@@ -218,6 +218,10 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     expect(english.messages['admin.outcome.succeeded']).toBe('The action completed.');
     expect(english.messages['admin.appeal.unban']).toBe('Restore access');
     expect(english.messages['admin.report.account.ban_user']).toBe('Ban account');
+    expect(english.messages['admin.report.evidence_type.photo']).toBe('Photo');
+    expect(inactiveFallback.messages['admin.report.evidence_choose']).toBe(
+      english.messages['admin.report.evidence_choose'],
+    );
     expect(inactiveFallback.messages['admin.report.account_prompt']).toBe(
       english.messages['admin.report.account_prompt'],
     );

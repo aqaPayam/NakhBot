@@ -294,6 +294,38 @@ describe('protected report decision confirmation', () => {
   });
 });
 
+describe('protected evidence metadata choices', () => {
+  it('sends only strict opaque report/evidence callbacks with protected plain transport', async () => {
+    const fetcher = vi
+      .fn<(url: string, init?: RequestInit) => Promise<Response>>()
+      .mockImplementation(() =>
+        Promise.resolve(new Response('{"ok":true,"result":{"message_id":12}}')),
+      );
+    const sender = new TelegramAdminTextDelivery('123:private-token', fetcher);
+    for (const code of ['C', 'J']) {
+      await sender.queueMenu({
+        ...input,
+        replyMarkup: {
+          inline_keyboard: [[{ text: 'Evidence', callback_data: `m7${code}:${'a'.repeat(22)}` }]],
+        },
+      });
+      expect(JSON.parse(fetcher.mock.lastCall![1]!.body as string)).toMatchObject({
+        protect_content: true,
+        link_preview_options: { is_disabled: true },
+      });
+    }
+    await expect(
+      sender.queueMenu({
+        ...input,
+        replyMarkup: {
+          inline_keyboard: [[{ text: 'Evidence', callback_data: 'm7J:raw-photo-id' }]],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('protected report Account confirmation', () => {
   it('requires the Account-only pair and same opaque reference, without leaking transport settings', async () => {
     const fetcher = vi
