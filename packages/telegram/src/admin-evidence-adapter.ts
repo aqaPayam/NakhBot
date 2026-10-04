@@ -2,21 +2,15 @@ import type { ConfirmedEvidenceReveals } from '@nakh/application';
 import { ApplicationError, type Actor } from '@nakh/domain';
 import { m7Record, requirePrivateM7Actor } from './m7-private-update.js';
 import { presentM7AdminOutcome, renderM7Notice, type M7TextRenderer } from './m7-presentation.js';
+import { requireTelegramAdminSession, type TelegramAdminSessionVerifier } from './admin-session.js';
+export type {
+  TelegramAdminSessionVerifier,
+  VerifiedTelegramAdminSession,
+} from './admin-session.js';
 type RevealCommand = Parameters<ConfirmedEvidenceReveals['execute']>[0];
 type RevealedContent = NonNullable<
   Awaited<ReturnType<ConfirmedEvidenceReveals['execute']>>['value']
 >['content'];
-export type VerifiedTelegramAdminSession = Readonly<{
-  actor: Actor;
-  telegramUserId: string;
-  locale: string;
-  expiresAt: Date;
-  mfaExpiresAt: Date;
-}>;
-export interface TelegramAdminSessionVerifier {
-  /** Server-owned current session/MFA and Telegram binding, never fields from an update. */
-  current(telegramUserId: string): Promise<VerifiedTelegramAdminSession | undefined>;
-}
 export interface TelegramConfirmedEvidenceCommands {
   /** Actor-bound stored command after explicit native confirmation; short reference contains no IDs. */
   resolve(actor: Actor, reference: string): Promise<RevealCommand | undefined>;
@@ -71,20 +65,6 @@ export class TelegramAdminEvidenceAdapter {
     private readonly renderer: M7TextRenderer,
     private readonly now: () => Date = () => new Date(),
   ) {}
-  private async requireSession(telegramUserId: string): Promise<VerifiedTelegramAdminSession> {
-    const session = await this.sessions.current(telegramUserId),
-      now = this.now().getTime();
-    if (
-      session === undefined ||
-      session.actor.kind !== 'admin' ||
-      session.telegramUserId !== telegramUserId ||
-      ![session.expiresAt.getTime(), session.mfaExpiresAt.getTime()].every(
-        (time) => Number.isFinite(time) && time > now,
-      )
-    )
-      throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
-    return session;
-  }
   public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
     const data = m7Record(m7Record(update)?.callback_query)?.data;
     if (typeof data !== 'string' || !data.startsWith('m7e:')) return 'unhandled';
@@ -93,7 +73,11 @@ export class TelegramAdminEvidenceAdapter {
       const match = /^m7e:([A-Za-z0-9_-]{22,40})$/u.exec(data);
       if (match === null)
         throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
-      const session = await this.requireSession(context.telegramUserId);
+      const session = await requireTelegramAdminSession(
+        this.sessions,
+        context.telegramUserId,
+        this.now,
+      );
       const command = await this.commands.resolve(session.actor, match[1]!);
       if (
         command === undefined ||
@@ -103,9 +87,12 @@ export class TelegramAdminEvidenceAdapter {
         throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
       const result = await this.reveals.execute(command, session.actor);
       // A session can be revoked or MFA can expire while the database call waits for a lock.
-      const deliverySession = await this.requireSession(context.telegramUserId);
-      if (deliverySession.actor.userId !== session.actor.userId)
-        throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+      const deliverySession = await requireTelegramAdminSession(
+        this.sessions,
+        context.telegramUserId,
+        this.now,
+        session.actor,
+      );
       const notice = renderM7Notice(
         this.renderer,
         deliverySession.locale,

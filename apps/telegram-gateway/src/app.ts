@@ -52,6 +52,7 @@ import {
   renderTelegramPhotoMenu,
   type TelegramPhotoManagementResult,
   type TelegramAdminEvidenceAdapter,
+  type TelegramAdminSafetyContentAdapter,
 } from '@nakh/telegram';
 
 import {
@@ -67,6 +68,7 @@ import type { TelegramReportIngressPort } from './report-ingress.js';
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const REPORT_INGRESS = Symbol('REPORT_INGRESS');
 const ADMIN_EVIDENCE_INGRESS = Symbol('ADMIN_EVIDENCE_INGRESS');
+const ADMIN_SAFETY_CONTENT_INGRESS = Symbol('ADMIN_SAFETY_CONTENT_INGRESS');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
@@ -155,6 +157,8 @@ class TelegramGatewayController {
     @Inject(REPORT_INGRESS) private readonly reportIngress: TelegramReportIngressPort,
     @Inject(ADMIN_EVIDENCE_INGRESS)
     private readonly adminEvidenceIngress: Pick<TelegramAdminEvidenceAdapter, 'handle'>,
+    @Inject(ADMIN_SAFETY_CONTENT_INGRESS)
+    private readonly adminSafetyContentIngress: Pick<TelegramAdminSafetyContentAdapter, 'handle'>,
     @Inject(M1_METRICS) private readonly m1Metrics: M1Metrics,
     @Inject(M2_METRICS) private readonly m2Metrics: M2Metrics,
     @Inject(M3_METRICS) private readonly m3Metrics: M3Metrics,
@@ -218,6 +222,8 @@ class TelegramGatewayController {
         return { accepted: true };
       if ((await this.reportIngress.handle(update)) !== 'unhandled') return { accepted: true };
       if ((await this.adminEvidenceIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
+      if ((await this.adminSafetyContentIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
     } catch (error) {
       if (error instanceof ApplicationError)
@@ -304,6 +310,7 @@ export class TelegramGatewayModule {
     m7: Readonly<{
       reports?: TelegramReportIngressPort;
       adminEvidence?: Pick<TelegramAdminEvidenceAdapter, 'handle'>;
+      adminSafetyContent?: Pick<TelegramAdminSafetyContentAdapter, 'handle'>;
     }> = {},
   ): DynamicModule {
     const database = createDatabase(config.database);
@@ -412,6 +419,10 @@ export class TelegramGatewayModule {
         {
           provide: ADMIN_EVIDENCE_INGRESS,
           useValue: m7.adminEvidence ?? { handle: () => Promise.resolve('unhandled') },
+        },
+        {
+          provide: ADMIN_SAFETY_CONTENT_INGRESS,
+          useValue: m7.adminSafetyContent ?? { handle: () => Promise.resolve('unhandled') },
         },
         {
           provide: START_ADAPTER,

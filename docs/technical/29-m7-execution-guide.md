@@ -643,6 +643,16 @@ service, command-selection UI, real Telegram/object delivery, or deployment evid
 does not automatically enable either port. Remaining account/review/support/appeal admin presentation
 and concrete session/delivery composition are still pending.
 
+Confirmed support-thread and appeal reads now have an explicit Telegram gateway port. Actor-bound
+short callbacks resolve only already-confirmed native reads, never review or unban mutations.
+Current Telegram-bound admin session/MFA is checked before execution and before every outgoing
+plain-text chunk. Only fresh successful audited reads deliver restricted content; replayed,
+rejected and failed receipts remain content-free even if a faulty port returns a value. Support
+history retains its 50-message ceiling; appeal text and retained notes omit user/ban identities.
+Session revocation during delivery stops remaining chunks, and provider failures are sanitized.
+Synthetic adapter tests cover these boundaries. Concrete confirmation menus, session/MFA service
+and real deployed delivery remain outstanding; ordinary startup does not enable this port.
+
 The scheduler executes at most 100 metadata rows per moderation batch, continues incomplete runs on
 subsequent ticks, waits 15 minutes after completion, and retries failure after one minute. PostgreSQL
 owns durable restart recovery, batch serialization and finding deduplication. Only fixed phase/outcome

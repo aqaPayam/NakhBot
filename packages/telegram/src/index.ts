@@ -630,3 +630,4 @@ export * from './support-appeal-adapter.js';
 export * from './report-adapter.js';
 export * from './report-selections.js';
 export * from './admin-evidence-adapter.js';
+export * from './admin-safety-content-adapter.js';
