@@ -7,6 +7,7 @@ import {
   RunChatReconciliationBatchHandler,
   RunNakhMaintenanceBatchHandler,
   RunNakhReconciliationBatchHandler,
+  RunModerationReconciliationBatchHandler,
 } from '@nakh/application';
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
@@ -28,10 +29,12 @@ import {
   PostgresNakhMaintenanceStore,
   PostgresNakhOperationalMetricsStore,
   PostgresNakhReconciliationStore,
+  PostgresModerationReconciliationStore,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection, RedisLease } from '@nakh/queue-redis';
 
 import { MediaOrphanScanner } from './media-orphan-scanner.js';
+import { ModerationMaintenance } from './moderation-maintenance.js';
 
 const config = loadConfig({
   ...process.env,
@@ -114,6 +117,10 @@ const chatReconciliation = new RunChatReconciliationBatchHandler(
 const chatMetrics = new M6Metrics();
 const chatOperationalMetrics = new PostgresChatOperationalMetricsStore(database);
 const chatReconciliationIntervalMs = 15 * 60_000;
+const moderationMaintenance = new ModerationMaintenance(
+  new RunModerationReconciliationBatchHandler(new PostgresModerationReconciliationStore(database)),
+  randomUUID,
+);
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
 let nextNakhReconciliationAt = 0;
@@ -350,6 +357,13 @@ const tick = async (): Promise<void> => {
             'chat operational health measurement failed',
           );
         }
+      }
+      const moderationBatch = await moderationMaintenance.executeDue();
+      if (moderationBatch !== undefined) {
+        const entry = { ...moderationBatch, operation: 'moderation.reconciliation.batch' };
+        if (moderationBatch.outcome === 'failure')
+          logger.error(entry, 'moderation reconciliation batch failed');
+        else logger.info(entry, 'moderation reconciliation batch completed');
       }
       await lease.release(leaseKey, owner);
     }

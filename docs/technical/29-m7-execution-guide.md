@@ -618,7 +618,12 @@ well as current permissions, so a previously prepared token cannot authorize exe
 identity binding disappears. Historical roles and terminal appeals remain valid retained history.
 
 Checkpoint 8 remains partial. Telegram report/evidence presentation, concrete session ingress
-and remaining moderation presentation need implementation.
+and remaining moderation presentation need implementation. The scheduler now executes at most 100
+metadata rows per moderation batch, continues incomplete runs on subsequent ticks, waits 15 minutes
+after completion, and retries failures after one minute. PostgreSQL owns durable restart recovery,
+batch serialization and finding deduplication. Only fixed phase/outcome and aggregate counts leave
+the scheduler boundary; database exceptions and run/entity identifiers are discarded. Redis provides
+best-effort leadership; the database remains authoritative if that short lease expires mid-batch.
 Reconciliation, M7 production-volume query-plan/load gates, metrics/alarms and real Telegram/admin
 staging evidence remain outstanding.
 
