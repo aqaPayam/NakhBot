@@ -351,7 +351,7 @@ describe.skipIf(url === undefined)('actual selected evidence and confirmed photo
             database,
             f.tokens,
             f.key,
-            new AesGcmReviewNoteProtector('fixture', 1, new Uint8Array(32).fill(7)),
+            new AesGcmReviewNoteProtector('fixture-review-notes', 1, new Uint8Array(32).fill(7)),
           ),
           confirmationToken = await decisions.prepare(draft, f.actor);
         expect(
