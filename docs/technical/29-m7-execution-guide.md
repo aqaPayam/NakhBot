@@ -115,6 +115,14 @@ detects loss of every valid previous-state match, accepts either restored valid 
 duplicate valid matches do not multiply actions. System history checks, budgets, populations,
 fresh-row tests and independent required indexes remain unchanged. Verification remains open.
 
+The grouped-history run passed 379 native tests but the extended fresh-row test exceeded its
+unchanged 60-second whole-test limit; no database statement timeout or count assertion failure
+was reported. Its analyzed 1,000-row fixture completed in 5.3 s. The new duplicate-history case
+now owns a separate fresh 1,000-row base/terminal fixture, five concurrent action samples and
+every drift/recovery assertion. The original fresh-row test retains all prior checks and its
+own unchanged time limit. Neither fixture performs ANALYZE; scale, statement limits, production
+queries and performance budgets are unchanged. Both independent cases must pass before advancing.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,

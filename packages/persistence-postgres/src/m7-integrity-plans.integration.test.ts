@@ -174,6 +174,24 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           for (const sample of await Promise.all(Array.from({ length: 5 }, () => store.measure())))
             expect(sample.counts).toEqual(baseline.counts);
           await sql`DELETE FROM platform.audit_logs WHERE id=${duplicateAudit}::uuid`.execute(tx);
+          throw new FixtureRollback();
+        });
+      } catch (error) {
+        if (!(error instanceof FixtureRollback)) throw error;
+      }
+    });
+    await assertClean();
+  });
+  it('preserves exact restoration history with valid and invalid duplicates under concurrent fresh-row reads', async () => {
+    await withM6SyntheticPlanSession(database, async (connection) => {
+      try {
+        await connection.transaction().execute(async (tx) => {
+          const prefix = randomUUID(),
+            at = new Date(),
+            store = new PostgresModerationIntegrityMetricsStore(tx);
+          await seedM7IntegrityPlans(tx, prefix, 1000, at);
+          await seedM7AppealIntegrityPlans(tx, prefix, 1000, at);
+          const baseline = await store.measure();
           // An invalid duplicate must not hide a valid exact restoration history,
           // and multiple matches must not multiply the owning action.
           const duplicateHistory = randomUUID();
