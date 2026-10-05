@@ -1,6 +1,40 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: authenticated operational health API
+## Current increment: native durable admin session lifecycle
+
+`AdminSessionService` now consumes a trusted server MFA proof bound to the authenticated first-factor
+User and verified Telegram identity. The factor provider must verify the factor and return the same
+one-use proof ID on repeated assertion validation; client identity, expiry and MFA claims cannot
+authorize a session. Factor assertions/secrets and bearer plaintext are never persisted. The native
+store admits one proof once, creates a random 256-bit opaque bearer, and retains only its SHA-256
+hash. Database time limits the session to fifteen minutes and current MFA to five minutes from the
+verified factor. Every session lookup checks both deadlines, current verified identity, active admin/version
+and at least one active explicit role permission. Individual commands still check their own permission.
+
+Issuance serializes on the owning AdminUser, supersedes its previous grant, and records immutable,
+content-free security audits in the same transaction. Required audit failure rolls back proof
+consumption, the new grant, previous revocation and supersession audit. Owner revocation is idempotent;
+cross-owner requests have no effect. Disabled or re-enabled AdminUser versions invalidate old grants.
+Revoked roles and expired MFA deny both bearer and Telegram lookup. A revoked latest grant cannot
+fall back to an earlier session. Migration 77 forbids ordinary deletion, extension and resurrection,
+enforces one current grant and global proof uniqueness, and retains history for controlled M8 release.
+
+`createM7SessionHostOptions` explicitly composes the native service into every shared HTTP admin
+route. It delegates only user-audience requests to the configured user authenticator, with no admin
+fallback. The returned service also satisfies the existing Telegram session-verifier contract.
+Issuance is server-internal and requires authenticated first-factor context and a trusted MFA
+provider. No unauthenticated login endpoint, enabled operator, factor enrollment, secret provider,
+MFA bypass or default-startup activation is introduced. Real factor-provider/enrollment and audited
+operator provisioning remain required before production activation.
+
+Evidence covers concurrent one-use admission/revocation, supersession, immutable guards, independent
+MFA expiry, role/admin-version invalidation, required-audit rollback and native-session HTTP health
+preparation/read/logout. Migration evidence covers empty bootstrap, upgrade from 76 and unchanged
+replay; retention registry includes the new security history. Catalog remains unchanged. Concrete
+factor/provider/operator staging, native-command MFA handoff across long waits, deeper integrity coverage, remaining volume branches, exporter/
+alert routing and M8/M9 acceptance remain open; session infrastructure alone does not complete M7.
+
+## Previous increment: authenticated operational health API
 
 The explicit shared M7 HTTP host now composes native health preparation and sampling handlers.
 POST `/v1/admin/moderation/operational-health/prepare` accepts the admin actor and request ID;

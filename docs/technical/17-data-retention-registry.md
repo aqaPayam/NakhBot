@@ -4,6 +4,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|
+| `administration.admin_sessions` | restricted bearer hashes, factor-proof identifiers and verification/expiry/revocation times | revoke current grants immediately when operator authority ends; retain security history under the approved audit policy; M8 must implement controlled release before deletion | Administration/Security; never retain bearer, factor assertion, OTP or factor secret; ordinary deletion/extension/revival is forbidden |
 | `identity.users` | internal identifier | retain minimal row | Stable identity and deletion/return safety; Identity |
 | `identity.telegram_identities` | direct identifier | retain Telegram ID; clear mutable username when deletion completes | Prevent duplicate identity and enforce return policy; Identity |
 | `identity.accounts` | account/safety state | retain state and sanitized reason | Deletion/return and safety enforcement; Identity |

@@ -10,80 +10,79 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
-  it.each([45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75])(
-    'upgrades from migration %i and preserves legacy appeal identity',
-    async (baseline) => {
-      const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
-      const targetUrl = new URL(databaseUrl!);
-      targetUrl.pathname = `/${name}`;
-      const admin = new pg.Pool({ connectionString: databaseUrl });
-      const previousDirectory = await mkdtemp(join(tmpdir(), 'nakh-appeal-upgrade-'));
-      const directory = resolve(process.cwd(), 'migrations');
-      let target: pg.Pool | undefined;
-      let created = false;
-      const userId = randomUUID(),
-        historyId = randomUUID(),
-        appealId = randomUUID();
-      try {
-        await admin.query(`CREATE DATABASE "${name}"`);
-        created = true;
-        for (const filename of await readdir(directory)) {
-          if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(filename) && Number(filename.slice(0, 6)) <= baseline)
-            await copyFile(join(directory, filename), join(previousDirectory, filename));
-        }
-        expect((await runMigrations(targetUrl.toString(), previousDirectory)).applied).toHaveLength(
-          baseline,
-        );
-        target = new pg.Pool({ connectionString: targetUrl.toString() });
-        if (baseline === 51) {
-          await target.query(
-            'INSERT INTO identity.users (id, last_activity_at, created_at, updated_at) VALUES ($1, now(), now(), now())',
-            [userId],
-          );
-          await target.query(
-            "INSERT INTO identity.accounts (user_id, state, state_reason, state_changed_at) VALUES ($1, 'banned', 'test_ban', now())",
-            [userId],
-          );
-          await target.query(
-            "INSERT INTO identity.account_state_history (id, user_id, previous_state, next_state, reason_code, actor_type, changed_at) SELECT $1, user_id, 'active', 'banned', 'test_ban', 'system', state_changed_at FROM identity.accounts WHERE user_id = $2",
-            [historyId, userId],
-          );
-          await target.query(
-            'INSERT INTO moderation.user_appeals (id, user_id, ban_state_history_id, message_text) VALUES ($1, $2, $3, $4)',
-            [appealId, userId, historyId, 'Legacy restricted appeal'],
-          );
-        }
-        expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-          76 - baseline,
-        );
-        await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
-        expect((await runMigrations(targetUrl.toString(), directory)).applied).toEqual([]);
-        if (baseline === 51) {
-          const result = await target.query(
-            'SELECT id, ban_state_history_id, status, version FROM moderation.user_appeals WHERE id = $1',
-            [appealId],
-          );
-          expect(result.rows).toEqual([
-            { id: appealId, ban_state_history_id: historyId, status: 'submitted', version: 1 },
-          ]);
-          await expect(
-            target.query(
-              'INSERT INTO moderation.user_appeals (id, user_id, ban_state_history_id, message_text) VALUES ($1, $2, $3, $4)',
-              [randomUUID(), userId, historyId, 'Duplicate'],
-            ),
-          ).rejects.toThrow();
-        }
-      } finally {
-        await target?.end();
-        try {
-          if (created) await admin.query(`DROP DATABASE "${name}"`);
-        } finally {
-          await admin.end();
-          await rm(previousDirectory, { recursive: true, force: true });
-        }
+  it.each([
+    45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76,
+  ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
+    const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
+    const targetUrl = new URL(databaseUrl!);
+    targetUrl.pathname = `/${name}`;
+    const admin = new pg.Pool({ connectionString: databaseUrl });
+    const previousDirectory = await mkdtemp(join(tmpdir(), 'nakh-appeal-upgrade-'));
+    const directory = resolve(process.cwd(), 'migrations');
+    let target: pg.Pool | undefined;
+    let created = false;
+    const userId = randomUUID(),
+      historyId = randomUUID(),
+      appealId = randomUUID();
+    try {
+      await admin.query(`CREATE DATABASE "${name}"`);
+      created = true;
+      for (const filename of await readdir(directory)) {
+        if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(filename) && Number(filename.slice(0, 6)) <= baseline)
+          await copyFile(join(directory, filename), join(previousDirectory, filename));
       }
-    },
-  );
+      expect((await runMigrations(targetUrl.toString(), previousDirectory)).applied).toHaveLength(
+        baseline,
+      );
+      target = new pg.Pool({ connectionString: targetUrl.toString() });
+      if (baseline === 51) {
+        await target.query(
+          'INSERT INTO identity.users (id, last_activity_at, created_at, updated_at) VALUES ($1, now(), now(), now())',
+          [userId],
+        );
+        await target.query(
+          "INSERT INTO identity.accounts (user_id, state, state_reason, state_changed_at) VALUES ($1, 'banned', 'test_ban', now())",
+          [userId],
+        );
+        await target.query(
+          "INSERT INTO identity.account_state_history (id, user_id, previous_state, next_state, reason_code, actor_type, changed_at) SELECT $1, user_id, 'active', 'banned', 'test_ban', 'system', state_changed_at FROM identity.accounts WHERE user_id = $2",
+          [historyId, userId],
+        );
+        await target.query(
+          'INSERT INTO moderation.user_appeals (id, user_id, ban_state_history_id, message_text) VALUES ($1, $2, $3, $4)',
+          [appealId, userId, historyId, 'Legacy restricted appeal'],
+        );
+      }
+      expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
+        77 - baseline,
+      );
+      await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      expect((await runMigrations(targetUrl.toString(), directory)).applied).toEqual([]);
+      if (baseline === 51) {
+        const result = await target.query(
+          'SELECT id, ban_state_history_id, status, version FROM moderation.user_appeals WHERE id = $1',
+          [appealId],
+        );
+        expect(result.rows).toEqual([
+          { id: appealId, ban_state_history_id: historyId, status: 'submitted', version: 1 },
+        ]);
+        await expect(
+          target.query(
+            'INSERT INTO moderation.user_appeals (id, user_id, ban_state_history_id, message_text) VALUES ($1, $2, $3, $4)',
+            [randomUUID(), userId, historyId, 'Duplicate'],
+          ),
+        ).rejects.toThrow();
+      }
+    } finally {
+      await target?.end();
+      try {
+        if (created) await admin.query(`DROP DATABASE "${name}"`);
+      } finally {
+        await admin.end();
+        await rm(previousDirectory, { recursive: true, force: true });
+      }
+    }
+  });
   it('serializes empty-database bootstrap, upgrades M1, verifies, and replays unchanged', async () => {
     // This suite needs CREATEDB on the disposable CI database server.
     const name = `nakh_migration_${randomUUID().replaceAll('-', '')}`;
@@ -176,6 +175,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000074_m7_report_internal_block_scope.sql',
         '000075_m7_admin_report_block_localization.sql',
         '000076_m7_integrity_history_index.sql',
+        '000077_m7_admin_sessions.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -246,9 +246,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000074_m7_report_internal_block_scope.sql');
       expect(verified).toContain('000075_m7_admin_report_block_localization.sql');
       expect(verified).toContain('000076_m7_integrity_history_index.sql');
+      expect(verified).toContain('000077_m7_admin_sessions.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(76);
+      expect(replay.existing).toHaveLength(77);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
