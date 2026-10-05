@@ -25,6 +25,17 @@ The preceding unrestriction increment is verified: all six jobs passed, includin
 tests. Baseline and terminal combined sampling measured 1,000 ms and 1,272 ms with no temporary
 blocks. Both independent terminal resolution/restoration indexes were present.
 
+The encrypted-capture run passed all 380 PostgreSQL tests and verified every 20,000-row
+authentication, rejection and metadata population. Baseline sampling passed at 1,338 ms; terminal
+sampling failed at 1,647 ms without spills. Diagnostics showed 35,024 repeated administrator
+history probes and 40,021 repeated appeal uniqueness probes. The repair makes the unchanged admin
+history predicate memoizable after its separately bound prior-state lookup, retaining every actor,
+target, reason, time and state condition. Appeal uniqueness groups by the non-null exact ban event:
+one row is equivalent to the previous absence of another uniquely identified Appeal. This preserves
+one result per Appeal and still identifies a damaged multi-row population. Separate review and
+unban checks remain unchanged. No scale, timeout, memory, migration, index requirement or 1,500 ms
+budget is relaxed. The increment remains unverified until all six exact-head jobs pass.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,

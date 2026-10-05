@@ -47,14 +47,7 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
               AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id)))
     )`
     } AS "hasAttempt",
-    ${
-      isSystem
-        ? sql`history_binding."hasAccountHistory"`
-        : sql`
-      action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-      ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`, sql`restoration.previous_state`)}
-    `
-    } AS "hasAccountHistory",
+    history_binding."hasAccountHistory" AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
       OR bound_notice.id IS NOT NULL AS "hasNotice",
     action.source_report_id IS NULL OR EXISTS (
@@ -88,7 +81,12 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
         AND prior.changed_at <= action.occurred_at
         AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
       ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
-    ) restoration ON true`
+    ) restoration ON true
+    LEFT JOIN LATERAL (
+      SELECT action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
+        ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`, sql`restoration.previous_state`)} AS "hasAccountHistory"
+      OFFSET 0
+    ) history_binding ON true`
     }
     LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
       AND bound_audit.actor_type = action.actor_type
@@ -250,8 +248,7 @@ SELECT thread.id, thread.status <> 'open' OR limits."withinLimit" AS "withinLimi
     ) limits ON true
 `,
   appeals: sql`
-SELECT appeal.id, NOT EXISTS (SELECT 1 FROM moderation.user_appeals duplicate
-      WHERE duplicate.ban_state_history_id = appeal.ban_state_history_id AND duplicate.id <> appeal.id) AS "uniqueBan",
+SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
     ban.id IS NOT NULL AS "banMatches",
     appeal.status NOT IN ('accepted','rejected') OR review.target_id IS NOT NULL AS "hasReview",
     NOT EXISTS (SELECT 1 FROM moderation.appeal_unbans unban WHERE unban.appeal_id = appeal.id AND NOT EXISTS (
@@ -266,6 +263,10 @@ SELECT appeal.id, NOT EXISTS (SELECT 1 FROM moderation.user_appeals duplicate
         AND attempt.target_id = appeal.id AND attempt.result = 'succeeded'
     )) AS "unbanMatches"
     FROM moderation.user_appeals appeal
+    -- Non-null ban IDs and unique row IDs make count = 1 equivalent to no other
+    -- Appeal for this event. One grouped fact avoids two probes per Appeal.
+    JOIN (SELECT ban_state_history_id, count(*) AS "count" FROM moderation.user_appeals
+      GROUP BY ban_state_history_id) ban_population ON ban_population.ban_state_history_id = appeal.ban_state_history_id
     LEFT JOIN identity.account_state_history ban ON ban.id = appeal.ban_state_history_id
       AND ban.user_id = appeal.user_id AND ban.next_state = 'banned'
     LEFT JOIN (
