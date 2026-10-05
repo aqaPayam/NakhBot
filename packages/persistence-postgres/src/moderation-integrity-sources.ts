@@ -1,5 +1,23 @@
-import { sql } from 'kysely';
+import { sql, type RawBuilder } from 'kysely';
 import type { ModerationReconciliationPhase } from '@nakh/application';
+/** Split null and exact administrator bindings so PostgreSQL can use the actor/history index. */
+function accountHistoryMatches(adminMatches: RawBuilder<unknown>): RawBuilder<boolean> {
+  return sql<boolean>`EXISTS (
+      SELECT 1 FROM identity.account_state_history history WHERE history.user_id = action.target_user_id
+        AND history.actor_type = action.actor_type AND ${adminMatches}
+        AND history.reason_code = action.reason_code AND history.changed_at = action.occurred_at
+        AND ((action.action_type = 'restrict_user' AND history.next_state = 'restricted')
+          OR (action.action_type = 'ban_user' AND history.next_state = 'banned')
+          OR (action.action_type IN ('unrestrict_user','unban_user')
+            AND history.previous_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
+            AND history.next_state = (SELECT prior.previous_state FROM identity.account_state_history prior
+              WHERE prior.user_id = action.target_user_id AND prior.next_state = history.previous_state
+                AND prior.changed_at <= action.occurred_at
+                AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
+              ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1)))
+    )`;
+}
+
 /** Owning metadata predicates shared by paged reconciliation and live aggregate sampling.
  * No prose, ciphertext, snapshot bodies, credentials or object keys leave these queries. */
 export const MODERATION_INTEGRITY_SOURCES = {
@@ -71,20 +89,10 @@ SELECT action.id, EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id
             AND EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id = action.audit_log_id
               AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id)))
     ) AS "hasAttempt",
-    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR EXISTS (
-      SELECT 1 FROM identity.account_state_history history WHERE history.user_id = action.target_user_id
-        AND history.actor_type = action.actor_type AND history.actor_admin_id IS NOT DISTINCT FROM action.actor_admin_id
-        AND history.reason_code = action.reason_code AND history.changed_at = action.occurred_at
-        AND ((action.action_type = 'restrict_user' AND history.next_state = 'restricted')
-          OR (action.action_type = 'ban_user' AND history.next_state = 'banned')
-          OR (action.action_type IN ('unrestrict_user','unban_user')
-            AND history.previous_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
-            AND history.next_state = (SELECT prior.previous_state FROM identity.account_state_history prior
-              WHERE prior.user_id = action.target_user_id AND prior.next_state = history.previous_state
-                AND prior.changed_at <= action.occurred_at
-                AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
-              ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1)))
-    ) AS "hasAccountHistory",
+    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
+      CASE WHEN action.actor_admin_id IS NULL
+        THEN ${accountHistoryMatches(sql`history.actor_admin_id IS NULL`)}
+        ELSE ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`)} END AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR EXISTS (
       SELECT 1 FROM notification.notifications notice WHERE notice.id = action.notification_id
         AND notice.user_id = action.target_user_id AND notice.payload = '{}'::jsonb
@@ -111,16 +119,7 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
     FROM moderation.restriction_episodes episode
 `,
   support_threads: sql`
-SELECT thread.id, thread.status <> 'open' OR (SELECT count(*) FROM (
-      SELECT message.id FROM support.support_messages message
-      JOIN support.support_threads owned ON owned.id = message.support_thread_id
-      WHERE owned.user_id = thread.user_id AND owned.status = 'open' AND message.sender_type = 'user'
-        AND NOT EXISTS (SELECT 1 FROM support.support_messages reply
-          JOIN support.support_threads replied ON replied.id = reply.support_thread_id
-          WHERE replied.user_id = thread.user_id AND reply.sender_type = 'admin'
-            AND (reply.created_at, reply.id) >= (message.created_at, message.id))
-      LIMIT 3
-    ) unanswered) <= 2 AS "withinLimit",
+SELECT thread.id, thread.status <> 'open' OR limits."withinLimit" AS "withinLimit",
     NOT EXISTS (SELECT 1 FROM support.support_messages message WHERE message.support_thread_id = thread.id
       AND message.sender_type = 'admin' AND NOT EXISTS (
         SELECT 1 FROM administration.admin_action_logs attempt WHERE attempt.admin_user_id = message.sender_admin_id
@@ -134,6 +133,18 @@ SELECT thread.id, thread.status <> 'open' OR (SELECT count(*) FROM (
           AND attempt.expected_target_version = thread.version - 1
       )) AS "hasAttempts"
     FROM support.support_threads thread
+    LEFT JOIN LATERAL (
+      SELECT (SELECT count(*) FROM (
+      SELECT message.id FROM support.support_messages message
+      JOIN support.support_threads owned ON owned.id = message.support_thread_id
+      WHERE thread.status = 'open' AND owned.user_id = thread.user_id AND owned.status = 'open' AND message.sender_type = 'user'
+        AND NOT EXISTS (SELECT 1 FROM support.support_messages reply
+          JOIN support.support_threads replied ON replied.id = reply.support_thread_id
+          WHERE replied.user_id = thread.user_id AND reply.sender_type = 'admin'
+            AND (reply.created_at, reply.id) >= (message.created_at, message.id))
+      LIMIT 3
+    ) unanswered) <= 2 AS "withinLimit" OFFSET 0
+    ) limits ON true
 `,
   appeals: sql`
 SELECT appeal.id, NOT EXISTS (SELECT 1 FROM moderation.user_appeals duplicate

@@ -12,6 +12,11 @@ Every query, including the combined snapshot, retains the existing 1,500 ms exec
 Initial CI diagnosed action/support counts over budget and a 6.46-second combined sample. Integrity
 reads now disable JIT compilation locally in their transaction, including the measured production
 statements; commit/rollback restores pooled-session settings. The numeric budget is unchanged.
+The first repair reduced the combined sample to 3.35 seconds, but support remained at 1.91 seconds
+and actions at 1.16 seconds. Support now uses a parameterized lateral limit check to allow per-user
+memoization across threads. Account history checks split null/exact administrator bindings and use
+migration 76's composite actor/history index. The predicates, restoration checks, trigger safeguards
+and numeric budget remain unchanged; bootstrap, upgrade from 75, verifier and replay are covered.
 Whole-phase aggregates may use sequential scans; queue/admission index requirements remain intact.
 
 The blocked-pair predicate follows indexed match/like relations to unlocks instead of scanning all

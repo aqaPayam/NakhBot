@@ -10,7 +10,7 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
-  it.each([45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74])(
+  it.each([45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75])(
     'upgrades from migration %i and preserves legacy appeal identity',
     async (baseline) => {
       const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
@@ -54,7 +54,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           );
         }
         expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-          75 - baseline,
+          76 - baseline,
         );
         await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
         expect((await runMigrations(targetUrl.toString(), directory)).applied).toEqual([]);
@@ -175,6 +175,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000073_m7_admin_evidence_read_localization.sql',
         '000074_m7_report_internal_block_scope.sql',
         '000075_m7_admin_report_block_localization.sql',
+        '000076_m7_integrity_history_index.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -244,9 +245,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000073_m7_admin_evidence_read_localization.sql');
       expect(verified).toContain('000074_m7_report_internal_block_scope.sql');
       expect(verified).toContain('000075_m7_admin_report_block_localization.sql');
+      expect(verified).toContain('000076_m7_integrity_history_index.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(75);
+      expect(replay.existing).toHaveLength(76);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
