@@ -48,6 +48,10 @@ export class M7Metrics {
     unit: 's',
   });
   private readonly neverCompleted = meter.createGauge('nakh.m7.reconciliation.never_completed');
+  private readonly integrityCount = meter.createGauge('nakh.m7.integrity.current_mismatches');
+  private readonly integritySampledAt = meter.createGauge('nakh.m7.integrity.sampled_at', {
+    unit: 's',
+  });
   public recordReconciliation(
     outcome: M7ReconciliationOutcome,
     phase: M7ReconciliationPhase,
@@ -88,5 +92,20 @@ export class M7Metrics {
   }
   public recordOperationalHealthFailure(): void {
     this.healthFailures.add(1);
+  }
+  public recordOperationalIntegrity(
+    sampledAtMs: number,
+    counts: Readonly<Record<Exclude<M7ReconciliationPhase, 'unknown'>, number>>,
+  ): void {
+    const phases = M7_RECONCILIATION_PHASES.filter((phase) => phase !== 'unknown');
+    if (
+      !Number.isFinite(sampledAtMs) ||
+      sampledAtMs <= 0 ||
+      Object.keys(counts).length !== phases.length ||
+      !phases.every((phase) => Number.isSafeInteger(counts[phase]) && counts[phase] >= 0)
+    )
+      throw new Error('M7 metric value invalid.');
+    for (const phase of phases) this.integrityCount.record(counts[phase], { phase });
+    this.integritySampledAt.record(sampledAtMs / 1000);
   }
 }

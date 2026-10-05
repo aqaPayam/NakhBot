@@ -1,0 +1,242 @@
+import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { sql } from 'kysely';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  AesGcmReviewNoteProtector,
+  MODERATION_RECONCILIATION_PHASES,
+  canonicalAdminPairTargetId,
+  type InternalBlockDraft,
+  type ReviewDecisionDraft,
+} from '@nakh/application';
+import { normalizeUserPair } from '@nakh/domain';
+import { createDatabase, type NakhDatabase } from './database.js';
+import { runMigrations } from './migrations.js';
+import { createIsolatedTestDatabase } from './testing/isolated-database.js';
+import {
+  createRetainedReportPhoto,
+  createRetainedPhotoReview,
+  createReportFixtureAdmin,
+} from './testing/report-fixture.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
+import { PostgresModerationIntegrityMetricsStore } from './moderation-integrity-metrics-store.js';
+import { PostgresModerationReconciliationStore } from './moderation-reconciliation-store.js';
+import { PostgresConfirmedInternalBlocks } from './confirmed-internal-block-store.js';
+import { PostgresConfirmedReviewDecisions } from './confirmed-review-decision-store.js';
+import { scanModerationActions } from './moderation-review-reconciliation.js';
+const url = process.env.NAKH_TEST_DATABASE_URL;
+describe.skipIf(url === undefined)(
+  'current aggregate M7 integrity from authoritative metadata',
+  () => {
+    let database: NakhDatabase;
+    let isolated: Awaited<ReturnType<typeof createIsolatedTestDatabase>> | undefined;
+    beforeAll(async () => {
+      isolated = await createIsolatedTestDatabase(url!, 'nakh_m7_integrity');
+      await runMigrations(isolated.url, resolve(process.cwd(), 'migrations'));
+      database = createDatabase({
+        url: isolated.url,
+        poolMax: 20,
+        statementTimeoutMs: 15000,
+        lockTimeoutMs: 10000,
+      });
+    });
+    afterAll(async () => {
+      try {
+        await database?.destroy();
+      } finally {
+        await isolated?.destroy();
+      }
+    });
+    async function corrupt(operation: (connection: NakhDatabase) => Promise<void>): Promise<void> {
+      await database.connection().execute(async (connection) => {
+        await sql`SET session_replication_role = replica`.execute(connection);
+        try {
+          await operation(connection);
+        } finally {
+          await sql`SET session_replication_role = origin`.execute(connection);
+        }
+      });
+    }
+    it('returns all ten current counts, one database time and no identities under concurrent sampling', async () => {
+      const store = new PostgresModerationIntegrityMetricsStore(database);
+      const samples = await Promise.all(Array.from({ length: 12 }, () => store.measure()));
+      for (const sample of samples) {
+        expect(sample.sampledAt).toBeInstanceOf(Date);
+        expect(sample.sampledAt.getTime()).toBeGreaterThan(0);
+        expect(Object.keys(sample.counts).sort()).toEqual(
+          [...MODERATION_RECONCILIATION_PHASES].sort(),
+        );
+        expect(Object.values(sample.counts)).toEqual(Array.from({ length: 10 }, () => 0));
+        expect(Object.keys(sample).sort()).toEqual(['counts', 'sampledAt']);
+      }
+      expect(
+        await database.selectFrom('billing.reconciliation_runs').select('id').execute(),
+      ).toHaveLength(0);
+      expect(
+        await database.selectFrom('billing.reconciliation_anomalies').select('id').execute(),
+      ).toHaveLength(0);
+    });
+    it('detects live snapshot drift and clears it after repair while the historical quarantine remains', async () => {
+      const photo = await createRetainedReportPhoto(database);
+      const snapshot = await database
+        .selectFrom('moderation.report_snapshots')
+        .selectAll()
+        .where('report_evidence_id', '=', photo.evidenceId)
+        .executeTakeFirstOrThrow();
+      const store = new PostgresModerationIntegrityMetricsStore(database);
+      expect((await store.measure()).counts.evidence).toBe(0);
+      await corrupt(async (connection) => {
+        await connection
+          .deleteFrom('moderation.report_snapshots')
+          .where('id', '=', snapshot.id)
+          .execute();
+      });
+      try {
+        const broken = await store.measure();
+        expect(broken.counts.evidence).toBe(1);
+        for (const phase of MODERATION_RECONCILIATION_PHASES.filter((p) => p !== 'evidence'))
+          expect(broken.counts[phase]).toBe(0);
+        const scan = new PostgresModerationReconciliationStore(database),
+          run = await scan.resumeOrStart(randomUUID());
+        let done = false;
+        for (let i = 0; i < 30 && !done; i++) done = (await scan.scanNextBatch(run, 500)).completed;
+        expect(done).toBe(true);
+        expect(
+          await database
+            .selectFrom('billing.reconciliation_anomalies')
+            .select('id')
+            .where('entity_id', '=', photo.reportId)
+            .execute(),
+        ).toHaveLength(1);
+        for (const secret of [
+          photo.reportId,
+          photo.evidenceId,
+          photo.reporter,
+          photo.target,
+          photo.content.evidenceObjectRef,
+        ])
+          expect(JSON.stringify(broken)).not.toContain(secret);
+      } finally {
+        await corrupt(async (connection) => {
+          await connection.insertInto('moderation.report_snapshots').values(snapshot).execute();
+        });
+      }
+      expect((await store.measure()).counts.evidence).toBe(0);
+      expect(
+        await database
+          .selectFrom('billing.reconciliation_anomalies')
+          .select('id')
+          .where('entity_id', '=', photo.reportId)
+          .execute(),
+      ).toHaveLength(1);
+    });
+    it('accepts actual Report-bound block creation/removal and dismissal without false action quarantines', async () => {
+      const photo = await createRetainedReportPhoto(database),
+        adminId = await createReportFixtureAdmin(database);
+      await database
+        .insertInto('administration.admin_user_roles')
+        .values({
+          admin_user_id: adminId,
+          role_code: 'super_admin',
+          assigned_by_admin_id: adminId,
+          revoked_at: null,
+          revoked_by_admin_id: null,
+        })
+        .execute();
+      const f = await confirmationFixture(database, adminId),
+        pair = normalizeUserPair(photo.reporter, photo.target);
+      const commands = new PostgresConfirmedInternalBlocks(database, f.tokens, f.key);
+      for (const action of ['create', 'remove'] as const) {
+        const id = randomUUID(),
+          draft: InternalBlockDraft = {
+            actor: f.actor,
+            commandId: id,
+            requestId: id,
+            idempotencyKey: id,
+            schemaVersion: 1,
+            occurredAt: new Date().toISOString(),
+            locale: 'en',
+            commandType: 'moderation.change-internal-block',
+            data: {
+              action,
+              reason: 'Exact report pair',
+              expectedTargetVersion: 1,
+              adminActionToken: await f.issue({
+                commandCode: 'moderation.change-internal-block',
+                requiredPermission: 'manage_internal_blocks',
+                targetType: 'user_pair',
+                targetId: canonicalAdminPairTargetId(pair),
+                targetPair: pair,
+                expectedTargetVersion: 1,
+                sourceReportId: photo.reportId,
+              }),
+            },
+          };
+        expect(
+          await commands.execute(
+            {
+              ...draft,
+              data: { ...draft.data, confirmationToken: await commands.prepare(draft, f.actor) },
+            },
+            f.actor,
+          ),
+        ).toMatchObject({ result: 'succeeded' });
+      }
+      const review = await createRetainedPhotoReview(database);
+      await database
+        .updateTable('moderation.moderation_reviews')
+        .set({
+          status: 'in_review',
+          assigned_admin_id: adminId,
+          assigned_at: sql<Date>`clock_timestamp()`,
+          updated_at: sql<Date>`clock_timestamp()`,
+          version: 2,
+        })
+        .where('id', '=', review.reviewId)
+        .execute();
+      const decisions = new PostgresConfirmedReviewDecisions(
+        database,
+        f.tokens,
+        f.key,
+        new AesGcmReviewNoteProtector('integrity-fixture', 1, Buffer.alloc(32, 71)),
+      );
+      const id = randomUUID(),
+        draft: ReviewDecisionDraft = {
+          actor: f.actor,
+          commandId: id,
+          requestId: id,
+          idempotencyKey: id,
+          schemaVersion: 1,
+          occurredAt: new Date().toISOString(),
+          locale: 'en',
+          commandType: 'moderation.decide-review',
+          data: {
+            decision: 'dismissed',
+            reason: 'Dismiss selected report',
+            expectedTargetVersion: 2,
+            adminActionToken: await f.issue({
+              commandCode: 'moderation.decide-review',
+              requiredPermission: 'dismiss_report',
+              targetType: 'moderation_review',
+              targetId: review.reviewId,
+              expectedTargetVersion: 2,
+            }),
+          },
+        };
+      expect(
+        await decisions.execute(
+          {
+            ...draft,
+            data: { ...draft.data, confirmationToken: await decisions.prepare(draft, f.actor) },
+          },
+          f.actor,
+        ),
+      ).toMatchObject({ result: 'succeeded' });
+      expect((await scanModerationActions(database, { phase: 'actions' }, 500)).findings).toEqual(
+        [],
+      );
+      const sample = await new PostgresModerationIntegrityMetricsStore(database).measure();
+      expect(Object.values(sample.counts)).toEqual(Array.from({ length: 10 }, () => 0));
+    });
+  },
+);

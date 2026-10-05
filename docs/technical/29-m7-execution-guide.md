@@ -1,6 +1,36 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: private Report internal-block reason and confirmation controls
+## Current increment: live aggregate integrity sampling with shared reconciliation predicates
+
+The scheduler now samples current violating entities in all ten moderation integrity phases every
+thirty seconds. One PostgreSQL statement gives the counts a shared database snapshot and sample
+time. Only fixed phases, nonnegative integer counts and freshness reach the metric boundary; no
+entity identity, prose, ciphertext, snapshot body, object key, token or diagnostic SQL is returned.
+Shared metadata predicates govern both the paged reconciliation scanner and the live sampler.
+Each violating entity counts once in its phase even when more than one predicate fails.
+Duplicate exact-ban appeals are checked independently of retained historical findings.
+
+The action source-Report predicate now accepts native dismissal context and verifies both exact
+normalized participants for Report-linked internal blocks. Valid native create/remove/dismiss
+commands are not quarantined as target mismatches. Existing audit, successful-attempt, Account
+history, notification, review and retained-capture checks remain mandatory.
+
+`nakh.m7.integrity.current_mismatches` uses only the ten fixed phase labels;
+`nakh.m7.integrity.sampled_at` identifies freshness. Failed measurement increments the existing
+safe health-failure metric and advances neither the integrity counts nor their sample time.
+Historical reconciliation findings remain immutable and can remain present after current counts
+return to zero. These checks validate authoritative metadata relationships and capture/storage
+shape; they do not decrypt content or claim cryptographic authentication of retained snapshots.
+
+Unit evidence rejects incomplete, extra-label, fractional, negative and non-finite metric samples
+before emission. Actual PostgreSQL evidence covers twelve concurrent samples, all ten empty/healthy
+phases, missing capture then repair with preserved historical quarantine, privacy, and separately
+confirmed native Report block/removal/dismissal without false findings. No schema or catalog change
+is needed; migration 75 bootstrap/upgrade/replay gates remain required. Authenticated operational
+health API composition, broader production-volume integrity-query plans, real exporter/alert routing,
+concrete session/MFA and provider/operator acceptance remain open; M7 is not complete.
+
+## Previous increment: private Report internal-block reason and confirmation controls
 
 The private Report menu now offers create/remove only after current native pair eligibility and
 `manage_internal_blocks` checks. These controls use the exact Report selection, independently of

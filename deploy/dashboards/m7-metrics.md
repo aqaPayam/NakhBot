@@ -9,6 +9,14 @@ quarantines, not all currently failing rows. Deduplication means a repeated faul
 Inspect retained findings through authorized operational access before accepting a release.
 Do not interpret historical quarantines as current mismatch measurements or erase them to clear alarms.
 
+Chart `nakh.m7.integrity.current_mismatches` for the ten fixed reconciliation phases. This counts
+currently violating entities once per phase, using the same metadata predicates as reconciliation.
+Show `nakh.m7.integrity.sampled_at` alongside it: a stale or missing sample never proves zero drift.
+The scheduler samples every thirty seconds; a failed sample preserves its last values/time and
+increments `nakh.m7.operational_health.failures`. Alert/exporter mapping and production-volume
+integrity-query plans still require their own staging evidence. These metadata checks do not
+decrypt or authenticate snapshot contents.
+
 Show `nakh.m7.backlog.pending_report_oldest_age` and `.in_review_oldest_age` separately.
 Show `nakh.m7.reconciliation.active_age`, `.completed_age` and `.never_completed` together:
 zero completed age with never-completed = 1 means missing coverage, not a healthy scan.

@@ -14,6 +14,12 @@ for supported repairs. Do not edit Reports, snapshots, holds, actions, appeal de
 An accepted appeal still requires its separate `unban_user` command and exact current ban checks.
 No reconciliation finding authorizes an automatic account, photo, pair or appeal mutation.
 
+For current integrity drift, compare the fixed-phase mismatch gauge with its sample timestamp.
+A missing/stale timestamp or measurement failure requires diagnosis before interpreting the count.
+After an authorized repair, resample to verify the current count clears; preserve historical
+quarantines and audits. Multiple failed predicates on one entity count once in that phase.
+The sampler checks metadata relationships and retained-storage shape, not decrypted contents.
+
 For stale completion, distinguish a long active scan from no scheduler leader/failed sampling.
 Keep reads bounded; do not increase batch size beyond 500 to hide backlog. Pending-report and
 in-review ages identify different moderation queues; adjust authorized staffing before traffic.

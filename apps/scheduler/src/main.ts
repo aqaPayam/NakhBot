@@ -32,6 +32,7 @@ import {
   PostgresNakhReconciliationStore,
   PostgresModerationReconciliationStore,
   PostgresModerationOperationalMetricsStore,
+  PostgresModerationIntegrityMetricsStore,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection, RedisLease } from '@nakh/queue-redis';
 
@@ -125,6 +126,7 @@ const moderationMaintenance = new ModerationMaintenance(
 );
 const moderationMetrics = new M7Metrics();
 const moderationOperationalMetrics = new PostgresModerationOperationalMetricsStore(database);
+const moderationIntegrityMetrics = new PostgresModerationIntegrityMetricsStore(database);
 let nextModerationHealthSampleAt = 0;
 let nextBillingReconciliationAt = 0;
 let nextNakhMaintenanceAt = 0;
@@ -381,6 +383,11 @@ const tick = async (): Promise<void> => {
         nextModerationHealthSampleAt = Date.now() + 30_000;
         try {
           moderationMetrics.recordOperationalHealth(await moderationOperationalMetrics.measure());
+          const integrity = await moderationIntegrityMetrics.measure();
+          moderationMetrics.recordOperationalIntegrity(
+            integrity.sampledAt.getTime(),
+            integrity.counts,
+          );
         } catch {
           moderationMetrics.recordOperationalHealthFailure();
           logger.error(
