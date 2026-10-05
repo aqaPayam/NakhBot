@@ -200,12 +200,15 @@ SELECT pair.user_low_id AS "lowId", pair.user_high_id AS "highId",
       AND NOT EXISTS (SELECT 1 FROM interaction.likes like_row WHERE like_row.status = 'active' AND (
         (like_row.sender_user_id = pair.user_low_id AND like_row.receiver_user_id = pair.user_high_id)
         OR (like_row.sender_user_id = pair.user_high_id AND like_row.receiver_user_id = pair.user_low_id)))
-      AND NOT EXISTS (SELECT 1 FROM interaction.feature_unlocks unlock WHERE unlock.status = 'active' AND (
-        EXISTS (SELECT 1 FROM matching.matches match WHERE match.id = unlock.match_id
-          AND match.user_low_id = pair.user_low_id AND match.user_high_id = pair.user_high_id)
-        OR EXISTS (SELECT 1 FROM interaction.likes like_row WHERE like_row.id = unlock.like_id AND (
+      AND NOT EXISTS (SELECT 1 FROM matching.matches match
+        JOIN interaction.feature_unlocks unlock ON unlock.match_id = match.id
+        WHERE match.user_low_id = pair.user_low_id AND match.user_high_id = pair.user_high_id
+          AND unlock.status = 'active' AND unlock.feature_type = 'chat_unlock')
+      AND NOT EXISTS (SELECT 1 FROM interaction.likes like_row
+        JOIN interaction.feature_unlocks unlock ON unlock.like_id = like_row.id
+        WHERE unlock.status = 'active' AND unlock.feature_type = 'liked_by_profile_unlock' AND (
           (like_row.sender_user_id = pair.user_low_id AND like_row.receiver_user_id = pair.user_high_id)
-          OR (like_row.sender_user_id = pair.user_high_id AND like_row.receiver_user_id = pair.user_low_id))))) AS closed
+          OR (like_row.sender_user_id = pair.user_high_id AND like_row.receiver_user_id = pair.user_low_id))) AS closed
     FROM interaction.user_pair_states pair WHERE pair.state = 'blocked'
 `,
 } as const;

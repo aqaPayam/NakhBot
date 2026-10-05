@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { MODERATION_RECONCILIATION_PHASES } from '@nakh/application';
 import { createDatabase, runMigrations, measureM7SyntheticPlans } from '@nakh/persistence-postgres';
 import { summarizeM7Plan, m7PlanPasses, type M7PlanSummary } from './m7-plan-evidence.js';
 const url = process.env.NAKH_TEST_DATABASE_URL;
@@ -29,15 +30,30 @@ try {
     pendingAge: ['reports_pending_age_idx'],
     inReviewAge: ['moderation_reviews_in_review_age_idx'],
     completedScan: ['reconciliation_runs_moderation_completed_idx'],
+    ...Object.fromEntries(
+      MODERATION_RECONCILIATION_PHASES.map((phase) => [`integrity_${phase}`, undefined]),
+    ),
+    integritySnapshot: undefined,
   };
   await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
   await writeFile(
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 2,
+        schemaVersion: 3,
         fixtureRowsPerTable: volume,
-        fixtureTables: 6,
+        fixtureTables: 19,
+        integrityPhases: MODERATION_RECONCILIATION_PHASES,
+        minimumRowsPerIntegrityPhase: volume,
+        repeatedSnapshotSamples: 3,
+        fixtureScope:
+          'metadata-profile-capture-drift-account-restrictions-submitted-appeals-mixed-unlocks',
+        remainingVolumeBranches: [
+          'retained-photo',
+          'encrypted-capture',
+          'terminal-appeal',
+          'unrestrict-unban',
+        ],
         maximumExecutionMs: 1500,
         requiredIndexes,
         plans: summaries,

@@ -1,4 +1,4 @@
-import { sql } from 'kysely';
+import { sql, type RawBuilder } from 'kysely';
 import {
   MODERATION_RECONCILIATION_PHASES,
   type ModerationReconciliationPhase,
@@ -13,13 +13,11 @@ export type ModerationIntegritySample = Readonly<{
   sampledAt: Date;
   counts: Readonly<Record<ModerationReconciliationPhase, number>>;
 }>;
-/** One database snapshot, current violating entities per phase, never historical quarantines.
- * Aggregation stays in PostgreSQL. No entity identity or restricted content enters the host. */
-export class PostgresModerationIntegrityMetricsStore {
-  public constructor(private readonly database: NakhDatabase) {}
-  public async measure(): Promise<ModerationIntegritySample> {
-    const queries = MODERATION_RECONCILIATION_PHASES.map(
-      (phase) => sql`
+type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; count: string };
+export function moderationIntegrityPhaseStatement(
+  phase: ModerationReconciliationPhase,
+): RawBuilder<IntegrityRow> {
+  return sql<{ phase: ModerationReconciliationPhase; sampledAt: Date; count: string }>`
       SELECT ${phase}::text AS phase, statement_timestamp() AS "sampledAt", count(*)::text AS count
       FROM (${MODERATION_INTEGRITY_SOURCES[phase]}) probe
       WHERE ${sql.join(
@@ -28,13 +26,20 @@ export class PostgresModerationIntegrityMetricsStore {
         ),
         sql` OR `,
       )}
-    `,
-    );
-    const rows = (
-      await sql<{ phase: ModerationReconciliationPhase; sampledAt: Date; count: string }>`
-      ${sql.join(queries, sql` UNION ALL `)}
-    `.execute(this.database)
-    ).rows;
+    `;
+}
+export function moderationIntegrityStatement(): RawBuilder<IntegrityRow> {
+  return sql<{ phase: ModerationReconciliationPhase; sampledAt: Date; count: string }>`
+    ${sql.join(MODERATION_RECONCILIATION_PHASES.map(moderationIntegrityPhaseStatement), sql` UNION ALL `)}
+  `;
+}
+
+/** One database snapshot, current violating entities per phase, never historical quarantines.
+ * Aggregation stays in PostgreSQL. No entity identity or restricted content enters the host. */
+export class PostgresModerationIntegrityMetricsStore {
+  public constructor(private readonly database: NakhDatabase) {}
+  public async measure(): Promise<ModerationIntegritySample> {
+    const rows = (await moderationIntegrityStatement().execute(this.database)).rows;
     if (rows.length !== MODERATION_RECONCILIATION_PHASES.length)
       throw new Error('M7 integrity measurement unavailable.');
     const counts = {} as Record<ModerationReconciliationPhase, number>;

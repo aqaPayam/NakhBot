@@ -4,6 +4,14 @@ import { sql, type RawBuilder } from 'kysely';
 import type { NakhDatabase } from './database.js';
 import { supportMetadataStatement, appealMetadataStatement } from './m7-queue-statements.js';
 import { supportUnansweredStatement } from './support-store.js';
+import { MODERATION_RECONCILIATION_PHASES } from '@nakh/application';
+import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
+import {
+  moderationIntegrityPhaseStatement,
+  moderationIntegrityStatement,
+  PostgresModerationIntegrityMetricsStore,
+} from './moderation-integrity-metrics-store.js';
+import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 export async function explainM7Queries(
   database: NakhDatabase,
   input: Readonly<{
@@ -26,6 +34,13 @@ export async function explainM7Queries(
     pendingAge: sql`SELECT submitted_at FROM moderation.reports WHERE status IN ('submitted','pending_review') ORDER BY submitted_at,id LIMIT 1`,
     inReviewAge: sql`SELECT updated_at FROM moderation.moderation_reviews WHERE status = 'in_review' ORDER BY updated_at,id LIMIT 1`,
     completedScan: sql`SELECT finished_at FROM billing.reconciliation_runs WHERE run_type = 'moderation' AND status = 'succeeded' ORDER BY finished_at DESC,id DESC LIMIT 1`,
+    ...Object.fromEntries(
+      MODERATION_RECONCILIATION_PHASES.map((phase) => [
+        `integrity_${phase}`,
+        moderationIntegrityPhaseStatement(phase),
+      ]),
+    ),
+    integritySnapshot: moderationIntegrityStatement(),
   };
   const plans: Record<string, unknown> = {};
   for (const [name, statement] of Object.entries(statements)) {
@@ -38,9 +53,15 @@ export async function explainM7Queries(
 }
 export async function analyzeM7QueryTables(database: NakhDatabase): Promise<void> {
   await sql`ANALYZE moderation.reports, moderation.moderation_reviews, moderation.user_appeals,
-    support.support_threads, support.support_messages, billing.reconciliation_runs`.execute(
-    database,
-  );
+    support.support_threads, support.support_messages, billing.reconciliation_runs,
+    moderation.report_evidence, moderation.report_snapshots, moderation.moderation_actions,
+    moderation.restriction_episodes, moderation.appeal_unbans, administration.admin_users,
+    administration.admin_action_logs, administration.safety_access_audits,
+    moderation.evidence_access_audits, identity.telegram_identities, identity.account_state_history,
+    platform.audit_logs, notification.notifications, interaction.user_pair_states,
+    matching.matches, chat.chat_sessions, interaction.likes, interaction.feature_unlocks,
+    media.report_photo_evidence_holds, media.photo_variants, media.media_assets,
+    media.profile_photos, profile.profiles, chat.chat_message_snapshots`.execute(database);
 }
 
 async function seed(
@@ -102,7 +123,26 @@ export async function measureM7SyntheticPlans(
     try {
       await connection.transaction().execute(async (tx) => {
         await seed(tx, prefix, volume, at, old);
+        await seedM7IntegrityPlans(tx, prefix, volume, at);
         await analyzeM7QueryTables(tx);
+        // Reject empty-phase evidence. Count metadata in PostgreSQL; identities never enter artifacts.
+        for (const phase of MODERATION_RECONCILIATION_PHASES) {
+          const row = (
+            await sql<{ count: string }>`SELECT count(*)::text AS count
+            FROM (${MODERATION_INTEGRITY_SOURCES[phase]}) source`.execute(tx)
+          ).rows[0]!;
+          if (Number(row.count) < volume) throw new Error('M7 integrity fixture incomplete.');
+        }
+        // Actual production sampler under repeated fixture load, never synthetic SQL substitutes.
+        for (let sample = 0; sample < 3; sample++) {
+          const current = await new PostgresModerationIntegrityMetricsStore(tx).measure();
+          if (
+            current.counts.evidence < volume ||
+            current.counts.episodes < volume ||
+            current.counts.internal_blocks < Math.floor(volume / 2)
+          )
+            throw new Error('M7 integrity drift fixture incomplete.');
+        }
         const ids = (
           await sql<{
             userId: string;

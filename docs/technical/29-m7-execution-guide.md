@@ -1,6 +1,29 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: live aggregate integrity sampling with shared reconciliation predicates
+## Current increment: production-volume integrity plan evidence
+
+The M7 performance gate now measures each of the ten actual integrity phase statements and the
+combined production sampler alongside the eight existing queue/admission/age queries. The default
+fixture populates at least 20,000 entities per integrity phase, across nineteen seeded tables, with
+verified administrator identity metadata, account-action audit/attempt/history/notice joins, profile
+capture drift, submitted appeals, and blocked pairs with a mix of active and revoked chat/like unlocks.
+Three repeated production samples must detect the seeded capture, episode and blocked-pair drift.
+Every query, including the combined snapshot, retains the existing 1,500 ms execution budget.
+Whole-phase aggregates may use sequential scans; queue/admission index requirements remain intact.
+
+The blocked-pair predicate follows indexed match/like relations to unlocks instead of scanning all
+active unlocks per pair. Both the bounded scanner and the sampler use this same predicate. Fixture
+writes use the existing isolated synthetic session, always roll back, and restore trigger enforcement
+on success and failure. PostgreSQL integration evidence checks both cleanup paths. Plan artifacts
+export only allowlisted timing, row counts and index names; no predicates, bound identities, private
+prose, ciphertext, object references, keys or raw SQL enter the retained evidence.
+
+This is metadata-volume evidence, not proof of every branch or native command admission. Separate
+volume scenarios for retained photo/encrypted captures and terminal appeal/unban history remain open,
+along with real exporter/alert routing, authenticated health API composition,
+concrete session/MFA bootstrap, provider/operator staging, and M8/M9 acceptance.
+
+## Previous increment: live aggregate integrity sampling with shared reconciliation predicates
 
 The scheduler now samples current violating entities in all ten moderation integrity phases every
 thirty seconds. One PostgreSQL statement gives the counts a shared database snapshot and sample
