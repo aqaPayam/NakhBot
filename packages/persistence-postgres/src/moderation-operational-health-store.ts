@@ -9,7 +9,10 @@ import {
 } from '@nakh/application';
 import type { M7OperationalHealth } from '@nakh/contracts';
 import type { NakhDatabase } from './database.js';
-import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
+import {
+  MODERATION_INTEGRITY_SOURCES,
+  MODERATION_INTEGRITY_FLAGS,
+} from './moderation-integrity-sources.js';
 import { withModerationIntegrityRead } from './moderation-integrity-metrics-store.js';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 import { PostgresAdminQueueIdentityStore } from './queue-actions-store.js';
@@ -26,7 +29,12 @@ export function moderationOperationalHealthStatement(): RawBuilder<HealthRow> {
     COALESCE(floor(greatest(0,extract(epoch FROM statement_timestamp() - (
       SELECT updated_at FROM moderation.moderation_reviews WHERE status = 'in_review' ORDER BY updated_at,id LIMIT 1)))),0)::text AS "oldestInReviewAgeSeconds",
     (SELECT count(*)::text FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
-      WHERE probe."sourceMatches" IS NOT TRUE OR probe."hasOneSystemAction" IS NOT TRUE) AS "thresholdMismatchCount",
+      WHERE ${sql.join(
+        MODERATION_INTEGRITY_FLAGS.episodes.map(
+          (flag) => sql`${sql.ref(`probe.${flag}`)} IS NOT TRUE`,
+        ),
+        sql` OR `,
+      )}) AS "thresholdMismatchCount",
     (SELECT count(*)::text FROM (${MODERATION_INTEGRITY_SOURCES.admin_logs}) probe
       WHERE probe."hasAccess" IS NOT TRUE OR probe."hasAction" IS NOT TRUE) AS "adminLogMismatchCount",
     (SELECT count(*)::text FROM (${MODERATION_INTEGRITY_SOURCES.evidence}) probe

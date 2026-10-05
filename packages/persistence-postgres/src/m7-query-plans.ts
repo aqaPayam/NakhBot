@@ -75,7 +75,7 @@ export async function analyzeM7QueryTables(database: NakhDatabase): Promise<void
     moderation.restriction_episodes, moderation.appeal_unbans, administration.admin_users,
     administration.admin_action_logs, administration.safety_access_audits,
     moderation.evidence_access_audits, identity.telegram_identities, identity.account_state_history,
-    platform.audit_logs, notification.notifications, interaction.user_pair_states,
+    platform.audit_logs, notification.notifications, notification.notification_deliveries, interaction.user_pair_states,
     matching.matches, chat.chat_sessions, interaction.likes, interaction.feature_unlocks,
     media.report_photo_evidence_holds, media.photo_variants, media.media_assets,
     media.profile_photos, profile.profiles, chat.chat_message_snapshots`.execute(database);
@@ -171,6 +171,16 @@ export async function measureM7SyntheticPlans(
         await seed(tx, prefix, volume, at, old);
         await seedM7IntegrityPlans(tx, prefix, volume, at);
         await analyzeM7QueryTables(tx);
+        const thresholdChains = (
+          await sql<{ count: string }>`SELECT count(*)::text AS count
+          FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe WHERE probe.id IN (
+            SELECT md5(${prefix} || 'episode' || n)::uuid FROM generate_series(1,${volume}) n)
+            AND probe."hasOneSystemAction"
+            AND probe."hasRestrictionHistory" AND probe."hasRestrictionAudit" AND probe."hasRestrictionNotice"
+            AND NOT probe."hasResolutionAttempt"`.execute(tx)
+        ).rows[0]!;
+        if (Number(thresholdChains.count) !== volume)
+          throw new Error('M7 threshold chain fixture incomplete.');
         // Reject empty-phase evidence. Count metadata in PostgreSQL; identities never enter artifacts.
         for (const phase of MODERATION_RECONCILIATION_PHASES) {
           const row = (

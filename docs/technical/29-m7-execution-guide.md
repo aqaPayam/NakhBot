@@ -1,6 +1,38 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: native session authority across command waits
+## Current increment: historical threshold restriction chain integrity
+
+Threshold reconciliation, live aggregate sampling and operational health now share checks for the
+original system restriction chain. Besides its source Report and one correctly bound system
+action, an episode requires matching eligible-prior-state restriction history, its exact security
+audit with count/reason and command/request bindings, and the correct deduplicated critical notice
+with a Telegram Delivery fact. The episode's precise admission time is compared to the owning
+action's persisted millisecond time. Missing action evidence is reported once without cascading
+dependent history/audit/notice findings. No prose, reporter identity or notification payload leaves
+the predicates; findings retain only their fixed code and opaque episode identity.
+
+A resolved episode also requires its separately successful, actor-bound native unrestriction
+attempt and matching resolution action/reason/time. Later bans, restoration, role revocation and
+Report decisions do not invalidate the original historical chain. Current Account state is not
+used as a substitute for its original AccountStateHistory. Delivery admission is checked, not
+provider success; transient outbox facts may expire and are not required forever by this scan.
+
+PostgreSQL evidence creates actual threshold restrictions, detects and repairs history, audit,
+notice and missing Delivery drift consistently across paged scan, concurrent aggregate sampling
+and health, and validates native unrestriction followed by a separate ban. Corrupting the successful
+resolution attempt produces a distinct finding. Test-only corruption restores ordinary pooled
+guards. Existing twenty-candidate concurrency evidence continues to require one full restriction.
+All 27 plan gates now exercise 20,000 synthetic system restriction chains with intentionally invalid
+resolutions; artifact schema 6 records this scope and 21 populated tables, without identities or
+restricted data. These fixtures prove query coverage, not native admission or provider delivery.
+
+Migration 77 and the catalog remain unchanged. Exact historical distinct-reporter cardinality
+still needs admission-time evidence: recomputing from today's Reports can include transactions
+that were not committed when the episode began. This increment does not claim that proof. Concrete
+MFA provider/enrollment and audited provisioning, encrypted-capture integrity, retained-photo and
+unrestriction volume branches, exporter/alert routing, provider/operator staging and M8/M9 remain open.
+
+## Previous increment: native session authority across command waits
 
 The native session factory and explicit HTTP session host now impose a monotonic native-session
 requirement on their trusted database owner. Native authorization facts require current MFA before

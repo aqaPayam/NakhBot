@@ -48,9 +48,10 @@ try {
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 5,
+        schemaVersion: 6,
         fixtureScale: volume,
-        fixtureTables: 20,
+        fixtureTables: 21,
+        thresholdChains: { systemRestrictions: volume, invalidResolutions: volume },
         integrityPhases: MODERATION_RECONCILIATION_PHASES,
         minimumRowsPerIntegrityPhase: volume,
         repeatedSnapshotSamples: 3,
@@ -58,7 +59,7 @@ try {
         repeatedTerminalSnapshotSamples: 3,
         repeatedTerminalOperationalHealthSamples: 3,
         fixtureScope:
-          'metadata-capture-drift-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
+          'metadata-capture-drift-threshold-chains-invalid-resolutions-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
         remainingVolumeBranches: ['retained-photo', 'encrypted-capture', 'unrestrict'],
         maximumExecutionMs: 1500,
         requiredIndexes,

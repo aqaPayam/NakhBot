@@ -59,6 +59,33 @@ export async function seedM7IntegrityPlans(
       md5(${prefix} || 'notice' || n)::uuid,md5(${prefix} || 'action-command' || n)::uuid,
       md5(${prefix} || 'action-request' || n)::uuid,repeat('d',64),'synthetic_fixture',${at}::timestamptz
     FROM generate_series(1,${volume}) n`.execute(database);
+  // Exercise every original threshold chain at volume. These are synthetic metadata, not
+  // admission evidence: the deliberately invalid resolved episodes above remain drift.
+  await sql`INSERT INTO platform.audit_logs (id,category,event_type,actor_type,subject_type,subject_id,result_code,metadata_schema_version,metadata,request_id,command_id,occurred_at)
+    SELECT md5(${prefix} || 'threshold-audit' || n)::uuid,'security','moderation.threshold-restriction.v1','system',
+      'user',md5(${prefix} || 'target' || (n % 64))::uuid,'restricted',1,
+      jsonb_build_object('reasonCode','distinct_reporter_threshold','distinctReporterCount',5),
+      md5(${prefix} || 'threshold-request' || n)::uuid,md5(${prefix} || 'threshold-command' || n)::uuid,${at}::timestamptz
+    FROM generate_series(1,${volume}) n`.execute(database);
+  await sql`INSERT INTO identity.account_state_history (id,user_id,previous_state,next_state,reason_code,actor_type,changed_at)
+    SELECT md5(${prefix} || 'threshold-history' || n)::uuid,md5(${prefix} || 'target' || (n % 64))::uuid,
+      'active','restricted','distinct_reporter_threshold','system',${at}::timestamptz
+    FROM generate_series(1,${volume}) n`.execute(database);
+  await sql`INSERT INTO notification.notifications (id,user_id,notification_type,category,title_key,body_key,deduplication_key)
+    SELECT md5(${prefix} || 'threshold-notice' || n)::uuid,md5(${prefix} || 'target' || (n % 64))::uuid,
+      'restriction_warning','restriction','notification.restriction_warning.title','notification.restriction_warning.body',
+      'moderation-threshold:' || md5(${prefix} || 'episode' || n)::uuid::text || ':restriction'
+    FROM generate_series(1,${volume}) n`.execute(database);
+  await sql`INSERT INTO notification.notification_deliveries (id,notification_id,channel)
+    SELECT md5(${prefix} || 'threshold-delivery' || n)::uuid,md5(${prefix} || 'threshold-notice' || n)::uuid,'telegram'
+    FROM generate_series(1,${volume}) n`.execute(database);
+  await sql`INSERT INTO moderation.moderation_actions (id,action_type,actor_type,target_user_id,source_report_id,restriction_episode_id,audit_log_id,notification_id,command_id,request_id,request_digest,reason_code,occurred_at)
+    SELECT md5(${prefix} || 'threshold-action' || n)::uuid,'restrict_user','system',
+      md5(${prefix} || 'target' || (n % 64))::uuid,md5(${prefix} || 'report' || n)::uuid,
+      md5(${prefix} || 'episode' || n)::uuid,md5(${prefix} || 'threshold-audit' || n)::uuid,
+      md5(${prefix} || 'threshold-notice' || n)::uuid,md5(${prefix} || 'threshold-command' || n)::uuid,
+      md5(${prefix} || 'threshold-request' || n)::uuid,repeat('f',64),'distinct_reporter_threshold',${at}::timestamptz
+    FROM generate_series(1,${volume}) n`.execute(database);
   await sql`INSERT INTO interaction.user_pair_states (user_low_id,user_high_id,state,reason_code,changed_at)
     SELECT LEAST(md5(${prefix} || 'pair-a' || n)::uuid,md5(${prefix} || 'pair-b' || n)::uuid),
       GREATEST(md5(${prefix} || 'pair-a' || n)::uuid,md5(${prefix} || 'pair-b' || n)::uuid),

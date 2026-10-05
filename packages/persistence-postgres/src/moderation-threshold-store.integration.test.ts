@@ -5,6 +5,12 @@ import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { ModerationThresholdWrite } from '@nakh/application';
+import type { PrepareAccountModerationActionCommand } from '@nakh/contracts';
+import { PostgresConfirmedAccountActions } from './confirmed-account-store.js';
+import { confirmationFixture } from './testing/admin-confirmation.js';
+import { createReportFixtureAdmin } from './testing/report-fixture.js';
+import { PostgresModerationIntegrityMetricsStore } from './moderation-integrity-metrics-store.js';
+import { PostgresM7OperationalHealthStore } from './moderation-operational-health-store.js';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import {
@@ -192,6 +198,260 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
 
   afterAll(async () => {
     await database?.destroy();
+  });
+
+  async function nativeEpisode(): Promise<{
+    targetUserId: string;
+    write: ModerationThresholdWrite;
+  }> {
+    const targetUserId = await createUser(database, true);
+    const reporters = await Promise.all(Array.from({ length: 5 }, () => createUser(database)));
+    const reports = reporters.map((reporterUserId) => ({
+      id: randomUUID(),
+      reporterUserId,
+      targetUserId,
+      submittedAt: new Date(),
+    }));
+    await seedFocusedReports(database, reports);
+    const write = thresholdWrite(reports[4]!.id);
+    expect((await new PostgresModerationThresholdStore(database).evaluate(write)).outcome).toBe(
+      'create_restriction_episode',
+    );
+    return { targetUserId, write };
+  }
+  async function corrupt(work: (tx: NakhDatabase) => Promise<void>): Promise<void> {
+    await database.transaction().execute(async (tx) => {
+      await sql`SET LOCAL session_replication_role=replica`.execute(tx);
+      await work(tx);
+    });
+  }
+
+  it('detects and clears each native threshold chain drift consistently across scans, health and aggregate sampling', async () => {
+    const { write } = await nativeEpisode();
+    const cursor = {
+      phase: 'episodes' as const,
+      lastId: reconciliationCursorBefore(write.restrictionEpisodeId),
+    };
+    const history = await database
+      .selectFrom('identity.account_state_history')
+      .selectAll()
+      .where('id', '=', write.accountHistoryId)
+      .executeTakeFirstOrThrow();
+    const audit = await database
+      .selectFrom('platform.audit_logs')
+      .selectAll()
+      .where('id', '=', write.auditId)
+      .executeTakeFirstOrThrow();
+    const notice = await database
+      .selectFrom('notification.notifications')
+      .selectAll()
+      .where('id', '=', write.notificationId)
+      .executeTakeFirstOrThrow();
+    const delivery = await database
+      .selectFrom('notification.notification_deliveries')
+      .selectAll()
+      .where('id', '=', write.notificationDeliveryId)
+      .executeTakeFirstOrThrow();
+    const metrics = new PostgresModerationIntegrityMetricsStore(database),
+      health = new PostgresM7OperationalHealthStore(database);
+    const initialCount = (await metrics.measure()).counts.episodes,
+      initialHealth = (await health.measure()).thresholdMismatchCount;
+    const cases = [
+      {
+        anomaly: 'threshold_episode_history_missing',
+        break: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('identity.account_state_history')
+            .set({ reason_code: 'synthetic_drift' })
+            .where('id', '=', history.id)
+            .execute();
+        },
+        repair: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('identity.account_state_history')
+            .set({ reason_code: history.reason_code })
+            .where('id', '=', history.id)
+            .execute();
+        },
+      },
+      {
+        anomaly: 'threshold_episode_audit_invalid',
+        break: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('platform.audit_logs')
+            .set({ metadata: { privateText: 'Private threshold fixture prose' } })
+            .where('id', '=', audit.id)
+            .execute();
+        },
+        repair: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('platform.audit_logs')
+            .set({ metadata: audit.metadata })
+            .where('id', '=', audit.id)
+            .execute();
+        },
+      },
+      {
+        anomaly: 'threshold_episode_notice_invalid',
+        break: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('notification.notifications')
+            .set({ title_key: 'notification.synthetic.title' })
+            .where('id', '=', notice.id)
+            .execute();
+        },
+        repair: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('notification.notifications')
+            .set({ title_key: notice.title_key })
+            .where('id', '=', notice.id)
+            .execute();
+        },
+      },
+      {
+        anomaly: 'threshold_episode_notice_invalid',
+        break: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .deleteFrom('notification.notification_deliveries')
+            .where('id', '=', delivery.id)
+            .execute();
+        },
+        repair: async (tx: NakhDatabase): Promise<void> => {
+          await tx.insertInto('notification.notification_deliveries').values(delivery).execute();
+        },
+      },
+    ];
+    for (const probe of cases) {
+      await corrupt(probe.break);
+      try {
+        const findings = (await scanRestrictionEpisodes(database, cursor, 1)).findings;
+        expect(findings).toEqual([
+          {
+            anomalyType: probe.anomaly,
+            entityType: 'restriction_episode',
+            entityId: write.restrictionEpisodeId,
+            keyId: write.restrictionEpisodeId,
+            safeDetail: {},
+          },
+        ]);
+        expect(JSON.stringify(findings)).not.toContain('Private threshold fixture prose');
+        const samples = await Promise.all(Array.from({ length: 5 }, () => metrics.measure()));
+        expect(samples.every((sample) => sample.counts.episodes === initialCount + 1)).toBe(true);
+        expect((await health.measure()).thresholdMismatchCount).toBe(initialHealth + 1);
+      } finally {
+        await corrupt(probe.repair);
+      }
+      expect((await scanRestrictionEpisodes(database, cursor, 1)).findings).toEqual([]);
+      expect((await metrics.measure()).counts.episodes).toBe(initialCount);
+      expect((await health.measure()).thresholdMismatchCount).toBe(initialHealth);
+    }
+    // LOCAL test-only corruption must not weaken a pooled connection after commit.
+    expect(
+      (
+        await sql<{ session_replication_role: string }>`SHOW session_replication_role`.execute(
+          database,
+        )
+      ).rows[0]?.session_replication_role,
+    ).toBe('origin');
+  });
+
+  it('preserves a resolved native episode through later Account actions and detects a missing successful resolution attempt', async () => {
+    const { targetUserId, write } = await nativeEpisode(),
+      adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'moderator',
+        assigned_by_admin_id: adminId,
+        revoked_at: null,
+        revoked_by_admin_id: null,
+      })
+      .execute();
+    const f = await confirmationFixture(database, adminId),
+      actions = new PostgresConfirmedAccountActions(database, f.tokens, f.key);
+    const apply = async (
+      action: 'unrestrict_user' | 'ban_user',
+      version: number,
+    ): Promise<string> => {
+      const command: PrepareAccountModerationActionCommand = {
+        actor: f.actor,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        commandType: 'moderation.apply-account-action',
+        schemaVersion: 1,
+        idempotencyKey: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          adminActionToken: await f.issue({
+            commandCode: 'moderation.apply-account-action',
+            requiredPermission: action,
+            targetType: 'user',
+            targetId: targetUserId,
+            expectedTargetVersion: version,
+          }),
+          expectedTargetVersion: version,
+          reason: 'Authorized historical threshold resolution',
+          action,
+        },
+      };
+      expect(
+        (
+          await actions.execute(
+            {
+              ...command,
+              data: { ...command.data, confirmationToken: await actions.prepare(command, f.actor) },
+            },
+            f.actor,
+          )
+        ).result,
+      ).toBe('succeeded');
+      return command.commandId;
+    };
+    const resolutionCommandId = await apply('unrestrict_user', 2);
+    await apply('ban_user', 3);
+    const cursor = {
+      phase: 'episodes' as const,
+      lastId: reconciliationCursorBefore(write.restrictionEpisodeId),
+    };
+    expect(
+      (
+        await database
+          .selectFrom('identity.accounts')
+          .select('state')
+          .where('user_id', '=', targetUserId)
+          .executeTakeFirstOrThrow()
+      ).state,
+    ).toBe('banned');
+    expect((await scanRestrictionEpisodes(database, cursor, 1)).findings).toEqual([]);
+    await corrupt(async (tx) => {
+      await tx
+        .updateTable('administration.admin_action_logs')
+        .set({ result: 'rejected', safe_code: 'forbidden' })
+        .where('command_id', '=', resolutionCommandId)
+        .execute();
+    });
+    try {
+      expect((await scanRestrictionEpisodes(database, cursor, 1)).findings).toEqual([
+        {
+          anomalyType: 'threshold_episode_resolution_missing',
+          entityType: 'restriction_episode',
+          entityId: write.restrictionEpisodeId,
+          keyId: write.restrictionEpisodeId,
+          safeDetail: {},
+        },
+      ]);
+    } finally {
+      await corrupt(async (tx) => {
+        await tx
+          .updateTable('administration.admin_action_logs')
+          .set({ result: 'succeeded', safe_code: 'account_unrestrict_user' })
+          .where('command_id', '=', resolutionCommandId)
+          .execute();
+      });
+    }
+    expect((await scanRestrictionEpisodes(database, cursor, 1)).findings).toEqual([]);
   });
 
   it('counts later commits when the fifth report transaction began first', async () => {

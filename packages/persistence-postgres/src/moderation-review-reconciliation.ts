@@ -77,7 +77,15 @@ export async function scanRestrictionEpisodes(
   limit: number,
 ): Promise<Scan> {
   const rows = (
-    await sql<{ id: string; sourceMatches: boolean; hasOneSystemAction: boolean }>`
+    await sql<{
+      id: string;
+      sourceMatches: boolean;
+      hasOneSystemAction: boolean;
+      hasRestrictionHistory: boolean;
+      hasRestrictionAudit: boolean;
+      hasRestrictionNotice: boolean;
+      hasResolutionAttempt: boolean;
+    }>`
 SELECT * FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
     WHERE ${cursor.lastId ?? null}::uuid IS NULL OR probe.id > ${cursor.lastId ?? null}::uuid
     ORDER BY probe.id LIMIT ${limit}
@@ -88,6 +96,10 @@ SELECT * FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
     for (const anomalyType of [
       ...(!row.sourceMatches ? ['threshold_episode_source_mismatch'] : []),
       ...(!row.hasOneSystemAction ? ['threshold_episode_action_missing'] : []),
+      ...(!row.hasRestrictionHistory ? ['threshold_episode_history_missing'] : []),
+      ...(!row.hasRestrictionAudit ? ['threshold_episode_audit_invalid'] : []),
+      ...(!row.hasRestrictionNotice ? ['threshold_episode_notice_invalid'] : []),
+      ...(!row.hasResolutionAttempt ? ['threshold_episode_resolution_missing'] : []),
     ])
       findings.push({
         anomalyType,
