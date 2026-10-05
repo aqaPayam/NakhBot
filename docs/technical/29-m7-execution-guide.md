@@ -23,6 +23,17 @@ bootstrap, upgrade and unchanged replay remain required; no schema or catalog ch
 Encrypted-capture integrity, real MFA provider/enrollment/provisioning, exporter/alerts,
 provider/operator staging and M8/M9 acceptance remain open.
 
+The first volume run passed all 379 PostgreSQL tests and every exact fixture/count assertion,
+but combined sampling took 2,331 ms baseline and 6,194 ms terminal. Bounded node diagnostics
+localized the regression to repeated prior-state history scans and sorts, reaching 4,384 ms
+inclusive in the terminal scene. Migration 81 adds a non-unique B-tree keyed by User, next state,
+descending change time and identity, with previous state included. The existing exact restoration
+predicate, latest-row ordering and exclusion of banned prior states for unrestriction remain
+unchanged. The verifier checks relation, access method, readiness, validity, key/include layout
+and absence of expressions or filtering. Empty bootstrap, upgrade from 80 and immutable replay
+are required. Both action and combined plan scenes must use the new index; all fixture sizes
+and 1,500 ms budgets remain unchanged. This repair is unverified until all six CI jobs pass.
+
 ## Previous increment: retained-photo custody at production query volume
 
 The M7 plan gate now adds 20,000 photo evidence chains to both baseline and terminal scenes.

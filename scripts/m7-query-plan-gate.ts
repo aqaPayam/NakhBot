@@ -36,14 +36,18 @@ try {
     ...Object.fromEntries(
       MODERATION_RECONCILIATION_PHASES.map((phase) => [`integrity_${phase}`, undefined]),
     ),
-    integritySnapshot: undefined,
+    integrity_actions: ['account_history_restoration_state_idx'],
+    integritySnapshot: ['account_history_restoration_state_idx'],
     operationalHealth: undefined,
     terminalAcceptedQueue: ['user_appeals_status_submitted_idx'],
     terminalRejectedQueue: ['user_appeals_status_submitted_idx'],
     terminalIntegrityAppeals: undefined,
-    terminalIntegrityActions: undefined,
+    terminalIntegrityActions: ['account_history_restoration_state_idx'],
     terminalIntegrityAdminLogs: undefined,
-    terminalIntegritySnapshot: ['moderation_actions_episode_resolution_idx'],
+    terminalIntegritySnapshot: [
+      'moderation_actions_episode_resolution_idx',
+      'account_history_restoration_state_idx',
+    ],
     terminalOperationalHealth: ['moderation_actions_episode_resolution_idx'],
   };
   await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
