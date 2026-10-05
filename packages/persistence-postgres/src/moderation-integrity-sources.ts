@@ -47,7 +47,14 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
               AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id)))
     )`
     } AS "hasAttempt",
-    history_binding."hasAccountHistory" AS "hasAccountHistory",
+    ${
+      isSystem
+        ? sql`history_binding."hasAccountHistory"`
+        : sql`
+      action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
+      ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`, sql`restoration.previous_state`)}
+    `
+    } AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
       OR bound_notice.id IS NOT NULL AS "hasNotice",
     action.source_report_id IS NULL OR EXISTS (
@@ -81,12 +88,7 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
         AND prior.changed_at <= action.occurred_at
         AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
       ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
-    ) restoration ON true
-    LEFT JOIN LATERAL (
-      SELECT action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-        ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`, sql`restoration.previous_state`)} AS "hasAccountHistory"
-      OFFSET 0
-    ) history_binding ON true`
+    ) restoration ON true`
     }
     LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
       AND bound_audit.actor_type = action.actor_type
@@ -186,20 +188,24 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
         AND EXISTS (SELECT 1 FROM notification.notification_deliveries delivery
           WHERE delivery.notification_id = notice.id AND delivery.channel = 'telegram')
     ) AS "hasRestrictionNotice",
-    episode.status <> 'resolved' OR EXISTS (
-      SELECT 1 FROM moderation.moderation_actions resolution
+    episode.status <> 'resolved' OR resolution_binding.restriction_episode_id IS NOT NULL AS "hasResolutionAttempt"
+    FROM moderation.restriction_episodes episode
+    LEFT JOIN (
+      SELECT DISTINCT resolution.restriction_episode_id, resolution.actor_admin_id,
+        resolution.target_user_id, resolution.reason_code, resolution.occurred_at
+      FROM moderation.moderation_actions resolution
       JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
         AND attempt.command_id = resolution.command_id AND attempt.request_id = resolution.request_id
         AND attempt.request_digest = resolution.request_digest AND attempt.result = 'succeeded'
         AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
-        AND attempt.target_id = episode.target_user_id
-      WHERE resolution.restriction_episode_id = episode.id AND resolution.action_type = 'unrestrict_user'
-        AND resolution.actor_type = 'admin' AND resolution.actor_admin_id = episode.resolved_by_admin_id
-        AND resolution.target_user_id = episode.target_user_id
-        AND resolution.reason_code = episode.resolution_reason_code
-        AND resolution.occurred_at = episode.resolved_at
-    ) AS "hasResolutionAttempt"
-    FROM moderation.restriction_episodes episode
+        AND attempt.target_id = resolution.target_user_id
+      WHERE resolution.restriction_episode_id IS NOT NULL AND resolution.action_type = 'unrestrict_user'
+        AND resolution.actor_type = 'admin'
+    ) resolution_binding ON resolution_binding.restriction_episode_id = episode.id
+      AND resolution_binding.actor_admin_id = episode.resolved_by_admin_id
+      AND resolution_binding.target_user_id = episode.target_user_id
+      AND resolution_binding.reason_code = episode.resolution_reason_code
+      AND resolution_binding.occurred_at = episode.resolved_at
     LEFT JOIN (
       SELECT roster.restriction_episode_id, count(*) AS "count",
         bool_and((report.id IS NOT NULL AND report.reporter_user_id = roster.reporter_user_id
@@ -251,22 +257,26 @@ SELECT thread.id, thread.status <> 'open' OR limits."withinLimit" AS "withinLimi
 SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
     ban.id IS NOT NULL AS "banMatches",
     appeal.status NOT IN ('accepted','rejected') OR review.target_id IS NOT NULL AS "hasReview",
-    NOT EXISTS (SELECT 1 FROM moderation.appeal_unbans unban WHERE unban.appeal_id = appeal.id AND NOT EXISTS (
-      SELECT 1 FROM moderation.moderation_actions action
-      JOIN identity.account_state_history history ON history.id = unban.unban_history_id
-      JOIN administration.admin_action_logs attempt ON attempt.id = unban.admin_action_log_id
-      WHERE action.id = unban.action_id AND appeal.status = 'accepted' AND action.action_type = 'unban_user'
-        AND action.target_user_id = appeal.user_id AND history.user_id = appeal.user_id AND history.previous_state = 'banned'
-        AND history.actor_admin_id = action.actor_admin_id AND history.changed_at = action.occurred_at
-        AND attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
-        AND attempt.command_code = 'moderation.unban-appeal' AND attempt.target_type = 'user_appeal'
-        AND attempt.target_id = appeal.id AND attempt.result = 'succeeded'
-    )) AS "unbanMatches"
+    unban.appeal_id IS NULL OR (unban_action.id IS NOT NULL AND unban_history.id IS NOT NULL
+      AND unban_attempt.id IS NOT NULL) AS "unbanMatches"
     FROM moderation.user_appeals appeal
     -- Non-null ban IDs and unique row IDs make count = 1 equivalent to no other
     -- Appeal for this event. One grouped fact avoids two probes per Appeal.
     JOIN (SELECT ban_state_history_id, count(*) AS "count" FROM moderation.user_appeals
       GROUP BY ban_state_history_id) ban_population ON ban_population.ban_state_history_id = appeal.ban_state_history_id
+    -- The one-unban-per-Appeal primary key and effect primary keys retain one row.
+    LEFT JOIN moderation.appeal_unbans unban ON unban.appeal_id = appeal.id
+    LEFT JOIN moderation.moderation_actions unban_action ON unban_action.id = unban.action_id
+      AND appeal.status = 'accepted' AND unban_action.action_type = 'unban_user'
+      AND unban_action.target_user_id = appeal.user_id
+    LEFT JOIN identity.account_state_history unban_history ON unban_history.id = unban.unban_history_id
+      AND unban_history.user_id = appeal.user_id AND unban_history.previous_state = 'banned'
+      AND unban_history.actor_admin_id = unban_action.actor_admin_id
+      AND unban_history.changed_at = unban_action.occurred_at
+    LEFT JOIN administration.admin_action_logs unban_attempt ON unban_attempt.id = unban.admin_action_log_id
+      AND unban_attempt.admin_user_id = unban_action.actor_admin_id AND unban_attempt.command_id = unban_action.command_id
+      AND unban_attempt.command_code = 'moderation.unban-appeal' AND unban_attempt.target_type = 'user_appeal'
+      AND unban_attempt.target_id = appeal.id AND unban_attempt.result = 'succeeded'
     LEFT JOIN identity.account_state_history ban ON ban.id = appeal.ban_state_history_id
       AND ban.user_id = appeal.user_id AND ban.next_state = 'banned'
     LEFT JOIN (

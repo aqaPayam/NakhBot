@@ -36,6 +36,17 @@ one result per Appeal and still identifies a damaged multi-row population. Separ
 unban checks remain unchanged. No scale, timeout, memory, migration, index requirement or 1,500 ms
 budget is relaxed. The increment remains unverified until all six exact-head jobs pass.
 
+That repair passed all 380 PostgreSQL tests but increased history work: 45,024 probes rather
+than 35,024, while appeal-unban presence still made 40,021 individual probes. Baseline/terminal
+sampling failed at 1,511/1,770 ms. The admin-history rewrite is reverted to its prior guarded
+EXISTS. Separate unban facts now join the uniquely owned link and primary-key action/history/
+attempt rows once, with all original status, actor, User, command, time and previous-state checks.
+Missing links remain valid acceptance without unban; damaged links remain failures. Episode
+resolution deduplicates the complete episode/actor/target/reason/time tuple after the same
+successful attempt request/digest/command/subject checks, retaining one row per episode and exact
+existence semantics for multiple matching resolutions. The partial covering resolution index,
+all native drift/repair evidence, and unchanged scale and timing gates remain required.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,
