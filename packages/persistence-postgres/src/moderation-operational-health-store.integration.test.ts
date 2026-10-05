@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createDatabase, type NakhDatabase } from './database.js';
+import { createDatabase, REPORT_SNAPSHOT_STORED_COLUMNS, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createReportFixtureAdmin, createRetainedReportPhoto } from './testing/report-fixture.js';
@@ -138,7 +138,7 @@ describe.skipIf(url === undefined)('native operational health authority and meta
       store = new PostgresM7OperationalHealthStore(database);
     const snapshot = await database
       .selectFrom('moderation.report_snapshots')
-      .selectAll()
+      .select(REPORT_SNAPSHOT_STORED_COLUMNS)
       .where('report_evidence_id', '=', fixture.evidenceId)
       .executeTakeFirstOrThrow();
     const healthy = await store.measure();

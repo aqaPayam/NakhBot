@@ -12,7 +12,7 @@ const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78,
+    78, 79,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -83,7 +83,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        79 - baseline,
+        80 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (baseline === 78) {
@@ -225,6 +225,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000077_m7_admin_sessions.sql',
         '000078_m7_episode_resolution_index.sql',
         '000079_m7_threshold_admission_witnesses.sql',
+        '000080_m7_snapshot_shape_projection.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -298,9 +299,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000077_m7_admin_sessions.sql');
       expect(verified).toContain('000078_m7_episode_resolution_index.sql');
       expect(verified).toContain('000079_m7_threshold_admission_witnesses.sql');
+      expect(verified).toContain('000080_m7_snapshot_shape_projection.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(79);
+      expect(replay.existing).toHaveLength(80);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

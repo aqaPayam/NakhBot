@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { sql, type Selectable } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, type NakhDatabase, type ReconciliationRunTable } from './database.js';
+import { REPORT_SNAPSHOT_STORED_COLUMNS } from './database.js';
 import { runMigrations } from './migrations.js';
 import { createRetainedReportPhoto } from './testing/report-fixture.js';
 import { PostgresModerationReconciliationStore } from './moderation-reconciliation-store.js';
@@ -25,7 +26,7 @@ describe.skipIf(url === undefined)('bounded M7 report/evidence reconciliation', 
     const photo = await createRetainedReportPhoto(database);
     const snapshot = await database
       .selectFrom('moderation.report_snapshots')
-      .selectAll()
+      .select(REPORT_SNAPSHOT_STORED_COLUMNS)
       .where('report_evidence_id', '=', photo.evidenceId)
       .executeTakeFirstOrThrow();
     // Disposable corruption is isolated to one connection; ordinary writes cannot delete captures.

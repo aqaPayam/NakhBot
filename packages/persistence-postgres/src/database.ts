@@ -1,4 +1,10 @@
-import { Kysely, PostgresDialect, type ColumnType, type Generated } from 'kysely';
+import {
+  Kysely,
+  PostgresDialect,
+  type ColumnType,
+  type Generated,
+  type GeneratedAlways,
+} from 'kysely';
 import type {
   AccountState,
   ProfileChangeDecision,
@@ -1057,8 +1063,24 @@ export interface ReportSnapshotTable {
   nonce: Buffer;
   ciphertext: Buffer;
   content_sha256: string;
+  metadata_shape_valid: GeneratedAlways<boolean>;
   created_at: Generated<Date>;
 }
+
+/** Original stored inputs only; generated shape is recomputed when recovery restores a capture. */
+export const REPORT_SNAPSHOT_STORED_COLUMNS = [
+  'id',
+  'report_id',
+  'report_evidence_id',
+  'snapshot_type',
+  'schema_version',
+  'encryption_key_id',
+  'encryption_key_version',
+  'nonce',
+  'ciphertext',
+  'content_sha256',
+  'created_at',
+] as const;
 
 export interface EvidenceAccessAuditTable {
   id: string;

@@ -12,7 +12,8 @@ import {
 import { normalizeUserPair } from '@nakh/domain';
 import type { PrepareAccountModerationActionCommand } from '@nakh/contracts';
 import { PostgresConfirmedAccountActions } from './confirmed-account-store.js';
-import { createDatabase, type NakhDatabase } from './database.js';
+import { createDatabase, REPORT_SNAPSHOT_STORED_COLUMNS, type NakhDatabase } from './database.js';
+import { PostgresM7OperationalHealthStore } from './moderation-operational-health-store.js';
 import { runMigrations } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import {
@@ -83,7 +84,7 @@ describe.skipIf(url === undefined)(
       const photo = await createRetainedReportPhoto(database);
       const snapshot = await database
         .selectFrom('moderation.report_snapshots')
-        .selectAll()
+        .select(REPORT_SNAPSHOT_STORED_COLUMNS)
         .where('report_evidence_id', '=', photo.evidenceId)
         .executeTakeFirstOrThrow();
       const store = new PostgresModerationIntegrityMetricsStore(database);
@@ -132,6 +133,46 @@ describe.skipIf(url === undefined)(
           .where('entity_id', '=', photo.reportId)
           .execute(),
       ).toHaveLength(1);
+    });
+    it('recomputes stored shape after privileged input drift and forbids caller-supplied validity', async () => {
+      const photo = await createRetainedReportPhoto(database);
+      const store = new PostgresModerationIntegrityMetricsStore(database),
+        health = new PostgresM7OperationalHealthStore(database);
+      const baseline = await store.measure(),
+        healthBaseline = await health.measure();
+      await expect(
+        sql`UPDATE moderation.report_snapshots SET metadata_shape_valid=false WHERE report_evidence_id=${photo.evidenceId}::uuid`.execute(
+          database,
+        ),
+      ).rejects.toMatchObject({ code: '428C9' });
+      await corrupt(async (tx) => {
+        await sql`UPDATE moderation.report_snapshots SET schema_version=2 WHERE report_evidence_id=${photo.evidenceId}::uuid`.execute(
+          tx,
+        );
+      });
+      try {
+        const snapshot = await database
+          .selectFrom('moderation.report_snapshots')
+          .select('metadata_shape_valid')
+          .where('report_evidence_id', '=', photo.evidenceId)
+          .executeTakeFirstOrThrow();
+        expect(snapshot.metadata_shape_valid).toBe(false);
+        for (const sample of await Promise.all(Array.from({ length: 5 }, () => store.measure())))
+          expect(sample.counts.evidence).toBe(baseline.counts.evidence + 1);
+        expect((await health.measure()).snapshotIntegrityFailureCount).toBe(
+          healthBaseline.snapshotIntegrityFailureCount + 1,
+        );
+      } finally {
+        await corrupt(async (tx) => {
+          await sql`UPDATE moderation.report_snapshots SET schema_version=1 WHERE report_evidence_id=${photo.evidenceId}::uuid`.execute(
+            tx,
+          );
+        });
+      }
+      expect((await store.measure()).counts).toEqual(baseline.counts);
+      expect((await health.measure()).snapshotIntegrityFailureCount).toBe(
+        healthBaseline.snapshotIntegrityFailureCount,
+      );
     });
     it('preserves exact capture and custody bindings through joined evidence and clears repaired drift', async () => {
       const photo = await createRetainedReportPhoto(database),

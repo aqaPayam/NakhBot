@@ -37,9 +37,7 @@ SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS 
       LEFT JOIN moderation.report_snapshots snapshot ON snapshot.report_evidence_id = evidence.id
         AND snapshot.report_id = evidence.report_id AND snapshot.snapshot_type = evidence.evidence_type
         AND snapshot.snapshot_type <> 'photo'
-        AND snapshot.schema_version = 1 AND snapshot.encryption_key_version >= 1
-        AND octet_length(snapshot.nonce) = 12 AND octet_length(snapshot.ciphertext) BETWEEN 17 AND 65536
-        AND snapshot.content_sha256 ~ '^[0-9a-f]{64}$'
+        AND snapshot.metadata_shape_valid
       WHERE evidence.evidence_type <> 'photo'
       UNION ALL
 SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS "evidenceType",
@@ -52,9 +50,7 @@ SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS 
       FROM moderation.report_evidence evidence
       LEFT JOIN moderation.report_snapshots snapshot ON snapshot.report_evidence_id = evidence.id
         AND snapshot.report_id = evidence.report_id AND snapshot.snapshot_type = evidence.evidence_type
-        AND snapshot.schema_version = 1 AND snapshot.encryption_key_version >= 1
-        AND octet_length(snapshot.nonce) = 12 AND octet_length(snapshot.ciphertext) BETWEEN 17 AND 65536
-        AND snapshot.content_sha256 ~ '^[0-9a-f]{64}$'
+        AND snapshot.metadata_shape_valid
       LEFT JOIN media.report_photo_evidence_holds hold ON hold.report_evidence_id = evidence.id
       LEFT JOIN media.photo_variants variant ON variant.id = hold.variant_id AND variant.asset_id = hold.asset_id
       LEFT JOIN media.media_assets asset ON asset.id = hold.asset_id

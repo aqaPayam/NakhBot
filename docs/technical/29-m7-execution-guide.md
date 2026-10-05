@@ -6,8 +6,8 @@ The M7 plan gate now adds 20,000 photo evidence chains to both baseline and term
 Each has an exact hold, source photo, thumbnail variant, asset and shape-valid snapshot envelope.
 Source photos are hidden or deleted, so retention is checked independently of current presentation.
 Half retain matching hashes and storage; one quarter has a mismatched held hash and one quarter
-has deleted storage, split between independent asset and variant deletion. The production evidence predicates must identify every intact
-and damaged chain. Three actual aggregate samples require the exact custody-drift delta and no
+has deleted storage, split between independent asset and variant deletion. The production evidence
+predicates must identify every intact and damaged chain. Three actual aggregate samples require the exact custody-drift delta and no
 change to other phases; operational health must preserve its narrower capture-shape count.
 
 Artifact schema 8 records aggregate observed photo counts and 27 populated fixture tables.
@@ -16,7 +16,7 @@ in both scenes. Caller-owned isolated trigger/FK bypass and rollback remain limi
 metadata. Snapshot bytes are shape-valid placeholders, not cryptographic proof; no objects are
 uploaded and this does not prove provider retention, native admission or live operator acceptance.
 The existing native photo capture, retention, cleanup and reveal integration suites remain required.
-No schema or catalog change is introduced. Encrypted-capture integrity, unrestriction volume,
+The catalog is unchanged; the performance repair below introduces migration 80. Encrypted-capture integrity, unrestriction volume,
 concrete MFA provider/enrollment/provisioning, exporter/alerts, provider/operator staging and M8/M9
 acceptance remain open.
 
@@ -48,6 +48,17 @@ remains open. Schema 10 diagnostics retain up to 24 slow nodes using only fixed 
 allowlists, numeric inclusive timing/loops, worker counts and JIT time. Inclusive node times must
 not be added together; repeated probes and startup can now be localized without predicates or
 private data. This instrumentation does not itself claim a performance fix or change any budget.
+The detailed run localized the costly shape filter to the photo snapshot scan: 477 ms standalone
+and 185 ms in the terminal combined query, with no JIT, workers or spill. Migration 80 stores the
+identical schema/key-version/nonce/ciphertext/hash-format predicate as a generated boolean. Every
+input write, including test-only privileged trigger bypass, recomputes it; callers cannot supply
+validity. Reads retain exact Report/evidence/type bindings and photo custody checks. The verifier
+requires a stored, non-null generated column and compares PostgreSQL's canonical expression to
+the exact original predicate. Recovery fixtures select writable inputs and let generation run.
+Native evidence rejects direct validity writes, detects schema drift through concurrent aggregate
+and health reads, and restores the baseline after repair. Empty bootstrap, upgrade from 79 and
+unchanged migration replay are required. This remains shape evidence, not cryptographic validity;
+fixture scale and all budgets remain unchanged.
 
 ## Previous increment: immutable original threshold admission witnesses
 
