@@ -1104,6 +1104,70 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
       });
     }
     expect((await integrity.measure()).counts).toEqual(beforeAuditDrift);
+    for (const metadata of [
+      { reasonCode: 'distinct_reporter_threshold', distinctReporterCount: 6 },
+      { reasonCode: 'wrong_threshold', distinctReporterCount: 5 },
+      { reasonCode: 'distinct_reporter_threshold', distinctReporterCount: 5, extra: true },
+    ]) {
+      await corrupt(async (tx) => {
+        await tx
+          .updateTable('platform.audit_logs')
+          .set({ metadata })
+          .where('id', '=', audits[0]!.id)
+          .execute();
+      });
+      try {
+        expect(
+          (await scanRestrictionEpisodes(database, episodeCursor, 1)).findings.map(
+            (finding) => finding.anomalyType,
+          ),
+        ).toEqual(['threshold_episode_audit_invalid']);
+        for (const sample of await Promise.all(
+          Array.from({ length: 5 }, () => integrity.measure()),
+        ))
+          expect(sample.counts).toEqual({
+            ...beforeAuditDrift,
+            episodes: beforeAuditDrift.episodes + 1,
+          });
+      } finally {
+        await corrupt(async (tx) => {
+          await tx
+            .updateTable('platform.audit_logs')
+            .set({ metadata: audits[0]!.metadata })
+            .where('id', '=', audits[0]!.id)
+            .execute();
+        });
+      }
+      expect((await integrity.measure()).counts).toEqual(beforeAuditDrift);
+    }
+    await corrupt(async (tx) => {
+      await tx
+        .updateTable('notification.notification_deliveries')
+        .set({ channel: 'in_app' })
+        .where('id', '=', deliveries[0]!.id)
+        .execute();
+    });
+    try {
+      expect(
+        (await scanRestrictionEpisodes(database, episodeCursor, 1)).findings.map(
+          (finding) => finding.anomalyType,
+        ),
+      ).toEqual(['threshold_episode_notice_invalid']);
+      for (const sample of await Promise.all(Array.from({ length: 5 }, () => integrity.measure())))
+        expect(sample.counts).toEqual({
+          ...beforeAuditDrift,
+          episodes: beforeAuditDrift.episodes + 1,
+        });
+    } finally {
+      await corrupt(async (tx) => {
+        await tx
+          .updateTable('notification.notification_deliveries')
+          .set({ channel: 'telegram' })
+          .where('id', '=', deliveries[0]!.id)
+          .execute();
+      });
+    }
+    expect((await integrity.measure()).counts).toEqual(beforeAuditDrift);
     await database.connection().execute(async (connection) => {
       await sql`SET session_replication_role = replica`.execute(connection);
       try {

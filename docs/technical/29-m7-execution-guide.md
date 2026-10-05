@@ -78,6 +78,23 @@ and timing gates remain mandatory; neither index alternatives nor planner settin
 Historical unmatched capture content retains its original exact 24-hour window. These remain
 synthetic capture fixtures with no native admission or provider-custody claim.
 
+The historical-window run passed all 380 tests, every required index and every observed fixture
+population, including 20,000 excluded historical captures and unchanged eligible count 77/77.
+Its baseline passed at 1,335 ms; terminal sampling still exceeded the limit at 1,634 ms without
+spills. Episode-chain reads now use exact primary-key audit/notice joins and grouped Telegram
+delivery presence, retaining all original event, actor, User, timestamp, metadata and notice
+conditions. System-history lookups and expected audit metadata are memoizable on their complete
+bindings. Indexed resolution candidates retain every episode/actor/target/reason/time condition;
+successful attempt matching happens before grouping one existence fact per episode, so no limit
+can hide a later valid candidate. Native drift/repair, unchanged populations and all timing/index
+requirements remain mandatory. The increment is still unverified.
+
+Native fifth-reporter admission additionally corrupts audit count, reason and unexpected metadata
+fields independently, then Telegram admission presence. Each must produce one exact episode
+finding and one episode-count increase across five concurrent samples, preserve every other
+phase, and restore the full baseline after repair. This verifies exact metadata equality and
+channel-specific delivery admission without claiming provider delivery success.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,
