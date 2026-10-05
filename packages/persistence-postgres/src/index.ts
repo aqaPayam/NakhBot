@@ -195,3 +195,4 @@ export * from './prepare-selected-report-photo-action-store.js';
 export * from './selected-report-evidence-metadata-store.js';
 export * from './prepare-selected-report-evidence-reveal-store.js';
 export * from './audited-report-photo-store.js';
+export * from './prepare-selected-report-internal-block-store.js';

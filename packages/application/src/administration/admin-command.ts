@@ -138,7 +138,9 @@ export function validateAdminCommandAttempt(attempt: AdminCommandAttempt): void 
           (attempt.commandCode === 'moderation.apply-account-action' &&
             attempt.targetType === 'user') ||
           (attempt.commandCode === 'moderation.apply-photo-action' &&
-            attempt.targetType === 'photo')
+            attempt.targetType === 'photo') ||
+          (attempt.commandCode === 'moderation.change-internal-block' &&
+            attempt.targetType === 'user_pair')
         ))) ||
     (attempt.targetType === 'user_pair') !== (attempt.targetPair !== undefined)
   )

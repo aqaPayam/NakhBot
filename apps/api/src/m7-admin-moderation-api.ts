@@ -27,6 +27,7 @@ import type {
   PrepareSelectedReportReviewHandler,
   PrepareSelectedReportAccountActionHandler,
   PrepareSelectedReportPhotoActionHandler,
+  PrepareSelectedReportInternalBlockHandler,
   GetSelectedReportEvidenceMetadataHandler,
   PrepareSelectedReportEvidenceRevealHandler,
   ConfirmedAppealCommands,
@@ -109,6 +110,10 @@ import {
   type GetSelectedReportEvidenceMetadataQuery,
   PrepareSelectedReportEvidenceRevealQuerySchema,
   PreparedReportEvidenceRevealSchema,
+  PrepareSelectedReportInternalBlockQuerySchema,
+  PreparedReportInternalBlockSchema,
+  type PrepareSelectedReportInternalBlockQuery,
+  type PreparedReportInternalBlock,
   type PrepareSelectedReportEvidenceRevealQuery,
   type PreparedReportEvidenceReveal,
   ReportEvidenceMetadataSchema,
@@ -183,6 +188,7 @@ const BOUNDARY = Symbol('M7_MODERATION_BOUNDARY'),
   SELECTED_REPORT_REVIEW = Symbol('M7_SELECTED_REPORT_REVIEW'),
   SELECTED_REPORT_ACCOUNT = Symbol('M7_SELECTED_REPORT_ACCOUNT'),
   SELECTED_REPORT_PHOTO = Symbol('M7_SELECTED_REPORT_PHOTO'),
+  SELECTED_REPORT_INTERNAL_BLOCK = Symbol('M7_SELECTED_REPORT_INTERNAL_BLOCK'),
   SELECTED_REPORT_EVIDENCE = Symbol('M7_SELECTED_REPORT_EVIDENCE'),
   SELECTED_REPORT_EVIDENCE_REVEAL = Symbol('M7_SELECTED_REPORT_EVIDENCE_REVEAL'),
   REPORT_ACCOUNT_ACTIONS = Symbol('M7_REPORT_ACCOUNT_ACTIONS'),
@@ -210,6 +216,7 @@ export interface M7AdminModerationApiOptions {
   readonly appealUnbans?: Pick<ConfirmedAppealCommands, 'prepare' | 'execute'>;
   readonly reviewActions?: Pick<PrepareReviewActionHandler, 'execute'>;
   readonly selectedReportPhoto?: Pick<PrepareSelectedReportPhotoActionHandler, 'execute'>;
+  readonly selectedReportInternalBlock?: Pick<PrepareSelectedReportInternalBlockHandler, 'execute'>;
   readonly selectedReportEvidence?: Pick<GetSelectedReportEvidenceMetadataHandler, 'execute'>;
   readonly selectedReportEvidenceReveal?: Pick<
     PrepareSelectedReportEvidenceRevealHandler,
@@ -861,6 +868,34 @@ class SelectedReportPhotoController {
   }
 }
 @Controller('v1/admin/moderation/reports')
+class SelectedReportInternalBlockController {
+  public constructor(
+    @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
+    @Inject(SELECTED_REPORT_INTERNAL_BLOCK)
+    private readonly actions: NonNullable<
+      M7AdminModerationApiOptions['selectedReportInternalBlock']
+    >,
+  ) {}
+  @Post('internal-block-selection')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  public async prepare(
+    @Req() request: FastifyRequest,
+    @Body() body: unknown,
+  ): Promise<PreparedReportInternalBlock> {
+    const actor = await this.boundary.actor(request, 'admin');
+    const query = this.boundary.parse<PrepareSelectedReportInternalBlockQuery>(
+      PrepareSelectedReportInternalBlockQuerySchema,
+      body,
+      actor,
+    );
+    return this.boundary.result(PreparedReportInternalBlockSchema, () =>
+      this.actions.execute(query, actor),
+    );
+  }
+}
+@Controller('v1/admin/moderation/reports')
 class SelectedReportEvidenceController {
   public constructor(
     @Inject(BOUNDARY) private readonly boundary: M7ApiBoundary,
@@ -1285,6 +1320,9 @@ export class M7AdminModerationApiModule {
         ...(options.selectedReportReview === undefined ? [] : [SelectedReportReviewController]),
         ...(options.selectedReportAccount === undefined ? [] : [SelectedReportAccountController]),
         ...(options.selectedReportPhoto === undefined ? [] : [SelectedReportPhotoController]),
+        ...(options.selectedReportInternalBlock === undefined
+          ? []
+          : [SelectedReportInternalBlockController]),
         ...(options.selectedReportEvidence === undefined ? [] : [SelectedReportEvidenceController]),
         ...(options.selectedReportEvidenceReveal === undefined
           ? []
@@ -1300,6 +1338,14 @@ export class M7AdminModerationApiModule {
         ...(options.reviewDecisions === undefined ? [] : [ReviewDecisionController]),
       ],
       providers: [
+        ...(options.selectedReportInternalBlock === undefined
+          ? []
+          : [
+              {
+                provide: SELECTED_REPORT_INTERNAL_BLOCK,
+                useValue: options.selectedReportInternalBlock,
+              },
+            ]),
         ...(options.selectedReportEvidenceReveal === undefined
           ? []
           : [

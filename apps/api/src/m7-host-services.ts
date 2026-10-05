@@ -19,6 +19,7 @@ import {
   PostgresPrepareSelectedReportReviewHandler,
   PostgresPrepareSelectedReportAccountActionHandler,
   PostgresPrepareSelectedReportPhotoActionHandler,
+  PostgresPrepareSelectedReportInternalBlockHandler,
   PostgresGetSelectedReportEvidenceMetadataHandler,
   PostgresPrepareSelectedReportEvidenceRevealHandler,
   PostgresPrepareReportAccountActionHandler,
@@ -110,6 +111,11 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
       input.adminKey,
     ),
     selectedReportPhoto: new PostgresPrepareSelectedReportPhotoActionHandler(
+      input.database,
+      input.adminTokens,
+      input.adminKey,
+    ),
+    selectedReportInternalBlock: new PostgresPrepareSelectedReportInternalBlockHandler(
       input.database,
       input.adminTokens,
       input.adminKey,

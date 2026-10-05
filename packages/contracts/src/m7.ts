@@ -405,6 +405,21 @@ export const PreparedReportEvidenceRevealSchema = Type.Object(
   { additionalProperties: false },
 );
 export type PreparedReportEvidenceReveal = Static<typeof PreparedReportEvidenceRevealSchema>;
+export const PrepareSelectedReportInternalBlockQuerySchema = Type.Object(
+  {
+    ...GetSelectedReportEvidenceMetadataQuerySchema.properties,
+    action: Type.Union([Type.Literal('create'), Type.Literal('remove')]),
+  },
+  { additionalProperties: false },
+);
+export type PrepareSelectedReportInternalBlockQuery = Static<
+  typeof PrepareSelectedReportInternalBlockQuerySchema
+>;
+export const PreparedReportInternalBlockSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema, pairVersion: Type.Integer({ minimum: 1 }) },
+  { additionalProperties: false },
+);
+export type PreparedReportInternalBlock = Static<typeof PreparedReportInternalBlockSchema>;
 export const PrepareReportPhotoActionQuerySchema = Type.Object(
   {
     actor: AdminActorSchema,

@@ -1,6 +1,38 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: exact audited retained photo byte delivery
+## Current increment: Report-derived internal-block preparation and audit scope
+
+Authenticated no-store `POST /v1/admin/moderation/reports/internal-block-selection` now derives
+the normalized pair from the exact selected Report. A current metadata-root grant, verified admin
+identity and `view_reports` authority govern selection; issuing the native action requires current
+`manage_internal_blocks` before state eligibility is disclosed. The request accepts no client pair,
+pair version, reporter/target identity or source Report override. The response contains only the
+opaque action token and native pair version (one for absent pair state). Preparation rechecks Report
+version/status, pair/version and current authority after waits; it reveals no content, mutates no
+state and creates no attempted-command or evidence-access audit.
+
+The separate reason/confirmation boundary binds the Report context inside native server-owned
+claims and command digests. Confirmed execution rechecks current specific permission and pair
+version, verifies the Report's exact immutable participants inside the owning pair transaction,
+and records one Report-linked moderation action with its successful attempted-command audit.
+Internal blocks are permitted from submitted and terminal Report context with their specific
+permission; they do not require or assign a Review. Creation stays silent, closes active Match/chat/
+Likes/scoped access and changes only the normalized pair. Removal and command replay never reopen
+old product state, and neither operation changes Account state or reveals evidence.
+
+Forward-only migration 74 extends the existing Report scope/deferred attempt guards for exact pair
+actions and adds a canonical pair-target function matching the application SHA-256/UUID binding.
+Existing Account/photo assigned-review guards, unlinked native block commands, immutable historical
+actions and the 578-key localization catalog are preserved. Bootstrap, upgrade from migration 73,
+verification and unchanged replay remain mandatory.
+Unit and actual PostgreSQL HTTP evidence cover strict contracts, actor/root substitution, stale
+selection, permission revocation and view-only roles, concurrent preparation and confirmation,
+one action/audit, source-pair substitution, SQL successful-attempt enforcement and canonical target
+agreement, silent closure and no reopening after removal/replay. Private Telegram internal-block
+reason/confirmation controls, concrete session/MFA composition and real provider/operator staging
+acceptance remain open; this preparation bridge alone does not complete M7.
+
+## Previous increment: exact audited retained photo byte delivery
 
 The explicitly composed private evidence delivery now resolves the captured thumbnail through its
 media-owned Report hold. It requires the exact successful reveal command/log and committed revealed

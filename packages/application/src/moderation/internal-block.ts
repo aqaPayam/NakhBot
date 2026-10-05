@@ -40,6 +40,7 @@ export type InternalBlockWrite = Readonly<{
   requestDigest: string;
   actionId: string;
   auditId: string;
+  sourceReportId?: string;
   blockEventId: string;
   actionEventId: string;
 }>;
@@ -96,6 +97,7 @@ export class InternalBlockWorkflow<TContext> {
       userLowId: normalized.userLowId,
       userHighId: normalized.userHighId,
       expectedPairVersion: expectedVersion,
+      ...(attempt.sourceReportId === undefined ? {} : { sourceReportId: attempt.sourceReportId }),
       requestId: attempt.requestId,
       commandId: attempt.commandId,
       requestDigest: attempt.requestDigest,

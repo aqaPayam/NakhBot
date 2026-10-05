@@ -44,6 +44,70 @@ const draft = {
 };
 const command = { ...draft, data: { ...draft.data, confirmationToken } };
 describe('authenticated route-bound account moderation HTTP', () => {
+  it('prepares only opaque Report-derived internal block authority with strict authenticated no-store contracts', async () => {
+    const selected = { adminActionToken: token, pairVersion: 3 };
+    const execute = vi.fn<
+      NonNullable<M7AdminModerationApiOptions['selectedReportInternalBlock']>['execute']
+    >(() => Promise.resolve(selected));
+    const { server } = await start({ selectedReportInternalBlock: { execute } });
+    const route = '/v1/admin/moderation/reports/internal-block-selection';
+    const payload = {
+      actor,
+      requestId: randomUUID(),
+      adminActionToken: token,
+      reportId: randomUUID(),
+      expectedReportVersion: 2,
+      action: 'create',
+    };
+    const response = await server.inject({ method: 'POST', url: route, headers, payload });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(selected);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.headers.pragma).toBe('no-cache');
+    for (const key of [
+      'userLowId',
+      'userHighId',
+      'targetPair',
+      'pairVersion',
+      'expectedTargetVersion',
+      'sourceReportId',
+      'reviewId',
+      'reason',
+      'text',
+    ])
+      expect(
+        (
+          await server.inject({
+            method: 'POST',
+            url: route,
+            headers,
+            payload: { ...payload, [key]: randomUUID() },
+          })
+        ).statusCode,
+      ).toBe(400);
+    expect((await server.inject({ method: 'POST', url: route, payload })).statusCode).toBe(401);
+    expect(
+      (
+        await server.inject({
+          method: 'POST',
+          url: route,
+          headers,
+          payload: { ...payload, actor: { ...actor, userId: randomUUID() } },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(execute).toHaveBeenCalledOnce();
+    execute.mockResolvedValueOnce({ ...selected, ...{ userLowId: randomUUID() } });
+    expect((await server.inject({ method: 'POST', url: route, headers, payload })).statusCode).toBe(
+      500,
+    );
+    await server.close();
+    app = undefined;
+    const disabled = await start();
+    expect(
+      (await disabled.server.inject({ method: 'POST', url: route, headers, payload })).statusCode,
+    ).toBe(404);
+  });
   it('authenticates report review selection, rejects client authority/content and disables absent capability', async () => {
     const reviewId = randomUUID(),
       assigneeAdminId = randomUUID();

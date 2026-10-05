@@ -83,6 +83,19 @@ export class PostgresInternalBlockStore implements InternalBlockWorkflowStore<Na
       .forUpdate()
       .execute();
     if (accounts.length !== 2) throw unavailable();
+    if (write.sourceReportId !== undefined) {
+      const report = await database
+        .selectFrom('moderation.reports')
+        .select(['reporter_user_id', 'target_user_id'])
+        .where('id', '=', write.sourceReportId)
+        .executeTakeFirst();
+      if (
+        report === undefined ||
+        ![report.reporter_user_id, report.target_user_id].includes(write.userLowId) ||
+        ![report.reporter_user_id, report.target_user_id].includes(write.userHighId)
+      )
+        throw unavailable();
+    }
 
     const pair = await database
       .selectFrom('interaction.user_pair_states')
@@ -287,7 +300,7 @@ export class PostgresInternalBlockStore implements InternalBlockWorkflowStore<Na
         target_photo_id: null,
         target_pair_low_user_id: write.userLowId,
         target_pair_high_user_id: write.userHighId,
-        source_report_id: null,
+        source_report_id: write.sourceReportId ?? null,
         restriction_episode_id: null,
         audit_log_id: write.auditId,
         notification_id: null,
