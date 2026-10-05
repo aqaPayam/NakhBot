@@ -239,8 +239,9 @@ describe.skipIf(url === undefined)('actual separately confirmed Telegram evidenc
     h: ReturnType<typeof harness>,
     f: Awaited<ReturnType<typeof operator>>,
     reportId: string,
+    status = 'submitted',
   ): Promise<string> {
-    const selected = await choose(h, f, reportId, 'submitted');
+    const selected = await choose(h, f, reportId, status);
     await h.callback(selected);
     const view = (JSON.parse(h.sent.at(-1)!) as Menu).reply_markup.inline_keyboard[0]![0]!
       .callback_data;
@@ -382,7 +383,7 @@ describe.skipIf(url === undefined)('actual separately confirmed Telegram evidenc
         .where('report_id', '=', report.reportId)
         .executeTakeFirstOrThrow();
       const before = h.sent.length;
-      const confirmation = await prepare(h, f, report.reportId);
+      const confirmation = await prepare(h, f, report.reportId, report.status);
       expect(h.retainedPhoto).toHaveBeenCalledTimes(
         0 +
           (contexts.slice(0, contexts.indexOf(context)).some((item) => item.type === 'photo')
@@ -434,7 +435,7 @@ describe.skipIf(url === undefined)('actual separately confirmed Telegram evidenc
     expect(
       await database
         .selectFrom('moderation.moderation_reviews')
-        .select('id')
+        .select(['status', 'assigned_admin_id'])
         .where(
           'report_id',
           'in',
@@ -444,7 +445,12 @@ describe.skipIf(url === undefined)('actual separately confirmed Telegram evidenc
             .where('reporter_user_id', '=', reporter),
         )
         .execute(),
-    ).toHaveLength(0);
+    ).toEqual(
+      Array.from({ length: contexts.length }, () => ({
+        status: 'pending',
+        assigned_admin_id: null,
+      })),
+    );
   });
   it.each(['cancel', 'revoked', 'provider-failed'] as const)(
     'keeps one exact native outcome for %s without content redelivery',
