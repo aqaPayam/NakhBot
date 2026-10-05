@@ -15,7 +15,9 @@ export type ModerationIntegritySample = Readonly<{
 }>;
 type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; count: string };
 /** Periodic metadata reads are short, not analytical workloads. Avoid compiling the many
- * correlated safety branches on every sample. LOCAL settings expire at commit/rollback,
+ * correlated safety branches on every sample. A fixed 16 MiB per-node work budget avoids
+ * spilling ordinary metadata joins; it is not a total connection/process memory bound.
+ * LOCAL settings expire at commit/rollback,
  * including failed reads, and never change the pooled session or database configuration. */
 export async function withModerationIntegrityRead<T>(
   database: NakhDatabase,
@@ -23,6 +25,7 @@ export async function withModerationIntegrityRead<T>(
 ): Promise<T> {
   const read = async (transaction: NakhDatabase): Promise<T> => {
     await sql`SET LOCAL jit = off`.execute(transaction);
+    await sql`SET LOCAL work_mem = '16MB'`.execute(transaction);
     return work(transaction);
   };
   return database.isTransaction ? read(database) : database.transaction().execute(read);

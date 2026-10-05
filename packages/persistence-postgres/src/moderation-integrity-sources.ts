@@ -47,13 +47,14 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
               AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id)))
     )`
     } AS "hasAttempt",
-    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-      ${accountHistoryMatches(
-        isSystem
-          ? sql`history.actor_admin_id IS NULL`
-          : sql`history.actor_admin_id = action.actor_admin_id`,
-        isSystem ? sql`NULL::text` : sql`restoration.previous_state`,
-      )} AS "hasAccountHistory",
+    ${
+      isSystem
+        ? sql`history_binding."hasAccountHistory"`
+        : sql`
+      action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
+      ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`, sql`restoration.previous_state`)}
+    `
+    } AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
       OR bound_notice.id IS NOT NULL AS "hasNotice",
     action.source_report_id IS NULL OR EXISTS (
@@ -68,7 +69,11 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
     FROM moderation.moderation_actions action
     ${
       isSystem
-        ? sql``
+        ? sql`LEFT JOIN LATERAL (
+          SELECT action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
+            ${accountHistoryMatches(sql`history.actor_admin_id IS NULL`, sql`NULL::text`)} AS "hasAccountHistory"
+          OFFSET 0
+        ) history_binding ON true`
         : sql`    LEFT JOIN administration.admin_action_logs attempt
       ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
       AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
@@ -246,17 +251,9 @@ SELECT thread.id, thread.status <> 'open' OR limits."withinLimit" AS "withinLimi
 `,
   appeals: sql`
 SELECT appeal.id, NOT EXISTS (SELECT 1 FROM moderation.user_appeals duplicate
-      WHERE duplicate.ban_state_history_id = appeal.ban_state_history_id AND duplicate.id <> appeal.id) AS "uniqueBan", EXISTS (SELECT 1 FROM identity.account_state_history ban WHERE ban.id = appeal.ban_state_history_id
-      AND ban.user_id = appeal.user_id AND ban.next_state = 'banned') AS "banMatches",
-    appeal.status NOT IN ('accepted','rejected') OR EXISTS (
-      SELECT 1 FROM administration.admin_action_logs attempt JOIN platform.audit_logs audit
-        ON audit.command_id = attempt.command_id AND audit.actor_admin_id = attempt.admin_user_id
-      WHERE attempt.admin_user_id = appeal.reviewed_by_admin_id AND attempt.target_type = 'user_appeal'
-        AND attempt.target_id = appeal.id AND attempt.command_code = 'moderation.review-appeal' AND attempt.result = 'succeeded'
-        AND attempt.expected_target_version = appeal.version - 1 AND audit.subject_type = 'user_appeal'
-        AND audit.subject_id = appeal.id AND audit.event_type = 'moderation.appeal-reviewed.v1'
-        AND audit.result_code = 'appeal_' || appeal.status AND audit.request_id = attempt.request_id
-    ) AS "hasReview",
+      WHERE duplicate.ban_state_history_id = appeal.ban_state_history_id AND duplicate.id <> appeal.id) AS "uniqueBan",
+    ban.id IS NOT NULL AS "banMatches",
+    appeal.status NOT IN ('accepted','rejected') OR review.target_id IS NOT NULL AS "hasReview",
     NOT EXISTS (SELECT 1 FROM moderation.appeal_unbans unban WHERE unban.appeal_id = appeal.id AND NOT EXISTS (
       SELECT 1 FROM moderation.moderation_actions action
       JOIN identity.account_state_history history ON history.id = unban.unban_history_id
@@ -269,6 +266,19 @@ SELECT appeal.id, NOT EXISTS (SELECT 1 FROM moderation.user_appeals duplicate
         AND attempt.target_id = appeal.id AND attempt.result = 'succeeded'
     )) AS "unbanMatches"
     FROM moderation.user_appeals appeal
+    LEFT JOIN identity.account_state_history ban ON ban.id = appeal.ban_state_history_id
+      AND ban.user_id = appeal.user_id AND ban.next_state = 'banned'
+    LEFT JOIN (
+      -- Matching duplicates retain EXISTS semantics and never duplicate an Appeal.
+      SELECT DISTINCT attempt.target_id, attempt.admin_user_id, attempt.expected_target_version, audit.result_code
+      FROM administration.admin_action_logs attempt JOIN platform.audit_logs audit
+        ON audit.command_id = attempt.command_id AND audit.actor_admin_id = attempt.admin_user_id
+        AND audit.subject_type = 'user_appeal' AND audit.subject_id = attempt.target_id
+        AND audit.event_type = 'moderation.appeal-reviewed.v1' AND audit.request_id = attempt.request_id
+      WHERE attempt.target_type = 'user_appeal' AND attempt.command_code = 'moderation.review-appeal'
+        AND attempt.result = 'succeeded'
+    ) review ON review.target_id = appeal.id AND review.admin_user_id = appeal.reviewed_by_admin_id
+      AND review.expected_target_version = appeal.version - 1 AND review.result_code = 'appeal_' || appeal.status
 `,
   admins: sql`
 SELECT admin.id, NOT admin.is_active OR (admin.identity_verified_at IS NOT NULL AND EXISTS (
@@ -303,22 +313,29 @@ SELECT attempt.id, CASE
 `,
   internal_blocks: sql`
 SELECT pair.user_low_id AS "lowId", pair.user_high_id AS "highId",
-      NOT EXISTS (SELECT 1 FROM matching.matches match WHERE match.user_low_id = pair.user_low_id
-        AND match.user_high_id = pair.user_high_id AND (match.status = 'active' OR EXISTS (
-          SELECT 1 FROM chat.chat_sessions session WHERE session.match_id = match.id AND session.status = 'active')))
-      AND NOT EXISTS (SELECT 1 FROM interaction.likes like_row WHERE like_row.status = 'active' AND (
-        (like_row.sender_user_id = pair.user_low_id AND like_row.receiver_user_id = pair.user_high_id)
-        OR (like_row.sender_user_id = pair.user_high_id AND like_row.receiver_user_id = pair.user_low_id)))
-      AND NOT EXISTS (SELECT 1 FROM matching.matches match
+      open_pair.user_low_id IS NULL AS closed
+    FROM interaction.user_pair_states pair
+    LEFT JOIN (
+      SELECT facts.user_low_id, facts.user_high_id FROM (
+        SELECT match.user_low_id, match.user_high_id FROM matching.matches match
+        WHERE match.status = 'active' OR EXISTS (
+          SELECT 1 FROM chat.chat_sessions session WHERE session.match_id = match.id AND session.status = 'active')
+        UNION ALL
+        SELECT LEAST(like_row.sender_user_id,like_row.receiver_user_id),
+          GREATEST(like_row.sender_user_id,like_row.receiver_user_id)
+        FROM interaction.likes like_row WHERE like_row.status = 'active'
+        UNION ALL
+        SELECT match.user_low_id, match.user_high_id FROM matching.matches match
         JOIN interaction.feature_unlocks unlock ON unlock.match_id = match.id
-        WHERE match.user_low_id = pair.user_low_id AND match.user_high_id = pair.user_high_id
-          AND unlock.status = 'active' AND unlock.feature_type = 'chat_unlock')
-      AND NOT EXISTS (SELECT 1 FROM interaction.likes like_row
-        JOIN interaction.feature_unlocks unlock ON unlock.like_id = like_row.id
-        WHERE unlock.status = 'active' AND unlock.feature_type = 'liked_by_profile_unlock' AND (
-          (like_row.sender_user_id = pair.user_low_id AND like_row.receiver_user_id = pair.user_high_id)
-          OR (like_row.sender_user_id = pair.user_high_id AND like_row.receiver_user_id = pair.user_low_id))) AS closed
-    FROM interaction.user_pair_states pair WHERE pair.state = 'blocked'
+        WHERE unlock.status = 'active' AND unlock.feature_type = 'chat_unlock'
+        UNION ALL
+        SELECT LEAST(like_row.sender_user_id,like_row.receiver_user_id),
+          GREATEST(like_row.sender_user_id,like_row.receiver_user_id)
+        FROM interaction.likes like_row JOIN interaction.feature_unlocks unlock ON unlock.like_id = like_row.id
+        WHERE unlock.status = 'active' AND unlock.feature_type = 'liked_by_profile_unlock'
+      ) facts GROUP BY facts.user_low_id, facts.user_high_id
+    ) open_pair ON open_pair.user_low_id = pair.user_low_id AND open_pair.user_high_id = pair.user_high_id
+    WHERE pair.state = 'blocked'
 `,
 } as const;
 export const MODERATION_INTEGRITY_FLAGS: Readonly<

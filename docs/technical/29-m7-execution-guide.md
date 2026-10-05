@@ -63,6 +63,26 @@ requires both resolution and restoration indexes, preserving the original resolu
 instead of treating these independent bindings as index alternatives. No migration, memory setting,
 fixture scale or timing budget changes are introduced; all six jobs remain required.
 
+The actor-partition run passed all 380 PostgreSQL tests, including native system-action audit
+request drift and repair, but terminal sampling remained 1,801 ms. It still spilled 1,525
+temporary blocks and repeated system-history probes; the appeal and blocked-pair phases added
+215 ms and 156 ms respectively. The next repair makes only system history lookups memoizable,
+preserving every actor/target/reason/time/state condition. Exact ban matching joins the history
+primary key, and review facts are deduplicated on the complete actor/target/version/result tuple
+after the same audit event, subject, request and command checks. Matching duplicates retain one
+Appeal; acceptance still supplies no unban, and separate restoration checks remain unchanged.
+Blocked-pair closure groups the same four open Match/Chat, Like and unlock facts by normalized pair
+before joining them once; absent facts remain closed. All exact phase deltas and native lifecycle
+tests remain required.
+
+Integrity reads and their EXPLAIN context now use a transaction-local 16 MiB per-node work budget
+alongside disabled JIT. This is not a total process or connection memory cap; production capacity
+planning must account for concurrent nodes and connections. No pooled-session or database setting
+changes. Successful fixture rollback and failed reads verify restoration of both original settings.
+Duplicate review-audit metadata must preserve every aggregate count under five concurrent samples.
+No migration, fixture scale, statement timeout or 1,500 ms performance limit is changed. The repair
+is unverified until the exact-head six-job run passes.
+
 ## Previous increment: retained-photo custody at production query volume
 
 The M7 plan gate now adds 20,000 photo evidence chains to both baseline and terminal scenes.

@@ -20,6 +20,7 @@ class FixtureRollback extends Error {}
 describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => {
   let database: NakhDatabase;
   let initialJit: string;
+  let initialWorkMem: string;
   let isolated: Awaited<ReturnType<typeof createIsolatedTestDatabase>> | undefined;
   beforeAll(async () => {
     isolated = await createIsolatedTestDatabase(url!, 'nakh_m7_plans');
@@ -31,6 +32,8 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       lockTimeoutMs: 10000,
     });
     initialJit = (await sql<{ jit: string }>`SHOW jit`.execute(database)).rows[0]!.jit;
+    initialWorkMem = (await sql<{ work_mem: string }>`SHOW work_mem`.execute(database)).rows[0]!
+      .work_mem;
   });
   afterAll(async () => {
     try {
@@ -49,6 +52,9 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     ).rows[0];
     expect(role?.session_replication_role).toBe('origin');
     expect((await sql<{ jit: string }>`SHOW jit`.execute(database)).rows[0]!.jit).toBe(initialJit);
+    expect(
+      (await sql<{ work_mem: string }>`SHOW work_mem`.execute(database)).rows[0]!.work_mem,
+    ).toBe(initialWorkMem);
     for (const table of [
       'moderation.reports',
       'support.support_threads',
@@ -135,6 +141,19 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           await sql`UPDATE identity.account_state_history SET user_id = md5(${prefix} || 'terminal-user2')::uuid
             WHERE id = md5(${prefix} || 'terminal-ban2')::uuid`.execute(tx);
           expect((await store.measure()).counts).toEqual(baseline.counts);
+          // A second matching metadata audit retains EXISTS cardinality: one Appeal.
+          const duplicateAudit = randomUUID();
+          await sql`INSERT INTO platform.audit_logs
+            (id,category,event_type,actor_type,actor_admin_id,subject_type,subject_id,result_code,
+              metadata_schema_version,request_id,command_id,occurred_at)
+            SELECT ${duplicateAudit}::uuid,category,event_type,actor_type,actor_admin_id,subject_type,
+              subject_id,result_code,metadata_schema_version,request_id,command_id,occurred_at
+            FROM platform.audit_logs WHERE id=md5(${prefix} || 'terminal-review-audit1')::uuid`.execute(
+            tx,
+          );
+          for (const sample of await Promise.all(Array.from({ length: 5 }, () => store.measure())))
+            expect(sample.counts).toEqual(baseline.counts);
+          await sql`DELETE FROM platform.audit_logs WHERE id=${duplicateAudit}::uuid`.execute(tx);
           throw new FixtureRollback();
         });
       } catch (error) {
@@ -152,12 +171,15 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     await expect(measureM7SyntheticPlans(database, 1000)).rejects.toThrow();
     await assertClean();
   });
-  it('restores the pooled compilation setting after a failed integrity read', async () => {
+  it('restores pooled compilation and work-memory settings after a failed integrity read', async () => {
     await expect(
       withModerationIntegrityRead(database, async (transaction) => {
         expect((await sql<{ jit: string }>`SHOW jit`.execute(transaction)).rows[0]!.jit).toBe(
           'off',
         );
+        expect(
+          (await sql<{ work_mem: string }>`SHOW work_mem`.execute(transaction)).rows[0]!.work_mem,
+        ).toBe('16MB');
         await sql`SELECT 1 / 0`.execute(transaction);
       }),
     ).rejects.toThrow('division by zero');
