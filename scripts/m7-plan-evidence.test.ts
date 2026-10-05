@@ -21,6 +21,7 @@ describe('M7 plan evidence privacy', () => {
         Plan: {
           'Actual Rows': 51,
           'Index Cond': 'user_id = private-user',
+          Alias: 'private alias',
           Output: ['private appeal text'],
           'Temp Read Blocks': 3,
           'Temp Written Blocks': 4,
@@ -57,6 +58,18 @@ describe('M7 plan evidence privacy', () => {
         maximumWorkersPlanned: 2,
         maximumWorkersLaunched: 1,
         jitTotalMs: 0.5,
+        nodes: [
+          { parent: -1, nodeType: 'Other', relation: 'Other', rows: 51, loops: 0, totalMs: 0 },
+          {
+            parent: 0,
+            nodeType: 'Index Scan',
+            relation: 'Other',
+            rows: 0,
+            loops: 20000,
+            totalMs: 0.002,
+          },
+        ],
+        nodesTruncated: false,
         slowNodes: [
           {
             nodeType: 'Index Scan',

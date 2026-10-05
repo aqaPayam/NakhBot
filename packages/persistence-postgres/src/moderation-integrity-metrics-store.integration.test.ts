@@ -305,6 +305,11 @@ describe.skipIf(url === undefined)(
         .executeTakeFirstOrThrow();
       const store = new PostgresModerationIntegrityMetricsStore(database),
         baseline = (await store.measure()).counts;
+      const notice = await database
+        .selectFrom('notification.notifications')
+        .selectAll()
+        .where('id', '=', action.notification_id!)
+        .executeTakeFirstOrThrow();
       for (const [damage, code] of [
         [
           sql`UPDATE administration.admin_action_logs SET command_id=${randomUUID()}::uuid WHERE id=${attempt.id}::uuid`,
@@ -343,7 +348,19 @@ describe.skipIf(url === undefined)(
           'moderation_action_audit_missing',
         ],
         [
+          sql`UPDATE platform.audit_logs SET actor_admin_id=${randomUUID()}::uuid WHERE id=${audit.id}::uuid`,
+          'moderation_action_audit_missing',
+        ],
+        [
           sql`UPDATE notification.notifications SET user_id=${other.target}::uuid WHERE id=${action.notification_id}::uuid`,
+          'moderation_action_notice_invalid',
+        ],
+        [
+          sql`UPDATE notification.notifications SET payload='{"unexpected":true}'::jsonb WHERE id=${notice.id}::uuid`,
+          'moderation_action_notice_invalid',
+        ],
+        [
+          sql`UPDATE notification.notifications SET notification_type='admin_notice',category='admin' WHERE id=${notice.id}::uuid`,
           'moderation_action_notice_invalid',
         ],
       ] as const) {
@@ -355,20 +372,24 @@ describe.skipIf(url === undefined)(
           expect(
             scan.findings.filter((row) => row.entityId === action.id).map((row) => row.anomalyType),
           ).toEqual([code]);
-          for (const sample of await Promise.all(Array.from({ length: 5 }, () => store.measure())))
+          for (const sample of await Promise.all(
+            Array.from({ length: 5 }, () => store.measure()),
+          )) {
             expect(sample.counts.actions).toBe(baseline.actions + 1);
+            if (code !== 'moderation_action_attempt_missing')
+              expect(sample.counts).toEqual({ ...baseline, actions: baseline.actions + 1 });
+          }
         } finally {
           await corrupt(async (tx) => {
             await sql`UPDATE administration.admin_action_logs SET command_id=${attempt.command_id}::uuid,
               request_id=${attempt.request_id}::uuid,request_digest=${attempt.request_digest},result=${attempt.result},
               command_code=${attempt.command_code},target_type=${attempt.target_type},target_id=${attempt.target_id}::uuid
               WHERE id=${attempt.id}::uuid`.execute(tx);
-            await sql`UPDATE platform.audit_logs SET command_id=${audit.command_id}::uuid,request_id=${audit.request_id}::uuid WHERE id=${audit.id}::uuid`.execute(
-              tx,
-            );
-            await sql`UPDATE notification.notifications SET user_id=${photo.target}::uuid WHERE id=${action.notification_id}::uuid`.execute(
-              tx,
-            );
+            await sql`UPDATE platform.audit_logs SET command_id=${audit.command_id}::uuid,request_id=${audit.request_id}::uuid,
+              actor_admin_id=${audit.actor_admin_id}::uuid WHERE id=${audit.id}::uuid`.execute(tx);
+            await sql`UPDATE notification.notifications SET user_id=${notice.user_id}::uuid,
+              payload=${JSON.stringify(notice.payload)}::jsonb,notification_type=${notice.notification_type},category=${notice.category}
+              WHERE id=${notice.id}::uuid`.execute(tx);
           });
         }
         expect((await store.measure()).counts).toEqual(baseline);

@@ -11,6 +11,15 @@ export type M7PlanSummary = Readonly<{
     maximumWorkersPlanned: number;
     maximumWorkersLaunched: number;
     jitTotalMs: number;
+    nodes: readonly Readonly<{
+      parent: number;
+      nodeType: string;
+      relation: string;
+      rows: number;
+      loops: number;
+      totalMs: number;
+    }>[];
+    nodesTruncated: boolean;
     slowNodes: readonly Readonly<{
       nodeType: string;
       relation: string;
@@ -87,6 +96,8 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
     'moderation_actions',
     'audit_logs',
     'notifications',
+    'notification_deliveries',
+    'chat_message_snapshots',
     'account_state_history',
     'threshold_admission_witnesses',
     'restriction_episodes',
@@ -108,6 +119,15 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
     loops: number;
     cumulativeMs: number;
   }[] = [];
+  const nodes: {
+    parent: number;
+    nodeType: string;
+    relation: string;
+    rows: number;
+    loops: number;
+    totalMs: number;
+  }[] = [];
+  let nodesTruncated = false;
   const timing = (node: Readonly<Record<string, unknown>> | undefined, key: string): number => {
     const field = node?.[key];
     return typeof field === 'number' &&
@@ -121,7 +141,7 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
     const field = node[key];
     return typeof field === 'number' && Number.isSafeInteger(field) && field >= 0 ? field : 0;
   };
-  const visit = (node: Readonly<Record<string, unknown>>): void => {
+  const visit = (node: Readonly<Record<string, unknown>>, parent: number): void => {
     const index = node['Index Name'];
     maximumWorkersPlanned = Math.max(maximumWorkersPlanned, numeric(node, 'Workers Planned'));
     maximumWorkersLaunched = Math.max(maximumWorkersLaunched, numeric(node, 'Workers Launched'));
@@ -129,6 +149,17 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
       relation = node['Relation Name'],
       totalMs = timing(node, 'Actual Total Time'),
       loops = numeric(node, 'Actual Loops');
+    const position = nodes.length < 256 ? nodes.length : -1;
+    if (position !== -1)
+      nodes.push({
+        parent,
+        nodeType: typeof nodeType === 'string' && nodeTypes.has(nodeType) ? nodeType : 'Other',
+        relation: typeof relation === 'string' && relations.has(relation) ? relation : 'Other',
+        rows: numeric(node, 'Actual Rows'),
+        loops,
+        totalMs,
+      });
+    else nodesTruncated = true;
     if (totalMs > 0 && loops > 0) {
       slowNodes.push({
         nodeType: typeof nodeType === 'string' && nodeTypes.has(nodeType) ? nodeType : 'Other',
@@ -147,10 +178,10 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
     if (Array.isArray(node.Plans))
       for (const child of node.Plans as readonly unknown[]) {
         const record = object(child);
-        if (record !== undefined) visit(record);
+        if (record !== undefined) visit(record, position);
       }
   };
-  visit(root);
+  visit(root, -1);
   const rows = root['Actual Rows'];
   if (typeof rows !== 'number' || !Number.isSafeInteger(rows) || rows < 0)
     throw new Error('M7 query plan invalid.');
@@ -167,6 +198,8 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
       maximumWorkersPlanned,
       maximumWorkersLaunched,
       jitTotalMs: timing(object(object(document?.JIT)?.Timing), 'Total'),
+      nodes,
+      nodesTruncated,
       slowNodes,
     },
   };

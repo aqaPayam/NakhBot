@@ -123,6 +123,20 @@ every drift/recovery assertion. The original fresh-row test retains all prior ch
 own unchanged time limit. Neither fixture performs ANALYZE; scale, statement limits, production
 queries and performance budgets are unchanged. Both independent cases must pass before advancing.
 
+Both fresh-row cases passed independently at 53.7/23.1 s, with all 381 native tests green.
+Every population and index requirement passed, but terminal aggregate sampling remained 1,751 ms;
+its administrator-action phase increased from 532 to 611 ms. Grouped administrator histories are
+reverted to their preceding exact EXISTS predicate, retaining both duplicate-history test cases.
+Action audit/notice candidates now join by primary key, and attempts by their existing unique
+administrator/command key; all original actor, request, digest, result, subject, recipient, payload
+and notice-type checks remain explicit in the corresponding integrity flag. Null/missing/mismatched
+facts remain invalid and unique keys retain one row per action. Native audit actor, notice payload
+and notice-type corruption additionally require one exact finding, five concurrent full-count
+samples with only the action count increased, and restoration of the baseline. No schema, fixture
+scale, budget, memory or timeout is changed. Bounded plan diagnostics retain only numeric node
+ancestry/timings and allowlisted node/relation labels, never aliases, predicates or restricted data.
+Verification remains open until all six exact-head jobs pass.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,

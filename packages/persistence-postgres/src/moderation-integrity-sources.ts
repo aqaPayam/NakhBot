@@ -22,24 +22,16 @@ function accountHistoryMatches(
 function moderationActionSource(actor: 'system' | 'admin'): RawBuilder<unknown> {
   const isSystem = actor === 'system';
   return sql`
-${
-  isSystem
-    ? sql``
-    : sql`WITH admin_history_facts AS MATERIALIZED (
-      -- One fact per exact historical binding and next state. Multiple matching
-      -- histories retain EXISTS semantics without multiplying action rows.
-      SELECT user_id, actor_admin_id, reason_code, changed_at, next_state,
-        COALESCE(bool_or(previous_state = 'restricted'),false) AS from_restricted,
-        COALESCE(bool_or(previous_state = 'banned'),false) AS from_banned
-      FROM identity.account_state_history WHERE actor_type = 'admin'
-      GROUP BY user_id, actor_admin_id, reason_code, changed_at, next_state
-    )`
-}
-SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
+SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
+    AND bound_audit.actor_type = action.actor_type
+    AND ${isSystem ? sql`bound_audit.actor_admin_id IS NULL` : sql`bound_audit.actor_admin_id = action.actor_admin_id`}
+    AND bound_audit.command_id = action.command_id AND bound_audit.request_id = action.request_id,false) AS "hasAudit",
     ${
       isSystem
         ? sql`true`
-        : sql`(attempt.id IS NOT NULL
+        : sql`COALESCE(attempt.id IS NOT NULL
+        AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
+        AND attempt.result = 'succeeded'
         AND ((action.action_type = 'unban_user' AND EXISTS (SELECT 1 FROM moderation.appeal_unbans unban
           WHERE unban.action_id = action.id AND unban.admin_action_log_id = attempt.id
             AND attempt.command_code = 'moderation.unban-appeal' AND attempt.target_type = 'user_appeal'
@@ -57,21 +49,21 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
             AND attempt.command_code = 'moderation.change-internal-block' AND attempt.target_type = 'user_pair'
             AND attempt.target_id = moderation.admin_pair_target_id(action.target_pair_low_user_id, action.target_pair_high_user_id)
             AND EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id = action.audit_log_id
-              AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id)))
-    )`
+              AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id))),false)`
     } AS "hasAttempt",
     ${
       isSystem
         ? sql`history_binding."hasAccountHistory"`
         : sql`
       action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-      (history_binding.user_id IS NOT NULL AND CASE action.action_type
-        WHEN 'unrestrict_user' THEN history_binding.from_restricted
-        WHEN 'unban_user' THEN history_binding.from_banned ELSE true END)
+      ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`, sql`restoration.previous_state`)}
     `
     } AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
-      OR bound_notice.id IS NOT NULL AS "hasNotice",
+      OR COALESCE(bound_notice.id IS NOT NULL AND bound_notice.user_id = action.target_user_id
+        AND bound_notice.payload = '{}'::jsonb
+        AND bound_notice.notification_type = CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
+          WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END,false) AS "hasNotice",
     action.source_report_id IS NULL OR (source_report.id IS NOT NULL
         AND ((action.action_type IN ('create_internal_block','remove_internal_block')
             AND LEAST(source_report.reporter_user_id, source_report.target_user_id) = action.target_pair_low_user_id
@@ -91,8 +83,6 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
         ) history_binding ON true`
         : sql`    LEFT JOIN administration.admin_action_logs attempt
       ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
-      AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
-      AND attempt.result = 'succeeded'
     -- One latest prior-state lookup per restoration binding; OFFSET 0 preserves the
     -- parameterized relation so repeated target/type/time bindings can be memoized.
     LEFT JOIN LATERAL (
@@ -103,23 +93,12 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
         AND prior.changed_at <= action.occurred_at
         AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
       ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
-    ) restoration ON true
-    LEFT JOIN admin_history_facts history_binding
-      ON history_binding.user_id = action.target_user_id AND history_binding.actor_admin_id = action.actor_admin_id
-      AND history_binding.reason_code = action.reason_code AND history_binding.changed_at = action.occurred_at
-      AND history_binding.next_state = CASE action.action_type
-        WHEN 'restrict_user' THEN 'restricted' WHEN 'ban_user' THEN 'banned'
-        WHEN 'unrestrict_user' THEN restoration.previous_state
-        WHEN 'unban_user' THEN restoration.previous_state END`
+    ) restoration ON true`
     }
+    -- Primary/unique keys identify one candidate. Every safety binding remains in
+    -- its flag rather than becoming an additional hash key for this lookup.
     LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
-      AND bound_audit.actor_type = action.actor_type
-      AND ${isSystem ? sql`bound_audit.actor_admin_id IS NULL` : sql`bound_audit.actor_admin_id = action.actor_admin_id`}
-      AND bound_audit.command_id = action.command_id AND bound_audit.request_id = action.request_id
     LEFT JOIN notification.notifications bound_notice ON bound_notice.id = action.notification_id
-      AND bound_notice.user_id = action.target_user_id AND bound_notice.payload = '{}'::jsonb
-      AND bound_notice.notification_type = CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
-        WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END
     WHERE action.actor_type = ${actor}
 `;
 }
