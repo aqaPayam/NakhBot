@@ -24,6 +24,7 @@ import { PostgresModerationReconciliationStore } from './moderation-reconciliati
 import { PostgresConfirmedInternalBlocks } from './confirmed-internal-block-store.js';
 import { PostgresConfirmedReviewDecisions } from './confirmed-review-decision-store.js';
 import { scanModerationActions } from './moderation-review-reconciliation.js';
+import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)(
   'current aggregate M7 integrity from authoritative metadata',
@@ -129,6 +130,60 @@ describe.skipIf(url === undefined)(
           .where('entity_id', '=', photo.reportId)
           .execute(),
       ).toHaveLength(1);
+    });
+    it('preserves exact capture and custody bindings through joined evidence and clears repaired drift', async () => {
+      const photo = await createRetainedReportPhoto(database),
+        other = await createRetainedReportPhoto(database);
+      const hold = await database
+        .selectFrom('media.report_photo_evidence_holds')
+        .selectAll()
+        .where('report_evidence_id', '=', photo.evidenceId)
+        .executeTakeFirstOrThrow();
+      const store = new PostgresModerationIntegrityMetricsStore(database);
+      const baseline = await store.measure();
+      for (const damage of [
+        sql`UPDATE media.report_photo_evidence_holds SET content_sha256=repeat('b',64) WHERE report_evidence_id=${photo.evidenceId}::uuid`,
+        sql`UPDATE media.report_photo_evidence_holds SET photo_id=${other.photoId}::uuid WHERE report_evidence_id=${photo.evidenceId}::uuid`,
+        sql`UPDATE media.photo_variants SET asset_id=${randomUUID()}::uuid WHERE id=${hold.variant_id}::uuid`,
+        sql`UPDATE media.photo_variants SET deleted_at=now(),storage_deleted_at=now() WHERE id=${hold.variant_id}::uuid`,
+        sql`UPDATE media.media_assets SET deleted_at=now(),storage_deleted_at=now() WHERE id=${hold.asset_id}::uuid`,
+        sql`UPDATE moderation.report_snapshots SET report_id=${other.reportId}::uuid WHERE report_evidence_id=${photo.evidenceId}::uuid`,
+      ]) {
+        await corrupt(async (connection) => {
+          await damage.execute(connection);
+        });
+        try {
+          const rows = (
+            await sql<{ id: string; hasCapture: boolean; hasRetainedPhoto: boolean }>`
+            SELECT * FROM (${MODERATION_INTEGRITY_SOURCES.evidence}) probe
+            WHERE probe.id=${photo.evidenceId}::uuid ORDER BY probe.id LIMIT 2`.execute(database)
+          ).rows;
+          expect(rows).toHaveLength(1);
+          expect(rows[0]!.hasCapture && rows[0]!.hasRetainedPhoto).toBe(false);
+          const samples = await Promise.all(Array.from({ length: 5 }, () => store.measure()));
+          for (const sample of samples) {
+            expect(sample.counts.evidence).toBe(baseline.counts.evidence + 1);
+            expect(JSON.stringify(sample)).not.toContain(photo.evidenceId);
+            expect(JSON.stringify(sample)).not.toContain(hold.content_sha256);
+          }
+        } finally {
+          await corrupt(async (connection) => {
+            await sql`UPDATE media.report_photo_evidence_holds SET photo_id=${hold.photo_id}::uuid,content_sha256=${hold.content_sha256} WHERE report_evidence_id=${photo.evidenceId}::uuid`.execute(
+              connection,
+            );
+            await sql`UPDATE media.photo_variants SET asset_id=${hold.asset_id}::uuid,deleted_at=NULL,storage_deleted_at=NULL WHERE id=${hold.variant_id}::uuid`.execute(
+              connection,
+            );
+            await sql`UPDATE media.media_assets SET deleted_at=NULL,storage_deleted_at=NULL WHERE id=${hold.asset_id}::uuid`.execute(
+              connection,
+            );
+            await sql`UPDATE moderation.report_snapshots SET report_id=${photo.reportId}::uuid WHERE report_evidence_id=${photo.evidenceId}::uuid`.execute(
+              connection,
+            );
+          });
+        }
+        expect((await store.measure()).counts).toEqual(baseline.counts);
+      }
     });
     it('accepts actual Report-bound block creation/removal and dismissal without false action quarantines', async () => {
       const photo = await createRetainedReportPhoto(database),

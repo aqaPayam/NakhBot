@@ -20,6 +20,13 @@ No schema or catalog change is introduced. Encrypted-capture integrity, unrestri
 concrete MFA provider/enrollment/provisioning, exporter/alerts, provider/operator staging and M8/M9
 acceptance remain open.
 
+The first CI run passed all 375 PostgreSQL tests and the exact photo-fixture assertions, but
+the terminal combined sampler took 1,773 ms. The diagnosed repair replaces per-evidence capture
+and custody probes with cardinality-preserving joins through the existing unique snapshot/hold
+keys and variant/asset primary keys. All identity, type, schema, hash and storage predicates remain
+identical; absent related rows are explicitly false. Fixture scale and the 1,500 ms budget remain
+unchanged. Native custody corruption and repair evidence checks the shared paged/aggregate paths.
+
 ## Previous increment: immutable original threshold admission witnesses
 
 Migration 79 captures one original Report per distinct reporter when a new restriction episode is

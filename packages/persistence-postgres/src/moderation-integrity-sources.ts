@@ -31,23 +31,23 @@ SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS 
         CASE WHEN evidence.evidence_type = 'message' THEN EXISTS (
           SELECT 1 FROM chat.chat_message_snapshots snapshot WHERE snapshot.report_id = evidence.report_id
             AND snapshot.original_message_id = evidence.chat_message_id
-        ) ELSE EXISTS (
-          SELECT 1 FROM moderation.report_snapshots snapshot WHERE snapshot.report_evidence_id = evidence.id
-            AND snapshot.report_id = evidence.report_id AND snapshot.snapshot_type = evidence.evidence_type
-            AND snapshot.schema_version = 1 AND snapshot.encryption_key_version >= 1
-            AND octet_length(snapshot.nonce) = 12 AND octet_length(snapshot.ciphertext) BETWEEN 17 AND 65536
-            AND snapshot.content_sha256 ~ '^[0-9a-f]{64}$'
-        ) END AS "hasCapture",
-        evidence.evidence_type <> 'photo' OR EXISTS (
-          SELECT 1 FROM media.report_photo_evidence_holds hold
-          JOIN media.photo_variants variant ON variant.id = hold.variant_id AND variant.asset_id = hold.asset_id
-          JOIN media.media_assets asset ON asset.id = hold.asset_id
-          WHERE hold.report_evidence_id = evidence.id AND hold.photo_id = evidence.profile_photo_id
-            AND variant.variant_type = 'thumbnail' AND variant.transformation_version = 1
-            AND encode(variant.sha256, 'hex') = hold.content_sha256
-            AND variant.storage_deleted_at IS NULL AND asset.storage_deleted_at IS NULL
-        ) AS "hasRetainedPhoto"
+        ) ELSE snapshot.id IS NOT NULL END AS "hasCapture",
+        evidence.evidence_type <> 'photo' OR COALESCE(
+          hold.photo_id = evidence.profile_photo_id AND variant.id IS NOT NULL AND asset.id IS NOT NULL
+          AND variant.variant_type = 'thumbnail' AND variant.transformation_version = 1
+          AND encode(variant.sha256, 'hex') = hold.content_sha256
+          AND variant.storage_deleted_at IS NULL AND asset.storage_deleted_at IS NULL,
+          false) AS "hasRetainedPhoto"
       FROM moderation.report_evidence evidence
+      LEFT JOIN moderation.report_snapshots snapshot ON snapshot.report_evidence_id = evidence.id
+        AND snapshot.report_id = evidence.report_id AND snapshot.snapshot_type = evidence.evidence_type
+        AND snapshot.schema_version = 1 AND snapshot.encryption_key_version >= 1
+        AND octet_length(snapshot.nonce) = 12 AND octet_length(snapshot.ciphertext) BETWEEN 17 AND 65536
+        AND snapshot.content_sha256 ~ '^[0-9a-f]{64}$'
+      LEFT JOIN media.report_photo_evidence_holds hold ON hold.report_evidence_id = evidence.id
+        AND evidence.evidence_type = 'photo'
+      LEFT JOIN media.photo_variants variant ON variant.id = hold.variant_id AND variant.asset_id = hold.asset_id
+      LEFT JOIN media.media_assets asset ON asset.id = hold.asset_id
 `,
   reviews: sql`
 SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = review.report_id AND (
