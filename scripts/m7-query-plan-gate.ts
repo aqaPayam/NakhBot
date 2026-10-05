@@ -44,11 +44,16 @@ try {
     terminalIntegrityAppeals: undefined,
     terminalIntegrityActions: ['account_history_restoration_state_idx'],
     terminalIntegrityAdminLogs: undefined,
+    terminalIntegritySnapshot: ['moderation_actions_episode_resolution_idx'],
+    terminalOperationalHealth: ['moderation_actions_episode_resolution_idx'],
+  };
+  // Existing index lists contain alternatives. The combined terminal scene must
+  // retain both independent bindings, rather than accepting either one alone.
+  const requiredAllIndexes: Readonly<Record<string, readonly string[]>> = {
     terminalIntegritySnapshot: [
       'moderation_actions_episode_resolution_idx',
       'account_history_restoration_state_idx',
     ],
-    terminalOperationalHealth: ['moderation_actions_episode_resolution_idx'],
   };
   await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
   await writeFile(
@@ -79,6 +84,7 @@ try {
         remainingVolumeBranches: ['encrypted-capture'],
         maximumExecutionMs: 1500,
         requiredIndexes,
+        requiredAllIndexes,
         plans: summaries,
       },
       null,
@@ -87,7 +93,10 @@ try {
   );
   for (const [name, index] of Object.entries(requiredIndexes)) {
     const plan = summaries?.[name];
-    if (!m7PlanPasses(plan, index))
+    if (
+      !m7PlanPasses(plan, index) ||
+      (requiredAllIndexes[name] ?? []).some((required) => !m7PlanPasses(plan, [required]))
+    )
       throw new Error(`M7 query-plan budget or index failed: ${name}.`);
   }
   process.stdout.write(

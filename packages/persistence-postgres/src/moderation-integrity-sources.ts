@@ -1,7 +1,10 @@
 import { sql, type RawBuilder } from 'kysely';
 import type { ModerationReconciliationPhase } from '@nakh/application';
 /** Split null and exact administrator bindings so PostgreSQL can use the actor/history index. */
-function accountHistoryMatches(adminMatches: RawBuilder<unknown>): RawBuilder<boolean> {
+function accountHistoryMatches(
+  adminMatches: RawBuilder<unknown>,
+  restoredState: RawBuilder<unknown>,
+): RawBuilder<boolean> {
   return sql<boolean>`EXISTS (
       SELECT 1 FROM identity.account_state_history history WHERE history.user_id = action.target_user_id
         AND history.actor_type = action.actor_type AND ${adminMatches}
@@ -10,8 +13,88 @@ function accountHistoryMatches(adminMatches: RawBuilder<unknown>): RawBuilder<bo
           OR (action.action_type = 'ban_user' AND history.next_state = 'banned')
           OR (action.action_type IN ('unrestrict_user','unban_user')
             AND history.previous_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
-            AND history.next_state = restoration.previous_state))
+            AND history.next_state = ${restoredState}))
     )`;
+}
+
+/** Disjoint actor branches keep system restrictions out of administrator attempt/restoration joins.
+ * The persisted actor CHECK makes the two branches exhaustive, with one row per action. */
+function moderationActionSource(actor: 'system' | 'admin'): RawBuilder<unknown> {
+  const isSystem = actor === 'system';
+  return sql`
+SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
+    ${
+      isSystem
+        ? sql`true`
+        : sql`(attempt.id IS NOT NULL
+        AND ((action.action_type = 'unban_user' AND EXISTS (SELECT 1 FROM moderation.appeal_unbans unban
+          WHERE unban.action_id = action.id AND unban.admin_action_log_id = attempt.id
+            AND attempt.command_code = 'moderation.unban-appeal' AND attempt.target_type = 'user_appeal'
+            AND attempt.target_id = unban.appeal_id))
+          OR (action.action_type IN ('restrict_user','unrestrict_user','ban_user','unban_user')
+            AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
+            AND attempt.target_id = action.target_user_id)
+          OR (action.action_type IN ('hide_photo','restore_photo','delete_photo')
+            AND attempt.command_code = 'moderation.apply-photo-action' AND attempt.target_type = 'photo'
+            AND attempt.target_id = action.target_photo_id)
+          OR (action.action_type = 'dismiss_report' AND attempt.command_code = 'moderation.decide-review'
+            AND attempt.target_type = 'moderation_review' AND EXISTS (SELECT 1 FROM moderation.moderation_reviews review
+              WHERE review.id = attempt.target_id AND review.report_id = action.source_report_id))
+          OR (action.action_type IN ('create_internal_block','remove_internal_block')
+            AND attempt.command_code = 'moderation.change-internal-block' AND attempt.target_type = 'user_pair'
+            AND attempt.target_id = moderation.admin_pair_target_id(action.target_pair_low_user_id, action.target_pair_high_user_id)
+            AND EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id = action.audit_log_id
+              AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id)))
+    )`
+    } AS "hasAttempt",
+    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
+      ${accountHistoryMatches(
+        isSystem
+          ? sql`history.actor_admin_id IS NULL`
+          : sql`history.actor_admin_id = action.actor_admin_id`,
+        isSystem ? sql`NULL::text` : sql`restoration.previous_state`,
+      )} AS "hasAccountHistory",
+    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
+      OR bound_notice.id IS NOT NULL AS "hasNotice",
+    action.source_report_id IS NULL OR EXISTS (
+      SELECT 1 FROM moderation.reports report WHERE report.id = action.source_report_id
+        AND ((action.action_type IN ('create_internal_block','remove_internal_block')
+            AND LEAST(report.reporter_user_id, report.target_user_id) = action.target_pair_low_user_id
+            AND GREATEST(report.reporter_user_id, report.target_user_id) = action.target_pair_high_user_id)
+          OR report.target_user_id = action.target_user_id OR EXISTS (
+          SELECT 1 FROM media.profile_photos photo JOIN profile.profiles profile ON profile.id = photo.profile_id
+          WHERE photo.id = action.target_photo_id AND profile.user_id = report.target_user_id))
+    ) AS "reportMatches"
+    FROM moderation.moderation_actions action
+    ${
+      isSystem
+        ? sql``
+        : sql`    LEFT JOIN administration.admin_action_logs attempt
+      ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
+      AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
+      AND attempt.result = 'succeeded'
+    -- One latest prior-state lookup per restoration binding; OFFSET 0 preserves the
+    -- parameterized relation so repeated target/type/time bindings can be memoized.
+    LEFT JOIN LATERAL (
+      SELECT prior.previous_state FROM identity.account_state_history prior
+      WHERE action.action_type IN ('unrestrict_user','unban_user')
+        AND prior.user_id = action.target_user_id
+        AND prior.next_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
+        AND prior.changed_at <= action.occurred_at
+        AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
+      ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
+    ) restoration ON true`
+    }
+    LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
+      AND bound_audit.actor_type = action.actor_type
+      AND ${isSystem ? sql`bound_audit.actor_admin_id IS NULL` : sql`bound_audit.actor_admin_id = action.actor_admin_id`}
+      AND bound_audit.command_id = action.command_id AND bound_audit.request_id = action.request_id
+    LEFT JOIN notification.notifications bound_notice ON bound_notice.id = action.notification_id
+      AND bound_notice.user_id = action.target_user_id AND bound_notice.payload = '{}'::jsonb
+      AND bound_notice.notification_type = CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
+        WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END
+    WHERE action.actor_type = ${actor}
+`;
 }
 
 /** Owning metadata predicates shared by paged reconciliation and live aggregate sampling.
@@ -65,68 +148,7 @@ SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.i
     ) AS "hasDecisionEvidence"
     FROM moderation.moderation_reviews review
 `,
-  actions: sql`
-SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
-    action.actor_type = 'system' OR (attempt.id IS NOT NULL
-        AND ((action.action_type = 'unban_user' AND EXISTS (SELECT 1 FROM moderation.appeal_unbans unban
-          WHERE unban.action_id = action.id AND unban.admin_action_log_id = attempt.id
-            AND attempt.command_code = 'moderation.unban-appeal' AND attempt.target_type = 'user_appeal'
-            AND attempt.target_id = unban.appeal_id))
-          OR (action.action_type IN ('restrict_user','unrestrict_user','ban_user','unban_user')
-            AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
-            AND attempt.target_id = action.target_user_id)
-          OR (action.action_type IN ('hide_photo','restore_photo','delete_photo')
-            AND attempt.command_code = 'moderation.apply-photo-action' AND attempt.target_type = 'photo'
-            AND attempt.target_id = action.target_photo_id)
-          OR (action.action_type = 'dismiss_report' AND attempt.command_code = 'moderation.decide-review'
-            AND attempt.target_type = 'moderation_review' AND EXISTS (SELECT 1 FROM moderation.moderation_reviews review
-              WHERE review.id = attempt.target_id AND review.report_id = action.source_report_id))
-          OR (action.action_type IN ('create_internal_block','remove_internal_block')
-            AND attempt.command_code = 'moderation.change-internal-block' AND attempt.target_type = 'user_pair'
-            AND attempt.target_id = moderation.admin_pair_target_id(action.target_pair_low_user_id, action.target_pair_high_user_id)
-            AND EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id = action.audit_log_id
-              AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id)))
-    ) AS "hasAttempt",
-    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-      CASE WHEN action.actor_admin_id IS NULL
-        THEN ${accountHistoryMatches(sql`history.actor_admin_id IS NULL`)}
-        ELSE ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`)} END AS "hasAccountHistory",
-    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
-      OR bound_notice.id IS NOT NULL AS "hasNotice",
-    action.source_report_id IS NULL OR EXISTS (
-      SELECT 1 FROM moderation.reports report WHERE report.id = action.source_report_id
-        AND ((action.action_type IN ('create_internal_block','remove_internal_block')
-            AND LEAST(report.reporter_user_id, report.target_user_id) = action.target_pair_low_user_id
-            AND GREATEST(report.reporter_user_id, report.target_user_id) = action.target_pair_high_user_id)
-          OR report.target_user_id = action.target_user_id OR EXISTS (
-          SELECT 1 FROM media.profile_photos photo JOIN profile.profiles profile ON profile.id = photo.profile_id
-          WHERE photo.id = action.target_photo_id AND profile.user_id = report.target_user_id))
-    ) AS "reportMatches"
-    FROM moderation.moderation_actions action
-    LEFT JOIN administration.admin_action_logs attempt
-      ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
-      AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
-      AND attempt.result = 'succeeded'
-    -- One latest prior-state lookup per restoration binding; OFFSET 0 preserves the
-    -- parameterized relation so repeated target/type/time bindings can be memoized.
-    LEFT JOIN LATERAL (
-      SELECT prior.previous_state FROM identity.account_state_history prior
-      WHERE action.action_type IN ('unrestrict_user','unban_user')
-        AND prior.user_id = action.target_user_id
-        AND prior.next_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
-        AND prior.changed_at <= action.occurred_at
-        AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
-      ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
-    ) restoration ON true
-    LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
-      AND bound_audit.actor_type = action.actor_type
-      AND bound_audit.actor_admin_id IS NOT DISTINCT FROM action.actor_admin_id
-      AND bound_audit.command_id = action.command_id AND bound_audit.request_id = action.request_id
-    LEFT JOIN notification.notifications bound_notice ON bound_notice.id = action.notification_id
-      AND bound_notice.user_id = action.target_user_id AND bound_notice.payload = '{}'::jsonb
-      AND bound_notice.notification_type = CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
-        WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END
-`,
+  actions: sql`${moderationActionSource('system')} UNION ALL ${moderationActionSource('admin')}`,
   episodes: sql`
 SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
       AND report.target_user_id = episode.target_user_id) AS "sourceMatches",

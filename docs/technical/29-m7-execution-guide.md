@@ -50,6 +50,19 @@ joining its action/episode/attempt facts. Every per-chain flag and observed-coun
 the same; no production sampler, fixture scale, statement timeout or plan budget is changed.
 The volume gate still must complete and verify all measured plans before this repair is green.
 
+The materialized validation run passed all 380 tests and its exact populations, with no setup
+timeout. Baseline sampling passed at 1,444 ms; terminal sampling remained 1,815 ms. The action
+branch retained 3,237 temporary blocks and 65,058 repeated relation loops. The next repair separates
+system and admin actions into exhaustive, disjoint branches using the persisted non-null actor
+CHECK. System restrictions keep all history, Report, audit and notice bindings but never join an
+administrator attempt or restoration lookup. Admin actions retain those exact checks and separate
+appeal-unban bindings. Explicit null/system and exact/admin audit bindings preserve prior semantics.
+Native threshold audit request drift must still produce one action finding across concurrent
+samples, then return every phase to baseline after repair. The terminal sampler additionally
+requires both resolution and restoration indexes, preserving the original resolution requirement
+instead of treating these independent bindings as index alternatives. No migration, memory setting,
+fixture scale or timing budget changes are introduced; all six jobs remain required.
+
 ## Previous increment: retained-photo custody at production query volume
 
 The M7 plan gate now adds 20,000 photo evidence chains to both baseline and terminal scenes.

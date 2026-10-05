@@ -995,7 +995,7 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
       .execute();
     const audits = await database
       .selectFrom('platform.audit_logs')
-      .select(['id', 'metadata'])
+      .select(['id', 'metadata', 'request_id'])
       .where('subject_id', '=', targetUserId)
       .where('event_type', '=', 'moderation.threshold-restriction.v1')
       .execute();
@@ -1073,6 +1073,37 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
         )
       ).findings,
     ).toEqual([]);
+    const integrity = new PostgresModerationIntegrityMetricsStore(database),
+      beforeAuditDrift = (await integrity.measure()).counts;
+    await corrupt(async (tx) => {
+      await tx
+        .updateTable('platform.audit_logs')
+        .set({ request_id: randomUUID() })
+        .where('id', '=', audits[0]!.id)
+        .execute();
+    });
+    try {
+      expect(
+        (
+          await scanModerationActions(
+            database,
+            { phase: 'actions', lastId: reconciliationCursorBefore(action.id) },
+            1,
+          )
+        ).findings.map((finding) => finding.anomalyType),
+      ).toEqual(['moderation_action_audit_missing']);
+      for (const sample of await Promise.all(Array.from({ length: 5 }, () => integrity.measure())))
+        expect(sample.counts.actions).toBe(beforeAuditDrift.actions + 1);
+    } finally {
+      await corrupt(async (tx) => {
+        await tx
+          .updateTable('platform.audit_logs')
+          .set({ request_id: audits[0]!.request_id })
+          .where('id', '=', audits[0]!.id)
+          .execute();
+      });
+    }
+    expect((await integrity.measure()).counts).toEqual(beforeAuditDrift);
     await database.connection().execute(async (connection) => {
       await sql`SET session_replication_role = replica`.execute(connection);
       try {
