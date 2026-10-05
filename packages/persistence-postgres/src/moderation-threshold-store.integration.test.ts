@@ -766,6 +766,60 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
       });
     }
     expect((await scanRestrictionEpisodes(database, cursor, 1)).findings).toEqual([]);
+    const attempt = await database
+      .selectFrom('administration.admin_action_logs')
+      .select('request_digest')
+      .where('command_id', '=', resolutionCommandId)
+      .executeTakeFirstOrThrow();
+    const resolution = await database
+      .selectFrom('moderation.moderation_actions')
+      .select('id')
+      .where('command_id', '=', resolutionCommandId)
+      .executeTakeFirstOrThrow();
+    const samples = new PostgresModerationIntegrityMetricsStore(database),
+      healthStore = new PostgresM7OperationalHealthStore(database),
+      baseline = await samples.measure(),
+      healthBefore = await healthStore.measure();
+    const wrongDigest = attempt.request_digest === '0'.repeat(64) ? '1'.repeat(64) : '0'.repeat(64);
+    await corrupt(async (tx) => {
+      await tx
+        .updateTable('administration.admin_action_logs')
+        .set({ request_digest: wrongDigest })
+        .where('command_id', '=', resolutionCommandId)
+        .execute();
+    });
+    try {
+      expect(
+        (await scanRestrictionEpisodes(database, cursor, 1)).findings.map((row) => row.anomalyType),
+      ).toEqual(['threshold_episode_resolution_missing']);
+      const actionPage = await scanModerationActions(
+        database,
+        { phase: 'actions', lastId: reconciliationCursorBefore(resolution.id) },
+        1,
+      );
+      expect(actionPage.findings.map((row) => row.anomalyType)).toEqual([
+        'moderation_action_attempt_missing',
+      ]);
+      for (const current of await Promise.all(Array.from({ length: 5 }, () => samples.measure()))) {
+        expect(current.counts.episodes).toBe(baseline.counts.episodes + 1);
+        expect(current.counts.actions).toBe(baseline.counts.actions + 1);
+        expect(current.counts.admin_logs).toBe(baseline.counts.admin_logs + 1);
+        expect(JSON.stringify(current)).not.toContain(attempt.request_digest);
+      }
+      const health = await healthStore.measure();
+      expect(health.thresholdMismatchCount).toBe(healthBefore.thresholdMismatchCount + 1);
+      expect(health.adminLogMismatchCount).toBe(healthBefore.adminLogMismatchCount + 1);
+    } finally {
+      await corrupt(async (tx) => {
+        await tx
+          .updateTable('administration.admin_action_logs')
+          .set({ request_digest: attempt.request_digest })
+          .where('command_id', '=', resolutionCommandId)
+          .execute();
+      });
+    }
+    expect((await samples.measure()).counts).toEqual(baseline.counts);
+    expect((await scanRestrictionEpisodes(database, cursor, 1)).findings).toEqual([]);
   });
 
   it('counts later commits when the fifth report transaction began first', async () => {

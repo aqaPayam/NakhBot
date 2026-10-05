@@ -14,6 +14,10 @@ import {
 } from './moderation-integrity-metrics-store.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import {
+  seedM7UnrestrictionPlans,
+  type M7UnrestrictionFixture,
+} from './m7-unrestriction-plan-fixture.js';
+import {
   seedM7PhotoIntegrityPlans,
   type M7RetainedPhotoFixture,
 } from './m7-photo-integrity-plan-fixture.js';
@@ -164,6 +168,7 @@ export async function measureM7SyntheticPlans(
     plans: Readonly<Record<string, unknown>>;
     terminalAppeals: M7TerminalAppealFixture;
     retainedPhotos: M7RetainedPhotoFixture;
+    unrestrictions: M7UnrestrictionFixture;
   }>
 > {
   if (!Number.isSafeInteger(volume) || volume < 1000 || volume > 20000)
@@ -174,6 +179,7 @@ export async function measureM7SyntheticPlans(
   let plans: Readonly<Record<string, unknown>> | undefined;
   let terminalAppeals: M7TerminalAppealFixture | undefined;
   let retainedPhotos: M7RetainedPhotoFixture | undefined;
+  let unrestrictions: M7UnrestrictionFixture | undefined;
   await withM6SyntheticPlanSession(database, async (connection) => {
     try {
       await connection.transaction().execute(async (tx) => {
@@ -183,17 +189,23 @@ export async function measureM7SyntheticPlans(
         const beforePhotoHealth = await new PostgresM7OperationalHealthStore(tx).measure();
         retainedPhotos = await seedM7PhotoIntegrityPlans(tx, prefix, volume, at);
         const photoDrift = retainedPhotos.hashDrift + retainedPhotos.storageDrift;
+        unrestrictions = await seedM7UnrestrictionPlans(tx, prefix, volume, at);
+        const { bound: boundResolutions, digestDrift } = unrestrictions;
         await analyzeM7QueryTables(tx);
         const thresholdChains = (
-          await sql<{ count: string }>`SELECT count(*)::text AS count
+          await sql<{ count: string; resolved: string }>`SELECT count(*)::text AS count,
+            count(*) FILTER(WHERE probe."hasResolutionAttempt")::text AS resolved
           FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe WHERE probe.id IN (
             SELECT md5(${prefix} || 'episode' || n)::uuid FROM generate_series(1,${volume}) n)
             AND probe."hasOneSystemAction"
             AND probe."hasAdmissionWitness"
             AND probe."hasRestrictionHistory" AND probe."hasRestrictionAudit" AND probe."hasRestrictionNotice"
-            AND NOT probe."hasResolutionAttempt"`.execute(tx)
+            `.execute(tx)
         ).rows[0]!;
-        if (Number(thresholdChains.count) !== volume)
+        if (
+          Number(thresholdChains.count) !== volume ||
+          Number(thresholdChains.resolved) !== boundResolutions
+        )
           throw new Error('M7 threshold chain fixture incomplete.');
         // Reject empty-phase evidence. Count metadata in PostgreSQL; identities never enter artifacts.
         for (const phase of MODERATION_RECONCILIATION_PHASES) {
@@ -223,22 +235,35 @@ export async function measureM7SyntheticPlans(
           const current = await new PostgresModerationIntegrityMetricsStore(tx).measure();
           if (
             current.counts.evidence < volume ||
-            current.counts.episodes < volume ||
+            current.counts.episodes < volume - boundResolutions ||
             current.counts.internal_blocks < Math.floor(volume / 2)
           )
             throw new Error('M7 integrity drift fixture incomplete.');
           for (const phase of MODERATION_RECONCILIATION_PHASES)
             if (
               current.counts[phase] !==
-              beforePhotos.counts[phase] + (phase === 'evidence' ? photoDrift : 0)
+              beforePhotos.counts[phase] +
+                (phase === 'evidence'
+                  ? photoDrift
+                  : phase === 'episodes'
+                    ? -boundResolutions
+                    : phase === 'actions' || phase === 'admin_logs'
+                      ? digestDrift
+                      : 0)
             )
-              throw new Error('M7 retained photo integrity delta invalid.');
+              throw new Error('M7 photo/unrestriction integrity delta invalid.');
           const health = await new PostgresM7OperationalHealthStore(tx).measure();
           // Custody drift belongs to the evidence phase; valid capture shape is unchanged.
           if (
             health.snapshotIntegrityFailureCount !== beforePhotoHealth.snapshotIntegrityFailureCount
           )
             throw new Error('M7 photo custody incorrectly classified as capture drift.');
+          if (
+            health.thresholdMismatchCount !==
+              beforePhotoHealth.thresholdMismatchCount - boundResolutions ||
+            health.adminLogMismatchCount !== beforePhotoHealth.adminLogMismatchCount + digestDrift
+          )
+            throw new Error('M7 unrestriction operational health delta invalid.');
         }
         const baseline = await new PostgresModerationIntegrityMetricsStore(tx).measure();
         const healthBaseline = await new PostgresM7OperationalHealthStore(tx).measure();
@@ -271,8 +296,13 @@ export async function measureM7SyntheticPlans(
     }
   });
   await analyzeM7QueryTables(database);
-  if (plans === undefined || terminalAppeals === undefined || retainedPhotos === undefined)
+  if (
+    plans === undefined ||
+    terminalAppeals === undefined ||
+    retainedPhotos === undefined ||
+    unrestrictions === undefined
+  )
     throw new Error('M7 plan measurement unavailable.');
-  return { plans, terminalAppeals, retainedPhotos };
+  return { plans, terminalAppeals, retainedPhotos, unrestrictions };
 }
 class SyntheticPlanRollback extends Error {}

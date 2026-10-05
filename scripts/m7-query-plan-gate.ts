@@ -17,7 +17,7 @@ const database = createDatabase({
 });
 let summaries: Record<string, M7PlanSummary> | undefined;
 try {
-  const { plans, terminalAppeals, retainedPhotos } = await measureM7SyntheticPlans(
+  const { plans, terminalAppeals, retainedPhotos, unrestrictions } = await measureM7SyntheticPlans(
     database,
     volume,
   );
@@ -51,12 +51,13 @@ try {
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 10,
+        schemaVersion: 11,
         fixtureScale: volume,
         fixtureTables: 27,
         thresholdChains: {
           systemRestrictions: volume,
-          invalidResolutions: volume,
+          validResolutions: unrestrictions.bound,
+          invalidResolutions: unrestrictions.digestDrift,
           admissionWitnesses: volume * 5,
         },
         integrityPhases: MODERATION_RECONCILIATION_PHASES,
@@ -64,12 +65,14 @@ try {
         repeatedSnapshotSamples: 3,
         terminalAppeals,
         retainedPhotos,
+        unrestrictions,
+        repeatedUnrestrictionSnapshotSamples: 3,
         repeatedRetainedPhotoSnapshotSamples: 3,
         repeatedTerminalSnapshotSamples: 3,
         repeatedTerminalOperationalHealthSamples: 3,
         fixtureScope:
-          'metadata-capture-drift-retained-photo-custody-threshold-chains-invalid-resolutions-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
-        remainingVolumeBranches: ['encrypted-capture', 'unrestrict'],
+          'metadata-capture-drift-retained-photo-custody-threshold-chains-separate-unrestrictions-digest-drift-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
+        remainingVolumeBranches: ['encrypted-capture'],
         maximumExecutionMs: 1500,
         requiredIndexes,
         plans: summaries,

@@ -1,6 +1,29 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: retained-photo custody at production query volume
+## Current increment: separate unrestriction commands at production query volume
+
+Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,
+each with its own admin attempt, action, state history, audit and notice. Half have exact digest
+bindings; half deliberately mismatch the successful attempt's digest. The shared action, episode
+and admin-log predicates must identify the exact bound and damaged populations while retaining
+every original threshold chain and admission roster. These synthetic histories restore active
+state; existing native state-restoration tests remain the functional evidence.
+
+Three actual aggregate and operational-health samples require exact deltas: bound resolutions
+clear episode mismatches, damaged attempts add action and admin-log mismatches, and unrelated
+counts remain unchanged. Terminal appeal/unban sampling must preserve the same baseline. Artifact
+schema 11 records observed unrestriction counts alongside the unchanged 20,000 photo chains and
+100,000 admission witnesses. All 27 plans retain 1,500 ms limits and the exact resolution index
+requirements. Isolated trigger/FK bypass and rollback are synthetic metadata setup only, without
+claims of native admission, permission checks, provider delivery or operator acceptance.
+
+Native separately confirmed unrestriction followed by a later ban also tests digest drift across
+resolution, action and audit-log reconciliation, concurrent sampling, and repair. Migration 80
+bootstrap, upgrade and unchanged replay remain required; no schema or catalog change is introduced.
+Encrypted-capture integrity, real MFA provider/enrollment/provisioning, exporter/alerts,
+provider/operator staging and M8/M9 acceptance remain open.
+
+## Previous increment: retained-photo custody at production query volume
 
 The M7 plan gate now adds 20,000 photo evidence chains to both baseline and terminal scenes.
 Each has an exact hold, source photo, thumbnail variant, asset and shape-valid snapshot envelope.
