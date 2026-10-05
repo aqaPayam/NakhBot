@@ -1,4 +1,4 @@
-import type { ConfirmedEvidenceReveals } from '@nakh/application';
+import type { AuditedReportPhotoRequest, ConfirmedEvidenceReveals } from '@nakh/application';
 import { ApplicationError, type Actor } from '@nakh/domain';
 import { m7Record, requirePrivateM7Actor } from './m7-private-update.js';
 import { presentM7AdminOutcome, renderM7Notice, type M7TextRenderer } from './m7-presentation.js';
@@ -21,9 +21,7 @@ export interface TelegramAdminEvidenceDelivery {
     input: Readonly<{ recipient: string; text: string; disableLinkPreviews: true }>,
   ): Promise<void>;
   /** Resolve retained bytes through the configured authorized delivery path; never expose a URL/ref in text. */
-  retainedPhoto(
-    input: Readonly<{ actor: Actor; recipient: string; objectRef: string; contentSha256: string }>,
-  ): Promise<void>;
+  retainedPhoto(input: AuditedReportPhotoRequest): Promise<void>;
 }
 export function chunkM7EvidenceText(text: string): readonly string[] {
   if (text.length < 1 || text.length > 16000)
@@ -118,6 +116,8 @@ export class TelegramAdminEvidenceAdapter {
             recipient: context.telegramUserId,
             objectRef: content.evidenceObjectRef,
             contentSha256: content.contentSha256,
+            commandId: command.commandId,
+            logId: result.logId,
           });
         } else
           for (const text of chunkM7EvidenceText(contentText(content))) {

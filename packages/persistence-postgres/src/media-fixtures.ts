@@ -9,9 +9,12 @@ export async function seedValidMedia(
   assetId = randomUUID(),
   thumbnail = true,
   attemptedAt = new Date(),
+  syntheticBytes?: Uint8Array,
 ): Promise<string> {
   const now = new Date();
-  const checksum = createHash('sha256').update(assetId).digest();
+  const checksum = createHash('sha256')
+    .update(syntheticBytes ?? assetId)
+    .digest();
   await database
     .insertInto('media.media_assets')
     .values({

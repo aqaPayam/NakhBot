@@ -170,3 +170,4 @@ export * from './moderation/prepare-selected-report-account-action.js';
 export * from './moderation/prepare-selected-report-photo-action.js';
 export * from './moderation/selected-report-evidence-metadata.js';
 export * from './moderation/prepare-selected-report-evidence-reveal.js';
+export * from './moderation/audited-report-photo.js';

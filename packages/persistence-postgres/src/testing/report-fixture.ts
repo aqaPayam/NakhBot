@@ -55,7 +55,10 @@ export async function createReportMessage(
 }
 
 /** Synthetic safety evidence fixture. Does not verify or copy real storage objects. */
-export async function createRetainedReportPhoto(database: NakhDatabase): Promise<
+export async function createRetainedReportPhoto(
+  database: NakhDatabase,
+  syntheticBytes?: Uint8Array,
+): Promise<
   Readonly<{
     reporter: string;
     target: string;
@@ -68,7 +71,7 @@ export async function createRetainedReportPhoto(database: NakhDatabase): Promise
 > {
   const reporter = await createReportUser(database),
     target = await createReportUser(database, true),
-    photoId = await createReportPhoto(database, target),
+    photoId = await createReportPhoto(database, target, true, syntheticBytes),
     reportId = randomUUID(),
     evidenceId = randomUUID();
   await createReportLike(database, reporter, target);
@@ -173,13 +176,21 @@ export async function createReportPhoto(
   database: NakhDatabase,
   target: string,
   primary = true,
+  syntheticBytes?: Uint8Array,
 ): Promise<string> {
   const profile = await database
     .selectFrom('profile.profiles')
     .select('id')
     .where('user_id', '=', target)
     .executeTakeFirstOrThrow();
-  const assetId = await seedValidMedia(database, target),
+  const assetId = await seedValidMedia(
+      database,
+      target,
+      randomUUID(),
+      true,
+      new Date(),
+      syntheticBytes,
+    ),
     id = randomUUID(),
     now = new Date();
   const count = await database

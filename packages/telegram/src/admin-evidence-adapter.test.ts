@@ -198,6 +198,8 @@ describe('audited Telegram admin evidence presentation', () => {
       actor: f.session.actor,
       recipient: '123',
       objectRef,
+      commandId: f.execute.mock.calls[0]![0].commandId,
+      logId: f.result.logId,
       contentSha256: 'a'.repeat(64),
     });
     expect(JSON.stringify(f.text.mock.calls)).not.toContain(objectRef);

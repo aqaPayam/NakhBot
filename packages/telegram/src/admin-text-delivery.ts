@@ -14,7 +14,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 function unavailable(): ApplicationError {
   return new ApplicationError('internal_error', 'error.m7.internal', 500);
 }
-async function requireAcknowledgement(response: Response): Promise<number> {
+export async function requireTelegramAdminAcknowledgement(response: Response): Promise<number> {
   if (response.body === null) throw unavailable();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -174,7 +174,7 @@ export class TelegramAdminTextDelivery
           signal: AbortSignal.timeout(15000),
         },
       );
-      return await requireAcknowledgement(response);
+      return await requireTelegramAdminAcknowledgement(response);
     } catch {
       throw unavailable();
     }

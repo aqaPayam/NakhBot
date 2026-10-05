@@ -1,6 +1,36 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: private Telegram evidence reason and confirmation
+## Current increment: exact audited retained photo byte delivery
+
+The explicitly composed private evidence delivery now resolves the captured thumbnail through its
+media-owned Report hold. It requires the exact successful reveal command/log and committed revealed
+access audit, the verified current admin/Telegram binding and current `view_reports` permission.
+Successful audit authority expires after five minutes; a mismatched actor, recipient, command,
+log, evidence reference or digest cannot resolve storage. Logical photo/variant/asset deletion
+preserves safety access; physically deleted storage and cleanup leases deny it.
+
+The trusted object reader uses the existing R2 streaming capability. The application bounds the
+thumbnail at two MiB and twenty seconds, checks the captured SHA-256 and WebP container, then
+rechecks current authorization and the same hold after storage waits. The Telegram adapter checks
+current actor-bound session/MFA before reading and again immediately before the protected upload.
+The fixed Bot API receives only private chat identity and verified multipart image bytes, a generic
+filename and `protect_content=true`; no caption, storage key, object reference, public URL or
+provider file cache enters the request. A bounded acknowledgement is required. No storage or
+provider retry occurs; fresh native execution is the only caller, and native replays never read
+or send bytes again, including after an ambiguous provider failure.
+
+Unit evidence covers malformed authority, bounded/corrupt/truncated/non-WebP streams, changed holds,
+revocation during storage, actor/session substitution and protected provider failure handling.
+Actual PostgreSQL/Telegram boundary evidence covers concurrent native retries, logical deletion,
+revoked permission, expired sessions, digest failure and ambiguous upload failure with one native
+attempt/access audit and no redelivery. Byte fixtures are synthetic and captured with their digest
+before immutable retention; tests never rewrite held digests or storage identity.
+No persistence shape or catalog change is introduced; migration 73 bootstrap/upgrade/replay gates
+remain mandatory. Real R2/Telegram/operator staging acceptance, concrete session/MFA composition
+and internal-block controls remain open. Ordinary startup does not enable an unconfigured or no-op
+retained byte provider.
+
+## Previous increment: private Telegram evidence reason and confirmation
 
 The selected evidence UI now offers **View selected evidence** only when the configured native
 reader supports that exact item. The owned private bot prompt binds its opaque evidence choice
