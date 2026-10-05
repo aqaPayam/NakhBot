@@ -8,6 +8,16 @@ export type M7PlanSummary = Readonly<{
     maximumHashBatches: number;
     diskSortKb: number;
     maximumLoops: number;
+    maximumWorkersPlanned: number;
+    maximumWorkersLaunched: number;
+    jitTotalMs: number;
+    slowNodes: readonly Readonly<{
+      nodeType: string;
+      relation: string;
+      totalMs: number;
+      loops: number;
+      cumulativeMs: number;
+    }>[];
   }>;
 }>;
 export function m7PlanPasses(
@@ -41,12 +51,95 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
   let maximumHashBatches = 0,
     diskSortKb = 0,
     maximumLoops = 0;
+  let maximumWorkersPlanned = 0,
+    maximumWorkersLaunched = 0;
+  const nodeTypes = new Set([
+    'Aggregate',
+    'Append',
+    'Hash Join',
+    'Hash',
+    'Seq Scan',
+    'Index Scan',
+    'Index Only Scan',
+    'Sort',
+    'Incremental Sort',
+    'Nested Loop',
+    'Subquery Scan',
+    'Result',
+    'Materialize',
+    'Memoize',
+    'Gather',
+    'Gather Merge',
+    'Bitmap Heap Scan',
+    'Bitmap Index Scan',
+    'Merge Join',
+    'Unique',
+    'WindowAgg',
+    'CTE Scan',
+  ]);
+  const relations = new Set([
+    'reports',
+    'report_evidence',
+    'report_snapshots',
+    'photo_variants',
+    'media_assets',
+    'report_photo_evidence_holds',
+    'moderation_actions',
+    'audit_logs',
+    'notifications',
+    'account_state_history',
+    'threshold_admission_witnesses',
+    'restriction_episodes',
+    'admin_action_logs',
+    'user_appeals',
+    'support_messages',
+    'support_threads',
+    'feature_unlocks',
+    'matches',
+    'likes',
+    'profile_photos',
+    'profiles',
+    'moderation_reviews',
+  ]);
+  const slowNodes: {
+    nodeType: string;
+    relation: string;
+    totalMs: number;
+    loops: number;
+    cumulativeMs: number;
+  }[] = [];
+  const timing = (node: Readonly<Record<string, unknown>> | undefined, key: string): number => {
+    const field = node?.[key];
+    return typeof field === 'number' &&
+      Number.isFinite(field) &&
+      field >= 0 &&
+      field <= Number.MAX_SAFE_INTEGER
+      ? field
+      : 0;
+  };
   const numeric = (node: Readonly<Record<string, unknown>>, key: string): number => {
     const field = node[key];
     return typeof field === 'number' && Number.isSafeInteger(field) && field >= 0 ? field : 0;
   };
   const visit = (node: Readonly<Record<string, unknown>>): void => {
     const index = node['Index Name'];
+    maximumWorkersPlanned = Math.max(maximumWorkersPlanned, numeric(node, 'Workers Planned'));
+    maximumWorkersLaunched = Math.max(maximumWorkersLaunched, numeric(node, 'Workers Launched'));
+    const nodeType = node['Node Type'],
+      relation = node['Relation Name'],
+      totalMs = timing(node, 'Actual Total Time'),
+      loops = numeric(node, 'Actual Loops');
+    if (totalMs > 0 && loops > 0) {
+      slowNodes.push({
+        nodeType: typeof nodeType === 'string' && nodeTypes.has(nodeType) ? nodeType : 'Other',
+        relation: typeof relation === 'string' && relations.has(relation) ? relation : 'Other',
+        totalMs,
+        loops,
+        cumulativeMs: timing({ time: totalMs * loops }, 'time'),
+      });
+      slowNodes.sort((left, right) => right.cumulativeMs - left.cumulativeMs);
+      if (slowNodes.length > 24) slowNodes.length = 24;
+    }
     maximumHashBatches = Math.max(maximumHashBatches, numeric(node, 'Hash Batches'));
     maximumLoops = Math.max(maximumLoops, numeric(node, 'Actual Loops'));
     if (node['Sort Space Type'] === 'Disk') diskSortKb += numeric(node, 'Sort Space Used');
@@ -71,6 +164,10 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
       maximumHashBatches,
       diskSortKb,
       maximumLoops,
+      maximumWorkersPlanned,
+      maximumWorkersLaunched,
+      jitTotalMs: timing(object(object(document?.JIT)?.Timing), 'Total'),
+      slowNodes,
     },
   };
 }

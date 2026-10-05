@@ -43,6 +43,11 @@ The next repair joins action audit and notice facts through their primary keys w
 actor, command/request, recipient, empty-payload and type predicates. Missing bound rows remain
 false, unrelated action notices remain exempt, and the independent pair-subject attempt check
 is preserved. Native confirmed restriction drift/repair evidence and every existing gate remain required.
+That run passed all 377 PostgreSQL tests but terminal sampling remained 1,743 ms. The regression
+remains open. Schema 10 diagnostics retain up to 24 slow nodes using only fixed node-type/relation
+allowlists, numeric inclusive timing/loops, worker counts and JIT time. Inclusive node times must
+not be added together; repeated probes and startup can now be localized without predicates or
+private data. This instrumentation does not itself claim a performance fix or change any budget.
 
 ## Previous increment: immutable original threshold admission witnesses
 

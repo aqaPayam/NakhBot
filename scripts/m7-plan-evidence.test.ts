@@ -17,6 +17,7 @@ describe('M7 plan evidence privacy', () => {
       {
         'Execution Time': 1.2,
         Query: 'private text',
+        JIT: { Timing: { Total: 0.5, Query: 'private JIT text' } },
         Plan: {
           'Actual Rows': 51,
           'Index Cond': 'user_id = private-user',
@@ -29,6 +30,11 @@ describe('M7 plan evidence privacy', () => {
               Filter: 'private-ban',
               'Hash Batches': 8,
               'Actual Loops': 20000,
+              'Node Type': 'Index Scan',
+              'Relation Name': 'private-user',
+              'Actual Total Time': 0.002,
+              'Workers Planned': 2,
+              'Workers Launched': 1,
               'Sort Space Type': 'Disk',
               'Sort Space Used': 32,
               'Temp Read Blocks': 3,
@@ -48,6 +54,18 @@ describe('M7 plan evidence privacy', () => {
         maximumHashBatches: 8,
         diskSortKb: 32,
         maximumLoops: 20000,
+        maximumWorkersPlanned: 2,
+        maximumWorkersLaunched: 1,
+        jitTotalMs: 0.5,
+        slowNodes: [
+          {
+            nodeType: 'Index Scan',
+            relation: 'Other',
+            totalMs: 0.002,
+            loops: 20000,
+            cumulativeMs: 40,
+          },
+        ],
       },
     });
     expect(JSON.stringify(result)).not.toContain('private');
