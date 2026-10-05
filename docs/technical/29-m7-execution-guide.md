@@ -36,6 +36,13 @@ photo/non-photo branches, retaining every capture and custody check while avoidi
 for ordinary evidence. Artifact schema 9 adds numeric temporary-block, hash-batch, disk-sort and
 loop diagnostics only; predicates, identifiers, keys and payloads remain excluded. The same
 native binding cases, fixture counts and unchanged 1,500 ms limits remain required.
+That run again passed 376 PostgreSQL tests. Diagnostics excluded disk spill: no temporary blocks
+or disk sorts, with one hash batch. The baseline combined sampler passed at 1,397 ms, while
+terminal sampling remained 1,696 ms and the action phase reached 45,058 repeated probe loops.
+The next repair joins action audit and notice facts through their primary keys with identical
+actor, command/request, recipient, empty-payload and type predicates. Missing bound rows remain
+false, unrelated action notices remain exempt, and the independent pair-subject attempt check
+is preserved. Native confirmed restriction drift/repair evidence and every existing gate remain required.
 
 ## Previous increment: immutable original threshold admission witnesses
 

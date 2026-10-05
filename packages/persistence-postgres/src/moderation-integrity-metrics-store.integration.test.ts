@@ -10,6 +10,8 @@ import {
   type ReviewDecisionDraft,
 } from '@nakh/application';
 import { normalizeUserPair } from '@nakh/domain';
+import type { PrepareAccountModerationActionCommand } from '@nakh/contracts';
+import { PostgresConfirmedAccountActions } from './confirmed-account-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
@@ -185,6 +187,112 @@ describe.skipIf(url === undefined)(
           });
         }
         expect((await store.measure()).counts).toEqual(baseline.counts);
+      }
+    });
+    it('preserves native restriction audit and notice bindings through unique joins', async () => {
+      const photo = await createRetainedReportPhoto(database),
+        other = await createRetainedReportPhoto(database),
+        adminId = await createReportFixtureAdmin(database);
+      await database
+        .insertInto('administration.admin_user_roles')
+        .values({
+          admin_user_id: adminId,
+          role_code: 'super_admin',
+          assigned_by_admin_id: adminId,
+          revoked_at: null,
+          revoked_by_admin_id: null,
+        })
+        .execute();
+      const f = await confirmationFixture(database, adminId),
+        workflow = new PostgresConfirmedAccountActions(database, f.tokens, f.key),
+        account = await database
+          .selectFrom('identity.accounts')
+          .select('version')
+          .where('user_id', '=', photo.target)
+          .executeTakeFirstOrThrow();
+      const command: PrepareAccountModerationActionCommand = {
+        actor: f.actor,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        commandType: 'moderation.apply-account-action',
+        schemaVersion: 1,
+        idempotencyKey: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          action: 'restrict_user',
+          reason: 'Native integrity binding evidence',
+          expectedTargetVersion: account.version,
+          adminActionToken: await f.issue({
+            commandCode: 'moderation.apply-account-action',
+            requiredPermission: 'restrict_user',
+            targetType: 'user',
+            targetId: photo.target,
+            expectedTargetVersion: account.version,
+          }),
+        },
+      };
+      expect(
+        (
+          await workflow.execute(
+            {
+              ...command,
+              data: {
+                ...command.data,
+                confirmationToken: await workflow.prepare(command, f.actor),
+              },
+            },
+            f.actor,
+          )
+        ).result,
+      ).toBe('succeeded');
+      const action = await database
+        .selectFrom('moderation.moderation_actions')
+        .selectAll()
+        .where('command_id', '=', command.commandId)
+        .executeTakeFirstOrThrow();
+      const audit = await database
+        .selectFrom('platform.audit_logs')
+        .selectAll()
+        .where('id', '=', action.audit_log_id)
+        .executeTakeFirstOrThrow();
+      const store = new PostgresModerationIntegrityMetricsStore(database),
+        baseline = (await store.measure()).counts;
+      for (const [damage, code] of [
+        [
+          sql`UPDATE platform.audit_logs SET command_id=${randomUUID()}::uuid WHERE id=${audit.id}::uuid`,
+          'moderation_action_audit_missing',
+        ],
+        [
+          sql`UPDATE platform.audit_logs SET request_id=${randomUUID()}::uuid WHERE id=${audit.id}::uuid`,
+          'moderation_action_audit_missing',
+        ],
+        [
+          sql`UPDATE notification.notifications SET user_id=${other.target}::uuid WHERE id=${action.notification_id}::uuid`,
+          'moderation_action_notice_invalid',
+        ],
+      ] as const) {
+        await corrupt(async (tx) => {
+          await damage.execute(tx);
+        });
+        try {
+          const scan = await scanModerationActions(database, { phase: 'actions' }, 500);
+          expect(
+            scan.findings.filter((row) => row.entityId === action.id).map((row) => row.anomalyType),
+          ).toEqual([code]);
+          for (const sample of await Promise.all(Array.from({ length: 5 }, () => store.measure())))
+            expect(sample.counts.actions).toBe(baseline.actions + 1);
+        } finally {
+          await corrupt(async (tx) => {
+            await sql`UPDATE platform.audit_logs SET command_id=${audit.command_id}::uuid,request_id=${audit.request_id}::uuid WHERE id=${audit.id}::uuid`.execute(
+              tx,
+            );
+            await sql`UPDATE notification.notifications SET user_id=${photo.target}::uuid WHERE id=${action.notification_id}::uuid`.execute(
+              tx,
+            );
+          });
+        }
+        expect((await store.measure()).counts).toEqual(baseline);
       }
     });
     it('accepts actual Report-bound block creation/removal and dismissal without false action quarantines', async () => {

@@ -74,9 +74,7 @@ SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.i
     FROM moderation.moderation_reviews review
 `,
   actions: sql`
-SELECT action.id, EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id = action.audit_log_id
-      AND audit.actor_type = action.actor_type AND audit.actor_admin_id IS NOT DISTINCT FROM action.actor_admin_id
-      AND audit.command_id = action.command_id AND audit.request_id = action.request_id) AS "hasAudit",
+SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
     action.actor_type = 'system' OR EXISTS (
       SELECT 1 FROM administration.admin_action_logs attempt
       WHERE attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
@@ -104,12 +102,8 @@ SELECT action.id, EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id
       CASE WHEN action.actor_admin_id IS NULL
         THEN ${accountHistoryMatches(sql`history.actor_admin_id IS NULL`)}
         ELSE ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`)} END AS "hasAccountHistory",
-    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR EXISTS (
-      SELECT 1 FROM notification.notifications notice WHERE notice.id = action.notification_id
-        AND notice.user_id = action.target_user_id AND notice.payload = '{}'::jsonb
-        AND notice.notification_type = CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
-          WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END
-    ) AS "hasNotice",
+    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
+      OR bound_notice.id IS NOT NULL AS "hasNotice",
     action.source_report_id IS NULL OR EXISTS (
       SELECT 1 FROM moderation.reports report WHERE report.id = action.source_report_id
         AND ((action.action_type IN ('create_internal_block','remove_internal_block')
@@ -120,6 +114,14 @@ SELECT action.id, EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id
           WHERE photo.id = action.target_photo_id AND profile.user_id = report.target_user_id))
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
+    LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
+      AND bound_audit.actor_type = action.actor_type
+      AND bound_audit.actor_admin_id IS NOT DISTINCT FROM action.actor_admin_id
+      AND bound_audit.command_id = action.command_id AND bound_audit.request_id = action.request_id
+    LEFT JOIN notification.notifications bound_notice ON bound_notice.id = action.notification_id
+      AND bound_notice.user_id = action.target_user_id AND bound_notice.payload = '{}'::jsonb
+      AND bound_notice.notification_type = CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
+        WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END
 `,
   episodes: sql`
 SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
