@@ -137,6 +137,20 @@ scale, budget, memory or timeout is changed. Bounded plan diagnostics retain onl
 ancestry/timings and allowlisted node/relation labels, never aliases, predicates or restricted data.
 Verification remains open until all six exact-head jobs pass.
 
+The unique-key run passed all 381 native tests, including the added actor/payload/type drift,
+and all population/index requirements. Base sampling passed at 1,421 ms; terminal sampling
+remained 1,738 ms. Its bounded tree identified 35,024 administrator-history index probes and
+20,012 episode-history probes. These predicates now use uncorrelated exact tuple membership:
+administrator tuples bind User/admin/reason/time/next state and an independent prior-state class;
+episode tuples bind User/time after every original system actor, previous/next-state and reason
+condition. The separately indexed latest-prior-state restoration lookup remains unchanged.
+Duplicate facts retain existence semantics, and null comparisons are explicitly false. The
+duplicate-history scenario additionally denies a valid previous-state fact from another admin.
+This follows PostgreSQL's [row membership semantics](https://www.postgresql.org/docs/17/functions-subquery.html)
+and [independent hashed-subplan eligibility](https://www.postgresql.org/docs/17/using-explain.html);
+actual execution, fresh-row/concurrency/count evidence and all original limits remain mandatory.
+No migration, memory, scale, index requirement or timeout is relaxed. Verification remains open.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,

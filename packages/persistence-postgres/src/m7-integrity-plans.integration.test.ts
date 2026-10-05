@@ -211,7 +211,11 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           await sql`UPDATE identity.account_state_history SET previous_state='active'
             WHERE id=md5(${prefix} || 'terminal-unban-history4')::uuid`.execute(tx);
           expect(await actionCount()).toBe(baseline.counts.actions + 1);
-          await sql`UPDATE identity.account_state_history SET previous_state='banned'
+          await sql`UPDATE identity.account_state_history SET previous_state='banned',actor_admin_id=${randomUUID()}::uuid
+            WHERE id=${duplicateHistory}::uuid`.execute(tx);
+          // A valid previous state belonging to another admin cannot repair this action.
+          expect(await actionCount()).toBe(baseline.counts.actions + 1);
+          await sql`UPDATE identity.account_state_history SET actor_admin_id=md5(${prefix} || 'admin4')::uuid
             WHERE id=${duplicateHistory}::uuid`.execute(tx);
           expect(await actionCount()).toBe(baseline.counts.actions);
           await sql`UPDATE identity.account_state_history SET previous_state='banned'

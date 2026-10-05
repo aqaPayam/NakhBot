@@ -17,6 +17,26 @@ function accountHistoryMatches(
     )`;
 }
 
+/** Uncorrelated exact tuples permit one hashable membership set rather than one
+ * history probe per action. The previous-state class keeps restoration separate
+ * from restriction/ban admission, including duplicate valid/invalid histories. */
+function adminAccountHistoryMatches(): RawBuilder<boolean> {
+  return sql<boolean>`COALESCE((action.target_user_id, action.actor_admin_id, action.reason_code,
+      action.occurred_at, CASE action.action_type WHEN 'restrict_user' THEN 'restricted'
+        WHEN 'ban_user' THEN 'banned' ELSE restoration.previous_state END,
+      CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted'
+        WHEN 'unban_user' THEN 'banned' ELSE 'any' END) IN (
+    SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
+      history.next_state, 'any'::text FROM identity.account_state_history history
+      WHERE history.actor_type = 'admin' AND history.actor_admin_id IS NOT NULL
+    UNION ALL
+    SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
+      history.next_state, history.previous_state FROM identity.account_state_history history
+      WHERE history.actor_type = 'admin' AND history.actor_admin_id IS NOT NULL
+        AND history.previous_state IN ('restricted','banned')
+  ),false)`;
+}
+
 /** Disjoint actor branches keep system restrictions out of administrator attempt/restoration joins.
  * The persisted actor CHECK makes the two branches exhaustive, with one row per action. */
 function moderationActionSource(actor: 'system' | 'admin'): RawBuilder<unknown> {
@@ -56,7 +76,7 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
         ? sql`history_binding."hasAccountHistory"`
         : sql`
       action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-      ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`, sql`restoration.previous_state`)}
+      ${adminAccountHistoryMatches()}
     `
     } AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
@@ -181,7 +201,12 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
     COALESCE(episode.witness_required AND witness."count" = episode.distinct_reporter_count
       AND witness."bindingsValid",false) AS "hasAdmissionWitness",
     action.id IS NOT NULL AS "hasOneSystemAction",
-    action.id IS NULL OR history_binding.valid AS "hasRestrictionHistory",
+    action.id IS NULL OR COALESCE((episode.target_user_id,action.occurred_at) IN (
+      SELECT history.user_id,history.changed_at FROM identity.account_state_history history
+      WHERE history.actor_type = 'system' AND history.actor_user_id IS NULL AND history.actor_admin_id IS NULL
+        AND history.previous_state IN ('guest','incomplete','active') AND history.next_state = 'restricted'
+        AND history.reason_code = 'distinct_reporter_threshold'
+    ),false) AS "hasRestrictionHistory",
     action.id IS NULL OR restriction_audit.id IS NOT NULL AS "hasRestrictionAudit",
     action.id IS NULL OR (restriction_notice.id IS NOT NULL AND telegram_delivery.notification_id IS NOT NULL) AS "hasRestrictionNotice",
     episode.status <> 'resolved' OR resolution_binding.restriction_episode_id IS NOT NULL AS "hasResolutionAttempt"
@@ -205,13 +230,6 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
         AND action.target_user_id = episode.target_user_id AND action.source_report_id = episode.source_report_id
         AND action.reason_code = 'distinct_reporter_threshold'
         AND action.occurred_at = date_trunc('milliseconds',episode.started_at)
-    LEFT JOIN LATERAL (
-      SELECT EXISTS (SELECT 1 FROM identity.account_state_history history
-        WHERE history.user_id = episode.target_user_id AND history.changed_at = action.occurred_at
-          AND history.actor_type = 'system' AND history.actor_user_id IS NULL AND history.actor_admin_id IS NULL
-          AND history.previous_state IN ('guest','incomplete','active') AND history.next_state = 'restricted'
-          AND history.reason_code = 'distinct_reporter_threshold') AS valid OFFSET 0
-    ) history_binding ON true
     LEFT JOIN LATERAL (
       SELECT jsonb_build_object('reasonCode','distinct_reporter_threshold',
         'distinctReporterCount',episode.distinct_reporter_count) AS metadata OFFSET 0
