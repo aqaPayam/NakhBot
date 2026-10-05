@@ -25,6 +25,9 @@ export type M7EncryptedCaptureFixture = Readonly<{
   evidenceBindingRejected: number;
   keyVersionRejected: number;
   hashRejected: number;
+  outsideAdmissionWindow: number;
+  admissionEligibleBefore: number;
+  admissionEligibleAfter: number;
 }>;
 
 function reject(read: () => unknown): void {
@@ -71,6 +74,9 @@ export async function seedM7EncryptedCapturePlans(
     evidenceBindingRejected: 0,
     keyVersionRejected: 0,
     hashRejected: 0,
+    outsideAdmissionWindow: 0,
+    admissionEligibleBefore: 0,
+    admissionEligibleAfter: 0,
   };
   const fixtureId = (label: string): string => {
     const hex = createHash('md5')
@@ -78,7 +84,18 @@ export async function seedM7EncryptedCapturePlans(
       .digest('hex');
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   };
+  const capturedAt = new Date(at.getTime() - 48 * 60 * 60_000);
+  const admissionCount = async (): Promise<number> =>
+    Number(
+      (
+        await sql<{ count: string }>`
+    SELECT count(*)::text AS count FROM moderation.reports
+    WHERE reporter_user_id = ${fixtureId('user0')}::uuid
+      AND submitted_at > ${at}::timestamptz - interval '24 hours'`.execute(database)
+      ).rows[0]!.count,
+    );
   try {
+    result.admissionEligibleBefore = await admissionCount();
     for (let first = 1; first <= volume; first += 500) {
       const reports: Insertable<DatabaseSchema['moderation.reports']>[] = [];
       const evidence: Insertable<DatabaseSchema['moderation.report_evidence']>[] = [];
@@ -120,6 +137,7 @@ export async function seedM7EncryptedCapturePlans(
               variant_id: fixtureId(`photo-variant${n}`),
               content_sha256: content.contentSha256,
               captured_primary: false,
+              created_at: capturedAt,
             });
             break;
           }
@@ -136,8 +154,8 @@ export async function seedM7EncryptedCapturePlans(
           case 'unmatched_user': {
             const content = {
               evidenceType: 'unmatched_user',
-              unmatchedAt: at.toISOString(),
-              reportWindowExpiresAt: new Date(at.getTime() + 86400000).toISOString(),
+              unmatchedAt: capturedAt.toISOString(),
+              reportWindowExpiresAt: new Date(capturedAt.getTime() + 86400000).toISOString(),
             } as const;
             capture = protectors.unmatched_user.protect(subject, content);
             expected.set(evidenceId, content);
@@ -155,7 +173,7 @@ export async function seedM7EncryptedCapturePlans(
           request_id: randomUUID(),
           idempotency_key: randomUUID(),
           request_digest: 'c'.repeat(64),
-          submitted_at: at,
+          submitted_at: capturedAt,
           reviewed_at: null,
           closed_at: null,
         });
@@ -168,6 +186,7 @@ export async function seedM7EncryptedCapturePlans(
           chat_session_id: type === 'chat' ? referenceId : null,
           chat_message_id: null,
           unmatch_record_id: type === 'unmatched_user' ? referenceId : null,
+          created_at: capturedAt,
         });
         snapshots.push({
           id: randomUUID(),
@@ -180,6 +199,7 @@ export async function seedM7EncryptedCapturePlans(
           nonce: Buffer.from(capture.nonce),
           ciphertext: Buffer.from(capture.ciphertext),
           content_sha256: capture.sha256,
+          created_at: capturedAt,
         });
       }
       await database.insertInto('moderation.reports').values(reports).execute();
@@ -235,15 +255,24 @@ export async function seedM7EncryptedCapturePlans(
       }
     }
     const observed = (
-      await sql<{ count: string }>`SELECT count(*)::text AS count
+      await sql<{ count: string; outsideWindow: string }>`SELECT count(*)::text AS count,
+        count(*) FILTER(WHERE report.submitted_at <= ${at}::timestamptz - interval '24 hours')::text AS "outsideWindow"
       FROM (${MODERATION_INTEGRITY_SOURCES.evidence}) probe
       JOIN moderation.report_snapshots snapshot ON snapshot.report_evidence_id = probe.id
+      JOIN moderation.reports report ON report.id = snapshot.report_id
       WHERE snapshot.encryption_key_id = ${keyId} AND probe."hasCapture" AND probe."hasRetainedPhoto"`.execute(
         database,
       )
     ).rows[0]!;
     result.metadataIntact = Number(observed.count);
-    if (result.metadataIntact !== volume || result.authenticated !== volume)
+    result.outsideAdmissionWindow = Number(observed.outsideWindow);
+    result.admissionEligibleAfter = await admissionCount();
+    if (
+      result.metadataIntact !== volume ||
+      result.authenticated !== volume ||
+      result.outsideAdmissionWindow !== volume ||
+      result.admissionEligibleAfter !== result.admissionEligibleBefore
+    )
       throw new Error('M7 encrypted capture volume incomplete.');
     return result;
   } finally {

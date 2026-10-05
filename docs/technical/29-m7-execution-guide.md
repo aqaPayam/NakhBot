@@ -67,6 +67,17 @@ the same actor/target/version binding and independently aggregate exact accepted
 results; duplicate facts still produce one Appeal. All unchanged native drift/repair, fixture
 populations, 1,500 ms budgets and both independent terminal indexes remain mandatory.
 
+The indexed/grouped run passed all 380 native tests, every 1,500 ms plan budget and both terminal
+indexes. Combined sampling measured 1,026/1,227 ms. Its only failure was the admission read choosing
+the idempotency index on a uniformly recent population. Added encrypted-capture Reports now use
+48-hour-old submission/capture times, creating a genuine current/historical admission mix while
+retaining every original recent Report and every capture/custody/threshold/appeal chain. Observed
+counts require all 20,000 additions outside the 24-hour admission window and the representative
+reporter's eligible count unchanged before/after seeding. The same required reporter-window index
+and timing gates remain mandatory; neither index alternatives nor planner settings are loosened.
+Historical unmatched capture content retains its original exact 24-hour window. These remain
+synthetic capture fixtures with no native admission or provider-custody claim.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,

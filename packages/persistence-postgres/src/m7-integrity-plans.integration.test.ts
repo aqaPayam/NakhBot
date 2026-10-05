@@ -91,6 +91,9 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       evidenceBindingRejected: 1000,
       keyVersionRejected: 1000,
       hashRejected: 1000,
+      outsideAdmissionWindow: 1000,
+      admissionEligibleBefore: 3,
+      admissionEligibleAfter: 3,
     });
     expect(terminalAppeals).toEqual({
       reviewed: 1000,
