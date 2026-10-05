@@ -13,6 +13,10 @@ import {
   withModerationIntegrityRead,
 } from './moderation-integrity-metrics-store.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
+import {
+  seedM7AppealIntegrityPlans,
+  type M7TerminalAppealFixture,
+} from './m7-appeal-integrity-plan-fixture.js';
 export async function explainM7Queries(
   database: NakhDatabase,
   input: Readonly<{
@@ -71,6 +75,31 @@ export async function analyzeM7QueryTables(database: NakhDatabase): Promise<void
     media.profile_photos, profile.profiles, chat.chat_message_snapshots`.execute(database);
 }
 
+async function explainTerminalAppealQueries(
+  database: NakhDatabase,
+  afterAt: string,
+  afterId: string,
+): Promise<Readonly<Record<string, unknown>>> {
+  const statements: Readonly<Record<string, RawBuilder<unknown>>> = {
+    terminalAcceptedQueue: appealMetadataStatement('accepted', 50, { at: afterAt, id: afterId }),
+    terminalRejectedQueue: appealMetadataStatement('rejected', 50, { at: afterAt, id: afterId }),
+    terminalIntegrityAppeals: moderationIntegrityPhaseStatement('appeals'),
+    terminalIntegrityActions: moderationIntegrityPhaseStatement('actions'),
+    terminalIntegrityAdminLogs: moderationIntegrityPhaseStatement('admin_logs'),
+    terminalIntegritySnapshot: moderationIntegrityStatement(),
+  };
+  const plans: Record<string, unknown> = {};
+  for (const [name, statement] of Object.entries(statements)) {
+    const result = await withModerationIntegrityRead(database, (connection) =>
+      sql<{ 'QUERY PLAN': unknown }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(
+        connection,
+      ),
+    );
+    plans[name] = result.rows[0]?.['QUERY PLAN'];
+  }
+  return plans;
+}
+
 async function seed(
   database: NakhDatabase,
   prefix: string,
@@ -119,13 +148,16 @@ async function seed(
 export async function measureM7SyntheticPlans(
   database: NakhDatabase,
   volume: number,
-): Promise<Readonly<Record<string, unknown>>> {
+): Promise<
+  Readonly<{ plans: Readonly<Record<string, unknown>>; terminalAppeals: M7TerminalAppealFixture }>
+> {
   if (!Number.isSafeInteger(volume) || volume < 1000 || volume > 20000)
     throw new Error('M7 plan volume invalid.');
   const prefix = randomUUID(),
     at = new Date(),
     old = new Date(at.getTime() - 60 * 60_000);
   let plans: Readonly<Record<string, unknown>> | undefined;
+  let terminalAppeals: M7TerminalAppealFixture | undefined;
   await withM6SyntheticPlanSession(database, async (connection) => {
     try {
       await connection.transaction().execute(async (tx) => {
@@ -165,6 +197,19 @@ export async function measureM7SyntheticPlans(
           )
             throw new Error('M7 integrity drift fixture incomplete.');
         }
+        const baseline = await new PostgresModerationIntegrityMetricsStore(tx).measure();
+        terminalAppeals = await seedM7AppealIntegrityPlans(tx, prefix, volume, at);
+        await analyzeM7QueryTables(tx);
+        plans = {
+          ...plans,
+          ...(await explainTerminalAppealQueries(tx, old.toISOString(), ids.afterId)),
+        };
+        for (let sample = 0; sample < 3; sample++) {
+          const current = await new PostgresModerationIntegrityMetricsStore(tx).measure();
+          for (const phase of MODERATION_RECONCILIATION_PHASES)
+            if (current.counts[phase] !== baseline.counts[phase])
+              throw new Error('M7 reviewed appeal/unban integrity mismatch.');
+        }
         throw new SyntheticPlanRollback();
       });
     } catch (error) {
@@ -172,7 +217,8 @@ export async function measureM7SyntheticPlans(
     }
   });
   await analyzeM7QueryTables(database);
-  if (plans === undefined) throw new Error('M7 plan measurement unavailable.');
-  return plans;
+  if (plans === undefined || terminalAppeals === undefined)
+    throw new Error('M7 plan measurement unavailable.');
+  return { plans, terminalAppeals };
 }
 class SyntheticPlanRollback extends Error {}

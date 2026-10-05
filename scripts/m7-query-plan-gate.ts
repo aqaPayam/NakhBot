@@ -17,7 +17,7 @@ const database = createDatabase({
 });
 let summaries: Record<string, M7PlanSummary> | undefined;
 try {
-  const plans = await measureM7SyntheticPlans(database, volume);
+  const { plans, terminalAppeals } = await measureM7SyntheticPlans(database, volume);
   summaries = Object.fromEntries(
     Object.entries(plans).map(([name, plan]) => [name, summarizeM7Plan(plan)]),
   );
@@ -34,26 +34,29 @@ try {
       MODERATION_RECONCILIATION_PHASES.map((phase) => [`integrity_${phase}`, undefined]),
     ),
     integritySnapshot: undefined,
+    terminalAcceptedQueue: ['user_appeals_status_submitted_idx'],
+    terminalRejectedQueue: ['user_appeals_status_submitted_idx'],
+    terminalIntegrityAppeals: undefined,
+    terminalIntegrityActions: undefined,
+    terminalIntegrityAdminLogs: undefined,
+    terminalIntegritySnapshot: undefined,
   };
   await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
   await writeFile(
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 3,
-        fixtureRowsPerTable: volume,
-        fixtureTables: 19,
+        schemaVersion: 4,
+        fixtureScale: volume,
+        fixtureTables: 20,
         integrityPhases: MODERATION_RECONCILIATION_PHASES,
         minimumRowsPerIntegrityPhase: volume,
         repeatedSnapshotSamples: 3,
+        terminalAppeals,
+        repeatedTerminalSnapshotSamples: 3,
         fixtureScope:
-          'metadata-profile-capture-drift-account-restrictions-submitted-appeals-mixed-unlocks',
-        remainingVolumeBranches: [
-          'retained-photo',
-          'encrypted-capture',
-          'terminal-appeal',
-          'unrestrict-unban',
-        ],
+          'metadata-capture-drift-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
+        remainingVolumeBranches: ['retained-photo', 'encrypted-capture', 'unrestrict'],
         maximumExecutionMs: 1500,
         requiredIndexes,
         plans: summaries,

@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MODERATION_RECONCILIATION_PHASES } from '@nakh/application';
@@ -6,12 +7,16 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { measureM7SyntheticPlans } from './m7-query-plans.js';
+import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
+import { seedM7AppealIntegrityPlans } from './m7-appeal-integrity-plan-fixture.js';
+import { withM6SyntheticPlanSession } from './m6-query-plans.js';
 import {
   PostgresModerationIntegrityMetricsStore,
   withModerationIntegrityRead,
 } from './moderation-integrity-metrics-store.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
+class FixtureRollback extends Error {}
 describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => {
   let database: NakhDatabase;
   let initialJit: string;
@@ -49,6 +54,12 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       'support.support_threads',
       'moderation.moderation_actions',
       'interaction.user_pair_states',
+      'moderation.user_appeals',
+      'moderation.appeal_unbans',
+      'identity.account_state_history',
+      'platform.audit_logs',
+      'administration.admin_action_logs',
+      'notification.notifications',
     ] as const) {
       const row = await database
         .selectFrom(table)
@@ -58,11 +69,75 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     }
   }
   it('measures ten populated phases and the actual combined sampler, then removes every fixture', async () => {
-    const plans = await measureM7SyntheticPlans(database, 1000);
+    const { plans, terminalAppeals } = await measureM7SyntheticPlans(database, 1000);
+    expect(terminalAppeals).toEqual({
+      reviewed: 1000,
+      accepted: 500,
+      rejected: 500,
+      acceptedWithoutUnban: 250,
+      unbans: 250,
+      restoredStates: 4,
+    });
     for (const phase of MODERATION_RECONCILIATION_PHASES)
       expect(plans[`integrity_${phase}`]).toBeDefined();
     const plan = plans.integritySnapshot as { Plan: { 'Actual Rows': number } }[];
     expect(plan[0]?.Plan['Actual Rows']).toBe(10);
+    for (const name of [
+      'terminalAcceptedQueue',
+      'terminalRejectedQueue',
+      'terminalIntegrityAppeals',
+      'terminalIntegrityActions',
+      'terminalIntegrityAdminLogs',
+      'terminalIntegritySnapshot',
+    ])
+      expect(plans[name]).toBeDefined();
+    await assertClean();
+  });
+  it('keeps acceptance separate from unban and detects missing review, wrong command target and wrong restoration', async () => {
+    await withM6SyntheticPlanSession(database, async (connection) => {
+      try {
+        await connection.transaction().execute(async (tx) => {
+          const prefix = randomUUID(),
+            at = new Date(),
+            store = new PostgresModerationIntegrityMetricsStore(tx);
+          await seedM7IntegrityPlans(tx, prefix, 1000, at);
+          const baseline = await store.measure();
+          await seedM7AppealIntegrityPlans(tx, prefix, 1000, at);
+          expect((await store.measure()).counts).toEqual(baseline.counts);
+          // Both accepted-without-unban and rejected decisions require their own review audit.
+          for (const n of [1, 2]) {
+            await sql`UPDATE platform.audit_logs SET request_id = ${randomUUID()}::uuid
+              WHERE id = md5(${prefix} || 'terminal-review-audit' || ${n}::text)::uuid`.execute(tx);
+            const broken = await store.measure();
+            expect(broken.counts.appeals).toBe(baseline.counts.appeals + 1);
+            expect(broken.counts.actions).toBe(baseline.counts.actions);
+            await sql`UPDATE platform.audit_logs SET request_id = md5(${prefix} || 'terminal-review-request' || ${n}::text)::uuid
+              WHERE id = md5(${prefix} || 'terminal-review-audit' || ${n}::text)::uuid`.execute(tx);
+          }
+          await sql`UPDATE administration.admin_action_logs SET target_id = md5(${prefix} || 'terminal-appeal2')::uuid
+            WHERE id = md5(${prefix} || 'terminal-unban-attempt4')::uuid`.execute(tx);
+          const wrongTarget = await store.measure();
+          expect(wrongTarget.counts.appeals).toBe(baseline.counts.appeals + 1);
+          expect(wrongTarget.counts.actions).toBe(baseline.counts.actions + 1);
+          await sql`UPDATE administration.admin_action_logs SET target_id = md5(${prefix} || 'terminal-appeal4')::uuid
+            WHERE id = md5(${prefix} || 'terminal-unban-attempt4')::uuid`.execute(tx);
+          await sql`UPDATE identity.account_state_history SET next_state = 'active'
+            WHERE id = md5(${prefix} || 'terminal-unban-history4')::uuid`.execute(tx);
+          expect((await store.measure()).counts.actions).toBe(baseline.counts.actions + 1);
+          await sql`UPDATE identity.account_state_history SET next_state = 'restricted'
+            WHERE id = md5(${prefix} || 'terminal-unban-history4')::uuid`.execute(tx);
+          await sql`UPDATE identity.account_state_history SET user_id = md5(${prefix} || 'terminal-user1')::uuid
+            WHERE id = md5(${prefix} || 'terminal-ban2')::uuid`.execute(tx);
+          expect((await store.measure()).counts.appeals).toBe(baseline.counts.appeals + 1);
+          await sql`UPDATE identity.account_state_history SET user_id = md5(${prefix} || 'terminal-user2')::uuid
+            WHERE id = md5(${prefix} || 'terminal-ban2')::uuid`.execute(tx);
+          expect((await store.measure()).counts).toEqual(baseline.counts);
+          throw new FixtureRollback();
+        });
+      } catch (error) {
+        if (!(error instanceof FixtureRollback)) throw error;
+      }
+    });
     await assertClean();
   });
   it('rolls back earlier fixture writes and restores owning triggers when a later seed fails', async () => {

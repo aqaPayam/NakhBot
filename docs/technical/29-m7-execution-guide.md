@@ -1,6 +1,32 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: production-volume integrity plan evidence
+## Current increment: reviewed appeal and separate unban volume evidence
+
+The M7 performance gate now adds a second measured population after its submitted-appeal baseline:
+20,000 reviewed appeals, including 10,000 rejected, 5,000 accepted without unban, and 5,000 accepted
+with a separately recorded unban command, attempt, action, Account history, notification and audit.
+Restoration covers guest, incomplete, active and restricted states from the exact prior ban event.
+Each terminal appeal has its own review attempt/version and matching decision audit. Acceptance
+alone has no unban relationship or Account action. Existing native permission, confirmation, exact
+ban/version, replay and concurrency command evidence remains required; synthetic fixtures bypass
+owning triggers only inside the isolated rollback session and do not prove command admission.
+
+Six new plans measure the actual accepted/rejected metadata queues, current appeal/action/admin-log
+aggregates, and the combined production sampler over both populations. All retain the 1,500 ms
+budget. Three repeated terminal-population samples must preserve every baseline mismatch count;
+PostgreSQL-derived aggregate fixture counts prevent empty decision/restoration branches. Artifact
+schema 4 contains only fixed scope labels, aggregate counts, timings, row counts and index names.
+No subject IDs, prose, private notes, payloads, keys, raw predicates or SQL are retained.
+
+PostgreSQL integration evidence checks reviewed/accepted-without-unban cardinality, healthy shared
+predicates, missing accepted/rejected decision audits, a substituted unban attempt target, incorrect
+restoration and wrong ban owner. Restoring exact fixture metadata clears the current mismatches;
+rollback removes all appeal/action/audit/history/notice fixtures and restores pooled safeguards.
+No migration or catalog change is required beyond migration 76. Retained photo/encrypted captures
+and unrestriction volume cases, health API composition, exporter/alert routing, concrete session/MFA,
+provider/operator staging and M8/M9 acceptance remain open.
+
+## Previous increment: production-volume integrity plan evidence
 
 The M7 performance gate now measures each of the ten actual integrity phase statements and the
 combined production sampler alongside the eight existing queue/admission/age queries. The default
