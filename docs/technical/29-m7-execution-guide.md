@@ -26,7 +26,12 @@ All 27 plan gates now exercise 20,000 synthetic system restriction chains with i
 resolutions; artifact schema 6 records this scope and 21 populated tables, without identities or
 restricted data. These fixtures prove query coverage, not native admission or provider delivery.
 
-Migration 77 and the catalog remain unchanged. Exact historical distinct-reporter cardinality
+The first CI run passed 370 PostgreSQL tests but exposed a terminal-population planner regression:
+the combined integrity sample took 4,665 ms and health 3,940 ms, exceeding the unchanged 1,500 ms
+budget while the standalone episode query passed. Migration 78 adds a partial covering index for
+episode-bound admin unrestrictions before joining their attempts. Both terminal plans must use this
+index and retain the same budget. Empty bootstrap, upgrade from 77, index verification and unchanged
+replay are required; earlier migrations and catalog remain unchanged. Exact historical distinct-reporter cardinality
 still needs admission-time evidence: recomputing from today's Reports can include transactions
 that were not committed when the episode began. This increment does not claim that proof. Concrete
 MFA provider/enrollment and audited provisioning, encrypted-capture integrity, retained-photo and

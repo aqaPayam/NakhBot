@@ -40,8 +40,8 @@ try {
     terminalIntegrityAppeals: undefined,
     terminalIntegrityActions: undefined,
     terminalIntegrityAdminLogs: undefined,
-    terminalIntegritySnapshot: undefined,
-    terminalOperationalHealth: undefined,
+    terminalIntegritySnapshot: ['moderation_actions_episode_resolution_idx'],
+    terminalOperationalHealth: ['moderation_actions_episode_resolution_idx'],
   };
   await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
   await writeFile(
