@@ -81,20 +81,45 @@ describe.skipIf(url === undefined)('native operational health authority and meta
     await expect(handlers.prepare.execute(query, fixture.actor)).rejects.toMatchObject({
       status: 403,
     });
+    await expect(
+      database
+        .updateTable('administration.admin_user_roles')
+        .set({ revoked_at: null, revoked_by_admin_id: null })
+        .where('admin_user_id', '=', adminId)
+        .where('role_code', '=', 'super_admin')
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    // Revocation is immutable. Disable a separate currently authorized identity.
+    const enabledId = await createReportFixtureAdmin(database);
     await database
-      .updateTable('administration.admin_user_roles')
-      .set({ revoked_at: null, revoked_by_admin_id: null })
-      .where('admin_user_id', '=', adminId)
-      .where('role_code', '=', 'super_admin')
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: enabledId,
+        role_code: 'super_admin',
+        assigned_by_admin_id: adminId,
+        revoked_at: null,
+        revoked_by_admin_id: null,
+      })
       .execute();
+    const enabled = await confirmationFixture(database, enabledId);
+    const enabledHandlers = createPostgresM7OperationalHealthHandlers(
+      database,
+      enabled.tokens,
+      enabled.key,
+    );
+    const enabledQuery = { actor: enabled.actor, requestId: randomUUID() };
+    const enabledToken = await enabledHandlers.prepare.execute(enabledQuery, enabled.actor);
+    await expect(
+      enabledHandlers.get.execute({ ...enabledQuery, ...enabledToken }, enabled.actor),
+    ).resolves.toMatchObject({ appealUniquenessMismatchCount: 0 });
     await database
       .updateTable('administration.admin_users')
       .set({ is_active: false, disabled_at: new Date() })
-      .where('id', '=', adminId)
+      .where('id', '=', enabledId)
       .execute();
-    await expect(handlers.get.execute({ ...query, ...token }, fixture.actor)).rejects.toMatchObject(
-      { status: 403 },
-    );
+    await expect(
+      enabledHandlers.get.execute({ ...enabledQuery, ...enabledToken }, enabled.actor),
+    ).rejects.toMatchObject({ status: 403 });
   });
   it('measures whole-second ages and current capture metadata, clearing repaired drift', async () => {
     const fixture = await createRetainedReportPhoto(database),
