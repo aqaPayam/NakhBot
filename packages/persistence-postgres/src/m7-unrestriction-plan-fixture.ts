@@ -50,15 +50,27 @@ export async function seedM7UnrestrictionPlans(
     FROM generate_series(1,${volume}) n`.execute(database);
   const row = (
     await sql<{ actions: string; bound: string; digestDrift: string }>`
+    WITH fixture AS MATERIALIZED (
+      SELECT n,md5(${prefix} || 'unrestrict-action' || n)::uuid AS action_id,
+        md5(${prefix} || 'episode' || n)::uuid AS episode_id,
+        md5(${prefix} || 'unrestrict-attempt' || n)::uuid AS attempt_id FROM generate_series(1,${volume}) n
+    ), actions AS MATERIALIZED (
+      SELECT probe.* FROM (${MODERATION_INTEGRITY_SOURCES.actions}) probe
+      WHERE probe.id IN (SELECT action_id FROM fixture)
+    ), episodes AS MATERIALIZED (
+      SELECT probe.* FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
+      WHERE probe.id IN (SELECT episode_id FROM fixture)
+    ), attempts AS MATERIALIZED (
+      SELECT probe.* FROM (${MODERATION_INTEGRITY_SOURCES.admin_logs}) probe
+      WHERE probe.id IN (SELECT attempt_id FROM fixture)
+    )
     SELECT count(*)::text AS actions,
       count(*) FILTER(WHERE action."hasAttempt" AND episode."hasResolutionAttempt" AND attempt."hasAction")::text AS bound,
       count(*) FILTER(WHERE NOT action."hasAttempt" AND NOT episode."hasResolutionAttempt" AND NOT attempt."hasAction")::text AS "digestDrift"
-    FROM (SELECT n,md5(${prefix} || 'unrestrict-action' || n)::uuid AS action_id,
-      md5(${prefix} || 'episode' || n)::uuid AS episode_id,
-      md5(${prefix} || 'unrestrict-attempt' || n)::uuid AS attempt_id FROM generate_series(1,${volume}) n) fixture
-    JOIN (${MODERATION_INTEGRITY_SOURCES.actions}) action ON action.id=fixture.action_id
-    JOIN (${MODERATION_INTEGRITY_SOURCES.episodes}) episode ON episode.id=fixture.episode_id
-    JOIN (${MODERATION_INTEGRITY_SOURCES.admin_logs}) attempt ON attempt.id=fixture.attempt_id
+    FROM fixture
+    JOIN actions action ON action.id=fixture.action_id
+    JOIN episodes episode ON episode.id=fixture.episode_id
+    JOIN attempts attempt ON attempt.id=fixture.attempt_id
     WHERE action."hasAudit" AND action."hasAccountHistory" AND action."hasNotice" AND action."reportMatches"
       AND episode."hasOneSystemAction" AND episode."hasAdmissionWitness" AND episode."sourceMatches"
       AND episode."hasRestrictionHistory" AND episode."hasRestrictionAudit" AND episode."hasRestrictionNotice"

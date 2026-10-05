@@ -43,6 +43,13 @@ then be memoized independently of each actor-bound effect history. Missing rows 
 the separate appeal-unban link and pair-subject audit checks remain mandatory. Native drift/repair
 and all unchanged performance gates must pass before the increment is counted.
 
+That run passed all 380 PostgreSQL tests, including the seven new independent attempt-binding
+corruptions, but timed out in the fixture's cross-phase validation join before any measured plan
+was retained. The fixture now materializes each exact prefix-bounded production phase once before
+joining its action/episode/attempt facts. Every per-chain flag and observed-count assertion stays
+the same; no production sampler, fixture scale, statement timeout or plan budget is changed.
+The volume gate still must complete and verify all measured plans before this repair is green.
+
 ## Previous increment: retained-photo custody at production query volume
 
 The M7 plan gate now adds 20,000 photo evidence chains to both baseline and terminal scenes.
