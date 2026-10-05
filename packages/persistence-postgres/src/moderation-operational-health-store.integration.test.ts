@@ -114,9 +114,21 @@ describe.skipIf(url === undefined)('native operational health authority and meta
     ).resolves.toMatchObject({ appealUniquenessMismatchCount: 0 });
     await database
       .updateTable('administration.admin_users')
-      .set({ is_active: false, disabled_at: new Date() })
+      .set({
+        is_active: false,
+        disabled_at: sql<Date>`updated_at + interval '1 millisecond'`,
+        updated_at: sql<Date>`updated_at + interval '1 millisecond'`,
+        version: sql<number>`version + 1`,
+      })
       .where('id', '=', enabledId)
       .execute();
+    expect(
+      await database
+        .selectFrom('administration.admin_users')
+        .select(['version', 'is_active'])
+        .where('id', '=', enabledId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ version: 2, is_active: false });
     await expect(
       enabledHandlers.get.execute({ ...enabledQuery, ...enabledToken }, enabled.actor),
     ).rejects.toMatchObject({ status: 403 });
