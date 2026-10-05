@@ -512,14 +512,46 @@ describe.skipIf(url === undefined)('exact Report pair internal block HTTP and na
           .execute(),
       ),
     ).rejects.toThrow('internal block does not match its report pair');
+    const platformAudit = await database
+      .selectFrom('platform.audit_logs')
+      .selectAll()
+      .where('id', '=', action.audit_log_id)
+      .executeTakeFirstOrThrow();
+    const forgedAuditId = randomUUID(),
+      forgedCommandId = randomUUID(),
+      forgedRequestId = randomUUID();
     await expect(
-      database.transaction().execute((tx) =>
-        tx
+      database.transaction().execute(async (tx) => {
+        // Satisfy the independent platform-audit FK and uniqueness rules so the
+        // deferred guard can reject the missing exact successful admin attempt.
+        await tx
+          .insertInto('platform.audit_logs')
+          .values({
+            ...platformAudit,
+            id: forgedAuditId,
+            command_id: forgedCommandId,
+            request_id: forgedRequestId,
+          })
+          .execute();
+        await tx
           .insertInto('moderation.moderation_actions')
-          .values({ ...action, id: randomUUID(), command_id: randomUUID() })
-          .execute(),
-      ),
+          .values({
+            ...action,
+            id: randomUUID(),
+            audit_log_id: forgedAuditId,
+            command_id: forgedCommandId,
+            request_id: forgedRequestId,
+          })
+          .execute();
+      }),
     ).rejects.toThrow('report action lacks its successful admin attempt');
+    expect(
+      await database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('id', '=', forgedAuditId)
+        .execute(),
+    ).toHaveLength(0);
     for (let i = 0; i < 12; i++) {
       const pair = normalizeUserPair(randomUUID(), randomUUID());
       const row = await database
