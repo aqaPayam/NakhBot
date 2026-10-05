@@ -6,6 +6,7 @@ import type {
   ConfirmedReviewDecisions,
   ConfirmedAccountActions,
   ConfirmedPhotoActions,
+  ConfirmedEvidenceReveals,
   OpaqueTokenStore,
 } from '@nakh/application';
 import {
@@ -49,6 +50,10 @@ export type TelegramConfirmedReportPhotoAction = Readonly<{
   binding: string;
   command: Parameters<ConfirmedPhotoActions['execute']>[0];
 }>;
+export type TelegramConfirmedReportEvidenceRead = Readonly<{
+  binding: string;
+  command: Parameters<ConfirmedEvidenceReveals['execute']>[0];
+}>;
 type Purpose =
   | 'support'
   | 'appeal-review'
@@ -56,7 +61,8 @@ type Purpose =
   | 'report-assignment'
   | 'report-decision'
   | 'report-account'
-  | 'report-photo';
+  | 'report-photo'
+  | 'report-evidence';
 type Selection<P extends Purpose> = P extends 'support'
   ? TelegramConfirmedSupportMutation
   : P extends 'appeal-review'
@@ -69,7 +75,9 @@ type Selection<P extends Purpose> = P extends 'support'
           ? TelegramConfirmedReportDecision
           : P extends 'report-account'
             ? TelegramConfirmedReportAccountAction
-            : TelegramConfirmedReportPhotoAction;
+            : P extends 'report-photo'
+              ? TelegramConfirmedReportPhotoAction
+              : TelegramConfirmedReportEvidenceRead;
 type Mutation =
   | TelegramConfirmedSupportMutation
   | TelegramConfirmedAppealReview
@@ -77,7 +85,8 @@ type Mutation =
   | TelegramConfirmedReportAssignment
   | TelegramConfirmedReportDecision
   | TelegramConfirmedReportAccountAction
-  | TelegramConfirmedReportPhotoAction;
+  | TelegramConfirmedReportPhotoAction
+  | TelegramConfirmedReportEvidenceRead;
 import { m7Record } from './m7-private-update.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -117,7 +126,9 @@ function binding(selected: Mutation, includeConfirmation: boolean): string {
     command.channelContext?.channelIdentityId,
     includeConfirmation ? command.data.adminActionToken : undefined,
     includeConfirmation ? command.data.confirmationToken : undefined,
-    command.data.expectedTargetVersion,
+    command.commandType === 'moderation.reveal-evidence'
+      ? command.data.evidenceId
+      : command.data.expectedTargetVersion,
     normalizeAdminReason(command.data.reason),
     command.commandType === 'support.reply-thread'
       ? normalizeSupportText(command.data.text)
@@ -172,7 +183,9 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
                 ? ['moderation.decide-review']
                 : purpose === 'report-account'
                   ? ['moderation.apply-account-action']
-                  : ['moderation.apply-photo-action']
+                  : purpose === 'report-photo'
+                    ? ['moderation.apply-photo-action']
+                    : ['moderation.reveal-evidence']
     ).includes(String(command.commandType)) ||
     command.schemaVersion !== 1 ||
     !keys(owner, ['kind', 'userId']) ||
@@ -227,15 +240,19 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
                     'expectedTargetVersion',
                     'action',
                   ]
-                : ['adminActionToken', 'confirmationToken', 'reason', 'expectedTargetVersion'],
+                : command.commandType === 'moderation.reveal-evidence'
+                  ? ['adminActionToken', 'confirmationToken', 'reason', 'evidenceId']
+                  : ['adminActionToken', 'confirmationToken', 'reason', 'expectedTargetVersion'],
     ) ||
     !string(data.adminActionToken, 1, 64) ||
     !/^v1\.ad\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u.test(data.adminActionToken) ||
     !string(data.confirmationToken, 1, 64) ||
     !/^v1\.cf\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u.test(data.confirmationToken) ||
-    typeof data.expectedTargetVersion !== 'number' ||
-    !Number.isSafeInteger(data.expectedTargetVersion) ||
-    data.expectedTargetVersion < 1 ||
+    (command.commandType === 'moderation.reveal-evidence'
+      ? typeof data.evidenceId !== 'string' || !UUID.test(data.evidenceId)
+      : typeof data.expectedTargetVersion !== 'number' ||
+        !Number.isSafeInteger(data.expectedTargetVersion) ||
+        data.expectedTargetVersion < 1) ||
     !string(data.reason, 1, 4096)
   )
     return false;
@@ -319,6 +336,7 @@ export class TelegramAdminSafetyMutationVault<P extends Purpose> {
         'report-decision',
         'report-account',
         'report-photo',
+        'report-evidence',
       ].includes(purpose) ||
       encryptionKey.byteLength !== 32 ||
       referenceKey.byteLength < 32 ||
@@ -470,6 +488,20 @@ export class TelegramAdminSafetyMutationVault<P extends Purpose> {
       return (await this.store.get(
         `telegram-admin-${this.purpose}-mutation-decision:${reference}`,
       )) === undefined
+        ? selected
+        : undefined;
+    } catch {
+      throw unavailable();
+    }
+  }
+  /** Content readers resolve only after the explicit Confirm decision has won. */
+  public async confirmed(actor: Actor, reference: string): Promise<Selection<P> | undefined> {
+    const selected = await this.read(actor, reference);
+    if (selected === undefined) return undefined;
+    try {
+      return (await this.store.get(
+        `telegram-admin-${this.purpose}-mutation-decision:${reference}`,
+      )) === 'confirm'
         ? selected
         : undefined;
     } catch {

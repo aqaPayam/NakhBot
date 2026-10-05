@@ -26,6 +26,7 @@ type Prompt = Readonly<{
   action: 'assign' | 'dismissed' | 'actioned' | TelegramReportAccountAction;
 }>;
 type PhotoPrompt = Readonly<{ reference: string; photoAction: PhotoActionDraft['data']['action'] }>;
+type EvidencePrompt = Readonly<{ reference: string; read: 'evidence' }>;
 export type TelegramReportEvidenceChoice = Readonly<{
   reportReference: string;
   evidenceId: string;
@@ -37,8 +38,9 @@ type State =
   | TelegramReportQueuePage
   | Prompt
   | TelegramReportEvidenceChoice
-  | PhotoPrompt;
-type Purpose = 'choice' | 'page' | 'prompt' | 'evidence' | 'photo-prompt';
+  | PhotoPrompt
+  | EvidencePrompt;
+type Purpose = 'choice' | 'page' | 'prompt' | 'evidence' | 'photo-prompt' | 'evidence-prompt';
 const referencePattern = /^[A-Za-z0-9_-]{22}$/u;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export function validReportQueueStatus(kind: 'report', status: string): boolean {
@@ -50,6 +52,13 @@ export function validReportQueueStatus(kind: 'report', status: string): boolean 
 function valid(value: unknown, purpose: Purpose): value is State {
   const row = m7Record(value);
   if (row === undefined) return false;
+  if (purpose === 'evidence-prompt')
+    return (
+      Object.keys(row).length === 2 &&
+      row.read === 'evidence' &&
+      typeof row.reference === 'string' &&
+      referencePattern.test(row.reference)
+    );
   if (purpose === 'photo-prompt')
     return (
       Object.keys(row).length === 2 &&
@@ -331,5 +340,28 @@ export class TelegramAdminReportQueueState {
       this.reference(actor, 'photo-prompt', `message:${messageId}`),
     );
     return state !== undefined && 'photoAction' in state ? state : undefined;
+  }
+  public async bindEvidencePrompt(
+    actor: Actor,
+    messageId: number,
+    reference: string,
+  ): Promise<void> {
+    if (!Number.isSafeInteger(messageId) || messageId < 1) throw unavailable();
+    await this.put(actor, 'evidence-prompt', `message:${messageId}`, {
+      reference,
+      read: 'evidence',
+    });
+  }
+  public async evidencePrompt(
+    actor: Actor,
+    messageId: number,
+  ): Promise<EvidencePrompt | undefined> {
+    if (!Number.isSafeInteger(messageId) || messageId < 1) return undefined;
+    const state = await this.get(
+      actor,
+      'evidence-prompt',
+      this.reference(actor, 'evidence-prompt', `message:${messageId}`),
+    );
+    return state !== undefined && 'read' in state ? state : undefined;
   }
 }

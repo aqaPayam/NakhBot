@@ -106,20 +106,33 @@ export class TelegramAdminEvidenceAdapter {
         });
       if (result.result === 'succeeded' && !result.replayed && result.value !== undefined) {
         const content = result.value.content;
-        if (content.evidenceType === 'photo')
+        if (content.evidenceType === 'photo') {
+          await requireTelegramAdminSession(
+            this.sessions,
+            context.telegramUserId,
+            this.now,
+            session.actor,
+          );
           await this.delivery.retainedPhoto({
             actor: session.actor,
             recipient: context.telegramUserId,
             objectRef: content.evidenceObjectRef,
             contentSha256: content.contentSha256,
           });
-        else
-          for (const text of chunkM7EvidenceText(contentText(content)))
+        } else
+          for (const text of chunkM7EvidenceText(contentText(content))) {
+            await requireTelegramAdminSession(
+              this.sessions,
+              context.telegramUserId,
+              this.now,
+              session.actor,
+            );
             await this.delivery.text({
               recipient: context.telegramUserId,
               text,
               disableLinkPreviews: true,
             });
+          }
       }
       return 'notice';
     } catch (error) {

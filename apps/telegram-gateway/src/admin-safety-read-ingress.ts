@@ -24,6 +24,10 @@ import {
   PostgresGetSelectedReportEvidenceMetadataHandler,
   PostgresPrepareSelectedReportPhotoActionHandler,
   PostgresConfirmedPhotoActions,
+  PostgresPrepareSelectedReportEvidenceRevealHandler,
+  PostgresGetReportEvidenceActionsHandler,
+  PostgresConfirmedReportEvidenceReveals,
+  type ReportEvidenceReaders,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -48,6 +52,9 @@ import {
   TelegramAdminReportEvidence,
   TelegramAdminReportPhotoActions,
   TelegramAdminReportPhotoPicker,
+  TelegramAdminReportEvidenceReads,
+  TelegramAdminReportEvidencePicker,
+  type TelegramAdminEvidenceDelivery,
   type TelegramSelectedReportEvidence,
   type TelegramAdminTextDelivery,
   type TelegramAdminSessionVerifier,
@@ -69,6 +76,10 @@ export function createTelegramAdminSafetyReadIngress(
     delivery: TelegramAdminTextDelivery;
     reviewNotes?: ReviewNoteProtector;
     photoDelivery?: PhotoDeliveryRevocation;
+    evidence?: Readonly<{
+      readers: ReportEvidenceReaders;
+      delivery: TelegramAdminEvidenceDelivery;
+    }>;
   }>,
 ): Readonly<{
   prepare: TelegramAdminSafetyReadPreparation['prepare'];
@@ -273,6 +284,57 @@ export function createTelegramAdminSafetyReadIngress(
           input.delivery,
           input.renderer,
         );
+  const evidenceReads =
+    input.evidence === undefined
+      ? undefined
+      : new TelegramAdminReportEvidenceReads(
+          input.sessions,
+          new PostgresPrepareSelectedReportEvidenceRevealHandler(
+            input.database,
+            input.tokens,
+            input.adminKey,
+            new PostgresGetReportEvidenceActionsHandler(
+              input.database,
+              input.tokens,
+              input.adminKey,
+              Date.now,
+              (['profile', 'photo', 'chat', 'message', 'unmatched_user'] as const).filter(
+                (type) => input.evidence?.readers[type] !== undefined,
+              ),
+            ),
+          ),
+          new PostgresConfirmedReportEvidenceReveals(
+            input.database,
+            input.tokens,
+            input.adminKey,
+            input.evidence.readers,
+          ),
+          new TelegramAdminSafetyMutationVault(
+            'report-evidence',
+            input.tokens,
+            input.uiEncryptionKey,
+            input.uiReferenceKey,
+          ),
+          input.uiReferenceKey,
+          input.delivery,
+          input.renderer,
+          input.evidence.delivery,
+        );
+  const evidencePicker =
+    evidenceReads === undefined
+      ? undefined
+      : new TelegramAdminReportEvidencePicker(
+          input.botId,
+          input.sessions,
+          {
+            selection: (id: string, reference: string): Promise<TelegramSelectedReportEvidence> =>
+              reportEvidence.selection(id, reference),
+          },
+          reportState,
+          evidenceReads,
+          input.delivery,
+          input.renderer,
+        );
   const reportEvidence: TelegramAdminReportEvidence = new TelegramAdminReportEvidence(
     input.botId,
     input.sessions,
@@ -286,6 +348,7 @@ export function createTelegramAdminSafetyReadIngress(
     input.renderer,
     undefined,
     photoPicker,
+    evidencePicker,
   );
   const reportQueue = new TelegramAdminReportQueue(
     input.botId,
@@ -316,6 +379,8 @@ export function createTelegramAdminSafetyReadIngress(
       reportEvidence,
       ...(photoActions === undefined ? [] : [photoActions]),
       ...(photoPicker === undefined ? [] : [photoPicker]),
+      ...(evidenceReads === undefined ? [] : [evidenceReads]),
+      ...(evidencePicker === undefined ? [] : [evidencePicker]),
       ...(reportDecisions === undefined ? [] : [reportDecisions]),
     ],
     input.tokens,

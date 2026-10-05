@@ -1,6 +1,41 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: selected Report evidence reveal preparation
+## Current increment: private Telegram evidence reason and confirmation
+
+The selected evidence UI now offers **View selected evidence** only when the configured native
+reader supports that exact item. The owned private bot prompt binds its opaque evidence choice
+in a separate encrypted five-minute purpose; the operator's full normalized reason is checked
+against the 1024 Unicode scalar limit before native preparation. Existing photo controls remain
+available independently. The content-free selection is rechecked before the reason prompt and
+again before preparation. Clients supply no Report/evidence identity, version or permission in
+callback payloads.
+
+`m7W` starts the owned reason prompt. Stable provider operation identities converge on one
+actor-bound encrypted native evidence command, binding Report/version, evidence identity/type/schema
+and normalized reason. `m7K` Confirm and `m7Q` Cancel share one first-write-wins decision. The
+native reader resolves only after Confirm wins; it rechecks current permission and commits both
+attempt and access audits before delivering content. Session/MFA is rechecked before presentation,
+execution and every evidence delivery, including after the outcome notice or between text chunks. Replays never send content, including after ambiguous provider failure;
+a new view requires a new reason/confirmation and audited command. Cancel executes no native read
+and never reverses a prior Confirm.
+
+Trusted ingress enables this flow only with explicitly injected snapshot readers and evidence
+delivery. Reader support is derived from those same readers. Retained photos use the explicit
+retained-photo delivery port with the native evidence reference and digest; URLs and object
+references never become message text. The UI encryption key is never used as a retained snapshot
+key. Without the capability, metadata browsing and existing photo controls keep working.
+
+PostgreSQL integration evidence captures all five evidence types through their owning report
+services, selects each through actual private Telegram ingress, concurrently prepares and confirms
+it, and verifies one access/attempt audit and no content redelivery. Cancellation, revoked native
+permission and provider failure retain their separate native outcomes. Unit evidence also covers
+cross-purpose substitution, changed selections/reasons, owned bot replies, expiry/cache loss,
+private sessions/MFA and simultaneous photo/read availability. Migration 73 adds four English
+labels (578 total catalog keys); bootstrap, upgrade from migration 72 and unchanged replay are
+required. Real retained-byte provider delivery, concrete session/MFA, internal-block controls and
+staging operator acceptance remain open.
+
+## Previous increment: selected Report evidence reveal preparation
 
 The authenticated `POST /v1/admin/moderation/reports/evidence-reveal-selection` bridge accepts
 only the actor, request, queue metadata token, selected Report/version and exact evidence ID.

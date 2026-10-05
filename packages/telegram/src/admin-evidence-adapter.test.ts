@@ -143,6 +143,48 @@ describe('audited Telegram admin evidence presentation', () => {
     await f.adapter.handle(update);
     expect(f.text.mock.calls.map(([input]) => input.text)).toEqual(['admin.outcome.rejected']);
   });
+  it('blocks content when the session expires during notice delivery or between evidence chunks', async () => {
+    const f = fixture({
+      evidenceType: 'message',
+      messageId: randomUUID(),
+      messageType: 'text',
+      content: 'Private evidence',
+      createdAt: now.toISOString(),
+    });
+    f.text.mockImplementationOnce(() => {
+      f.current.mockResolvedValue(undefined);
+      return Promise.resolve();
+    });
+    await expect(f.adapter.handle(update)).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(f.text.mock.calls.map(([input]) => input.text)).toEqual(['admin.outcome.succeeded']);
+    const chunks = fixture({
+      evidenceType: 'message',
+      messageId: randomUUID(),
+      messageType: 'text',
+      content: '\u{1F642}'.repeat(2000),
+      createdAt: now.toISOString(),
+    });
+    chunks.text
+      .mockImplementationOnce(() => Promise.resolve())
+      .mockImplementationOnce(() => {
+        chunks.current.mockResolvedValue({ ...chunks.session, mfaExpiresAt: now });
+        return Promise.resolve();
+      });
+    await expect(chunks.adapter.handle(update)).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(chunks.text).toHaveBeenCalledTimes(2);
+    const photo = fixture({
+      evidenceType: 'photo',
+      evidenceObjectRef: 'v1.pe.private',
+      contentSha256: 'a'.repeat(64),
+      primary: true,
+    });
+    photo.text.mockImplementationOnce(() => {
+      photo.current.mockResolvedValue(undefined);
+      return Promise.resolve();
+    });
+    await expect(photo.adapter.handle(update)).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(photo.photo).not.toHaveBeenCalled();
+  });
   it('uses the explicit retained-photo port and does not put storage references into text', async () => {
     const objectRef = 'v1.retained.private-photo-reference',
       f = fixture({

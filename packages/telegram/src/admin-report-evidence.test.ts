@@ -88,6 +88,28 @@ function callback(data: string): Record<string, unknown> {
   };
 }
 describe('private selected report evidence metadata picker', () => {
+  it('preserves photo controls while offering a separate available evidence read', async () => {
+    const f = new Harness(),
+      selections = await f.list();
+    const photo = vi.fn().mockResolvedValue(true),
+      read = vi.fn().mockResolvedValue(true);
+    const adapter = new TelegramAdminReportEvidence(
+      '99',
+      f.sessions,
+      { execute: f.metadata },
+      f.state,
+      { queueMenu: f.menu, text: f.text },
+      { render: (_locale, intent) => intent.key },
+      () => f.now,
+      { present: photo },
+      { present: read },
+    );
+    const choice = selections.find((_, index) => f.items[index]!.evidenceType === 'photo')!;
+    await adapter.handle(callback(choice));
+    expect(photo).toHaveBeenCalledWith('123', choice.slice(4));
+    expect(read).toHaveBeenCalledWith('123', choice.slice(4));
+    expect(f.text).not.toHaveBeenCalled();
+  });
   it('uses all five bounded types with opaque choices, then rechecks exact native selection without opening content', async () => {
     const f = new Harness();
     const selections = await f.list();

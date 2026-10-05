@@ -654,5 +654,7 @@ export * from './admin-report-queue.js';
 export * from './admin-report-evidence.js';
 export * from './admin-report-photo-actions.js';
 export * from './admin-report-photo-picker.js';
+export * from './admin-report-evidence-reads.js';
+export * from './admin-report-evidence-picker.js';
 export * from './admin-report-decisions.js';
 export * from './admin-report-account-actions.js';

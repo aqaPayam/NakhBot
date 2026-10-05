@@ -11,6 +11,7 @@ import { requireTelegramAdminSession, type TelegramAdminSessionVerifier } from '
 import { m7Record, requirePrivateM7Actor } from './m7-private-update.js';
 import type { M7TextRenderer } from './m7-presentation.js';
 import type { TelegramAdminReportPhotoPicker } from './admin-report-photo-picker.js';
+import type { TelegramAdminReportEvidencePicker } from './admin-report-evidence-picker.js';
 
 type Metadata = Awaited<ReturnType<GetSelectedReportEvidenceMetadataHandler['execute']>>;
 export type TelegramSelectedReportEvidence = Readonly<{
@@ -31,6 +32,7 @@ export class TelegramAdminReportEvidence {
     private readonly renderer: M7TextRenderer,
     private readonly now: () => Date = () => new Date(),
     private readonly photos?: Pick<TelegramAdminReportPhotoPicker, 'present'>,
+    private readonly reveals?: Pick<TelegramAdminReportEvidencePicker, 'present'>,
   ) {
     if (!/^[1-9][0-9]{0,19}$/u.test(botId) || !Number.isSafeInteger(Number(botId)))
       throw new Error('Report evidence bot identity invalid.');
@@ -135,11 +137,11 @@ export class TelegramAdminReportEvidence {
       const reference = match[2]!;
       if (match[1] === 'J') {
         const selected = await this.selection(context.telegramUserId, reference);
-        if (
+        const photoPresented =
           selected.evidence.evidenceType === 'photo' &&
-          (await this.photos?.present(context.telegramUserId, reference))
-        )
-          return 'notice';
+          (await this.photos?.present(context.telegramUserId, reference));
+        const readPresented = await this.reveals?.present(context.telegramUserId, reference);
+        if (photoPresented || readPresented) return 'notice';
         await requireTelegramAdminSession(
           this.sessions,
           context.telegramUserId,
