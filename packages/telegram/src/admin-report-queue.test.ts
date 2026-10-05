@@ -395,3 +395,60 @@ describe('report Account action picker and prompt', () => {
     });
   });
 });
+
+describe('native Report block menu eligibility', () => {
+  it('offers only current native block actions for all Report statuses without assignment authority', async () => {
+    const f = new Harness(),
+      available = vi
+        .fn<(id: string, choice: unknown, action: 'create' | 'remove') => Promise<boolean>>()
+        .mockImplementation((_id, _choice, action) => Promise.resolve(action === 'create'));
+    f.check.mockRejectedValue(new ApplicationError('forbidden', 'error.m7.unavailable', 403));
+    const adapter = new TelegramAdminReportQueue(
+      '99',
+      f.sessions,
+      { execute: f.queues },
+      { execute: f.reports },
+      f.state,
+      { check: f.check, prepare: f.prepare },
+      { queueMenu: f.menu, reasonPrompt: f.prompt, text: f.text },
+      { render: (_locale, intent) => intent.key },
+      () => f.now,
+      undefined,
+      undefined,
+      { check: () => Promise.resolve() },
+      { available },
+    );
+    for (const status of [
+      'submitted',
+      'pending_review',
+      'dismissed',
+      'actioned',
+      'closed',
+    ] as const) {
+      const reference = await f.state.putChoice(f.actor, 'block-menu-' + status, {
+        kind: 'report',
+        targetId: f.item.reportId,
+        queueActionToken: 'v1.ad.' + 'a'.repeat(16) + '.' + 'b'.repeat(16),
+        expectedVersion: 1,
+        status,
+      });
+      await adapter.handle(callback('m7T:' + reference));
+      expect(
+        f.menu.mock.lastCall![0].replyMarkup.inline_keyboard.flat().map((b) => b.callback_data),
+      ).toEqual(['m7C:' + reference, 'm7bC:' + reference]);
+    }
+    available.mockResolvedValue(false);
+    const reference = await f.state.putChoice(f.actor, 'denied-block', {
+      kind: 'report',
+      targetId: f.item.reportId,
+      queueActionToken: 'v1.ad.' + 'a'.repeat(16) + '.' + 'b'.repeat(16),
+      expectedVersion: 1,
+    });
+    await adapter.handle(callback('m7T:' + reference));
+    expect(
+      f.menu.mock.lastCall![0].replyMarkup.inline_keyboard.flat().map((b) => b.callback_data),
+    ).toEqual(['m7C:' + reference]);
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.prompt).not.toHaveBeenCalled();
+  });
+});

@@ -26,6 +26,7 @@ type Prompt = Readonly<{
   action: 'assign' | 'dismissed' | 'actioned' | TelegramReportAccountAction;
 }>;
 type PhotoPrompt = Readonly<{ reference: string; photoAction: PhotoActionDraft['data']['action'] }>;
+type BlockPrompt = Readonly<{ reference: string; blockAction: 'create' | 'remove' }>;
 type EvidencePrompt = Readonly<{ reference: string; read: 'evidence' }>;
 export type TelegramReportEvidenceChoice = Readonly<{
   reportReference: string;
@@ -39,8 +40,10 @@ type State =
   | Prompt
   | TelegramReportEvidenceChoice
   | PhotoPrompt
-  | EvidencePrompt;
-type Purpose = 'choice' | 'page' | 'prompt' | 'evidence' | 'photo-prompt' | 'evidence-prompt';
+  | EvidencePrompt
+  | BlockPrompt;
+type Purpose =
+  'choice' | 'page' | 'prompt' | 'evidence' | 'photo-prompt' | 'evidence-prompt' | 'block-prompt';
 const referencePattern = /^[A-Za-z0-9_-]{22}$/u;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export function validReportQueueStatus(kind: 'report', status: string): boolean {
@@ -52,6 +55,13 @@ export function validReportQueueStatus(kind: 'report', status: string): boolean 
 function valid(value: unknown, purpose: Purpose): value is State {
   const row = m7Record(value);
   if (row === undefined) return false;
+  if (purpose === 'block-prompt')
+    return (
+      Object.keys(row).length === 2 &&
+      typeof row.reference === 'string' &&
+      referencePattern.test(row.reference) &&
+      ['create', 'remove'].includes(String(row.blockAction))
+    );
   if (purpose === 'evidence-prompt')
     return (
       Object.keys(row).length === 2 &&
@@ -363,5 +373,23 @@ export class TelegramAdminReportQueueState {
       this.reference(actor, 'evidence-prompt', `message:${messageId}`),
     );
     return state !== undefined && 'read' in state ? state : undefined;
+  }
+  public async bindBlockPrompt(
+    actor: Actor,
+    messageId: number,
+    reference: string,
+    blockAction: BlockPrompt['blockAction'],
+  ): Promise<void> {
+    if (!Number.isSafeInteger(messageId) || messageId < 1) throw unavailable();
+    await this.put(actor, 'block-prompt', `message:${messageId}`, { reference, blockAction });
+  }
+  public async blockPrompt(actor: Actor, messageId: number): Promise<BlockPrompt | undefined> {
+    if (!Number.isSafeInteger(messageId) || messageId < 1) return undefined;
+    const state = await this.get(
+      actor,
+      'block-prompt',
+      this.reference(actor, 'block-prompt', `message:${messageId}`),
+    );
+    return state !== undefined && 'blockAction' in state ? state : undefined;
   }
 }

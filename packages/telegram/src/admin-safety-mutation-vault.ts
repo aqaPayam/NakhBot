@@ -6,6 +6,7 @@ import type {
   ConfirmedReviewDecisions,
   ConfirmedAccountActions,
   ConfirmedPhotoActions,
+  ConfirmedInternalBlocks,
   ConfirmedEvidenceReveals,
   OpaqueTokenStore,
 } from '@nakh/application';
@@ -54,6 +55,10 @@ export type TelegramConfirmedReportEvidenceRead = Readonly<{
   binding: string;
   command: Parameters<ConfirmedEvidenceReveals['execute']>[0];
 }>;
+export type TelegramConfirmedReportInternalBlock = Readonly<{
+  binding: string;
+  command: Parameters<ConfirmedInternalBlocks['execute']>[0];
+}>;
 type Purpose =
   | 'support'
   | 'appeal-review'
@@ -62,7 +67,8 @@ type Purpose =
   | 'report-decision'
   | 'report-account'
   | 'report-photo'
-  | 'report-evidence';
+  | 'report-evidence'
+  | 'report-block';
 type Selection<P extends Purpose> = P extends 'support'
   ? TelegramConfirmedSupportMutation
   : P extends 'appeal-review'
@@ -77,7 +83,9 @@ type Selection<P extends Purpose> = P extends 'support'
             ? TelegramConfirmedReportAccountAction
             : P extends 'report-photo'
               ? TelegramConfirmedReportPhotoAction
-              : TelegramConfirmedReportEvidenceRead;
+              : P extends 'report-block'
+                ? TelegramConfirmedReportInternalBlock
+                : TelegramConfirmedReportEvidenceRead;
 type Mutation =
   | TelegramConfirmedSupportMutation
   | TelegramConfirmedAppealReview
@@ -86,7 +94,8 @@ type Mutation =
   | TelegramConfirmedReportDecision
   | TelegramConfirmedReportAccountAction
   | TelegramConfirmedReportPhotoAction
-  | TelegramConfirmedReportEvidenceRead;
+  | TelegramConfirmedReportEvidenceRead
+  | TelegramConfirmedReportInternalBlock;
 import { m7Record } from './m7-private-update.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -138,7 +147,8 @@ function binding(selected: Mutation, includeConfirmation: boolean): string {
         : command.commandType === 'moderation.unban-appeal'
           ? command.data.expectedAccountVersion
           : command.commandType === 'moderation.apply-account-action' ||
-              command.commandType === 'moderation.apply-photo-action'
+              command.commandType === 'moderation.apply-photo-action' ||
+              command.commandType === 'moderation.change-internal-block'
             ? command.data.action
             : command.commandType === 'moderation.assign-review'
               ? command.data.assigneeAdminId
@@ -185,7 +195,9 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
                   ? ['moderation.apply-account-action']
                   : purpose === 'report-photo'
                     ? ['moderation.apply-photo-action']
-                    : ['moderation.reveal-evidence']
+                    : purpose === 'report-block'
+                      ? ['moderation.change-internal-block']
+                      : ['moderation.reveal-evidence']
     ).includes(String(command.commandType)) ||
     command.schemaVersion !== 1 ||
     !keys(owner, ['kind', 'userId']) ||
@@ -232,7 +244,8 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
                   'assigneeAdminId',
                 ]
               : command.commandType === 'moderation.apply-account-action' ||
-                  command.commandType === 'moderation.apply-photo-action'
+                  command.commandType === 'moderation.apply-photo-action' ||
+                  command.commandType === 'moderation.change-internal-block'
                 ? [
                     'adminActionToken',
                     'confirmationToken',
@@ -257,6 +270,11 @@ function readCommand(value: unknown, actor: Actor, purpose: Purpose): value is M
   )
     return false;
   try {
+    if (
+      command.commandType === 'moderation.change-internal-block' &&
+      !['create', 'remove'].includes(String(data.action))
+    )
+      return false;
     if (normalizeAdminReason(data.reason) !== data.reason) return false;
     if (
       command.commandType === 'moderation.apply-photo-action' &&
@@ -337,6 +355,7 @@ export class TelegramAdminSafetyMutationVault<P extends Purpose> {
         'report-account',
         'report-photo',
         'report-evidence',
+        'report-block',
       ].includes(purpose) ||
       encryptionKey.byteLength !== 32 ||
       referenceKey.byteLength < 32 ||

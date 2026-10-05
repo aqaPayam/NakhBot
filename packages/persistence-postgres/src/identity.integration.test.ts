@@ -202,7 +202,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(578);
+    expect(Object.keys(english.messages)).toHaveLength(582);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(english.messages['media.photos.button.delete']).toBe('Delete');
     expect(english.messages['liked_by.title']).toBe('Liked By ({count})');

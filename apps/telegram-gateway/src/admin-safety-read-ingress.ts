@@ -24,6 +24,8 @@ import {
   PostgresGetSelectedReportEvidenceMetadataHandler,
   PostgresPrepareSelectedReportPhotoActionHandler,
   PostgresConfirmedPhotoActions,
+  PostgresConfirmedInternalBlocks,
+  PostgresPrepareSelectedReportInternalBlockHandler,
   PostgresPrepareSelectedReportEvidenceRevealHandler,
   PostgresGetReportEvidenceActionsHandler,
   PostgresConfirmedReportEvidenceReveals,
@@ -52,6 +54,8 @@ import {
   TelegramAdminReportEvidence,
   TelegramAdminReportPhotoActions,
   TelegramAdminReportPhotoPicker,
+  TelegramAdminReportInternalBlocks,
+  TelegramAdminReportBlockPicker,
   TelegramAdminReportEvidenceReads,
   TelegramAdminReportEvidencePicker,
   type TelegramAdminEvidenceDelivery,
@@ -243,6 +247,32 @@ export function createTelegramAdminSafetyReadIngress(
     input.uiEncryptionKey,
     input.uiReferenceKey,
   );
+  const reportBlocks = new TelegramAdminReportInternalBlocks(
+    input.sessions,
+    new PostgresPrepareSelectedReportInternalBlockHandler(
+      input.database,
+      input.tokens,
+      input.adminKey,
+    ),
+    new PostgresConfirmedInternalBlocks(input.database, input.tokens, input.adminKey),
+    new TelegramAdminSafetyMutationVault(
+      'report-block',
+      input.tokens,
+      input.uiEncryptionKey,
+      input.uiReferenceKey,
+    ),
+    input.uiReferenceKey,
+    input.delivery,
+    input.renderer,
+  );
+  const blockPicker = new TelegramAdminReportBlockPicker(
+    input.botId,
+    input.sessions,
+    reportState,
+    reportBlocks,
+    input.delivery,
+    input.renderer,
+  );
   const photoActions =
     input.photoDelivery === undefined
       ? undefined
@@ -363,6 +393,7 @@ export function createTelegramAdminSafetyReadIngress(
     reportDecisions,
     reportAccounts,
     reportEvidence,
+    reportBlocks,
   );
   const feedback = new TelegramAdminSafetyFeedback(
     input.botId,
@@ -377,6 +408,8 @@ export function createTelegramAdminSafetyReadIngress(
       reportAssignments,
       reportAccounts,
       reportEvidence,
+      reportBlocks,
+      blockPicker,
       ...(photoActions === undefined ? [] : [photoActions]),
       ...(photoPicker === undefined ? [] : [photoPicker]),
       ...(evidenceReads === undefined ? [] : [evidenceReads]),

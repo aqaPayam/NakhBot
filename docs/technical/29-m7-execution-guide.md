@@ -1,6 +1,33 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: Report-derived internal-block preparation and audit scope
+## Current increment: private Report internal-block reason and confirmation controls
+
+The private Report menu now offers create/remove only after current native pair eligibility and
+`manage_internal_blocks` checks. These controls use the exact Report selection, independently of
+Review assignment. The block-only reason prompt retains the first action and Report reference in
+an encrypted, actor-bound five-minute cache purpose. Assignment, decision, Account, photo and
+evidence-read handlers cannot consume that reply. The trusted adapter derives the pair grant and
+version through selected-Report preparation and saves a native reason-bound command behind a
+separate encrypted block mutation reference. Provider messages contain localized effects, the
+operator's reason and opaque callbacks; pair, user, Report and command identities stay internal.
+
+Protected private Confirm/Cancel callbacks use one first-write UI decision. Cancellation executes
+no native command. Confirmation checks current session/MFA around waits and executes the saved
+native command; current permission, exact Report participants, native pair version and immutable
+attempt/action audits remain owned by the native boundary. Retries produce one pair effect and
+audit. Creation stays silent and closes interactions; removal and old-command replay never reopen
+them. Account state, Report status and Review assignment are unchanged.
+
+Forward-only migration 75 adds four English fallback labels. Bootstrap, upgrade from migration 74,
+verification and unchanged replay cover the 582-key catalog without rewriting older migrations.
+Unit evidence covers owned replies, purpose substitution, exact action/version/reason retries,
+cancellation, cache/session expiry and protected callback transport. Actual PostgreSQL/private
+ingress evidence covers create/remove and old-confirmation replay under twelve concurrent retries,
+cancelled/revoked/stale/expired decisions, no user notifications or identity disclosure, and unchanged
+Accounts/Report/Review. Concrete session/MFA composition, integrity telemetry and real provider/
+operator staging acceptance remain open; these controls alone do not complete M7.
+
+## Previous increment: Report-derived internal-block preparation and audit scope
 
 Authenticated no-store `POST /v1/admin/moderation/reports/internal-block-selection` now derives
 the normalized pair from the exact selected Report. A current metadata-root grant, verified admin

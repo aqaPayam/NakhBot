@@ -1,3 +1,4 @@
+import type { TelegramAdminReportInternalBlocks } from './admin-report-internal-blocks.js';
 import { randomUUID } from 'node:crypto';
 import type {
   GetAdminReportQueueActionsHandler,
@@ -51,6 +52,7 @@ export class TelegramAdminReportQueue {
       'prepare' | 'check' | 'available'
     >,
     private readonly evidence?: Pick<TelegramAdminReportEvidence, 'check'>,
+    private readonly blocks?: Pick<TelegramAdminReportInternalBlocks, 'available'>,
   ) {
     if (!/^[1-9][0-9]{0,19}$/u.test(botId) || !Number.isSafeInteger(Number(botId)))
       throw new Error('Report queue bot identity invalid.');
@@ -144,7 +146,8 @@ export class TelegramAdminReportQueue {
             match[1] === 'T' &&
             (this.decisions !== undefined ||
               this.accounts !== undefined ||
-              this.evidence !== undefined)
+              this.evidence !== undefined ||
+              this.blocks !== undefined)
           ) {
             const options = this.evidence === undefined ? ['I'] : ['C'];
             if (this.evidence !== undefined) {
@@ -161,6 +164,12 @@ export class TelegramAdminReportQueue {
               options.push('A');
             for (const [code, accountAction] of ACCOUNT_CHOICES)
               if (await this.accounts?.available(context.telegramUserId, choice, accountAction))
+                options.push(code);
+            for (const [code, blockAction] of [
+              ['bC', 'create'],
+              ['bR', 'remove'],
+            ] as const)
+              if (await this.blocks?.available(context.telegramUserId, choice, blockAction))
                 options.push(code);
             await requireTelegramAdminSession(
               this.sessions,
@@ -190,7 +199,11 @@ export class TelegramAdminReportQueue {
                               ? 'admin.report.dismissed'
                               : code === 'A'
                                 ? 'admin.report.actioned'
-                                : `admin.report.account.${ACCOUNT_CHOICES.find(([item]) => item === code)?.[1]}`,
+                                : code === 'bC'
+                                  ? 'admin.report.block.create'
+                                  : code === 'bR'
+                                    ? 'admin.report.block.remove'
+                                    : `admin.report.account.${ACCOUNT_CHOICES.find(([item]) => item === code)?.[1]}`,
                       variables: {},
                     }),
                     callback_data: `m7${code}:${reference}`,

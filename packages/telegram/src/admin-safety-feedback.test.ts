@@ -184,3 +184,27 @@ describe('current-session admin rejection feedback and acknowledgement', () => {
     expect(f.text).not.toHaveBeenCalled();
   });
 });
+
+describe('Report block callback ingress', () => {
+  it('routes each block purpose through the current private session and safe rejection feedback', async () => {
+    const f = new Harness();
+    for (const code of ['C', 'R', 'Y', 'N']) {
+      const value = {
+        ...update,
+        update_id: 100 + code.charCodeAt(0),
+        callback_query: { ...update.callback_query, data: 'm7b' + code + ':' + 'a'.repeat(22) },
+      };
+      expect(await f.feedback.handle(value)).toBe('notice');
+      expect(f.native).toHaveBeenLastCalledWith(value);
+    }
+    expect(f.text).toHaveBeenCalledTimes(4);
+    f.revoked = true;
+    expect(
+      await f.feedback.handle({
+        ...update,
+        callback_query: { ...update.callback_query, data: 'm7bY:' + 'a'.repeat(22) },
+      }),
+    ).toBe('notice');
+    expect(f.native).toHaveBeenCalledTimes(4);
+  });
+});
