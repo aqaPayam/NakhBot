@@ -17,7 +17,12 @@ import { PostgresSupportThreadRevealStore } from './support-reveal-store.js';
 
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
-import { PostgresSupportAdminWorkflow, PostgresSupportStore } from './support-store.js';
+import {
+  PostgresSupportAdminWorkflow,
+  PostgresSupportStore,
+  supportUnansweredStatement,
+} from './support-store.js';
+import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -149,6 +154,142 @@ describe.skipIf(databaseUrl === undefined)('M7 durable support messaging', () =>
 
   afterAll(async () => {
     await database?.destroy();
+  });
+  it('batches support integrity without losing cross-thread reply boundaries or exact attempt bindings', async () => {
+    const userId = await createUser(database),
+      adminId = await createSupportAdmin(database),
+      first = randomUUID(),
+      second = randomUUID();
+    await store.open(userWrite(userId, first, 'integrity-first'));
+    await store.open(userWrite(userId, second, 'integrity-second'));
+    const workflow = new PostgresSupportAdminWorkflow(database);
+    const reply = adminAttempt(adminId, first, 'support.reply-thread', 1);
+    expect((await workflow.reply(reply, 'Synthetic integrity reply')).result).toBe('succeeded');
+    expect(
+      (await workflow.close(adminAttempt(adminId, first, 'support.close-thread', 2))).result,
+    ).toBe('succeeded');
+    await store.send(userWrite(userId, second, 'integrity-after-closed-reply', 1));
+    await store.send(userWrite(userId, second, 'integrity-two-after-reply', 2));
+    const originalAttempt = await database
+      .selectFrom('administration.admin_action_logs')
+      .selectAll()
+      .where('id', '=', reply.logId)
+      .executeTakeFirstOrThrow();
+    const originalMessage = await database
+      .selectFrom('support.support_messages')
+      .selectAll()
+      .where('command_id', '=', reply.commandId)
+      .executeTakeFirstOrThrow();
+    async function compare(brokenReply = false): Promise<void> {
+      const unanswered = (await supportUnansweredStatement(userId).execute(database)).rows[0]!
+        .count;
+      const reference = await sql<{ id: string; withinLimit: boolean; hasAttempts: boolean }>`
+        SELECT thread.id, thread.status <> 'open' OR ${unanswered} <= 2 AS "withinLimit",
+          NOT EXISTS (SELECT 1 FROM support.support_messages message
+            WHERE message.support_thread_id = thread.id AND message.sender_type = 'admin'
+              AND NOT EXISTS (SELECT 1 FROM administration.admin_action_logs attempt
+                WHERE attempt.admin_user_id = message.sender_admin_id AND attempt.command_id = message.command_id
+                  AND attempt.request_id = message.request_id AND attempt.request_digest = message.request_digest
+                  AND attempt.command_code = 'support.reply-thread' AND attempt.target_type = 'support_thread'
+                  AND attempt.target_id = thread.id AND attempt.result = 'succeeded'
+                  AND attempt.expected_target_version = message.thread_version_after - 1))
+          AND (thread.status <> 'closed' OR EXISTS (SELECT 1 FROM administration.admin_action_logs attempt
+            WHERE attempt.command_code = 'support.close-thread' AND attempt.target_type = 'support_thread'
+              AND attempt.target_id = thread.id AND attempt.result = 'succeeded'
+              AND attempt.expected_target_version = thread.version - 1)) AS "hasAttempts"
+        FROM support.support_threads thread WHERE thread.user_id = ${userId}::uuid ORDER BY thread.id
+      `.execute(database);
+      expect(reference.rows.find((row) => row.id === first)!.hasAttempts).toBe(!brokenReply);
+      const samples = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          sql`SELECT * FROM (${MODERATION_INTEGRITY_SOURCES.support_threads}) observed
+          WHERE observed.id IN (${first}::uuid,${second}::uuid) ORDER BY observed.id`.execute(
+            database,
+          ),
+        ),
+      );
+      for (const sample of samples) expect(sample.rows).toEqual(reference.rows);
+    }
+    async function mutate(operation: (connection: NakhDatabase) => Promise<void>): Promise<void> {
+      await database.connection().execute(async (connection) => {
+        await sql`SET session_replication_role = replica`.execute(connection);
+        try {
+          await operation(connection);
+        } finally {
+          await sql`SET session_replication_role = origin`.execute(connection);
+        }
+      });
+    }
+    await compare();
+    try {
+      for (const damage of [
+        { request_id: randomUUID() },
+        { request_digest: digest('borrowed support request') },
+        { target_id: second },
+        { expected_target_version: 999 },
+        { command_id: randomUUID() },
+        { command_code: 'support.close-thread' },
+      ]) {
+        await mutate(async (connection) => {
+          await connection
+            .updateTable('administration.admin_action_logs')
+            .set(damage)
+            .where('id', '=', reply.logId)
+            .execute();
+        });
+        await compare(true);
+        await mutate(async (connection) => {
+          await connection
+            .updateTable('administration.admin_action_logs')
+            .set(originalAttempt)
+            .where('id', '=', reply.logId)
+            .execute();
+        });
+      }
+      // Equal timestamps require UUID ordering; moving the closed-thread reply
+      // before all messages must expose the third unanswered open-thread message.
+      await mutate(async (connection) => {
+        await sql`UPDATE support.support_messages SET created_at = (
+          SELECT min(created_at) FROM support.support_messages
+          WHERE support_thread_id = ${second}::uuid AND sender_type = 'user'
+        ) WHERE id = ${originalMessage.id}::uuid`.execute(connection);
+      });
+      await compare();
+      const earliest = await database
+        .selectFrom('support.support_messages')
+        .select('created_at')
+        .where('support_thread_id', 'in', [first, second])
+        .orderBy('created_at')
+        .executeTakeFirstOrThrow();
+      for (const createdAt of [
+        earliest.created_at,
+        new Date(earliest.created_at.getTime() - 1000),
+      ]) {
+        await mutate(async (connection) => {
+          await connection
+            .updateTable('support.support_messages')
+            .set({ created_at: createdAt })
+            .where('id', '=', originalMessage.id)
+            .execute();
+        });
+        await compare();
+      }
+      expect((await supportUnansweredStatement(userId).execute(database)).rows[0]!.count).toBe(3);
+    } finally {
+      await mutate(async (connection) => {
+        await connection
+          .updateTable('administration.admin_action_logs')
+          .set(originalAttempt)
+          .where('id', '=', reply.logId)
+          .execute();
+        await connection
+          .updateTable('support.support_messages')
+          .set(originalMessage)
+          .where('id', '=', originalMessage.id)
+          .execute();
+      });
+    }
+    await compare();
   });
   it('bounds retained content and rolls back the command when its required access audit fails', async () => {
     const userId = await createUser(database),

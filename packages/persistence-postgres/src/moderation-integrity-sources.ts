@@ -118,6 +118,7 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
     -- Primary/unique keys identify one candidate. Every safety binding remains in
     -- its flag rather than becoming an additional hash key for this lookup.
     LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
+      AND bound_audit.actor_type = ${actor}
     LEFT JOIN notification.notifications bound_notice ON bound_notice.id = action.notification_id
     WHERE action.actor_type = ${actor}
 `;
@@ -162,10 +163,10 @@ SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS 
       WHERE evidence.evidence_type = 'photo'
 `,
   reviews: sql`
-SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = review.report_id AND (
+SELECT review.id, COALESCE(report.id IS NOT NULL AND (
       (review.status IN ('pending','in_review') AND report.status = 'pending_review')
       OR (review.status IN ('dismissed','actioned') AND report.status = review.status)
-    )) AS "stateMatches",
+    ),false) AS "stateMatches",
     review.status NOT IN ('dismissed','actioned') OR EXISTS (
       SELECT 1 FROM moderation.moderation_actions action WHERE action.source_report_id = review.report_id
         AND action.actor_type = 'admin'
@@ -173,6 +174,7 @@ SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.i
           OR (review.status = 'actioned' AND action.action_type <> 'dismiss_report'))
     ) AS "hasDecisionEvidence"
     FROM moderation.moderation_reviews review
+    LEFT JOIN moderation.reports report ON report.id = review.report_id
 `,
   actions: sql`(${moderationActionSource('system')}) UNION ALL (${moderationActionSource('admin')})`,
   episodes: sql`
@@ -252,32 +254,42 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
       telegram_delivery ON telegram_delivery.notification_id = restriction_notice.id
 `,
   support_threads: sql`
-SELECT thread.id, thread.status <> 'open' OR limits."withinLimit" AS "withinLimit",
-    NOT EXISTS (SELECT 1 FROM support.support_messages message WHERE message.support_thread_id = thread.id
-      AND message.sender_type = 'admin' AND NOT EXISTS (
-        SELECT 1 FROM administration.admin_action_logs attempt WHERE attempt.admin_user_id = message.sender_admin_id
-          AND attempt.command_id = message.command_id AND attempt.request_id = message.request_id
-          AND attempt.request_digest = message.request_digest AND attempt.command_code = 'support.reply-thread'
-          AND attempt.target_type = 'support_thread' AND attempt.target_id = thread.id AND attempt.result = 'succeeded'
-          AND attempt.expected_target_version = message.thread_version_after - 1
-      )) AND (thread.status <> 'closed' OR EXISTS (
-        SELECT 1 FROM administration.admin_action_logs attempt WHERE attempt.command_code = 'support.close-thread'
-          AND attempt.target_type = 'support_thread' AND attempt.target_id = thread.id AND attempt.result = 'succeeded'
-          AND attempt.expected_target_version = thread.version - 1
-      )) AS "hasAttempts"
+WITH latest_reply AS MATERIALIZED (
+    -- The owning admission path uses this same lexicographic latest-message boundary.
+    -- Replies from closed threads still answer earlier messages across the User's threads.
+    SELECT DISTINCT ON (owned.user_id) owned.user_id, message.created_at, message.id
+    FROM support.support_messages message
+    JOIN support.support_threads owned ON owned.id = message.support_thread_id
+    WHERE message.sender_type = 'admin'
+    ORDER BY owned.user_id, message.created_at DESC, message.id DESC
+), unanswered AS MATERIALIZED (
+    SELECT owned.user_id, count(*) AS count FROM support.support_messages message
+    JOIN support.support_threads owned ON owned.id = message.support_thread_id
+    LEFT JOIN latest_reply reply ON reply.user_id = owned.user_id
+    WHERE owned.status = 'open' AND message.sender_type = 'user'
+      AND (reply.id IS NULL OR (message.created_at,message.id) > (reply.created_at,reply.id))
+    GROUP BY owned.user_id
+), reply_attempts AS MATERIALIZED (
+    SELECT message.support_thread_id, bool_and(COALESCE(attempt.id IS NOT NULL
+      AND attempt.request_id = message.request_id AND attempt.request_digest = message.request_digest
+      AND attempt.command_code = 'support.reply-thread' AND attempt.target_type = 'support_thread'
+      AND attempt.target_id = message.support_thread_id AND attempt.result = 'succeeded'
+      AND attempt.expected_target_version = message.thread_version_after - 1,false)) AS valid
+    FROM support.support_messages message
+    LEFT JOIN administration.admin_action_logs attempt
+      ON attempt.admin_user_id = message.sender_admin_id AND attempt.command_id = message.command_id
+    WHERE message.sender_type = 'admin' GROUP BY message.support_thread_id
+)
+SELECT thread.id, thread.status <> 'open' OR COALESCE(unanswered.count,0) <= 2 AS "withinLimit",
+    COALESCE(reply_attempts.valid,true) AND (thread.status <> 'closed' OR COALESCE(
+      (thread.id,thread.version - 1) IN (
+        SELECT attempt.target_id,attempt.expected_target_version FROM administration.admin_action_logs attempt
+        WHERE attempt.command_code = 'support.close-thread' AND attempt.target_type = 'support_thread'
+          AND attempt.result = 'succeeded'
+      ),false)) AS "hasAttempts"
     FROM support.support_threads thread
-    LEFT JOIN LATERAL (
-      SELECT (SELECT count(*) FROM (
-      SELECT message.id FROM support.support_messages message
-      JOIN support.support_threads owned ON owned.id = message.support_thread_id
-      WHERE thread.status = 'open' AND owned.user_id = thread.user_id AND owned.status = 'open' AND message.sender_type = 'user'
-        AND NOT EXISTS (SELECT 1 FROM support.support_messages reply
-          JOIN support.support_threads replied ON replied.id = reply.support_thread_id
-          WHERE replied.user_id = thread.user_id AND reply.sender_type = 'admin'
-            AND (reply.created_at, reply.id) >= (message.created_at, message.id))
-      LIMIT 3
-    ) unanswered) <= 2 AS "withinLimit" OFFSET 0
-    ) limits ON true
+    LEFT JOIN unanswered ON unanswered.user_id = thread.user_id
+    LEFT JOIN reply_attempts ON reply_attempts.support_thread_id = thread.id
 `,
   appeals: sql`
 WITH unban_facts AS MATERIALIZED (

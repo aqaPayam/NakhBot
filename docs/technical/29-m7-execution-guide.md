@@ -151,6 +151,20 @@ and [independent hashed-subplan eligibility](https://www.postgresql.org/docs/17/
 actual execution, fresh-row/concurrency/count evidence and all original limits remain mandatory.
 No migration, memory, scale, index requirement or timeout is relaxed. Verification remains open.
 
+The tuple-history run passed all 381 native tests and every population/index requirement.
+It removed the repeated history probes: baseline sampling passed at 1,291 ms, while terminal
+sampling remained 1,608 ms. Support integrity now groups unanswered messages by User against
+the same latest `(created_at,id)` administrator-reply boundary as native admission, including
+replies on closed threads. Reply attempts bind through the existing administrator/command
+unique key and retain every request, digest, command, target, result and version check; closed
+thread attempts retain their exact target/version existence semantics. Grouping preserves one
+row per thread, including threads with no messages. Native evidence compares five concurrent
+samples with the original predicates after independent attempt damage and cross-thread reply
+ordering changes, then restores the original facts. Review state checks join their Report by
+primary key, and action audit candidates filter the constant actor branch before hashing while
+retaining the original flags. No population, budget, timeout, memory or index gate changes.
+This repair remains unverified until all six exact-head jobs pass.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,
