@@ -82,6 +82,8 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       expect(plans[`integrity_${phase}`]).toBeDefined();
     const plan = plans.integritySnapshot as { Plan: { 'Actual Rows': number } }[];
     expect(plan[0]?.Plan['Actual Rows']).toBe(10);
+    const healthPlan = plans.operationalHealth as { Plan: { 'Actual Rows': number } }[];
+    expect(healthPlan[0]?.Plan['Actual Rows']).toBe(1);
     for (const name of [
       'terminalAcceptedQueue',
       'terminalRejectedQueue',
@@ -89,6 +91,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       'terminalIntegrityActions',
       'terminalIntegrityAdminLogs',
       'terminalIntegritySnapshot',
+      'terminalOperationalHealth',
     ])
       expect(plans[name]).toBeDefined();
     await assertClean();

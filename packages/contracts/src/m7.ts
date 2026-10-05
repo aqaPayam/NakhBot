@@ -938,6 +938,16 @@ export const ReconcileM7CommandSchema = mutationSchema(
 );
 export type ReconcileM7Command = Static<typeof ReconcileM7CommandSchema>;
 
+export const PrepareM7OperationalHealthQuerySchema = Type.Object(
+  { actor: AdminActorSchema, requestId: UuidSchema },
+  { additionalProperties: false },
+);
+export type PrepareM7OperationalHealthQuery = Static<typeof PrepareM7OperationalHealthQuerySchema>;
+export const PreparedM7OperationalHealthSchema = Type.Object(
+  { adminActionToken: AdminActionTokenSchema },
+  { additionalProperties: false },
+);
+export type PreparedM7OperationalHealth = Static<typeof PreparedM7OperationalHealthSchema>;
 export const GetM7OperationalHealthQuerySchema = Type.Object(
   {
     actor: AdminActorSchema,

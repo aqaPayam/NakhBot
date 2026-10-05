@@ -1,6 +1,46 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: reviewed appeal and separate unban volume evidence
+## Current increment: authenticated operational health API
+
+The explicit shared M7 HTTP host now composes native health preparation and sampling handlers.
+POST `/v1/admin/moderation/operational-health/prepare` accepts the admin actor and request ID;
+POST `/v1/admin/moderation/operational-health` additionally requires the returned opaque action token.
+Both routes require the injected current admin-session/MFA verifier before and after awaited work,
+strict request/response schemas, and no-store responses. They remain absent from ordinary startup.
+The global view requires all three existing permissions: `view_reports`, `review_support`, and
+`review_appeals`. Role names grant no independent authority. Native signed, expiring capabilities
+bind the actor, verified identity, command and global target; current permissions are checked
+before and after issue/sample. Disabled admins, revoked roles, expired/lost tokens, borrowed actors,
+target-specific capabilities and sessions revoked during sampling receive no health data.
+
+One PostgreSQL statement returns database sample time, whole-second pending/in-review ages and
+five fixed counts, under the existing scoped integrity-read transaction. The narrow fields mean:
+
+| Contract field | Current authoritative metadata predicate |
+| --- | --- |
+| `thresholdMismatchCount` | Restriction episode source/system-action flags |
+| `adminLogMismatchCount` | Admin log access/action flags |
+| `snapshotIntegrityFailureCount` | Evidence capture-shape flag only |
+| `supportLimitMismatchCount` | Open-thread unanswered-limit flag only |
+| `appealUniquenessMismatchCount` | Exact-ban uniqueness flag only |
+
+These counters do not substitute whole reconciliation phase totals. Capture shape does not decrypt
+or authenticate retained content; this view does not validate historical threshold distinctness or
+the complete Account/action/Notification relationship. Retained-photo custody, support attempts,
+appeal decisions/unbans and other phase findings remain visible in the broader integrity sampler.
+Only fixed aggregates/time leave the store; malformed or expanded samples and source failures are
+sanitized at the boundary. Reads allocate no mutation, access-content audit or reconciliation run.
+
+Evidence includes concurrent reads, permission/session revocation during sampling, opaque-token
+scope/expiry/cache loss, strict output rejection, native PostgreSQL role/disable checks and repaired
+capture metadata. Both baseline and terminal-appeal volume scenes measure the actual health query
+alongside the existing plans; all 27 plans retain the 1,500 ms budget. Three terminal health samples
+must preserve the five baseline mismatch counts. Aggregate artifact schema 5 adds these two plans
+and the fixed repeat count, retaining its privacy restrictions. No migration or catalog change is
+needed beyond migration 76. Exporter/alert routing, concrete session/MFA, deeper integrity coverage,
+remaining volume branches, provider/operator staging and M8/M9 acceptance remain open.
+
+## Previous increment: reviewed appeal and separate unban volume evidence
 
 The M7 performance gate now adds a second measured population after its submitted-appeal baseline:
 20,000 reviewed appeals, including 10,000 rejected, 5,000 accepted without unban, and 5,000 accepted

@@ -14,6 +14,10 @@ import {
 } from './moderation-integrity-metrics-store.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import {
+  moderationOperationalHealthStatement,
+  PostgresM7OperationalHealthStore,
+} from './moderation-operational-health-store.js';
+import {
   seedM7AppealIntegrityPlans,
   type M7TerminalAppealFixture,
 } from './m7-appeal-integrity-plan-fixture.js';
@@ -46,6 +50,7 @@ export async function explainM7Queries(
       ]),
     ),
     integritySnapshot: moderationIntegrityStatement(),
+    operationalHealth: moderationOperationalHealthStatement(),
   };
   const plans: Record<string, unknown> = {};
   for (const [name, statement] of Object.entries(statements)) {
@@ -55,9 +60,10 @@ export async function explainM7Queries(
       sql<{
         'QUERY PLAN': unknown;
       }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(connection);
-    const result = name.startsWith('integrity')
-      ? await withModerationIntegrityRead(database, explain)
-      : await explain(database);
+    const result =
+      name.startsWith('integrity') || name === 'operationalHealth'
+        ? await withModerationIntegrityRead(database, explain)
+        : await explain(database);
     plans[name] = result.rows[0]?.['QUERY PLAN'];
   }
   return plans;
@@ -87,6 +93,7 @@ async function explainTerminalAppealQueries(
     terminalIntegrityActions: moderationIntegrityPhaseStatement('actions'),
     terminalIntegrityAdminLogs: moderationIntegrityPhaseStatement('admin_logs'),
     terminalIntegritySnapshot: moderationIntegrityStatement(),
+    terminalOperationalHealth: moderationOperationalHealthStatement(),
   };
   const plans: Record<string, unknown> = {};
   for (const [name, statement] of Object.entries(statements)) {
@@ -198,6 +205,7 @@ export async function measureM7SyntheticPlans(
             throw new Error('M7 integrity drift fixture incomplete.');
         }
         const baseline = await new PostgresModerationIntegrityMetricsStore(tx).measure();
+        const healthBaseline = await new PostgresM7OperationalHealthStore(tx).measure();
         terminalAppeals = await seedM7AppealIntegrityPlans(tx, prefix, volume, at);
         await analyzeM7QueryTables(tx);
         plans = {
@@ -209,6 +217,16 @@ export async function measureM7SyntheticPlans(
           for (const phase of MODERATION_RECONCILIATION_PHASES)
             if (current.counts[phase] !== baseline.counts[phase])
               throw new Error('M7 reviewed appeal/unban integrity mismatch.');
+          const health = await new PostgresM7OperationalHealthStore(tx).measure();
+          for (const key of [
+            'thresholdMismatchCount',
+            'adminLogMismatchCount',
+            'snapshotIntegrityFailureCount',
+            'supportLimitMismatchCount',
+            'appealUniquenessMismatchCount',
+          ] as const)
+            if (health[key] !== healthBaseline[key])
+              throw new Error('M7 operational health mismatch.');
         }
         throw new SyntheticPlanRollback();
       });

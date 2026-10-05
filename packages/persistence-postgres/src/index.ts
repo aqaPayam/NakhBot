@@ -198,3 +198,4 @@ export * from './audited-report-photo-store.js';
 export * from './prepare-selected-report-internal-block-store.js';
 
 export * from './moderation-integrity-metrics-store.js';
+export * from './moderation-operational-health-store.js';

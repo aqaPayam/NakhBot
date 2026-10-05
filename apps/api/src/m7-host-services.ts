@@ -31,11 +31,13 @@ import {
   PostgresPrepareAppealReviewAccessHandler,
   PostgresPrepareAppealUnbanAccessHandler,
   PostgresGetOwnAdminCommandReceiptHandler,
+  createPostgresM7OperationalHealthHandlers,
 } from '@nakh/persistence-postgres';
 import { createM7ReportHostOptions, type M7ReportHostConfiguration } from './m7-report-services.js';
 import { createM7SupportApiOptions } from './m7-support-services.js';
 import { createM7AppealApiOptions } from './m7-appeal-services.js';
 import type { M7AdminModerationApiOptions } from './m7-admin-moderation-api.js';
+import type { M7OperationalHealthApiOptions } from './m7-operational-health-api.js';
 
 export type M7HostConfiguration = M7ReportHostConfiguration &
   Readonly<{
@@ -51,6 +53,7 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
   adminModeration: M7AdminModerationApiOptions;
   support: ReturnType<typeof createM7SupportApiOptions>;
   appeals: ReturnType<typeof createM7AppealApiOptions>;
+  operationalHealth: M7OperationalHealthApiOptions;
 }> {
   const reportHost = createM7ReportHostOptions(input);
   const appealCommands = new PostgresConfirmedAppealCommands(
@@ -207,6 +210,14 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
     adminModeration,
     support: createM7SupportApiOptions(safety),
     appeals: createM7AppealApiOptions(safety),
+    operationalHealth: Object.freeze({
+      authenticator: input.authenticator,
+      ...createPostgresM7OperationalHealthHandlers(
+        input.database,
+        input.adminTokens,
+        input.adminKey,
+      ),
+    }),
   });
 }
 export type M7HostApiOptions = ReturnType<typeof createM7HostOptions>;

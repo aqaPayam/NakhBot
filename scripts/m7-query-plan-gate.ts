@@ -34,19 +34,21 @@ try {
       MODERATION_RECONCILIATION_PHASES.map((phase) => [`integrity_${phase}`, undefined]),
     ),
     integritySnapshot: undefined,
+    operationalHealth: undefined,
     terminalAcceptedQueue: ['user_appeals_status_submitted_idx'],
     terminalRejectedQueue: ['user_appeals_status_submitted_idx'],
     terminalIntegrityAppeals: undefined,
     terminalIntegrityActions: undefined,
     terminalIntegrityAdminLogs: undefined,
     terminalIntegritySnapshot: undefined,
+    terminalOperationalHealth: undefined,
   };
   await mkdir(resolve(process.cwd(), 'artifacts'), { recursive: true });
   await writeFile(
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 4,
+        schemaVersion: 5,
         fixtureScale: volume,
         fixtureTables: 20,
         integrityPhases: MODERATION_RECONCILIATION_PHASES,
@@ -54,6 +56,7 @@ try {
         repeatedSnapshotSamples: 3,
         terminalAppeals,
         repeatedTerminalSnapshotSamples: 3,
+        repeatedTerminalOperationalHealthSamples: 3,
         fixtureScope:
           'metadata-capture-drift-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
         remainingVolumeBranches: ['retained-photo', 'encrypted-capture', 'unrestrict'],

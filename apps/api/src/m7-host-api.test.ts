@@ -70,6 +70,8 @@ describe('explicit shared M7 HTTP host', () => {
       ['/v1/admin/appeals/actions', 'admin'],
       ['/v1/admin/appeals/unban/actions', 'admin'],
       ['/v1/admin/commands/receipt', 'admin'],
+      ['/v1/admin/moderation/operational-health/prepare', 'admin'],
+      ['/v1/admin/moderation/operational-health', 'admin'],
       ['/v1/admin/support/reply/prepare', 'admin'],
       ['/v1/admin/appeals/review/accepted/prepare', 'admin'],
       ['/v1/admin/appeals/unban/prepare', 'admin'],
