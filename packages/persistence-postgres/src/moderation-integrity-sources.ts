@@ -10,11 +10,7 @@ function accountHistoryMatches(adminMatches: RawBuilder<unknown>): RawBuilder<bo
           OR (action.action_type = 'ban_user' AND history.next_state = 'banned')
           OR (action.action_type IN ('unrestrict_user','unban_user')
             AND history.previous_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
-            AND history.next_state = (SELECT prior.previous_state FROM identity.account_state_history prior
-              WHERE prior.user_id = action.target_user_id AND prior.next_state = history.previous_state
-                AND prior.changed_at <= action.occurred_at
-                AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
-              ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1)))
+            AND history.next_state = restoration.previous_state))
     )`;
 }
 
@@ -71,10 +67,7 @@ SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.i
 `,
   actions: sql`
 SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
-    action.actor_type = 'system' OR EXISTS (
-      SELECT 1 FROM administration.admin_action_logs attempt
-      WHERE attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
-        AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest AND attempt.result = 'succeeded'
+    action.actor_type = 'system' OR (attempt.id IS NOT NULL
         AND ((action.action_type = 'unban_user' AND EXISTS (SELECT 1 FROM moderation.appeal_unbans unban
           WHERE unban.action_id = action.id AND unban.admin_action_log_id = attempt.id
             AND attempt.command_code = 'moderation.unban-appeal' AND attempt.target_type = 'user_appeal'
@@ -110,6 +103,21 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
           WHERE photo.id = action.target_photo_id AND profile.user_id = report.target_user_id))
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
+    LEFT JOIN administration.admin_action_logs attempt
+      ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
+      AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
+      AND attempt.result = 'succeeded'
+    -- One latest prior-state lookup per restoration binding; OFFSET 0 preserves the
+    -- parameterized relation so repeated target/type/time bindings can be memoized.
+    LEFT JOIN LATERAL (
+      SELECT prior.previous_state FROM identity.account_state_history prior
+      WHERE action.action_type IN ('unrestrict_user','unban_user')
+        AND prior.user_id = action.target_user_id
+        AND prior.next_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
+        AND prior.changed_at <= action.occurred_at
+        AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
+      ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
+    ) restoration ON true
     LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
       AND bound_audit.actor_type = action.actor_type
       AND bound_audit.actor_admin_id IS NOT DISTINCT FROM action.actor_admin_id

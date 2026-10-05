@@ -230,7 +230,7 @@ describe.skipIf(url === undefined)(
         expect((await store.measure()).counts).toEqual(baseline.counts);
       }
     });
-    it('preserves native restriction audit and notice bindings through unique joins', async () => {
+    it('preserves native restriction attempt, audit and notice bindings through unique joins', async () => {
       const photo = await createRetainedReportPhoto(database),
         other = await createRetainedReportPhoto(database),
         adminId = await createReportFixtureAdmin(database);
@@ -297,9 +297,43 @@ describe.skipIf(url === undefined)(
         .selectAll()
         .where('id', '=', action.audit_log_id)
         .executeTakeFirstOrThrow();
+      const attempt = await database
+        .selectFrom('administration.admin_action_logs')
+        .selectAll()
+        .where('admin_user_id', '=', adminId)
+        .where('command_id', '=', command.commandId)
+        .executeTakeFirstOrThrow();
       const store = new PostgresModerationIntegrityMetricsStore(database),
         baseline = (await store.measure()).counts;
       for (const [damage, code] of [
+        [
+          sql`UPDATE administration.admin_action_logs SET command_id=${randomUUID()}::uuid WHERE id=${attempt.id}::uuid`,
+          'moderation_action_attempt_missing',
+        ],
+        [
+          sql`UPDATE administration.admin_action_logs SET request_id=${randomUUID()}::uuid WHERE id=${attempt.id}::uuid`,
+          'moderation_action_attempt_missing',
+        ],
+        [
+          sql`UPDATE administration.admin_action_logs SET request_digest=${attempt.request_digest === '0'.repeat(64) ? '1'.repeat(64) : '0'.repeat(64)} WHERE id=${attempt.id}::uuid`,
+          'moderation_action_attempt_missing',
+        ],
+        [
+          sql`UPDATE administration.admin_action_logs SET result='rejected' WHERE id=${attempt.id}::uuid`,
+          'moderation_action_attempt_missing',
+        ],
+        [
+          sql`UPDATE administration.admin_action_logs SET command_code='moderation.apply-photo-action' WHERE id=${attempt.id}::uuid`,
+          'moderation_action_attempt_missing',
+        ],
+        [
+          sql`UPDATE administration.admin_action_logs SET target_type='photo' WHERE id=${attempt.id}::uuid`,
+          'moderation_action_attempt_missing',
+        ],
+        [
+          sql`UPDATE administration.admin_action_logs SET target_id=${other.target}::uuid WHERE id=${attempt.id}::uuid`,
+          'moderation_action_attempt_missing',
+        ],
         [
           sql`UPDATE platform.audit_logs SET command_id=${randomUUID()}::uuid WHERE id=${audit.id}::uuid`,
           'moderation_action_audit_missing',
@@ -325,6 +359,10 @@ describe.skipIf(url === undefined)(
             expect(sample.counts.actions).toBe(baseline.actions + 1);
         } finally {
           await corrupt(async (tx) => {
+            await sql`UPDATE administration.admin_action_logs SET command_id=${attempt.command_id}::uuid,
+              request_id=${attempt.request_id}::uuid,request_digest=${attempt.request_digest},result=${attempt.result},
+              command_code=${attempt.command_code},target_type=${attempt.target_type},target_id=${attempt.target_id}::uuid
+              WHERE id=${attempt.id}::uuid`.execute(tx);
             await sql`UPDATE platform.audit_logs SET command_id=${audit.command_id}::uuid,request_id=${audit.request_id}::uuid WHERE id=${audit.id}::uuid`.execute(
               tx,
             );

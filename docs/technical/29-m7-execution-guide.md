@@ -34,6 +34,15 @@ and absence of expressions or filtering. Empty bootstrap, upgrade from 80 and im
 are required. Both action and combined plan scenes must use the new index; all fixture sizes
 and 1,500 ms budgets remain unchanged. This repair is unverified until all six CI jobs pass.
 
+The index run passed all 380 PostgreSQL tests and its required index checks. Prior-state scans
+became bounded and baseline sampling passed at 1,463 ms, but terminal sampling remained 1,862 ms.
+The next repair joins the uniquely bound admin attempt once, retaining every request, digest,
+result, command and subject predicate, and moves the unchanged latest prior-state lookup into
+a cardinality-preserving lateral relation. Repeated User/action/time restoration bindings can
+then be memoized independently of each actor-bound effect history. Missing rows remain false;
+the separate appeal-unban link and pair-subject audit checks remain mandatory. Native drift/repair
+and all unchanged performance gates must pass before the increment is counted.
+
 ## Previous increment: retained-photo custody at production query volume
 
 The M7 plan gate now adds 20,000 photo evidence chains to both baseline and terminal scenes.
