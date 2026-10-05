@@ -1,6 +1,36 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: persisted encrypted captures at production query volume
+## Current increment: persisted M6 message captures at production query volume
+
+The encrypted-capture increment is verified on `460fe26`: all six CI jobs passed,
+including 382 PostgreSQL tests. Baseline/terminal combined sampling measured 992/1,268 ms
+against the unchanged 1,500 ms budgets, with every required index and original population intact.
+
+Both scenes now additionally persist 20,000 synthetic M6 message snapshots and their exact
+Report/evidence subjects: 5,000 each for text, predefined question, predefined answer and system
+messages. The existing M6 reader verifies each database roundtrip against its exact expected
+typed content and SHA-256 capture envelope. Every stored row also requires rejection of borrowed
+Report/session/message subjects, valid-shape changed content, extra content keys, changed sender,
+changed timestamp and changed hash. Subjects use canonical random UUIDs; envelope field order,
+Date ISO precision and system argument order follow the separate M6 capture protocol.
+
+This is unkeyed SHA-256 integrity readback, not AES-GCM authentication or proof of provenance.
+Shared SQL predicates independently require all new capture metadata intact. Historical Report
+timestamps keep all added rows outside the 24-hour admission window and preserve the existing
+eligible population. All original missing captures, damaged photo custody, threshold rosters,
+separate unrestriction chains and reviewed appeals remain in both scenes, with their unchanged
+exact sampler deltas. All 27 timing budgets and independent resolution/restoration index gates
+remain mandatory. Artifact schema 13 keeps message observations separate from encrypted captures;
+an empty remaining-volume list describes these synthetic capture branches only.
+
+Trigger/FK bypass and rollback remain isolated fixture setup; native admission, permission-checked
+audited evidence release and provider/operator acceptance are separate required evidence.
+Rollback checks now explicitly include M6 snapshots. No migration or catalog change is introduced:
+migration 81 bootstrap, upgrade and immutable replay remain required. Real MFA provider/enrollment/
+provisioning, exporter/alerts, provider/operator staging and M8/M9 remain open. This increment is
+unverified until all six exact-head jobs pass.
+
+## Previous increment: persisted encrypted captures at production query volume
 
 Both measured scenes now retain every original fixture and add 20,000 synthetic Report/evidence
 subjects with real AES-GCM envelopes: 5,000 each for profile, photo, chat and unmatched-user capture.

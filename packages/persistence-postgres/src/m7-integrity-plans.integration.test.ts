@@ -60,6 +60,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       'moderation.reports',
       'moderation.report_evidence',
       'moderation.report_snapshots',
+      'chat.chat_message_snapshots',
       'media.report_photo_evidence_holds',
       'support.support_threads',
       'moderation.moderation_actions',
@@ -79,10 +80,8 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     }
   }
   it('measures ten populated phases and the actual combined sampler, then removes every fixture', async () => {
-    const { plans, terminalAppeals, encryptedCaptures } = await measureM7SyntheticPlans(
-      database,
-      1000,
-    );
+    const { plans, terminalAppeals, encryptedCaptures, messageCaptures } =
+      await measureM7SyntheticPlans(database, 1000);
     expect(encryptedCaptures).toEqual({
       authenticated: 1000,
       metadataIntact: 1000,
@@ -91,6 +90,22 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       reportBindingRejected: 1000,
       evidenceBindingRejected: 1000,
       keyVersionRejected: 1000,
+      hashRejected: 1000,
+      outsideAdmissionWindow: 1000,
+      admissionEligibleBefore: 3,
+      admissionEligibleAfter: 3,
+    });
+    expect(messageCaptures).toEqual({
+      integrityVerified: 1000,
+      metadataIntact: 1000,
+      byType: { text: 250, predefined_question: 250, predefined_answer: 250, system: 250 },
+      reportBindingRejected: 1000,
+      sessionBindingRejected: 1000,
+      messageBindingRejected: 1000,
+      contentRejected: 1000,
+      shapeRejected: 1000,
+      senderRejected: 1000,
+      timestampRejected: 1000,
       hashRejected: 1000,
       outsideAdmissionWindow: 1000,
       admissionEligibleBefore: 3,

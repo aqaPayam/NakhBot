@@ -17,8 +17,14 @@ const database = createDatabase({
 });
 let summaries: Record<string, M7PlanSummary> | undefined;
 try {
-  const { plans, terminalAppeals, retainedPhotos, unrestrictions, encryptedCaptures } =
-    await measureM7SyntheticPlans(database, volume);
+  const {
+    plans,
+    terminalAppeals,
+    retainedPhotos,
+    unrestrictions,
+    encryptedCaptures,
+    messageCaptures,
+  } = await measureM7SyntheticPlans(database, volume);
   summaries = Object.fromEntries(
     Object.entries(plans).map(([name, plan]) => [name, summarizeM7Plan(plan)]),
   );
@@ -58,7 +64,7 @@ try {
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 12,
+        schemaVersion: 13,
         fixtureScale: volume,
         fixtureTables: 27,
         thresholdChains: {
@@ -74,13 +80,15 @@ try {
         retainedPhotos,
         unrestrictions,
         encryptedCaptures,
+        messageCaptures,
         repeatedUnrestrictionSnapshotSamples: 3,
         repeatedRetainedPhotoSnapshotSamples: 3,
         repeatedTerminalSnapshotSamples: 3,
         repeatedTerminalOperationalHealthSamples: 3,
         fixtureScope:
           'metadata-capture-drift-retained-photo-custody-threshold-chains-separate-unrestrictions-digest-drift-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
-        remainingVolumeBranches: ['m6-message-capture'],
+        remainingVolumeBranches: [],
+        messageCaptureScope: 'persisted-m6-sha256-typed-message-readback-synthetic-subjects',
         encryptedCaptureScope:
           'persisted-local-aead-profile-photo-chat-unmatched-synthetic-subjects',
         maximumExecutionMs: 1500,

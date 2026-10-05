@@ -18,6 +18,10 @@ import {
   type M7EncryptedCaptureFixture,
 } from './m7-encrypted-capture-plan-fixture.js';
 import {
+  seedM7MessageCapturePlans,
+  type M7MessageCaptureFixture,
+} from './m7-message-capture-plan-fixture.js';
+import {
   seedM7UnrestrictionPlans,
   type M7UnrestrictionFixture,
 } from './m7-unrestriction-plan-fixture.js';
@@ -174,6 +178,7 @@ export async function measureM7SyntheticPlans(
     retainedPhotos: M7RetainedPhotoFixture;
     unrestrictions: M7UnrestrictionFixture;
     encryptedCaptures: M7EncryptedCaptureFixture;
+    messageCaptures: M7MessageCaptureFixture;
   }>
 > {
   if (!Number.isSafeInteger(volume) || volume < 1000 || volume > 20000)
@@ -186,6 +191,7 @@ export async function measureM7SyntheticPlans(
   let retainedPhotos: M7RetainedPhotoFixture | undefined;
   let unrestrictions: M7UnrestrictionFixture | undefined;
   let encryptedCaptures: M7EncryptedCaptureFixture | undefined;
+  let messageCaptures: M7MessageCaptureFixture | undefined;
   await withM6SyntheticPlanSession(database, async (connection) => {
     try {
       await connection.transaction().execute(async (tx) => {
@@ -198,6 +204,7 @@ export async function measureM7SyntheticPlans(
         unrestrictions = await seedM7UnrestrictionPlans(tx, prefix, volume, at);
         const { bound: boundResolutions, digestDrift } = unrestrictions;
         encryptedCaptures = await seedM7EncryptedCapturePlans(tx, prefix, volume, at);
+        messageCaptures = await seedM7MessageCapturePlans(tx, prefix, volume, at);
         await analyzeM7QueryTables(tx);
         const thresholdChains = (
           await sql<{ count: string; resolved: string }>`SELECT count(*)::text AS count,
@@ -308,9 +315,17 @@ export async function measureM7SyntheticPlans(
     terminalAppeals === undefined ||
     retainedPhotos === undefined ||
     unrestrictions === undefined ||
-    encryptedCaptures === undefined
+    encryptedCaptures === undefined ||
+    messageCaptures === undefined
   )
     throw new Error('M7 plan measurement unavailable.');
-  return { plans, terminalAppeals, retainedPhotos, unrestrictions, encryptedCaptures };
+  return {
+    plans,
+    terminalAppeals,
+    retainedPhotos,
+    unrestrictions,
+    encryptedCaptures,
+    messageCaptures,
+  };
 }
 class SyntheticPlanRollback extends Error {}
