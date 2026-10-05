@@ -2,6 +2,7 @@ import type { AdminAuthorizationFacts, AdminAuthorizationStore } from '@nakh/app
 import type { M7Permission } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { currentNativeAdminSession, nativeAdminSessionsRequired } from './admin-session-policy.js';
 
 type AdminIdentityRow = Readonly<{
   admin_user_id: string;
@@ -40,11 +41,22 @@ export class PostgresAdminAuthorizationStore implements AdminAuthorizationStore 
     row: AdminIdentityRow | undefined,
   ): Promise<AdminAuthorizationFacts | undefined> {
     if (row === undefined) return undefined;
+    if (
+      nativeAdminSessionsRequired(this.database) &&
+      (await currentNativeAdminSession(this.database, row.admin_user_id)) === undefined
+    )
+      return undefined;
+    const activePermissions = await this.permissions(row.admin_user_id);
+    if (
+      nativeAdminSessionsRequired(this.database) &&
+      (await currentNativeAdminSession(this.database, row.admin_user_id)) === undefined
+    )
+      return undefined;
     return {
       adminUserId: row.admin_user_id,
       actorUserId: row.actor_user_id,
       adminActive: row.is_active,
-      activePermissions: await this.permissions(row.admin_user_id),
+      activePermissions,
     };
   }
 

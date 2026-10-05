@@ -74,7 +74,10 @@ export interface AdminCommandExecutionStore<TContext> {
   execute<T>(
     attempt: AdminCommandAttempt,
     effect: (context: TContext) => Promise<AdminCommandEffectResult<T>>,
-    /** Required audit facts commit with the outcome; failure aborts the entire transaction. Not called on replay. */
+    /** Required transactional audit writer; failure aborts the entire transaction. Not called on replay.
+     * A native session expiry can roll back provisional success and call this again for rejection.
+     * Keep all effects in the supplied transaction; no external delivery belongs in this callback.
+     */
     onRecorded?: (context: TContext, outcome: AdminCommandRecordedOutcome) => Promise<void>,
   ): Promise<AdminCommandExecutionResult<T>>;
   recordEvidenceAccess(attempt: EvidenceAccessAttempt): Promise<EvidenceAccessResult>;

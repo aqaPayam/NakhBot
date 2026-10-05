@@ -1,5 +1,8 @@
 import type { AdminMfaProofVerifier, AdminSessionService } from '@nakh/application';
-import { createPostgresAdminSessions } from '@nakh/persistence-postgres';
+import {
+  createPostgresAdminSessions,
+  requireNativeAdminSessions,
+} from '@nakh/persistence-postgres';
 import type { M7ApiAuthenticator } from './m7-api-boundary.js';
 import {
   createM7HostOptions,
@@ -16,6 +19,7 @@ export function createM7SessionHostOptions(
       mfa: AdminMfaProofVerifier;
     }>,
 ): Readonly<{ host: M7HostApiOptions; sessions: AdminSessionService }> {
+  requireNativeAdminSessions(input.database);
   const sessions = createPostgresAdminSessions(input.database, input.mfa);
   const authenticator: M7ApiAuthenticator = {
     authenticate: (query) =>

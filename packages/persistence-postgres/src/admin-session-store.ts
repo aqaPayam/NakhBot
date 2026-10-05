@@ -8,6 +8,7 @@ import {
 } from '@nakh/application';
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
+import { requireNativeAdminSessions } from './admin-session-policy.js';
 type Identity = { id: string; user_id: string; telegram_user_id: string; version: number };
 type Session = {
   id: string;
@@ -159,5 +160,6 @@ export function createPostgresAdminSessions(
   database: NakhDatabase,
   mfa: AdminMfaProofVerifier,
 ): AdminSessionService {
+  requireNativeAdminSessions(database);
   return new AdminSessionService(new PostgresAdminSessionStore(database), mfa);
 }

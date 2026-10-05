@@ -1,6 +1,36 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: native durable admin session lifecycle
+## Current increment: native session authority across command waits
+
+The native session factory and explicit HTTP session host now impose a monotonic native-session
+requirement on their trusted database owner. Native authorization facts require current MFA before
+and after permission lookup. Command transactions inherit that policy; transport claims cannot
+turn it off. Existing separately composed external-verifier database owners retain their contract.
+The session issuer authenticates first-factor identity and verified proof in its own transaction,
+without requiring a previous session to establish the first grant.
+
+Each native command pins the current grant after locking its verified AdminUser and required
+permission. It checks that same grant with `clock_timestamp()` after the effect and after required
+audit work. Expiry during either wait rolls back business writes and any provisional success/audit,
+then commits one sanitized forbidden attempt. No private value is returned. The audit callback is
+a transactional writer and may run again for the final rejected outcome after its provisional
+writes roll back; external delivery must not occur there. Required audit failure aborts the whole
+transaction. Revocation and supersession use the same AdminUser lock, so they serialize with an
+admitted command; independent wall-clock expiry still invalidates the waiting effect.
+
+Replays require current native MFA, preserve the original outcome, and never repeat its effect or
+release its private value. A fresh grant does not turn a previously rejected command into success;
+a separately confirmed new command is required. Existing external photo revocation is idempotent
+but cannot be undone by a database rollback. This change introduces no schema or catalog revision:
+migration 77 bootstrap, upgrade and immutable replay evidence remain required.
+
+PostgreSQL evidence covers missing grants, twenty concurrent retries, revoked-grant replay denial,
+fresh-clock expiry during an effect and audit, atomic required-audit failure, and actual confirmed
+Account restriction after logout followed by a separately confirmed successful command. Concrete
+factor/enrollment/provider and audited operator provisioning, deeper integrity coverage, remaining
+volume branches, exporter/alert routing, provider/operator staging and M8/M9 acceptance remain open.
+
+## Previous increment: native durable admin session lifecycle
 
 `AdminSessionService` now consumes a trusted server MFA proof bound to the authenticated first-factor
 User and verified Telegram identity. The factor provider must verify the factor and return the same

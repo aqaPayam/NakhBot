@@ -17,6 +17,12 @@ import {
 import { ApplicationError } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import {
+  assertNativeAdminSession,
+  currentNativeAdminSession,
+  inheritNativeAdminSessionPolicy,
+  nativeAdminSessionsRequired,
+} from './admin-session-policy.js';
 
 type RecordedAdminAction = Readonly<{
   id: string;
@@ -61,6 +67,8 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
   ): Promise<AdminCommandExecutionResult<T>> {
     validateAdminCommandAttempt(attempt);
     return this.database.transaction().execute(async (transaction) => {
+      inheritNativeAdminSessionPolicy(this.database, transaction);
+      const requireSession = nativeAdminSessionsRequired(transaction);
       await sql`SELECT pg_advisory_xact_lock(
         hashtextextended(${'admin-command:'} || ${attempt.adminUserId}::text || ':' || ${attempt.commandId}::text, 0)
       )`.execute(transaction);
@@ -84,6 +92,7 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
         .executeTakeFirst();
       if (existing !== undefined) {
         if (!isIdenticalCommand(existing, attempt)) throw idempotencyConflict();
+        if (requireSession) await assertNativeAdminSession(transaction, attempt.adminUserId);
         return {
           logId: existing.id,
           result: existing.result,
@@ -97,6 +106,8 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
       let result: AdminActionResult;
       let safeCode: string;
       let value: T | undefined;
+      let pinnedSession: string | undefined;
+      let effectSavepoint = false;
       const admin = await transaction
         .selectFrom('administration.admin_users')
         .select(['is_active', 'user_id', 'telegram_user_id', 'identity_verified_at'])
@@ -131,7 +142,13 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
               .forShare()
               .executeTakeFirst()
           : undefined;
-      if (!admin.is_active || permission === undefined) {
+      if (requireSession)
+        pinnedSession = await currentNativeAdminSession(transaction, attempt.adminUserId);
+      if (
+        !admin.is_active ||
+        permission === undefined ||
+        (requireSession && pinnedSession === undefined)
+      ) {
         result = 'rejected';
         safeCode = 'forbidden';
         value = undefined;
@@ -141,17 +158,24 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
         value = undefined;
       } else {
         await sql`SAVEPOINT admin_command_effect`.execute(transaction);
+        effectSavepoint = true;
         try {
           const effectResult = await effect(transaction);
+          if (requireSession)
+            await assertNativeAdminSession(transaction, attempt.adminUserId, pinnedSession);
           if (!isAdminSafeCode(effectResult.safeCode))
             throw new Error('Admin effect safe code is invalid.');
           result = 'succeeded';
           safeCode = effectResult.safeCode;
           value = effectResult.value;
-          await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
+          if (!requireSession) {
+            await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
+            effectSavepoint = false;
+          }
         } catch (error) {
           await sql`ROLLBACK TO SAVEPOINT admin_command_effect`.execute(transaction);
           await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
+          effectSavepoint = false;
           value = undefined;
           if (error instanceof ApplicationError) {
             result = 'rejected';
@@ -163,38 +187,57 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
         }
       }
 
-      const recorded = await transaction
-        .insertInto('administration.admin_action_logs')
-        .values({
-          id: attempt.logId,
-          admin_user_id: attempt.adminUserId,
-          command_id: attempt.commandId,
-          request_id: attempt.requestId,
-          request_digest: attempt.requestDigest,
-          command_code: attempt.commandCode,
-          target_type: attempt.targetType,
-          target_id: attempt.targetId,
-          expected_target_version: attempt.expectedTargetVersion,
+      const recordOutcome = async (): Promise<Date> => {
+        const recorded = await transaction
+          .insertInto('administration.admin_action_logs')
+          .values({
+            id: attempt.logId,
+            admin_user_id: attempt.adminUserId,
+            command_id: attempt.commandId,
+            request_id: attempt.requestId,
+            request_digest: attempt.requestDigest,
+            command_code: attempt.commandCode,
+            target_type: attempt.targetType,
+            target_id: attempt.targetId,
+            expected_target_version: attempt.expectedTargetVersion,
+            result,
+            safe_code: safeCode,
+            reason_digest: attempt.reasonDigest,
+            metadata: attempt.metadata,
+            correlation_id: attempt.correlationId,
+          })
+          .returning('created_at')
+          .executeTakeFirstOrThrow();
+        await onRecorded?.(transaction, {
+          logId: attempt.logId,
           result,
-          safe_code: safeCode,
-          reason_digest: attempt.reasonDigest,
-          metadata: attempt.metadata,
-          correlation_id: attempt.correlationId,
-        })
-        .returning('created_at')
-        .executeTakeFirstOrThrow();
-      await onRecorded?.(transaction, {
-        logId: attempt.logId,
-        result,
-        safeCode,
-        recordedAt: recorded.created_at,
-        replayed: false,
-      });
+          safeCode,
+          recordedAt: recorded.created_at,
+          replayed: false,
+        });
+        return recorded.created_at;
+      };
+      let recordedAt = await recordOutcome();
+      if (effectSavepoint) {
+        try {
+          await assertNativeAdminSession(transaction, attempt.adminUserId, pinnedSession);
+        } catch (error) {
+          if (!(error instanceof ApplicationError)) throw error;
+          await sql`ROLLBACK TO SAVEPOINT admin_command_effect`.execute(transaction);
+          await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
+          effectSavepoint = false;
+          result = 'rejected';
+          safeCode = adminRejectionSafeCode(error.code);
+          value = undefined;
+          recordedAt = await recordOutcome();
+        }
+        if (effectSavepoint) await sql`RELEASE SAVEPOINT admin_command_effect`.execute(transaction);
+      }
       return {
         logId: attempt.logId,
         result,
         safeCode,
-        recordedAt: recorded.created_at,
+        recordedAt,
         replayed: false,
         value,
       };
