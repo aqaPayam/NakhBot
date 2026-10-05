@@ -62,11 +62,12 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           reportId = randomUUID();
         await target.query('BEGIN');
         try {
-          await target.query('SET LOCAL session_replication_role=replica');
           await target.query(
             'INSERT INTO identity.users(id,last_activity_at,created_at,updated_at) SELECT unnest($1::uuid[]),now(),now(),now()',
             [[reporterId, targetId]],
           );
+          // Preserve ordinary identity counters before bypassing only historical safety fixtures.
+          await target.query('SET LOCAL session_replication_role=replica');
           await target.query(
             "INSERT INTO moderation.reports(id,reporter_user_id,target_user_id,reason_id,status,command_id,request_id,idempotency_key,request_digest) SELECT $1,$2,$3,id,'pending_review',$4,$5,$6,repeat('a',64) FROM moderation.report_reasons WHERE code='harassment'",
             [reportId, reporterId, targetId, randomUUID(), randomUUID(), randomUUID()],

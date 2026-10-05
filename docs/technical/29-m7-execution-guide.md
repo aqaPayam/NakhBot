@@ -25,6 +25,10 @@ Report dismissal, immutable update/delete/mode guards, missing/malformed-witness
 required-capture rollback/retry, and upgrade from 78 preserving unverified history. Bootstrap,
 schema/guard verification and unchanged replay remain required. Retention ownership includes this
 restricted history; controlled M8 release is still required before deletion.
+The first CI run passed all new native witness cases but exposed one legacy-upgrade fixture error:
+disabled triggers had skipped required M5 counters for its synthetic Users. The repair preserves
+ordinary User creation and narrows test-only bypass to the historical Report/episode; native
+witness guards, earlier verifiers and the performance budget remain unchanged.
 
 The unchanged 27 plan gates now include 100,000 synthetic witness bindings across 20,000 episode
 chains. Artifact schema 7 records 22 populated tables and witness count; synthetic historical
