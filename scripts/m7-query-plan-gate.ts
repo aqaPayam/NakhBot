@@ -17,10 +17,8 @@ const database = createDatabase({
 });
 let summaries: Record<string, M7PlanSummary> | undefined;
 try {
-  const { plans, terminalAppeals, retainedPhotos, unrestrictions } = await measureM7SyntheticPlans(
-    database,
-    volume,
-  );
+  const { plans, terminalAppeals, retainedPhotos, unrestrictions, encryptedCaptures } =
+    await measureM7SyntheticPlans(database, volume);
   summaries = Object.fromEntries(
     Object.entries(plans).map(([name, plan]) => [name, summarizeM7Plan(plan)]),
   );
@@ -60,7 +58,7 @@ try {
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 11,
+        schemaVersion: 12,
         fixtureScale: volume,
         fixtureTables: 27,
         thresholdChains: {
@@ -75,13 +73,16 @@ try {
         terminalAppeals,
         retainedPhotos,
         unrestrictions,
+        encryptedCaptures,
         repeatedUnrestrictionSnapshotSamples: 3,
         repeatedRetainedPhotoSnapshotSamples: 3,
         repeatedTerminalSnapshotSamples: 3,
         repeatedTerminalOperationalHealthSamples: 3,
         fixtureScope:
           'metadata-capture-drift-retained-photo-custody-threshold-chains-separate-unrestrictions-digest-drift-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
-        remainingVolumeBranches: ['encrypted-capture'],
+        remainingVolumeBranches: ['m6-message-capture'],
+        encryptedCaptureScope:
+          'persisted-local-aead-profile-photo-chat-unmatched-synthetic-subjects',
         maximumExecutionMs: 1500,
         requiredIndexes,
         requiredAllIndexes,

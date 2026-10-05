@@ -1,6 +1,31 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: separate unrestriction commands at production query volume
+## Current increment: persisted encrypted captures at production query volume
+
+Both measured scenes now retain every original fixture and add 20,000 synthetic Report/evidence
+subjects with real AES-GCM envelopes: 5,000 each for profile, photo, chat and unmatched-user capture.
+Canonical random UUID subjects preserve existing AAD validation. Batched database readback must
+authenticate every envelope and recover its exact synthetic content. Each persisted envelope also
+undergoes independent tag, Report binding, evidence binding, key-version and hash rejection checks.
+The local ephemeral key is never persisted or included in artifacts; only numeric observations
+escape. Shared production capture/custody predicates must identify all new rows as intact, while
+three actual aggregate/health samples preserve every original drift delta. The original missing
+captures, damaged photo custody, threshold witnesses, unrestriction attempts and terminal appeals
+remain present; all 27 plans retain their 1,500 ms limits and independent index requirements.
+
+Artifact schema 12 distinguishes cryptographic readback observations from SQL metadata checks.
+Metadata shape does not authenticate ciphertext. Trigger/FK bypass and rollback remain isolated
+synthetic setup, not native admission, permission-checked reveal or provider/operator acceptance.
+Existing native audited reveal tests remain required. M6 message envelopes use their separate
+storage path and are not covered by this new volume branch. No migration or catalog change is
+introduced: migration 81 bootstrap, upgrade and immutable replay remain required. Real MFA
+provider/enrollment/provisioning, exporter/alerts, provider/operator staging and M8/M9 remain open.
+
+The preceding unrestriction increment is verified: all six jobs passed, including 380 PostgreSQL
+tests. Baseline and terminal combined sampling measured 1,000 ms and 1,272 ms with no temporary
+blocks. Both independent terminal resolution/restoration indexes were present.
+
+## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,
 each with its own admin attempt, action, state history, audit and notice. Half have exact digest

@@ -14,6 +14,10 @@ import {
 } from './moderation-integrity-metrics-store.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import {
+  seedM7EncryptedCapturePlans,
+  type M7EncryptedCaptureFixture,
+} from './m7-encrypted-capture-plan-fixture.js';
+import {
   seedM7UnrestrictionPlans,
   type M7UnrestrictionFixture,
 } from './m7-unrestriction-plan-fixture.js';
@@ -169,6 +173,7 @@ export async function measureM7SyntheticPlans(
     terminalAppeals: M7TerminalAppealFixture;
     retainedPhotos: M7RetainedPhotoFixture;
     unrestrictions: M7UnrestrictionFixture;
+    encryptedCaptures: M7EncryptedCaptureFixture;
   }>
 > {
   if (!Number.isSafeInteger(volume) || volume < 1000 || volume > 20000)
@@ -180,6 +185,7 @@ export async function measureM7SyntheticPlans(
   let terminalAppeals: M7TerminalAppealFixture | undefined;
   let retainedPhotos: M7RetainedPhotoFixture | undefined;
   let unrestrictions: M7UnrestrictionFixture | undefined;
+  let encryptedCaptures: M7EncryptedCaptureFixture | undefined;
   await withM6SyntheticPlanSession(database, async (connection) => {
     try {
       await connection.transaction().execute(async (tx) => {
@@ -191,6 +197,7 @@ export async function measureM7SyntheticPlans(
         const photoDrift = retainedPhotos.hashDrift + retainedPhotos.storageDrift;
         unrestrictions = await seedM7UnrestrictionPlans(tx, prefix, volume, at);
         const { bound: boundResolutions, digestDrift } = unrestrictions;
+        encryptedCaptures = await seedM7EncryptedCapturePlans(tx, prefix, volume, at);
         await analyzeM7QueryTables(tx);
         const thresholdChains = (
           await sql<{ count: string; resolved: string }>`SELECT count(*)::text AS count,
@@ -300,9 +307,10 @@ export async function measureM7SyntheticPlans(
     plans === undefined ||
     terminalAppeals === undefined ||
     retainedPhotos === undefined ||
-    unrestrictions === undefined
+    unrestrictions === undefined ||
+    encryptedCaptures === undefined
   )
     throw new Error('M7 plan measurement unavailable.');
-  return { plans, terminalAppeals, retainedPhotos, unrestrictions };
+  return { plans, terminalAppeals, retainedPhotos, unrestrictions, encryptedCaptures };
 }
 class SyntheticPlanRollback extends Error {}

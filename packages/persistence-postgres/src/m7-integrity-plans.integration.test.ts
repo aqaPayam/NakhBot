@@ -57,6 +57,9 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     ).toBe(initialWorkMem);
     for (const table of [
       'moderation.reports',
+      'moderation.report_evidence',
+      'moderation.report_snapshots',
+      'media.report_photo_evidence_holds',
       'support.support_threads',
       'moderation.moderation_actions',
       'interaction.user_pair_states',
@@ -75,7 +78,20 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     }
   }
   it('measures ten populated phases and the actual combined sampler, then removes every fixture', async () => {
-    const { plans, terminalAppeals } = await measureM7SyntheticPlans(database, 1000);
+    const { plans, terminalAppeals, encryptedCaptures } = await measureM7SyntheticPlans(
+      database,
+      1000,
+    );
+    expect(encryptedCaptures).toEqual({
+      authenticated: 1000,
+      metadataIntact: 1000,
+      byType: { profile: 250, photo: 250, chat: 250, unmatched_user: 250 },
+      tagRejected: 1000,
+      reportBindingRejected: 1000,
+      evidenceBindingRejected: 1000,
+      keyVersionRejected: 1000,
+      hashRejected: 1000,
+    });
     expect(terminalAppeals).toEqual({
       reviewed: 1000,
       accepted: 500,
