@@ -144,7 +144,9 @@ describe.skipIf(url === undefined)(
       for (const damage of [
         sql`UPDATE media.report_photo_evidence_holds SET content_sha256=repeat('b',64) WHERE report_evidence_id=${photo.evidenceId}::uuid`,
         sql`UPDATE media.report_photo_evidence_holds SET photo_id=${other.photoId}::uuid WHERE report_evidence_id=${photo.evidenceId}::uuid`,
-        sql`UPDATE media.photo_variants SET asset_id=${randomUUID()}::uuid WHERE id=${hold.variant_id}::uuid`,
+        sql`UPDATE media.report_photo_evidence_holds SET asset_id=(
+          SELECT asset_id FROM media.report_photo_evidence_holds WHERE report_evidence_id=${other.evidenceId}::uuid
+        ) WHERE report_evidence_id=${photo.evidenceId}::uuid`,
         sql`UPDATE media.photo_variants SET deleted_at=now(),storage_deleted_at=now() WHERE id=${hold.variant_id}::uuid`,
         sql`UPDATE media.media_assets SET deleted_at=now(),storage_deleted_at=now() WHERE id=${hold.asset_id}::uuid`,
         sql`UPDATE moderation.report_snapshots SET report_id=${other.reportId}::uuid WHERE report_evidence_id=${photo.evidenceId}::uuid`,
@@ -168,7 +170,7 @@ describe.skipIf(url === undefined)(
           }
         } finally {
           await corrupt(async (connection) => {
-            await sql`UPDATE media.report_photo_evidence_holds SET photo_id=${hold.photo_id}::uuid,content_sha256=${hold.content_sha256} WHERE report_evidence_id=${photo.evidenceId}::uuid`.execute(
+            await sql`UPDATE media.report_photo_evidence_holds SET photo_id=${hold.photo_id}::uuid,asset_id=${hold.asset_id}::uuid,content_sha256=${hold.content_sha256} WHERE report_evidence_id=${photo.evidenceId}::uuid`.execute(
               connection,
             );
             await sql`UPDATE media.photo_variants SET asset_id=${hold.asset_id}::uuid,deleted_at=NULL,storage_deleted_at=NULL WHERE id=${hold.variant_id}::uuid`.execute(

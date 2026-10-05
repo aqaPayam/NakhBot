@@ -26,6 +26,10 @@ and custody probes with cardinality-preserving joins through the existing unique
 keys and variant/asset primary keys. All identity, type, schema, hash and storage predicates remain
 identical; absent related rows are explicitly false. Fixture scale and the 1,500 ms budget remain
 unchanged. Native custody corruption and repair evidence checks the shared paged/aggregate paths.
+The repair's first integration run caught a test setup that changed a variant's asset without its
+immutable storage path. That existing constraint remained enabled. The corrected fixture changes
+the held asset reference to another native asset, exercising the same variant/held-asset mismatch
+without weakening storage-path constraints; the production query repair remains unchanged.
 
 ## Previous increment: immutable original threshold admission witnesses
 
