@@ -113,8 +113,34 @@ SELECT action.id, EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id
   episodes: sql`
 SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
       AND report.target_user_id = episode.target_user_id) AS "sourceMatches",
-    chain."hasOneSystemAction", chain."hasRestrictionHistory", chain."hasRestrictionAudit",
-    chain."hasRestrictionNotice",
+    action.id IS NOT NULL AS "hasOneSystemAction",
+    action.id IS NULL OR EXISTS (
+      SELECT 1 FROM identity.account_state_history history WHERE history.user_id = episode.target_user_id
+        AND history.actor_type = 'system' AND history.actor_user_id IS NULL AND history.actor_admin_id IS NULL
+        AND history.previous_state IN ('guest','incomplete','active') AND history.next_state = 'restricted'
+        AND history.reason_code = 'distinct_reporter_threshold' AND history.changed_at = action.occurred_at
+    ) AS "hasRestrictionHistory",
+    action.id IS NULL OR EXISTS (
+      SELECT 1 FROM platform.audit_logs audit WHERE audit.id = action.audit_log_id
+        AND audit.category = 'security' AND audit.event_type = 'moderation.threshold-restriction.v1'
+        AND audit.actor_type = 'system' AND audit.actor_admin_id IS NULL AND audit.actor_user_id IS NULL
+        AND audit.subject_type = 'user' AND audit.subject_id = episode.target_user_id
+        AND audit.result_code = 'restricted' AND audit.metadata_schema_version = 1
+        AND audit.metadata = jsonb_build_object('reasonCode','distinct_reporter_threshold',
+          'distinctReporterCount',episode.distinct_reporter_count)
+        AND audit.command_id = action.command_id AND audit.request_id = action.request_id
+        AND audit.occurred_at = action.occurred_at
+    ) AS "hasRestrictionAudit",
+    action.id IS NULL OR EXISTS (
+      SELECT 1 FROM notification.notifications notice WHERE notice.id = action.notification_id
+        AND notice.user_id = episode.target_user_id AND notice.notification_type = 'restriction_warning'
+        AND notice.category = 'restriction' AND notice.title_key = 'notification.restriction_warning.title'
+        AND notice.body_key = 'notification.restriction_warning.body' AND notice.payload = '{}'::jsonb
+        AND notice.payload_schema_version = 1
+        AND notice.deduplication_key = 'moderation-threshold:' || episode.id::text || ':restriction'
+        AND EXISTS (SELECT 1 FROM notification.notification_deliveries delivery
+          WHERE delivery.notification_id = notice.id AND delivery.channel = 'telegram')
+    ) AS "hasRestrictionNotice",
     episode.status <> 'resolved' OR EXISTS (
       SELECT 1 FROM moderation.moderation_actions resolution
       JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
@@ -129,41 +155,13 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
         AND resolution.occurred_at = episode.resolved_at
     ) AS "hasResolutionAttempt"
     FROM moderation.restriction_episodes episode
-    LEFT JOIN LATERAL (
-      SELECT count(*) = 1 AS "hasOneSystemAction",
-        COALESCE(bool_and(EXISTS (
-          SELECT 1 FROM identity.account_state_history history WHERE history.user_id = episode.target_user_id
-            AND history.actor_type = 'system' AND history.actor_user_id IS NULL AND history.actor_admin_id IS NULL
-            AND history.previous_state IN ('guest','incomplete','active') AND history.next_state = 'restricted'
-            AND history.reason_code = 'distinct_reporter_threshold' AND history.changed_at = action.occurred_at
-        )),true) AS "hasRestrictionHistory",
-        COALESCE(bool_and(EXISTS (
-          SELECT 1 FROM platform.audit_logs audit WHERE audit.id = action.audit_log_id
-            AND audit.category = 'security' AND audit.event_type = 'moderation.threshold-restriction.v1'
-            AND audit.actor_type = 'system' AND audit.actor_admin_id IS NULL AND audit.actor_user_id IS NULL
-            AND audit.subject_type = 'user' AND audit.subject_id = episode.target_user_id
-            AND audit.result_code = 'restricted' AND audit.metadata_schema_version = 1
-            AND audit.metadata = jsonb_build_object('reasonCode','distinct_reporter_threshold',
-              'distinctReporterCount',episode.distinct_reporter_count)
-            AND audit.command_id = action.command_id AND audit.request_id = action.request_id
-            AND audit.occurred_at = action.occurred_at
-        )),true) AS "hasRestrictionAudit",
-        COALESCE(bool_and(EXISTS (
-          SELECT 1 FROM notification.notifications notice WHERE notice.id = action.notification_id
-            AND notice.user_id = episode.target_user_id AND notice.notification_type = 'restriction_warning'
-            AND notice.category = 'restriction' AND notice.title_key = 'notification.restriction_warning.title'
-            AND notice.body_key = 'notification.restriction_warning.body' AND notice.payload = '{}'::jsonb
-            AND notice.payload_schema_version = 1
-            AND notice.deduplication_key = 'moderation-threshold:' || episode.id::text || ':restriction'
-            AND EXISTS (SELECT 1 FROM notification.notification_deliveries delivery
-              WHERE delivery.notification_id = notice.id AND delivery.channel = 'telegram')
-        )),true) AS "hasRestrictionNotice"
-      FROM moderation.moderation_actions action WHERE action.restriction_episode_id = episode.id
+    -- The verified partial unique index guarantees at most one system restriction per episode.
+    -- A direct join preserves that cardinality without repeating an aggregate for every episode.
+    LEFT JOIN moderation.moderation_actions action ON action.restriction_episode_id = episode.id
         AND action.actor_type = 'system' AND action.actor_admin_id IS NULL AND action.action_type = 'restrict_user'
         AND action.target_user_id = episode.target_user_id AND action.source_report_id = episode.source_report_id
         AND action.reason_code = 'distinct_reporter_threshold'
         AND action.occurred_at = date_trunc('milliseconds',episode.started_at)
-    ) chain ON true
 `,
   support_threads: sql`
 SELECT thread.id, thread.status <> 'open' OR limits."withinLimit" AS "withinLimit",

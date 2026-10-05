@@ -30,7 +30,11 @@ The first CI run passed 370 PostgreSQL tests but exposed a terminal-population p
 the combined integrity sample took 4,665 ms and health 3,940 ms, exceeding the unchanged 1,500 ms
 budget while the standalone episode query passed. Migration 78 adds a partial covering index for
 episode-bound admin unrestrictions before joining their attempts. Both terminal plans must use this
-index and retain the same budget. Empty bootstrap, upgrade from 77, index verification and unchanged
+index and retain the same budget. The first indexed run reduced terminal health to 656 ms and the
+combined sample to 1,629 ms, still above budget. A second repair removes redundant per-episode
+aggregation: the verified partial unique system-action index already guarantees at most one
+restriction, allowing a direct cardinality-preserving join with the identical dependent checks.
+Empty bootstrap, upgrade from 77, index verification and unchanged
 replay are required; earlier migrations and catalog remain unchanged. Exact historical distinct-reporter cardinality
 still needs admission-time evidence: recomputing from today's Reports can include transactions
 that were not committed when the episode began. This increment does not claim that proof. Concrete
