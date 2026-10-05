@@ -10,8 +10,8 @@ Shared metadata predicates govern both the paged reconciliation scanner and the 
 Each violating entity counts once in its phase even when more than one predicate fails.
 Duplicate exact-ban appeals are checked independently of retained historical findings.
 
-The action source-Report predicate now accepts native dismissal context and verifies both exact
-normalized participants for Report-linked internal blocks. Valid native create/remove/dismiss
+The action source-Report predicate preserves dismissal's exact reported-user binding and verifies
+both exact normalized participants for Report-linked internal blocks. Valid native create/remove/dismiss
 commands are not quarantined as target mismatches. Existing audit, successful-attempt, Account
 history, notification, review and retained-capture checks remain mandatory.
 

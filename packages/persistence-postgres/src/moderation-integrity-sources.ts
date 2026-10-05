@@ -93,8 +93,7 @@ SELECT action.id, EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id
     ) AS "hasNotice",
     action.source_report_id IS NULL OR EXISTS (
       SELECT 1 FROM moderation.reports report WHERE report.id = action.source_report_id
-        AND (action.action_type = 'dismiss_report'
-          OR (action.action_type IN ('create_internal_block','remove_internal_block')
+        AND ((action.action_type IN ('create_internal_block','remove_internal_block')
             AND LEAST(report.reporter_user_id, report.target_user_id) = action.target_pair_low_user_id
             AND GREATEST(report.reporter_user_id, report.target_user_id) = action.target_pair_high_user_id)
           OR report.target_user_id = action.target_user_id OR EXISTS (

@@ -237,6 +237,70 @@ describe.skipIf(url === undefined)(
       );
       const sample = await new PostgresModerationIntegrityMetricsStore(database).measure();
       expect(Object.values(sample.counts)).toEqual(Array.from({ length: 10 }, () => 0));
+      const store = new PostgresModerationIntegrityMetricsStore(database);
+      const block = await database
+        .selectFrom('moderation.moderation_actions')
+        .select('id')
+        .where('source_report_id', '=', photo.reportId)
+        .where('action_type', '=', 'create_internal_block')
+        .executeTakeFirstOrThrow();
+      const wrongPair = normalizeUserPair(review.reporter, review.target);
+      await corrupt(async (connection) => {
+        await connection
+          .updateTable('moderation.moderation_actions')
+          .set({
+            target_pair_low_user_id: wrongPair.userLowId,
+            target_pair_high_user_id: wrongPair.userHighId,
+          })
+          .where('id', '=', block.id)
+          .execute();
+      });
+      try {
+        expect((await store.measure()).counts.actions).toBe(1);
+        expect(
+          (await scanModerationActions(database, { phase: 'actions' }, 500)).findings
+            .filter((finding) => finding.entityId === block.id)
+            .map((finding) => finding.anomalyType)
+            .sort(),
+        ).toEqual(['moderation_action_attempt_missing', 'moderation_action_report_mismatch']);
+      } finally {
+        await corrupt(async (connection) => {
+          await connection
+            .updateTable('moderation.moderation_actions')
+            .set({
+              target_pair_low_user_id: pair.userLowId,
+              target_pair_high_user_id: pair.userHighId,
+            })
+            .where('id', '=', block.id)
+            .execute();
+        });
+      }
+      await corrupt(async (connection) => {
+        await connection
+          .updateTable('moderation.moderation_actions')
+          .set({ target_user_id: photo.reporter })
+          .where('command_id', '=', id)
+          .execute();
+      });
+      try {
+        expect((await store.measure()).counts.actions).toBe(1);
+        expect(
+          (await scanModerationActions(database, { phase: 'actions' }, 500)).findings.map(
+            (finding) => finding.anomalyType,
+          ),
+        ).toEqual(['moderation_action_report_mismatch']);
+      } finally {
+        await corrupt(async (connection) => {
+          await connection
+            .updateTable('moderation.moderation_actions')
+            .set({ target_user_id: review.target })
+            .where('command_id', '=', id)
+            .execute();
+        });
+      }
+      expect(Object.values((await store.measure()).counts)).toEqual(
+        Array.from({ length: 10 }, () => 0),
+      );
     });
   },
 );
