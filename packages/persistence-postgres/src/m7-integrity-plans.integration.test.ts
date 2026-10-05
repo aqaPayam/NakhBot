@@ -12,6 +12,7 @@ import { seedM7AppealIntegrityPlans } from './m7-appeal-integrity-plan-fixture.j
 import { withM6SyntheticPlanSession } from './m6-query-plans.js';
 import {
   PostgresModerationIntegrityMetricsStore,
+  moderationIntegrityPhaseStatement,
   withModerationIntegrityRead,
 } from './moderation-integrity-metrics-store.js';
 
@@ -173,6 +174,35 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           for (const sample of await Promise.all(Array.from({ length: 5 }, () => store.measure())))
             expect(sample.counts).toEqual(baseline.counts);
           await sql`DELETE FROM platform.audit_logs WHERE id=${duplicateAudit}::uuid`.execute(tx);
+          // An invalid duplicate must not hide a valid exact restoration history,
+          // and multiple matches must not multiply the owning action.
+          const duplicateHistory = randomUUID();
+          await sql`INSERT INTO identity.account_state_history
+            (id,user_id,previous_state,next_state,reason_code,actor_type,actor_user_id,actor_admin_id,changed_at)
+            SELECT ${duplicateHistory}::uuid,user_id,'active',next_state,reason_code,actor_type,
+              actor_user_id,actor_admin_id,changed_at FROM identity.account_state_history
+            WHERE id=md5(${prefix} || 'terminal-unban-history4')::uuid`.execute(tx);
+          const actionCount = async (): Promise<number> =>
+            withModerationIntegrityRead(tx, async (read) =>
+              Number(
+                (await moderationIntegrityPhaseStatement('actions').execute(read)).rows[0]!.count,
+              ),
+            );
+          for (const count of await Promise.all(Array.from({ length: 5 }, actionCount)))
+            expect(count).toBe(baseline.counts.actions);
+          await sql`UPDATE identity.account_state_history SET previous_state='active'
+            WHERE id=md5(${prefix} || 'terminal-unban-history4')::uuid`.execute(tx);
+          expect(await actionCount()).toBe(baseline.counts.actions + 1);
+          await sql`UPDATE identity.account_state_history SET previous_state='banned'
+            WHERE id=${duplicateHistory}::uuid`.execute(tx);
+          expect(await actionCount()).toBe(baseline.counts.actions);
+          await sql`UPDATE identity.account_state_history SET previous_state='banned'
+            WHERE id=md5(${prefix} || 'terminal-unban-history4')::uuid`.execute(tx);
+          expect(await actionCount()).toBe(baseline.counts.actions);
+          await sql`DELETE FROM identity.account_state_history WHERE id=${duplicateHistory}::uuid`.execute(
+            tx,
+          );
+          expect((await store.measure()).counts).toEqual(baseline.counts);
           throw new FixtureRollback();
         });
       } catch (error) {

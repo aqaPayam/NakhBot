@@ -104,6 +104,17 @@ performance scenes already require refreshed statistics. The separate native fre
 still performs no ANALYZE, and no count assertion, fixture population, timeout, timing limit,
 index requirement or production read is changed by this setup repair.
 
+The refreshed-fixture run passed all 380 native tests, every capture/rejection/population check
+and every required index. Baseline aggregate sampling passed at 1,288 ms; terminal sampling
+still exceeded the unchanged limit at 1,673 ms without spills. Administrator action history
+now groups exact User/admin/reason/time/next-state bindings once, with independent previous-state
+facts for restricted and banned restoration. The unchanged latest-prior-state lookup selects the
+required restored state; a uniquely grouped join preserves historical EXISTS semantics and one
+row per action. Native fixture evidence keeps an invalid duplicate alongside a valid history,
+detects loss of every valid previous-state match, accepts either restored valid match, and proves
+duplicate valid matches do not multiply actions. System history checks, budgets, populations,
+fresh-row tests and independent required indexes remain unchanged. Verification remains open.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,

@@ -22,6 +22,19 @@ function accountHistoryMatches(
 function moderationActionSource(actor: 'system' | 'admin'): RawBuilder<unknown> {
   const isSystem = actor === 'system';
   return sql`
+${
+  isSystem
+    ? sql``
+    : sql`WITH admin_history_facts AS MATERIALIZED (
+      -- One fact per exact historical binding and next state. Multiple matching
+      -- histories retain EXISTS semantics without multiplying action rows.
+      SELECT user_id, actor_admin_id, reason_code, changed_at, next_state,
+        COALESCE(bool_or(previous_state = 'restricted'),false) AS from_restricted,
+        COALESCE(bool_or(previous_state = 'banned'),false) AS from_banned
+      FROM identity.account_state_history WHERE actor_type = 'admin'
+      GROUP BY user_id, actor_admin_id, reason_code, changed_at, next_state
+    )`
+}
 SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
     ${
       isSystem
@@ -52,7 +65,9 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
         ? sql`history_binding."hasAccountHistory"`
         : sql`
       action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-      ${accountHistoryMatches(sql`history.actor_admin_id = action.actor_admin_id`, sql`restoration.previous_state`)}
+      (history_binding.user_id IS NOT NULL AND CASE action.action_type
+        WHEN 'unrestrict_user' THEN history_binding.from_restricted
+        WHEN 'unban_user' THEN history_binding.from_banned ELSE true END)
     `
     } AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
@@ -88,7 +103,14 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
         AND prior.changed_at <= action.occurred_at
         AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
       ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
-    ) restoration ON true`
+    ) restoration ON true
+    LEFT JOIN admin_history_facts history_binding
+      ON history_binding.user_id = action.target_user_id AND history_binding.actor_admin_id = action.actor_admin_id
+      AND history_binding.reason_code = action.reason_code AND history_binding.changed_at = action.occurred_at
+      AND history_binding.next_state = CASE action.action_type
+        WHEN 'restrict_user' THEN 'restricted' WHEN 'ban_user' THEN 'banned'
+        WHEN 'unrestrict_user' THEN restoration.previous_state
+        WHEN 'unban_user' THEN restoration.previous_state END`
     }
     LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
       AND bound_audit.actor_type = action.actor_type
@@ -153,7 +175,7 @@ SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.i
     ) AS "hasDecisionEvidence"
     FROM moderation.moderation_reviews review
 `,
-  actions: sql`${moderationActionSource('system')} UNION ALL ${moderationActionSource('admin')}`,
+  actions: sql`(${moderationActionSource('system')}) UNION ALL (${moderationActionSource('admin')})`,
   episodes: sql`
 WITH resolution_facts AS MATERIALIZED (
     SELECT owner.id AS restriction_episode_id FROM moderation.restriction_episodes owner
