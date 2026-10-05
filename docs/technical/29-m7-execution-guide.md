@@ -9,6 +9,9 @@ verified administrator identity metadata, account-action audit/attempt/history/n
 capture drift, submitted appeals, and blocked pairs with a mix of active and revoked chat/like unlocks.
 Three repeated production samples must detect the seeded capture, episode and blocked-pair drift.
 Every query, including the combined snapshot, retains the existing 1,500 ms execution budget.
+Initial CI diagnosed action/support counts over budget and a 6.46-second combined sample. Integrity
+reads now disable JIT compilation locally in their transaction, including the measured production
+statements; commit/rollback restores pooled-session settings. The numeric budget is unchanged.
 Whole-phase aggregates may use sequential scans; queue/admission index requirements remain intact.
 
 The blocked-pair predicate follows indexed match/like relations to unlocks instead of scanning all

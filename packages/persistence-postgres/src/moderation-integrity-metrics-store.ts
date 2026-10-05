@@ -14,6 +14,19 @@ export type ModerationIntegritySample = Readonly<{
   counts: Readonly<Record<ModerationReconciliationPhase, number>>;
 }>;
 type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; count: string };
+/** Periodic metadata reads are short, not analytical workloads. Avoid compiling the many
+ * correlated safety branches on every sample. LOCAL settings expire at commit/rollback,
+ * including failed reads, and never change the pooled session or database configuration. */
+export async function withModerationIntegrityRead<T>(
+  database: NakhDatabase,
+  work: (transaction: NakhDatabase) => Promise<T>,
+): Promise<T> {
+  const read = async (transaction: NakhDatabase): Promise<T> => {
+    await sql`SET LOCAL jit = off`.execute(transaction);
+    return work(transaction);
+  };
+  return database.isTransaction ? read(database) : database.transaction().execute(read);
+}
 export function moderationIntegrityPhaseStatement(
   phase: ModerationReconciliationPhase,
 ): RawBuilder<IntegrityRow> {
@@ -39,7 +52,10 @@ export function moderationIntegrityStatement(): RawBuilder<IntegrityRow> {
 export class PostgresModerationIntegrityMetricsStore {
   public constructor(private readonly database: NakhDatabase) {}
   public async measure(): Promise<ModerationIntegritySample> {
-    const rows = (await moderationIntegrityStatement().execute(this.database)).rows;
+    const rows = await withModerationIntegrityRead(
+      this.database,
+      async (transaction) => (await moderationIntegrityStatement().execute(transaction)).rows,
+    );
     if (rows.length !== MODERATION_RECONCILIATION_PHASES.length)
       throw new Error('M7 integrity measurement unavailable.');
     const counts = {} as Record<ModerationReconciliationPhase, number>;

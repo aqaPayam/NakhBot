@@ -10,6 +10,7 @@ import {
   moderationIntegrityPhaseStatement,
   moderationIntegrityStatement,
   PostgresModerationIntegrityMetricsStore,
+  withModerationIntegrityRead,
 } from './moderation-integrity-metrics-store.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 export async function explainM7Queries(
@@ -44,9 +45,15 @@ export async function explainM7Queries(
   };
   const plans: Record<string, unknown> = {};
   for (const [name, statement] of Object.entries(statements)) {
-    const result = await sql<{
-      'QUERY PLAN': unknown;
-    }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(database);
+    const explain = (
+      connection: NakhDatabase,
+    ): Promise<{ rows: readonly { 'QUERY PLAN': unknown }[] }> =>
+      sql<{
+        'QUERY PLAN': unknown;
+      }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(connection);
+    const result = name.startsWith('integrity')
+      ? await withModerationIntegrityRead(database, explain)
+      : await explain(database);
     plans[name] = result.rows[0]?.['QUERY PLAN'];
   }
   return plans;
@@ -133,16 +140,6 @@ export async function measureM7SyntheticPlans(
           ).rows[0]!;
           if (Number(row.count) < volume) throw new Error('M7 integrity fixture incomplete.');
         }
-        // Actual production sampler under repeated fixture load, never synthetic SQL substitutes.
-        for (let sample = 0; sample < 3; sample++) {
-          const current = await new PostgresModerationIntegrityMetricsStore(tx).measure();
-          if (
-            current.counts.evidence < volume ||
-            current.counts.episodes < volume ||
-            current.counts.internal_blocks < Math.floor(volume / 2)
-          )
-            throw new Error('M7 integrity drift fixture incomplete.');
-        }
         const ids = (
           await sql<{
             userId: string;
@@ -158,6 +155,16 @@ export async function measureM7SyntheticPlans(
           at: at.toISOString(),
           afterAt: old.toISOString(),
         });
+        // Actual production sampler under repeated fixture load, never synthetic SQL substitutes.
+        for (let sample = 0; sample < 3; sample++) {
+          const current = await new PostgresModerationIntegrityMetricsStore(tx).measure();
+          if (
+            current.counts.evidence < volume ||
+            current.counts.episodes < volume ||
+            current.counts.internal_blocks < Math.floor(volume / 2)
+          )
+            throw new Error('M7 integrity drift fixture incomplete.');
+        }
         throw new SyntheticPlanRollback();
       });
     } catch (error) {
