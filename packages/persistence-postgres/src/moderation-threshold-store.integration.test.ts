@@ -5,7 +5,12 @@ import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { ModerationThresholdWrite } from '@nakh/application';
-import type { PrepareAccountModerationActionCommand } from '@nakh/contracts';
+import type {
+  PrepareAccountModerationActionCommand,
+  PrepareReviewDecisionCommand,
+} from '@nakh/contracts';
+import { AesGcmReviewNoteProtector } from '@nakh/application';
+import { PostgresConfirmedReviewDecisions } from './confirmed-review-decision-store.js';
 import { PostgresConfirmedAccountActions } from './confirmed-account-store.js';
 import { confirmationFixture } from './testing/admin-confirmation.js';
 import { createReportFixtureAdmin } from './testing/report-fixture.js';
@@ -225,6 +230,315 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
       await work(tx);
     });
   }
+
+  it('retains original admission through later backdated commits and native Report dismissal', async () => {
+    const { targetUserId, write } = await nativeEpisode();
+    const roster = await database
+      .selectFrom('moderation.threshold_admission_witnesses')
+      .selectAll()
+      .where('restriction_episode_id', '=', write.restrictionEpisodeId)
+      .execute();
+    expect(roster).toHaveLength(5);
+    expect(new Set(roster.map((row) => row.reporter_user_id)).size).toBe(5);
+    expect(roster.some((row) => row.report_id === write.sourceReportId)).toBe(true);
+    const episode = await database
+      .selectFrom('moderation.restriction_episodes')
+      .selectAll()
+      .where('id', '=', write.restrictionEpisodeId)
+      .executeTakeFirstOrThrow();
+    expect(episode.witness_required).toBe(true);
+    expect(episode.witness_capture_xid).not.toBeNull();
+    const late = {
+      id: randomUUID(),
+      reporterUserId: await createUser(database),
+      targetUserId,
+      submittedAt: new Date(episode.started_at.getTime() - 1000),
+    };
+    await seedFocusedReports(database, [late]);
+    expect(
+      await new PostgresModerationThresholdStore(database).evaluate(thresholdWrite(late.id)),
+    ).toMatchObject({ outcome: 'episode_already_active', distinctReporterCount: 6 });
+    await expect(
+      database
+        .insertInto('moderation.threshold_admission_witnesses')
+        .values({
+          restriction_episode_id: episode.id,
+          reporter_user_id: late.reporterUserId,
+          report_id: late.id,
+          submitted_at: late.submittedAt,
+        })
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      database.transaction().execute(async (tx) => {
+        await sql`SET LOCAL session_replication_role=replica`.execute(tx);
+        await tx
+          .updateTable('moderation.restriction_episodes')
+          .set({ witness_capture_xid: sql<string>`pg_current_xact_id()` })
+          .where('id', '=', episode.id)
+          .execute();
+        await sql`SET LOCAL session_replication_role=origin`.execute(tx);
+        await tx
+          .insertInto('moderation.threshold_admission_witnesses')
+          .values({
+            restriction_episode_id: episode.id,
+            reporter_user_id: late.reporterUserId,
+            report_id: late.id,
+            submitted_at: late.submittedAt,
+          })
+          .execute();
+      }),
+    ).rejects.toMatchObject({ code: '23514' });
+    expect(
+      (
+        await database
+          .selectFrom('moderation.restriction_episodes')
+          .select('witness_capture_xid')
+          .where('id', '=', episode.id)
+          .executeTakeFirstOrThrow()
+      ).witness_capture_xid,
+    ).toBe(episode.witness_capture_xid);
+    const adminId = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'moderator',
+        assigned_by_admin_id: adminId,
+        revoked_at: null,
+        revoked_by_admin_id: null,
+      })
+      .execute();
+    await database
+      .updateTable('moderation.moderation_reviews')
+      .set({
+        status: 'in_review',
+        assigned_admin_id: adminId,
+        assigned_at: sql<Date>`clock_timestamp()`,
+        updated_at: sql<Date>`clock_timestamp()`,
+        version: 2,
+      })
+      .where('id', '=', write.reviewId)
+      .execute();
+    const f = await confirmationFixture(database, adminId);
+    const decisions = new PostgresConfirmedReviewDecisions(
+      database,
+      f.tokens,
+      f.key,
+      new AesGcmReviewNoteProtector('admission-note', 1, Buffer.alloc(32, 61)),
+    );
+    const command: PrepareReviewDecisionCommand = {
+      actor: f.actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      commandType: 'moderation.decide-review',
+      schemaVersion: 1,
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        decision: 'dismissed',
+        reason: 'Reviewed original threshold Report',
+        expectedTargetVersion: 2,
+        adminActionToken: await f.issue({
+          commandCode: 'moderation.decide-review',
+          requiredPermission: 'dismiss_report',
+          targetType: 'moderation_review',
+          targetId: write.reviewId,
+          expectedTargetVersion: 2,
+        }),
+      },
+    };
+    expect(
+      (
+        await decisions.execute(
+          {
+            ...command,
+            data: { ...command.data, confirmationToken: await decisions.prepare(command, f.actor) },
+          },
+          f.actor,
+        )
+      ).result,
+    ).toBe('succeeded');
+    expect(
+      (
+        await database
+          .selectFrom('moderation.reports')
+          .select('status')
+          .where('id', '=', write.sourceReportId)
+          .executeTakeFirstOrThrow()
+      ).status,
+    ).toBe('dismissed');
+    const finalRoster = await database
+      .selectFrom('moderation.threshold_admission_witnesses')
+      .selectAll()
+      .where('restriction_episode_id', '=', episode.id)
+      .orderBy('reporter_user_id')
+      .execute();
+    expect(finalRoster).toEqual(
+      [...roster].sort((a, b) => a.reporter_user_id.localeCompare(b.reporter_user_id)),
+    );
+    expect(
+      (
+        await scanRestrictionEpisodes(
+          database,
+          { phase: 'episodes', lastId: reconciliationCursorBefore(episode.id) },
+          1,
+        )
+      ).findings,
+    ).toEqual([]);
+  });
+
+  it('enforces immutable roster/mode and detects a privileged missing witness without copying reporter identity', async () => {
+    const { write } = await nativeEpisode();
+    const roster = await database
+      .selectFrom('moderation.threshold_admission_witnesses')
+      .selectAll()
+      .where('restriction_episode_id', '=', write.restrictionEpisodeId)
+      .execute();
+    const row = roster[0]!;
+    await expect(
+      database
+        .deleteFrom('moderation.threshold_admission_witnesses')
+        .where('restriction_episode_id', '=', row.restriction_episode_id)
+        .execute(),
+    ).rejects.toMatchObject({ code: '55000' });
+    await expect(
+      database
+        .updateTable('moderation.threshold_admission_witnesses')
+        .set({ submitted_at: new Date() })
+        .where('restriction_episode_id', '=', row.restriction_episode_id)
+        .execute(),
+    ).rejects.toMatchObject({ code: '55000' });
+    await expect(
+      database
+        .updateTable('moderation.restriction_episodes')
+        .set({ witness_required: false, witness_capture_xid: null })
+        .where('id', '=', row.restriction_episode_id)
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    const metrics = new PostgresModerationIntegrityMetricsStore(database),
+      health = new PostgresM7OperationalHealthStore(database);
+    const baseline = (await metrics.measure()).counts.episodes,
+      healthBaseline = (await health.measure()).thresholdMismatchCount;
+    await corrupt(async (tx) => {
+      await tx
+        .deleteFrom('moderation.threshold_admission_witnesses')
+        .where('restriction_episode_id', '=', row.restriction_episode_id)
+        .where('reporter_user_id', '=', row.reporter_user_id)
+        .execute();
+    });
+    try {
+      const findings = (
+        await scanRestrictionEpisodes(
+          database,
+          { phase: 'episodes', lastId: reconciliationCursorBefore(row.restriction_episode_id) },
+          1,
+        )
+      ).findings;
+      expect(findings).toEqual([
+        {
+          anomalyType: 'threshold_episode_witness_invalid',
+          entityType: 'restriction_episode',
+          entityId: row.restriction_episode_id,
+          keyId: row.restriction_episode_id,
+          safeDetail: {},
+        },
+      ]);
+      expect(JSON.stringify(findings)).not.toContain(row.reporter_user_id);
+      expect((await metrics.measure()).counts.episodes).toBe(baseline + 1);
+      expect((await health.measure()).thresholdMismatchCount).toBe(healthBaseline + 1);
+    } finally {
+      await corrupt(async (tx) => {
+        await tx.insertInto('moderation.threshold_admission_witnesses').values(row).execute();
+      });
+    }
+    expect((await metrics.measure()).counts.episodes).toBe(baseline);
+    expect((await health.measure()).thresholdMismatchCount).toBe(healthBaseline);
+    await corrupt(async (tx) => {
+      await tx
+        .updateTable('moderation.threshold_admission_witnesses')
+        .set({ submitted_at: new Date(row.submitted_at.getTime() - 1) })
+        .where('restriction_episode_id', '=', row.restriction_episode_id)
+        .where('reporter_user_id', '=', row.reporter_user_id)
+        .execute();
+    });
+    try {
+      expect(
+        (
+          await scanRestrictionEpisodes(
+            database,
+            { phase: 'episodes', lastId: reconciliationCursorBefore(row.restriction_episode_id) },
+            1,
+          )
+        ).findings.map((finding) => finding.anomalyType),
+      ).toEqual(['threshold_episode_witness_invalid']);
+      expect((await metrics.measure()).counts.episodes).toBe(baseline + 1);
+    } finally {
+      await corrupt(async (tx) => {
+        await tx
+          .updateTable('moderation.threshold_admission_witnesses')
+          .set({ submitted_at: row.submitted_at })
+          .where('restriction_episode_id', '=', row.restriction_episode_id)
+          .where('reporter_user_id', '=', row.reporter_user_id)
+          .execute();
+      });
+    }
+    expect((await metrics.measure()).counts.episodes).toBe(baseline);
+  });
+
+  it('rolls back the whole native restriction when required witness capture fails', async () => {
+    const targetUserId = await createUser(database, true),
+      reporters = await Promise.all(Array.from({ length: 5 }, () => createUser(database)));
+    const reports = reporters.map((reporterUserId) => ({
+      id: randomUUID(),
+      reporterUserId,
+      targetUserId,
+      submittedAt: new Date(),
+    }));
+    await seedFocusedReports(database, reports);
+    const write = thresholdWrite(reports[4]!.id);
+    await sql`CREATE FUNCTION moderation.reject_witness_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Required admission witness unavailable' USING ERRCODE='23514'; END $$`.execute(
+      database,
+    );
+    await sql`CREATE TRIGGER witness_failure_fixture BEFORE INSERT ON moderation.threshold_admission_witnesses FOR EACH ROW EXECUTE FUNCTION moderation.reject_witness_fixture()`.execute(
+      database,
+    );
+    try {
+      await expect(
+        new PostgresModerationThresholdStore(database).evaluate(write),
+      ).rejects.toMatchObject({ code: '23514' });
+    } finally {
+      await sql`DROP TRIGGER witness_failure_fixture ON moderation.threshold_admission_witnesses`.execute(
+        database,
+      );
+      await sql`DROP FUNCTION moderation.reject_witness_fixture()`.execute(database);
+    }
+    expect(
+      await database
+        .selectFrom('identity.accounts')
+        .select(['state', 'version'])
+        .where('user_id', '=', targetUserId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ state: 'active', version: 1 });
+    expect(
+      await database
+        .selectFrom('moderation.restriction_episodes')
+        .select('id')
+        .where('id', '=', write.restrictionEpisodeId)
+        .execute(),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .selectFrom('moderation.moderation_actions')
+        .select('id')
+        .where('id', '=', write.actionId)
+        .execute(),
+    ).toHaveLength(0);
+    expect((await new PostgresModerationThresholdStore(database).evaluate(write)).outcome).toBe(
+      'create_restriction_episode',
+    );
+  });
 
   it('detects and clears each native threshold chain drift consistently across scans, health and aggregate sampling', async () => {
     const { write } = await nativeEpisode();
@@ -666,6 +980,13 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
       ),
     ).toBe(true);
     expect(episodes).toHaveLength(1);
+    const originalRoster = await database
+      .selectFrom('moderation.threshold_admission_witnesses')
+      .selectAll()
+      .where('restriction_episode_id', '=', episodes[0]!.id)
+      .execute();
+    expect(originalRoster).toHaveLength(5);
+    expect(new Set(originalRoster.map((row) => row.reporter_user_id)).size).toBe(5);
     expect(actions).toHaveLength(1);
     expect(actions[0]).toMatchObject({ action_type: 'restrict_user', actor_type: 'system' });
     expect(histories).toHaveLength(1);

@@ -48,10 +48,14 @@ try {
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 6,
+        schemaVersion: 7,
         fixtureScale: volume,
-        fixtureTables: 21,
-        thresholdChains: { systemRestrictions: volume, invalidResolutions: volume },
+        fixtureTables: 22,
+        thresholdChains: {
+          systemRestrictions: volume,
+          invalidResolutions: volume,
+          admissionWitnesses: volume * 5,
+        },
         integrityPhases: MODERATION_RECONCILIATION_PHASES,
         minimumRowsPerIntegrityPhase: volume,
         repeatedSnapshotSamples: 3,

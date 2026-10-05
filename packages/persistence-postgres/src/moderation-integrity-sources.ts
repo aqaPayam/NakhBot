@@ -113,6 +113,9 @@ SELECT action.id, EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id
   episodes: sql`
 SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
       AND report.target_user_id = episode.target_user_id) AS "sourceMatches",
+    episode.witness_required AS "witnessRequired",
+    COALESCE(episode.witness_required AND witness."count" = episode.distinct_reporter_count
+      AND witness."bindingsValid",false) AS "hasAdmissionWitness",
     action.id IS NOT NULL AS "hasOneSystemAction",
     action.id IS NULL OR EXISTS (
       SELECT 1 FROM identity.account_state_history history WHERE history.user_id = episode.target_user_id
@@ -155,6 +158,17 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
         AND resolution.occurred_at = episode.resolved_at
     ) AS "hasResolutionAttempt"
     FROM moderation.restriction_episodes episode
+    LEFT JOIN (
+      SELECT roster.restriction_episode_id, count(*) AS "count",
+        bool_and((report.id IS NOT NULL AND report.reporter_user_id = roster.reporter_user_id
+          AND report.target_user_id = owner.target_user_id AND report.submitted_at = roster.submitted_at
+          AND roster.submitted_at > owner.started_at - interval '30 days'
+          AND roster.submitted_at <= owner.started_at) IS TRUE) AS "bindingsValid"
+      FROM moderation.threshold_admission_witnesses roster
+      JOIN moderation.restriction_episodes owner ON owner.id = roster.restriction_episode_id
+      LEFT JOIN moderation.reports report ON report.id = roster.report_id
+      GROUP BY roster.restriction_episode_id
+    ) witness ON witness.restriction_episode_id = episode.id
     -- The verified partial unique index guarantees at most one system restriction per episode.
     -- A direct join preserves that cardinality without repeating an aggregate for every episode.
     LEFT JOIN moderation.moderation_actions action ON action.restriction_episode_id = episode.id
@@ -276,6 +290,7 @@ export const MODERATION_INTEGRITY_FLAGS: Readonly<
   reviews: ['stateMatches', 'hasDecisionEvidence'],
   actions: ['hasAudit', 'hasAttempt', 'hasAccountHistory', 'hasNotice', 'reportMatches'],
   episodes: [
+    'hasAdmissionWitness',
     'sourceMatches',
     'hasOneSystemAction',
     'hasRestrictionHistory',

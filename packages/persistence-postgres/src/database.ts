@@ -1080,11 +1080,20 @@ export interface RestrictionEpisodeTable {
   source_report_id: string;
   status: Generated<'active' | 'resolved'>;
   distinct_reporter_count: number;
+  witness_required: Generated<boolean>;
+  witness_capture_xid: Generated<string | null>;
   started_at: Generated<Date>;
   resolved_at: Date | null;
   resolved_by_admin_id: string | null;
   resolution_reason_code: string | null;
   version: Generated<number>;
+}
+
+export interface ThresholdAdmissionWitnessTable {
+  restriction_episode_id: string;
+  reporter_user_id: string;
+  report_id: string;
+  submitted_at: Date;
 }
 
 export interface ModerationReviewTable {
@@ -1302,6 +1311,7 @@ export interface DatabaseSchema {
   'moderation.report_snapshots': ReportSnapshotTable;
   'moderation.evidence_access_audits': EvidenceAccessAuditTable;
   'moderation.restriction_episodes': RestrictionEpisodeTable;
+  'moderation.threshold_admission_witnesses': ThresholdAdmissionWitnessTable;
   'moderation.moderation_reviews': ModerationReviewTable;
   'moderation.moderation_actions': ModerationActionTable;
   'support.support_threads': SupportThreadTable;

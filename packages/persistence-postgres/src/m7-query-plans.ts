@@ -72,7 +72,7 @@ export async function analyzeM7QueryTables(database: NakhDatabase): Promise<void
   await sql`ANALYZE moderation.reports, moderation.moderation_reviews, moderation.user_appeals,
     support.support_threads, support.support_messages, billing.reconciliation_runs,
     moderation.report_evidence, moderation.report_snapshots, moderation.moderation_actions,
-    moderation.restriction_episodes, moderation.appeal_unbans, administration.admin_users,
+    moderation.restriction_episodes, moderation.threshold_admission_witnesses, moderation.appeal_unbans, administration.admin_users,
     administration.admin_action_logs, administration.safety_access_audits,
     moderation.evidence_access_audits, identity.telegram_identities, identity.account_state_history,
     platform.audit_logs, notification.notifications, notification.notification_deliveries, interaction.user_pair_states,
@@ -176,6 +176,7 @@ export async function measureM7SyntheticPlans(
           FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe WHERE probe.id IN (
             SELECT md5(${prefix} || 'episode' || n)::uuid FROM generate_series(1,${volume}) n)
             AND probe."hasOneSystemAction"
+            AND probe."hasAdmissionWitness"
             AND probe."hasRestrictionHistory" AND probe."hasRestrictionAudit" AND probe."hasRestrictionNotice"
             AND NOT probe."hasResolutionAttempt"`.execute(tx)
         ).rows[0]!;

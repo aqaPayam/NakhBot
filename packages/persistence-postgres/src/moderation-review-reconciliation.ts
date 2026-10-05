@@ -80,6 +80,8 @@ export async function scanRestrictionEpisodes(
     await sql<{
       id: string;
       sourceMatches: boolean;
+      witnessRequired: boolean;
+      hasAdmissionWitness: boolean;
       hasOneSystemAction: boolean;
       hasRestrictionHistory: boolean;
       hasRestrictionAudit: boolean;
@@ -95,6 +97,13 @@ SELECT * FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
   for (const row of rows)
     for (const anomalyType of [
       ...(!row.sourceMatches ? ['threshold_episode_source_mismatch'] : []),
+      ...(!row.hasAdmissionWitness
+        ? [
+            row.witnessRequired
+              ? 'threshold_episode_witness_invalid'
+              : 'threshold_episode_admission_unverified',
+          ]
+        : []),
       ...(!row.hasOneSystemAction ? ['threshold_episode_action_missing'] : []),
       ...(!row.hasRestrictionHistory ? ['threshold_episode_history_missing'] : []),
       ...(!row.hasRestrictionAudit ? ['threshold_episode_audit_invalid'] : []),

@@ -1,6 +1,39 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: historical threshold restriction chain integrity
+## Current increment: immutable original threshold admission witnesses
+
+Migration 79 captures one original Report per distinct reporter when a new restriction episode is
+inserted. The database selects the roster in the admission transaction using the same precise
+episode time, unresolved statuses and strict thirty-day window. Reporter/target/Report identity and
+submission time are checked at insertion, with unique reporter and Report keys. The stored top-level
+transaction ID and nested parent-trigger capture prevent later transactions from appending, including
+simulated transaction-ID reuse after logical restore. A deferred episode check verifies the
+complete cardinality once at commit; capture or cardinality failure rolls back the whole admission.
+Witnesses and their capture mode are immutable, and ordinary deletion is forbidden.
+
+Historical episodes receive an explicit unverified mode and no fabricated roster. New admissions
+cannot opt into that mode. Reconciliation, aggregate sampling and operational health share roster
+cardinality and immutable Report binding/window checks; legacy episodes produce an admission-
+unverified finding and damaged new rosters produce a witness-invalid finding. Reporter identities
+and Report bodies never leave these metadata checks. Original rosters remain valid after later
+backdated commits, terminal Report decisions and authorized episode resolution; today's unresolved
+Report count is never substituted for original admission visibility.
+
+PostgreSQL evidence covers the original five-member roster under twenty concurrent candidate
+Reports, later backdated admission evaluation without roster growth, separately confirmed native
+Report dismissal, immutable update/delete/mode guards, missing/malformed-witness corruption and repair,
+required-capture rollback/retry, and upgrade from 78 preserving unverified history. Bootstrap,
+schema/guard verification and unchanged replay remain required. Retention ownership includes this
+restricted history; controlled M8 release is still required before deletion.
+
+The unchanged 27 plan gates now include 100,000 synthetic witness bindings across 20,000 episode
+chains. Artifact schema 7 records 22 populated tables and witness count; synthetic historical
+bindings do not claim native admission or provider evidence. The 1,500 ms budgets remain unchanged.
+The catalog is unchanged. Concrete MFA provider/enrollment/provisioning, encrypted-capture integrity,
+remaining retained-photo/unrestriction volume branches, exporter/alert routing, real provider/
+operator staging and M8/M9 acceptance remain open.
+
+## Previous increment: historical threshold restriction chain integrity
 
 Threshold reconciliation, live aggregate sampling and operational health now share checks for the
 original system restriction chain. Besides its source Report and one correctly bound system

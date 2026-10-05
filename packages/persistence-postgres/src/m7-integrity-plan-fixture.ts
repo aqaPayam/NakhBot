@@ -29,6 +29,23 @@ export async function seedM7IntegrityPlans(
       md5(${prefix} || 'admin' || n)::uuid,'synthetic_fixture' FROM generate_series(1,${volume}) n`.execute(
     database,
   );
+  // Synthetic historical bindings only: current Report decisions do not reconstruct admission.
+  await sql`INSERT INTO moderation.threshold_admission_witnesses
+    (restriction_episode_id,reporter_user_id,report_id,submitted_at)
+    WITH representatives AS MATERIALIZED (
+      SELECT target_user_id,reporter_user_id,id,submitted_at,
+        row_number() OVER(PARTITION BY target_user_id ORDER BY reporter_user_id) AS ordinal
+      FROM (SELECT DISTINCT ON(target_user_id,reporter_user_id) target_user_id,reporter_user_id,id,submitted_at
+        FROM moderation.reports WHERE submitted_at > ${at}::timestamptz - interval '30 days'
+          AND submitted_at <= ${at}::timestamptz
+        ORDER BY target_user_id,reporter_user_id,submitted_at,id) selected
+    )
+    SELECT episode.id,picked.reporter_user_id,picked.id,picked.submitted_at
+    FROM moderation.restriction_episodes episode
+    JOIN representatives picked ON picked.target_user_id=episode.target_user_id AND picked.ordinal<=5
+    WHERE episode.id IN (SELECT md5(${prefix} || 'episode' || n)::uuid FROM generate_series(1,${volume}) n)`.execute(
+    database,
+  );
   await sql`INSERT INTO platform.audit_logs (id,category,event_type,actor_type,actor_admin_id,subject_type,subject_id,result_code,metadata_schema_version,request_id,command_id,occurred_at)
     SELECT md5(${prefix} || 'audit' || n)::uuid,'admin','synthetic.plan.v1','admin',md5(${prefix} || 'admin' || n)::uuid,
       'user',md5(${prefix} || 'target' || (n % 64))::uuid,'succeeded',1,

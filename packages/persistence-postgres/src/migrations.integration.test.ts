@@ -12,6 +12,7 @@ const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
+    78,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -23,7 +24,8 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
     let created = false;
     const userId = randomUUID(),
       historyId = randomUUID(),
-      appealId = randomUUID();
+      appealId = randomUUID(),
+      legacyEpisodeId = randomUUID();
     try {
       await admin.query(`CREATE DATABASE "${name}"`);
       created = true;
@@ -53,10 +55,54 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           [appealId, userId, historyId, 'Legacy restricted appeal'],
         );
       }
+      if (baseline === 78) {
+        // A deliberately minimal historical fixture tests preservation, never reconstructed proof.
+        const reporterId = randomUUID(),
+          targetId = randomUUID(),
+          reportId = randomUUID();
+        await target.query('BEGIN');
+        try {
+          await target.query('SET LOCAL session_replication_role=replica');
+          await target.query(
+            'INSERT INTO identity.users(id,last_activity_at,created_at,updated_at) SELECT unnest($1::uuid[]),now(),now(),now()',
+            [[reporterId, targetId]],
+          );
+          await target.query(
+            "INSERT INTO moderation.reports(id,reporter_user_id,target_user_id,reason_id,status,command_id,request_id,idempotency_key,request_digest) SELECT $1,$2,$3,id,'pending_review',$4,$5,$6,repeat('a',64) FROM moderation.report_reasons WHERE code='harassment'",
+            [reportId, reporterId, targetId, randomUUID(), randomUUID(), randomUUID()],
+          );
+          await target.query(
+            'INSERT INTO moderation.restriction_episodes(id,target_user_id,source_report_id,distinct_reporter_count) VALUES($1,$2,$3,5)',
+            [legacyEpisodeId, targetId, reportId],
+          );
+          await target.query('COMMIT');
+        } catch (error) {
+          await target.query('ROLLBACK');
+          throw error;
+        }
+      }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        78 - baseline,
+        79 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      if (baseline === 78) {
+        const legacy = await target.query<{
+          witness_required: boolean;
+          witness_capture_xid: string | null;
+        }>(
+          'SELECT witness_required,witness_capture_xid FROM moderation.restriction_episodes WHERE id=$1',
+          [legacyEpisodeId],
+        );
+        expect(legacy.rows).toEqual([{ witness_required: false, witness_capture_xid: null }]);
+        expect(
+          (
+            await target.query(
+              'SELECT report_id FROM moderation.threshold_admission_witnesses WHERE restriction_episode_id=$1',
+              [legacyEpisodeId],
+            )
+          ).rows,
+        ).toEqual([]);
+      }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toEqual([]);
       if (baseline === 51) {
         const result = await target.query(
@@ -177,6 +223,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000076_m7_integrity_history_index.sql',
         '000077_m7_admin_sessions.sql',
         '000078_m7_episode_resolution_index.sql',
+        '000079_m7_threshold_admission_witnesses.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -249,9 +296,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000076_m7_integrity_history_index.sql');
       expect(verified).toContain('000077_m7_admin_sessions.sql');
       expect(verified).toContain('000078_m7_episode_resolution_index.sql');
+      expect(verified).toContain('000079_m7_threshold_admission_witnesses.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(78);
+      expect(replay.existing).toHaveLength(79);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
