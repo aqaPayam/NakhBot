@@ -1,6 +1,26 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: immutable original threshold admission witnesses
+## Current increment: retained-photo custody at production query volume
+
+The M7 plan gate now adds 20,000 photo evidence chains to both baseline and terminal scenes.
+Each has an exact hold, source photo, thumbnail variant, asset and shape-valid snapshot envelope.
+Source photos are hidden or deleted, so retention is checked independently of current presentation.
+Half retain matching hashes and storage; one quarter has a mismatched held hash and one quarter
+has deleted storage, split between independent asset and variant deletion. The production evidence predicates must identify every intact
+and damaged chain. Three actual aggregate samples require the exact custody-drift delta and no
+change to other phases; operational health must preserve its narrower capture-shape count.
+
+Artifact schema 8 records aggregate observed photo counts and 27 populated fixture tables.
+All 27 existing query plans retain the 1,500 ms budget, including the complete sampler and health
+in both scenes. Caller-owned isolated trigger/FK bypass and rollback remain limited to synthetic
+metadata. Snapshot bytes are shape-valid placeholders, not cryptographic proof; no objects are
+uploaded and this does not prove provider retention, native admission or live operator acceptance.
+The existing native photo capture, retention, cleanup and reveal integration suites remain required.
+No schema or catalog change is introduced. Encrypted-capture integrity, unrestriction volume,
+concrete MFA provider/enrollment/provisioning, exporter/alerts, provider/operator staging and M8/M9
+acceptance remain open.
+
+## Previous increment: immutable original threshold admission witnesses
 
 Migration 79 captures one original Report per distinct reporter when a new restriction episode is
 inserted. The database selects the roster in the admission transaction using the same precise

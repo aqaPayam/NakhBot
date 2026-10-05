@@ -17,7 +17,10 @@ const database = createDatabase({
 });
 let summaries: Record<string, M7PlanSummary> | undefined;
 try {
-  const { plans, terminalAppeals } = await measureM7SyntheticPlans(database, volume);
+  const { plans, terminalAppeals, retainedPhotos } = await measureM7SyntheticPlans(
+    database,
+    volume,
+  );
   summaries = Object.fromEntries(
     Object.entries(plans).map(([name, plan]) => [name, summarizeM7Plan(plan)]),
   );
@@ -48,9 +51,9 @@ try {
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 7,
+        schemaVersion: 8,
         fixtureScale: volume,
-        fixtureTables: 22,
+        fixtureTables: 27,
         thresholdChains: {
           systemRestrictions: volume,
           invalidResolutions: volume,
@@ -60,11 +63,13 @@ try {
         minimumRowsPerIntegrityPhase: volume,
         repeatedSnapshotSamples: 3,
         terminalAppeals,
+        retainedPhotos,
+        repeatedRetainedPhotoSnapshotSamples: 3,
         repeatedTerminalSnapshotSamples: 3,
         repeatedTerminalOperationalHealthSamples: 3,
         fixtureScope:
-          'metadata-capture-drift-threshold-chains-invalid-resolutions-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
-        remainingVolumeBranches: ['retained-photo', 'encrypted-capture', 'unrestrict'],
+          'metadata-capture-drift-retained-photo-custody-threshold-chains-invalid-resolutions-account-restrictions-submitted-reviewed-appeals-separate-unbans-mixed-unlocks',
+        remainingVolumeBranches: ['encrypted-capture', 'unrestrict'],
         maximumExecutionMs: 1500,
         requiredIndexes,
         plans: summaries,

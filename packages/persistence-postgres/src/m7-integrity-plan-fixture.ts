@@ -3,7 +3,7 @@ import type { NakhDatabase } from './database.js';
 
 /** Plan fixtures only: isolated trigger/FK bypass and rollback belong to the caller.
  * Missing captures/system decisions are deliberate drift, not native command evidence.
- * Photo/encrypted payload branches need separate volume scenarios. */
+ * Retained-photo metadata has a separate fixture; encrypted payload verification remains open. */
 export async function seedM7IntegrityPlans(
   database: NakhDatabase,
   prefix: string,

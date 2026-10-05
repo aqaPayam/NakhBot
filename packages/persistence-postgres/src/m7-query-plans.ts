@@ -14,6 +14,10 @@ import {
 } from './moderation-integrity-metrics-store.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import {
+  seedM7PhotoIntegrityPlans,
+  type M7RetainedPhotoFixture,
+} from './m7-photo-integrity-plan-fixture.js';
+import {
   moderationOperationalHealthStatement,
   PostgresM7OperationalHealthStore,
 } from './moderation-operational-health-store.js';
@@ -156,7 +160,11 @@ export async function measureM7SyntheticPlans(
   database: NakhDatabase,
   volume: number,
 ): Promise<
-  Readonly<{ plans: Readonly<Record<string, unknown>>; terminalAppeals: M7TerminalAppealFixture }>
+  Readonly<{
+    plans: Readonly<Record<string, unknown>>;
+    terminalAppeals: M7TerminalAppealFixture;
+    retainedPhotos: M7RetainedPhotoFixture;
+  }>
 > {
   if (!Number.isSafeInteger(volume) || volume < 1000 || volume > 20000)
     throw new Error('M7 plan volume invalid.');
@@ -165,11 +173,16 @@ export async function measureM7SyntheticPlans(
     old = new Date(at.getTime() - 60 * 60_000);
   let plans: Readonly<Record<string, unknown>> | undefined;
   let terminalAppeals: M7TerminalAppealFixture | undefined;
+  let retainedPhotos: M7RetainedPhotoFixture | undefined;
   await withM6SyntheticPlanSession(database, async (connection) => {
     try {
       await connection.transaction().execute(async (tx) => {
         await seed(tx, prefix, volume, at, old);
         await seedM7IntegrityPlans(tx, prefix, volume, at);
+        const beforePhotos = await new PostgresModerationIntegrityMetricsStore(tx).measure();
+        const beforePhotoHealth = await new PostgresM7OperationalHealthStore(tx).measure();
+        retainedPhotos = await seedM7PhotoIntegrityPlans(tx, prefix, volume, at);
+        const photoDrift = retainedPhotos.hashDrift + retainedPhotos.storageDrift;
         await analyzeM7QueryTables(tx);
         const thresholdChains = (
           await sql<{ count: string }>`SELECT count(*)::text AS count
@@ -214,6 +227,18 @@ export async function measureM7SyntheticPlans(
             current.counts.internal_blocks < Math.floor(volume / 2)
           )
             throw new Error('M7 integrity drift fixture incomplete.');
+          for (const phase of MODERATION_RECONCILIATION_PHASES)
+            if (
+              current.counts[phase] !==
+              beforePhotos.counts[phase] + (phase === 'evidence' ? photoDrift : 0)
+            )
+              throw new Error('M7 retained photo integrity delta invalid.');
+          const health = await new PostgresM7OperationalHealthStore(tx).measure();
+          // Custody drift belongs to the evidence phase; valid capture shape is unchanged.
+          if (
+            health.snapshotIntegrityFailureCount !== beforePhotoHealth.snapshotIntegrityFailureCount
+          )
+            throw new Error('M7 photo custody incorrectly classified as capture drift.');
         }
         const baseline = await new PostgresModerationIntegrityMetricsStore(tx).measure();
         const healthBaseline = await new PostgresM7OperationalHealthStore(tx).measure();
@@ -246,8 +271,8 @@ export async function measureM7SyntheticPlans(
     }
   });
   await analyzeM7QueryTables(database);
-  if (plans === undefined || terminalAppeals === undefined)
+  if (plans === undefined || terminalAppeals === undefined || retainedPhotos === undefined)
     throw new Error('M7 plan measurement unavailable.');
-  return { plans, terminalAppeals };
+  return { plans, terminalAppeals, retainedPhotos };
 }
 class SyntheticPlanRollback extends Error {}
