@@ -48,6 +48,15 @@ export async function seedM7UnrestrictionPlans(
       md5(${prefix} || 'unrestrict-command' || n)::uuid,md5(${prefix} || 'unrestrict-request' || n)::uuid,
       repeat('f',64),'synthetic_unrestrict',${at}::timestamptz+interval '1 minute'
     FROM generate_series(1,${volume}) n`.execute(database);
+  // These uncommitted bulk fixtures cannot receive autovacuum statistics. Validate
+  // their full production predicates with current cardinalities, just as the later
+  // EXPLAIN scenes do. Native fresh-row integration scenarios remain unanalyzed.
+  await sql`ANALYZE moderation.reports, moderation.moderation_actions, moderation.restriction_episodes,
+    moderation.threshold_admission_witnesses, administration.admin_action_logs, platform.audit_logs,
+    identity.account_state_history, notification.notifications, notification.notification_deliveries,
+    profile.profiles, media.profile_photos, moderation.appeal_unbans, moderation.moderation_reviews`.execute(
+    database,
+  );
   const row = (
     await sql<{ actions: string; bound: string; digestDrift: string }>`
     WITH fixture AS MATERIALIZED (

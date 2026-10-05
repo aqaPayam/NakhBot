@@ -95,6 +95,15 @@ finding and one episode-count increase across five concurrent samples, preserve 
 phase, and restore the full baseline after repair. This verifies exact metadata equality and
 channel-specific delivery admission without claiming provider delivery success.
 
+The episode-chain run passed all 380 native tests and the new corruption/concurrency cases; the
+fresh-row drift fixture improved to 30.5 s. Its private 20,000-row unrestriction validation timed
+out before any EXPLAIN artifact, using cardinality statistics predating the uncommitted bulk load.
+That bulk-fixture helper now refreshes the relevant table statistics after inserting its complete
+chains and before evaluating the unchanged prefix-bounded production predicates. The later
+performance scenes already require refreshed statistics. The separate native fresh-row scenario
+still performs no ANALYZE, and no count assertion, fixture population, timeout, timing limit,
+index requirement or production read is changed by this setup repair.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,
