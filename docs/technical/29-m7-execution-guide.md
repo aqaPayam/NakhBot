@@ -47,6 +47,16 @@ successful attempt request/digest/command/subject checks, retaining one row per 
 existence semantics for multiple matching resolutions. The partial covering resolution index,
 all native drift/repair evidence, and unchanged scale and timing gates remain required.
 
+The flat-join run passed 379 native tests but timed out in the existing freshly seeded drift
+fixture, which does not refresh statistics. Its separately analyzed fixture completed in 4.6 s;
+the actual sampler in the fresh-statistics case hit the unchanged 60 s statement/test limit.
+This indicates join-plan sensitivity rather than a failed count assertion. Resolution and
+uniquely owned unban facts now use materialized relations evaluated once before outer episode/
+Appeal joins. Unban facts keep the same effect/history/attempt bindings, then bind accepted status
+and target User to the owning Appeal; missing links stay valid, incomplete facts stay false.
+No fixture ANALYZE, timeout increase or test removal conceals the regression. Both fresh and
+analyzed cases, exact drift deltas, concurrency and all 27 timing/index gates must still pass.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,
