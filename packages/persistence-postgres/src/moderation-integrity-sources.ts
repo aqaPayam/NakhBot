@@ -57,16 +57,16 @@ SELECT action.id, bound_audit.id IS NOT NULL AS "hasAudit",
     } AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
       OR bound_notice.id IS NOT NULL AS "hasNotice",
-    action.source_report_id IS NULL OR EXISTS (
-      SELECT 1 FROM moderation.reports report WHERE report.id = action.source_report_id
+    action.source_report_id IS NULL OR (source_report.id IS NOT NULL
         AND ((action.action_type IN ('create_internal_block','remove_internal_block')
-            AND LEAST(report.reporter_user_id, report.target_user_id) = action.target_pair_low_user_id
-            AND GREATEST(report.reporter_user_id, report.target_user_id) = action.target_pair_high_user_id)
-          OR report.target_user_id = action.target_user_id OR EXISTS (
+            AND LEAST(source_report.reporter_user_id, source_report.target_user_id) = action.target_pair_low_user_id
+            AND GREATEST(source_report.reporter_user_id, source_report.target_user_id) = action.target_pair_high_user_id)
+          OR source_report.target_user_id = action.target_user_id OR EXISTS (
           SELECT 1 FROM media.profile_photos photo JOIN profile.profiles profile ON profile.id = photo.profile_id
-          WHERE photo.id = action.target_photo_id AND profile.user_id = report.target_user_id))
+          WHERE photo.id = action.target_photo_id AND profile.user_id = source_report.target_user_id))
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
+    LEFT JOIN moderation.reports source_report ON source_report.id = action.source_report_id
     ${
       isSystem
         ? sql`LEFT JOIN LATERAL (
@@ -156,16 +156,22 @@ SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.i
   actions: sql`${moderationActionSource('system')} UNION ALL ${moderationActionSource('admin')}`,
   episodes: sql`
 WITH resolution_facts AS MATERIALIZED (
-      SELECT DISTINCT resolution.restriction_episode_id, resolution.actor_admin_id,
-        resolution.target_user_id, resolution.reason_code, resolution.occurred_at
+    SELECT owner.id AS restriction_episode_id FROM moderation.restriction_episodes owner
+    JOIN LATERAL (
+      -- One fully validated result per episode; the covering index bounds the lookup.
+      SELECT resolution.restriction_episode_id
       FROM moderation.moderation_actions resolution
       JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
         AND attempt.command_id = resolution.command_id AND attempt.request_id = resolution.request_id
         AND attempt.request_digest = resolution.request_digest AND attempt.result = 'succeeded'
         AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
-        AND attempt.target_id = resolution.target_user_id
-      WHERE resolution.restriction_episode_id IS NOT NULL AND resolution.action_type = 'unrestrict_user'
-        AND resolution.actor_type = 'admin'
+        AND attempt.target_id = owner.target_user_id
+      WHERE resolution.restriction_episode_id = owner.id AND resolution.action_type = 'unrestrict_user'
+        AND resolution.actor_type = 'admin' AND resolution.actor_admin_id = owner.resolved_by_admin_id
+        AND resolution.target_user_id = owner.target_user_id AND resolution.reason_code = owner.resolution_reason_code
+        AND resolution.occurred_at = owner.resolved_at
+      LIMIT 1 OFFSET 0
+    ) resolution ON true WHERE owner.status = 'resolved'
 )
 SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
       AND report.target_user_id = episode.target_user_id) AS "sourceMatches",
@@ -203,10 +209,6 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
     episode.status <> 'resolved' OR resolution_binding.restriction_episode_id IS NOT NULL AS "hasResolutionAttempt"
     FROM moderation.restriction_episodes episode
     LEFT JOIN resolution_facts resolution_binding ON resolution_binding.restriction_episode_id = episode.id
-      AND resolution_binding.actor_admin_id = episode.resolved_by_admin_id
-      AND resolution_binding.target_user_id = episode.target_user_id
-      AND resolution_binding.reason_code = episode.resolution_reason_code
-      AND resolution_binding.occurred_at = episode.resolved_at
     LEFT JOIN (
       SELECT roster.restriction_episode_id, count(*) AS "count",
         bool_and((report.id IS NOT NULL AND report.reporter_user_id = roster.reporter_user_id
@@ -271,7 +273,8 @@ WITH unban_facts AS MATERIALIZED (
 )
 SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
     ban.id IS NOT NULL AS "banMatches",
-    appeal.status NOT IN ('accepted','rejected') OR review.target_id IS NOT NULL AS "hasReview",
+    appeal.status NOT IN ('accepted','rejected') OR COALESCE(
+      CASE appeal.status WHEN 'accepted' THEN review.accepted ELSE review.rejected END,false) AS "hasReview",
     unban.appeal_id IS NULL OR COALESCE(appeal.status = 'accepted'
       AND unban.target_user_id = appeal.user_id AND unban.valid,false) AS "unbanMatches"
     FROM moderation.user_appeals appeal
@@ -284,16 +287,20 @@ SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
     LEFT JOIN identity.account_state_history ban ON ban.id = appeal.ban_state_history_id
       AND ban.user_id = appeal.user_id AND ban.next_state = 'banned'
     LEFT JOIN (
+      -- Each exact actor/target/version fact retains both independent terminal outcomes.
       -- Matching duplicates retain EXISTS semantics and never duplicate an Appeal.
-      SELECT DISTINCT attempt.target_id, attempt.admin_user_id, attempt.expected_target_version, audit.result_code
+      SELECT attempt.target_id, attempt.admin_user_id, attempt.expected_target_version,
+        bool_or(audit.result_code = 'appeal_accepted') AS accepted,
+        bool_or(audit.result_code = 'appeal_rejected') AS rejected
       FROM administration.admin_action_logs attempt JOIN platform.audit_logs audit
         ON audit.command_id = attempt.command_id AND audit.actor_admin_id = attempt.admin_user_id
         AND audit.subject_type = 'user_appeal' AND audit.subject_id = attempt.target_id
         AND audit.event_type = 'moderation.appeal-reviewed.v1' AND audit.request_id = attempt.request_id
       WHERE attempt.target_type = 'user_appeal' AND attempt.command_code = 'moderation.review-appeal'
         AND attempt.result = 'succeeded'
+      GROUP BY attempt.target_id, attempt.admin_user_id, attempt.expected_target_version
     ) review ON review.target_id = appeal.id AND review.admin_user_id = appeal.reviewed_by_admin_id
-      AND review.expected_target_version = appeal.version - 1 AND review.result_code = 'appeal_' || appeal.status
+      AND review.expected_target_version = appeal.version - 1
 `,
   admins: sql`
 SELECT admin.id, NOT admin.is_active OR (admin.identity_verified_at IS NOT NULL AND EXISTS (

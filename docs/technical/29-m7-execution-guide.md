@@ -57,6 +57,16 @@ and target User to the owning Appeal; missing links stay valid, incomplete facts
 No fixture ANALYZE, timeout increase or test removal conceals the regression. Both fresh and
 analyzed cases, exact drift deltas, concurrency and all 27 timing/index gates must still pass.
 
+The bounded-fact run passed all 380 native tests, including the unchanged fresh-row drift test
+in 44.2 s. Baseline sampling passed at 1,250 ms, but terminal sampling remained 1,535 ms and the
+bulk resolution enumeration no longer used its required covering index. Resolution facts now
+perform one fully bound, limited lateral lookup per resolved episode, retaining exact attempt/
+actor/target/reason/time checks before limiting. Primary-key Report joins replace repeated action
+Report probes, preserving missing-row, pair-subject and photo-owner checks. Review facts group
+the same actor/target/version binding and independently aggregate exact accepted/rejected audit
+results; duplicate facts still produce one Appeal. All unchanged native drift/repair, fixture
+populations, 1,500 ms budgets and both independent terminal indexes remain mandatory.
+
 ## Previous increment: separate unrestriction commands at production query volume
 
 Both M7 performance scenes now include 20,000 separate episode-bound unrestriction command chains,
