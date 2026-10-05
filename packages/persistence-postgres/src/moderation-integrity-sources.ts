@@ -32,7 +32,18 @@ SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS 
           SELECT 1 FROM chat.chat_message_snapshots snapshot WHERE snapshot.report_id = evidence.report_id
             AND snapshot.original_message_id = evidence.chat_message_id
         ) ELSE snapshot.id IS NOT NULL END AS "hasCapture",
-        evidence.evidence_type <> 'photo' OR COALESCE(
+        true AS "hasRetainedPhoto"
+      FROM moderation.report_evidence evidence
+      LEFT JOIN moderation.report_snapshots snapshot ON snapshot.report_evidence_id = evidence.id
+        AND snapshot.report_id = evidence.report_id AND snapshot.snapshot_type = evidence.evidence_type
+        AND snapshot.snapshot_type <> 'photo'
+        AND snapshot.schema_version = 1 AND snapshot.encryption_key_version >= 1
+        AND octet_length(snapshot.nonce) = 12 AND octet_length(snapshot.ciphertext) BETWEEN 17 AND 65536
+        AND snapshot.content_sha256 ~ '^[0-9a-f]{64}$'
+      WHERE evidence.evidence_type <> 'photo'
+      UNION ALL
+SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS "evidenceType",
+        snapshot.id IS NOT NULL AS "hasCapture", COALESCE(
           hold.photo_id = evidence.profile_photo_id AND variant.id IS NOT NULL AND asset.id IS NOT NULL
           AND variant.variant_type = 'thumbnail' AND variant.transformation_version = 1
           AND encode(variant.sha256, 'hex') = hold.content_sha256
@@ -45,9 +56,9 @@ SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS 
         AND octet_length(snapshot.nonce) = 12 AND octet_length(snapshot.ciphertext) BETWEEN 17 AND 65536
         AND snapshot.content_sha256 ~ '^[0-9a-f]{64}$'
       LEFT JOIN media.report_photo_evidence_holds hold ON hold.report_evidence_id = evidence.id
-        AND evidence.evidence_type = 'photo'
       LEFT JOIN media.photo_variants variant ON variant.id = hold.variant_id AND variant.asset_id = hold.asset_id
       LEFT JOIN media.media_assets asset ON asset.id = hold.asset_id
+      WHERE evidence.evidence_type = 'photo'
 `,
   reviews: sql`
 SELECT review.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = review.report_id AND (

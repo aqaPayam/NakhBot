@@ -30,6 +30,12 @@ The repair's first integration run caught a test setup that changed a variant's 
 immutable storage path. That existing constraint remained enabled. The corrected fixture changes
 the held asset reference to another native asset, exercising the same variant/held-asset mismatch
 without weakening storage-path constraints; the production query repair remains unchanged.
+The next run passed all 376 PostgreSQL tests but the combined plans still exceeded budget
+(1,887 ms baseline and 2,213 ms terminal). The next repair partitions evidence into disjoint
+photo/non-photo branches, retaining every capture and custody check while avoiding custody joins
+for ordinary evidence. Artifact schema 9 adds numeric temporary-block, hash-batch, disk-sort and
+loop diagnostics only; predicates, identifiers, keys and payloads remain excluded. The same
+native binding cases, fixture counts and unchanged 1,500 ms limits remain required.
 
 ## Previous increment: immutable original threshold admission witnesses
 

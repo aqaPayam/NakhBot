@@ -21,7 +21,20 @@ describe('M7 plan evidence privacy', () => {
           'Actual Rows': 51,
           'Index Cond': 'user_id = private-user',
           Output: ['private appeal text'],
-          Plans: [{ 'Index Name': 'support_threads_status_created_idx', Filter: 'private-ban' }],
+          'Temp Read Blocks': 3,
+          'Temp Written Blocks': 4,
+          Plans: [
+            {
+              'Index Name': 'support_threads_status_created_idx',
+              Filter: 'private-ban',
+              'Hash Batches': 8,
+              'Actual Loops': 20000,
+              'Sort Space Type': 'Disk',
+              'Sort Space Used': 32,
+              'Temp Read Blocks': 3,
+              'Temp Written Blocks': 4,
+            },
+          ],
         },
       },
     ]);
@@ -29,6 +42,13 @@ describe('M7 plan evidence privacy', () => {
       executionMs: 1.2,
       actualRows: 51,
       indexNames: ['support_threads_status_created_idx'],
+      diagnostics: {
+        tempReadBlocks: 3,
+        tempWrittenBlocks: 4,
+        maximumHashBatches: 8,
+        diskSortKb: 32,
+        maximumLoops: 20000,
+      },
     });
     expect(JSON.stringify(result)).not.toContain('private');
     expect(() =>

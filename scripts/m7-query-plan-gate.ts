@@ -51,7 +51,7 @@ try {
     resolve(process.cwd(), 'artifacts/m7-query-plans.json'),
     JSON.stringify(
       {
-        schemaVersion: 8,
+        schemaVersion: 9,
         fixtureScale: volume,
         fixtureTables: 27,
         thresholdChains: {

@@ -2,6 +2,13 @@ export type M7PlanSummary = Readonly<{
   executionMs: number;
   actualRows: number;
   indexNames: readonly string[];
+  diagnostics?: Readonly<{
+    tempReadBlocks: number;
+    tempWrittenBlocks: number;
+    maximumHashBatches: number;
+    diskSortKb: number;
+    maximumLoops: number;
+  }>;
 }>;
 export function m7PlanPasses(
   plan: M7PlanSummary | undefined,
@@ -31,8 +38,18 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
   )
     throw new Error('M7 query plan unavailable.');
   const indexNames = new Set<string>();
+  let maximumHashBatches = 0,
+    diskSortKb = 0,
+    maximumLoops = 0;
+  const numeric = (node: Readonly<Record<string, unknown>>, key: string): number => {
+    const field = node[key];
+    return typeof field === 'number' && Number.isSafeInteger(field) && field >= 0 ? field : 0;
+  };
   const visit = (node: Readonly<Record<string, unknown>>): void => {
     const index = node['Index Name'];
+    maximumHashBatches = Math.max(maximumHashBatches, numeric(node, 'Hash Batches'));
+    maximumLoops = Math.max(maximumLoops, numeric(node, 'Actual Loops'));
+    if (node['Sort Space Type'] === 'Disk') diskSortKb += numeric(node, 'Sort Space Used');
     if (typeof index === 'string' && /^[a-z][a-z0-9_]{0,79}$/u.test(index)) indexNames.add(index);
     if (Array.isArray(node.Plans))
       for (const child of node.Plans as readonly unknown[]) {
@@ -44,5 +61,16 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
   const rows = root['Actual Rows'];
   if (typeof rows !== 'number' || !Number.isSafeInteger(rows) || rows < 0)
     throw new Error('M7 query plan invalid.');
-  return { executionMs, actualRows: rows, indexNames: [...indexNames].sort() };
+  return {
+    executionMs,
+    actualRows: rows,
+    indexNames: [...indexNames].sort(),
+    diagnostics: {
+      tempReadBlocks: numeric(root, 'Temp Read Blocks'),
+      tempWrittenBlocks: numeric(root, 'Temp Written Blocks'),
+      maximumHashBatches,
+      diskSortKb,
+      maximumLoops,
+    },
+  };
 }
