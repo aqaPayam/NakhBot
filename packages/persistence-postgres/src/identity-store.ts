@@ -9,7 +9,12 @@ import type {
   RegisterTelegramIdentityWrite,
 } from '@nakh/application';
 import type { ChangeSettingsResult, RegisterTelegramIdentityResult } from '@nakh/contracts';
-import { ApplicationError, entryRouteFor, evaluateCapability } from '@nakh/domain';
+import {
+  ApplicationError,
+  entryRouteFor,
+  evaluateCapability,
+  type AccountState,
+} from '@nakh/domain';
 import { sql } from 'kysely';
 
 import type { NakhDatabase } from './database.js';
@@ -83,6 +88,46 @@ function parseStoredSettings(value: Readonly<Record<string, unknown>>): ChangeSe
 export class PostgresIdentityStore implements IdentityStore {
   public constructor(private readonly database: NakhDatabase) {}
 
+  private contextFromRow(
+    row: Readonly<{
+      user_id: string;
+      state: AccountState;
+      account_version: number;
+      visibility_enabled: boolean | null;
+      ui_locale_code: string | null;
+      settings_version: number | null;
+      preview_count: number;
+      limit_count: number;
+      default_locale: string;
+    }>,
+  ): IdentityContextSnapshot {
+    if (
+      row.state !== 'deleted' &&
+      (row.visibility_enabled === null ||
+        row.ui_locale_code === null ||
+        row.settings_version === null)
+    )
+      throw new ApplicationError('conflict', 'error.identity.user_context_invalid', 409);
+    // Deleted routing uses public defaults, never preferences from a previous product lifecycle.
+    const visibilityEnabled = row.state === 'deleted' ? false : row.visibility_enabled!;
+    return {
+      userId: row.user_id,
+      accountState: row.state,
+      profileCompletion: null,
+      visibilityEnabled,
+      uiLocale: row.state === 'deleted' ? row.default_locale : row.ui_locale_code!,
+      guestPreviewCount: row.preview_count,
+      guestPreviewLimit: row.limit_count,
+      entryRoute: entryRouteFor({
+        accountState: row.state,
+        profileCompletion: null,
+        visibilityEnabled,
+      }),
+      accountVersion: row.account_version,
+      settingsVersion: row.state === 'deleted' ? 0 : row.settings_version!,
+    };
+  }
+
   private async getContext(
     database: NakhDatabase,
     telegramUserId: string,
@@ -90,7 +135,7 @@ export class PostgresIdentityStore implements IdentityStore {
     const row = await database
       .selectFrom('identity.telegram_identities as telegram')
       .innerJoin('identity.accounts as account', 'account.user_id', 'telegram.user_id')
-      .innerJoin('identity.user_settings as settings', 'settings.user_id', 'telegram.user_id')
+      .leftJoin('identity.user_settings as settings', 'settings.user_id', 'telegram.user_id')
       .innerJoin(
         'identity.guest_preview_counters as preview',
         'preview.user_id',
@@ -105,28 +150,15 @@ export class PostgresIdentityStore implements IdentityStore {
         'settings.version as settings_version',
         'preview.preview_count',
         'preview.limit_count',
+        sql<string>`(SELECT code FROM catalog.locales WHERE is_default AND is_active)`.as(
+          'default_locale',
+        ),
       ])
       .where('telegram.telegram_user_id', '=', telegramUserId)
       .executeTakeFirst();
     if (row === undefined) return undefined;
 
-    const profileCompletion = null;
-    return {
-      userId: row.user_id,
-      accountState: row.state,
-      profileCompletion,
-      visibilityEnabled: row.visibility_enabled,
-      uiLocale: row.ui_locale_code,
-      guestPreviewCount: row.preview_count,
-      guestPreviewLimit: row.limit_count,
-      entryRoute: entryRouteFor({
-        accountState: row.state,
-        profileCompletion,
-        visibilityEnabled: row.visibility_enabled,
-      }),
-      accountVersion: row.account_version,
-      settingsVersion: row.settings_version,
-    };
+    return this.contextFromRow(row);
   }
 
   public getByTelegramUserId(telegramUserId: string): Promise<IdentityContextSnapshot | undefined> {
@@ -137,7 +169,7 @@ export class PostgresIdentityStore implements IdentityStore {
     const row = await this.database
       .selectFrom('identity.users as user')
       .innerJoin('identity.accounts as account', 'account.user_id', 'user.id')
-      .innerJoin('identity.user_settings as settings', 'settings.user_id', 'user.id')
+      .leftJoin('identity.user_settings as settings', 'settings.user_id', 'user.id')
       .innerJoin('identity.guest_preview_counters as preview', 'preview.user_id', 'user.id')
       .select([
         'user.id as user_id',
@@ -148,28 +180,15 @@ export class PostgresIdentityStore implements IdentityStore {
         'settings.version as settings_version',
         'preview.preview_count',
         'preview.limit_count',
+        sql<string>`(SELECT code FROM catalog.locales WHERE is_default AND is_active)`.as(
+          'default_locale',
+        ),
       ])
       .where('user.id', '=', userId)
       .executeTakeFirst();
     if (row === undefined) return undefined;
 
-    const profileCompletion = null;
-    return {
-      userId: row.user_id,
-      accountState: row.state,
-      profileCompletion,
-      visibilityEnabled: row.visibility_enabled,
-      uiLocale: row.ui_locale_code,
-      guestPreviewCount: row.preview_count,
-      guestPreviewLimit: row.limit_count,
-      entryRoute: entryRouteFor({
-        accountState: row.state,
-        profileCompletion,
-        visibilityEnabled: row.visibility_enabled,
-      }),
-      accountVersion: row.account_version,
-      settingsVersion: row.settings_version,
-    };
+    return this.contextFromRow(row);
   }
 
   private async touchKnownIdentity(
@@ -180,6 +199,8 @@ export class PostgresIdentityStore implements IdentityStore {
       .updateTable('identity.telegram_identities')
       .set({
         username: sql`CASE
+          WHEN EXISTS (SELECT 1 FROM identity.accounts
+            WHERE user_id = identity.telegram_identities.user_id AND state = 'deleted') THEN NULL
           WHEN last_seen_at <= ${write.processedAt} THEN ${write.command.data.username ?? null}
           ELSE username
         END`,
@@ -339,7 +360,10 @@ export class PostgresIdentityStore implements IdentityStore {
         if (existing.status !== 'completed' || existing.response_json === null) {
           throw new ApplicationError('conflict', 'error.command.in_progress', 409);
         }
-        return parseStoredRegistration(existing.response_json);
+        const current = await this.getContext(transaction, write.command.data.telegramUserId);
+        if (current === undefined)
+          throw new ApplicationError('conflict', 'error.identity.user_context_invalid', 409);
+        return { ...parseStoredRegistration(existing.response_json), context: current };
       }
 
       await sql`SELECT pg_advisory_xact_lock(hashtextextended(${write.command.data.telegramUserId}, 0))`.execute(
@@ -351,6 +375,19 @@ export class PostgresIdentityStore implements IdentityStore {
         await this.createFirstStartAggregate(transaction, write);
         context = await this.getContext(transaction, write.command.data.telegramUserId);
       } else {
+        // Same lock order as account mutations: a start must not restore a username after deletion.
+        await transaction
+          .selectFrom('identity.users')
+          .select('id')
+          .where('id', '=', context!.userId)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        await transaction
+          .selectFrom('identity.accounts')
+          .select('user_id')
+          .where('user_id', '=', context!.userId)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
         await this.touchKnownIdentity(transaction, write);
         context = await this.getContext(transaction, write.command.data.telegramUserId);
       }

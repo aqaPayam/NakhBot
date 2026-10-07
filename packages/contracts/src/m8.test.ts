@@ -1,6 +1,7 @@
 import { Ajv2020 as Ajv } from 'ajv/dist/2020.js';
 import * as formatsModule from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
+import { AccountContextSchema } from './m1.js';
 import {
   AccountDeletionStatusSchema,
   RequestAccountDeletionCommandSchema,
@@ -16,6 +17,33 @@ function validator(schema: object): ReturnType<InstanceType<typeof Ajv>['compile
   return ajv.compile(schema);
 }
 describe('M8 own-account deletion contracts', () => {
+  it('represents absent deleted settings without admitting zero-version live settings or old routes', () => {
+    const validate = validator(AccountContextSchema);
+    const deleted = {
+      userId: id,
+      accountState: 'deleted',
+      profileCompletion: null,
+      visibilityEnabled: false,
+      uiLocale: 'en',
+      guestPreviewCount: 7,
+      guestPreviewLimit: 10,
+      entryRoute: 'return_decision',
+      accountVersion: 2,
+      settingsVersion: 0,
+    };
+    expect(validate(deleted)).toBe(true);
+    for (const patch of [
+      { settingsVersion: 1 },
+      { visibilityEnabled: true },
+      { profileCompletion: 'complete' },
+      { entryRoute: 'main' },
+      { accountState: 'guest' },
+    ])
+      expect(validate({ ...deleted, ...patch })).toBe(false);
+    expect(
+      validate({ ...deleted, accountState: 'guest', settingsVersion: 1, entryRoute: 'guest' }),
+    ).toBe(true);
+  });
   it('requires user authority, opaque confirmation and an exact account version', () => {
     const validate = validator(RequestAccountDeletionCommandSchema);
     const command = {

@@ -17,6 +17,14 @@ version. Clients cannot select another subject, set retention policy or receive 
 content/provider keys. These contracts do not enable a deletion route yet; durable confirmation,
 tombstone, worker and ingress composition must be implemented and verified before activation.
 
+Identity reads now preserve deleted-account routing after settings purge, use public default locale
+and disabled visibility while deleted, and retain the original preview counter. Start replay reads
+current Account state; new starts lock User then Account before touching mutable identity data so
+they cannot repopulate a deleted username. Native PostgreSQL probes include twenty concurrent
+starts and a start blocked behind a committing tombstone. Live accounts missing required settings
+fail closed rather than attempting to register another identity. These are lifecycle prerequisites;
+they do not authorize return or enable deletion ingress.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,

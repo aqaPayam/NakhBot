@@ -1290,11 +1290,9 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
   });
 
   it('enforces append-only history and the immutable Guest Preview limit snapshot', async () => {
-    const identity = await database
-      .selectFrom('identity.telegram_identities')
-      .select('user_id')
-      .orderBy('first_seen_at', 'desc')
-      .executeTakeFirstOrThrow();
+    const write = registrationWrite(telegramUserId(), 99);
+    await new PostgresIdentityStore(database).registerTelegramIdentity(write);
+    const identity = { user_id: write.userId };
     await expect(
       database
         .updateTable('identity.account_state_history')

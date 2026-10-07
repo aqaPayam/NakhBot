@@ -154,9 +154,23 @@ export const AccountContextSchema = Type.Object(
     guestPreviewLimit: Type.Integer({ minimum: 1 }),
     entryRoute: EntryRouteSchema,
     accountVersion: Type.Integer({ minimum: 1 }),
-    settingsVersion: Type.Integer({ minimum: 1 }),
+    settingsVersion: Type.Integer({ minimum: 0 }),
   },
-  { additionalProperties: false },
+  {
+    additionalProperties: false,
+    allOf: [
+      {
+        if: Type.Object({ accountState: Type.Literal('deleted') }),
+        then: Type.Object({
+          settingsVersion: Type.Literal(0),
+          visibilityEnabled: Type.Literal(false),
+          profileCompletion: Type.Null(),
+          entryRoute: Type.Literal('return_decision'),
+        }),
+        else: Type.Object({ settingsVersion: Type.Integer({ minimum: 1 }) }),
+      },
+    ],
+  },
 );
 
 export const RegisterTelegramIdentityCommandSchema = commandSchema(
