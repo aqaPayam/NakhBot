@@ -50,6 +50,15 @@ Repair `e8405a7` passed five jobs and every 1,500 ms execution limit (terminal s
 index. The next candidate restores the parameterized episode lookup while retaining grouped
 validation and the audit/notice scan repair. Index requirements remain unchanged.
 
+Repair `504bc59` retained both required indexes and passed 411 native tests, but its terminal
+snapshot took 1657.292 ms. The indexed resolution relation performed 20,001 administrator-log
+lookups. The next candidate materializes the indexed candidates before joining attempt evidence,
+so the dense batch can use its cardinality without losing the episode-specific index boundary.
+The isolated 1,000-episode diagnostic retains that index, replaces repeated attempt probes with
+one attempt scan and reports no repeated materialized scan; 17 focused native tests pass. The
+Windows 20,000-volume diagnostic timed out on a count query without lock/constraint failure;
+it is not acceptance evidence. Full Linux CI remains required.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,

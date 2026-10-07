@@ -216,35 +216,40 @@ SELECT review.id, COALESCE(report.id IS NOT NULL AND (
   actions: sql`(${moderationActionSource('system')}) UNION ALL (${moderationActionSource('admin', 'admission')})
     UNION ALL (${moderationActionSource('admin', 'restoration')}) UNION ALL (${moderationActionSource('admin', 'other')})`,
   episodes: sql`
-WITH resolution_facts AS MATERIALIZED (
-    SELECT owner.id AS restriction_episode_id,
+WITH resolution_candidates AS MATERIALIZED (
+    -- Bind the narrow episode index before joining dense attempt evidence. This
+    -- boundary gives the batch its actual candidate cardinality, without probing
+    -- the same administrator log once for every owner during dense samples.
+    SELECT owner.id AS restriction_episode_id, owner.resolved_by_admin_id,
+      owner.target_user_id AS owner_target_user_id, owner.resolution_reason_code,
+      owner.resolved_at, resolution.*
+    FROM moderation.restriction_episodes owner
+    JOIN LATERAL (
+      SELECT actor_admin_id, target_user_id, reason_code, occurred_at,
+        command_id, request_id, request_digest
+      FROM moderation.moderation_actions
+      WHERE restriction_episode_id = owner.id AND restriction_episode_id IS NOT NULL
+        AND actor_type = 'admin' AND action_type = 'unrestrict_user' OFFSET 0
+    ) resolution ON true
+    WHERE owner.status = 'resolved'
+), resolution_facts AS MATERIALIZED (
+    SELECT resolution.restriction_episode_id,
       bool_or(COALESCE(attempt.id IS NOT NULL
-        AND resolution.actor_admin_id = owner.resolved_by_admin_id
-        AND resolution.target_user_id = owner.target_user_id
-        AND resolution.reason_code = owner.resolution_reason_code
-        AND resolution.occurred_at = owner.resolved_at
+        AND resolution.actor_admin_id = resolution.resolved_by_admin_id
+        AND resolution.target_user_id = resolution.owner_target_user_id
+        AND resolution.reason_code = resolution.resolution_reason_code
+        AND resolution.occurred_at = resolution.resolved_at
         AND attempt.request_id = resolution.request_id
         AND attempt.request_digest = resolution.request_digest
-        AND attempt.target_id = owner.target_user_id,false)) AS valid
-    FROM moderation.restriction_episodes owner
-    -- Preserve the episode-specific covering-index lookup. A free dense join
-    -- can prefer sorting the entire action table despite its ordered boundary.
-    JOIN LATERAL (
-      SELECT restriction_episode_id, actor_admin_id, target_user_id, reason_code,
-        occurred_at, command_id, request_id, request_digest
-      FROM moderation.moderation_actions
-      WHERE restriction_episode_id IS NOT NULL AND actor_type = 'admin'
-        AND action_type = 'unrestrict_user' AND restriction_episode_id = owner.id
-      OFFSET 0
-    ) resolution ON true
+        AND attempt.target_id = resolution.owner_target_user_id,false)) AS valid
+    FROM resolution_candidates resolution
     LEFT JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
       AND attempt.command_id = resolution.command_id AND attempt.result = 'succeeded'
       AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
     -- Keep invalid candidates through grouping: one explicit validation fact per
     -- episode avoids a near-zero row estimate and quadratic repeated CTE scans.
     -- bool_or preserves existence when valid and invalid candidates coexist.
-    WHERE owner.status = 'resolved'
-    GROUP BY owner.id
+    GROUP BY resolution.restriction_episode_id
 )
 SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
       AND report.target_user_id = episode.target_user_id) AS "sourceMatches",
