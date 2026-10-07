@@ -254,8 +254,20 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       VALUES ('00000000-0000-4000-8000-000000000001',now(),now(),now())`.execute(database);
     await sql`INSERT INTO identity.telegram_identities (user_id,telegram_user_id,first_seen_at,last_seen_at)
       VALUES ('00000000-0000-4000-8000-000000000001',9000000000001,now(),now())`.execute(database);
-    await expect(measureM7SyntheticPlans(database, 1000)).rejects.toThrow();
-    await assertClean();
+    try {
+      await expect(measureM7SyntheticPlans(database, 1000)).rejects.toThrow();
+      await assertClean();
+    } finally {
+      // The deliberate collision belongs only to this fault test, not later seed scenarios.
+      await database
+        .deleteFrom('identity.telegram_identities')
+        .where('user_id', '=', '00000000-0000-4000-8000-000000000001')
+        .execute();
+      await database
+        .deleteFrom('identity.users')
+        .where('id', '=', '00000000-0000-4000-8000-000000000001')
+        .execute();
+    }
   });
   it('keeps one action candidate per command and rejects changed actor, request and digest bindings', async () => {
     await withM6SyntheticPlanSession(database, async (connection) => {

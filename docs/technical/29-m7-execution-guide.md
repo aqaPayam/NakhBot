@@ -18,6 +18,12 @@ valid/invalid duplicate-history evidence. All fixture populations, query plans, 
 requirements, work-memory settings and timing limits remain unchanged. No next feature advances
 until the repaired head passes the full local check and all six CI jobs.
 
+The first repair run on `5412095` passed quality and all four builds but stopped in the new
+regression fixture before performance measurement. An earlier intentional seed-failure test
+retained its colliding Telegram identity, so a later independent seed hit that unique key.
+That fault test now cleans up its own collision in `finally`; its rollback and trigger assertions
+remain required. No integrity predicate, population, index requirement or timing gate changes.
+
 ## Previous increment: authenticated native authenticator HTTP composition
 
 The explicit native TOTP host now registers strict no-store enrollment/opening, confirmation,
