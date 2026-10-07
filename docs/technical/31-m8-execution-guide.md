@@ -33,6 +33,18 @@ sampling. All owning bindings and paged diagnostic ordering remain; eleven addit
 corruption probes compare scanner, current metrics and health findings, then verify repair. The
 candidate must pass the complete exact-head CI, including all 27 plans, before more M8 features.
 
+Repair candidate `cc24bd3` passed all 411 native tests and five CI jobs, but the terminal snapshot
+took 1772.502 ms and the free set join lost the required resolution-index path. Its replacement
+keeps an ordered covering-index candidate boundary, validates owner/request/digest fields outside
+the narrow physical-key joins, and separates administrator admission, restoration and non-account
+actions into exhaustive branches with distinct exact history sets. Resolution facts preserve both
+valid and invalid candidates through grouping. Episode audit/notice joins use unique references,
+with every original safety predicate evaluated in its flag; this removes a repeated materialized
+audit scan observed in the isolated 1,000-episode diagnostic (124 ms terminal snapshot, no
+materialized rescan). That smaller probe is not production acceptance. No safety binding, historical
+plan, fixture volume, repeated sample, required index or execution budget is removed. Native
+account, photo, corruption, metrics and health evidence precedes another complete exact-head CI.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,

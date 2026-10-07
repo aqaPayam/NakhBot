@@ -17,20 +17,23 @@ function accountHistoryMatches(
     )`;
 }
 
-/** Uncorrelated exact tuples permit one hashable membership set rather than one
- * history probe per action. The previous-state class keeps restoration separate
- * from restriction/ban admission, including duplicate valid/invalid histories. */
-function adminAccountHistoryMatches(): RawBuilder<boolean> {
-  return sql<boolean>`COALESCE((action.target_user_id, action.actor_admin_id, action.reason_code,
-      action.occurred_at, CASE action.action_type WHEN 'restrict_user' THEN 'restricted'
-        WHEN 'ban_user' THEN 'banned' ELSE restoration.previous_state END,
-      CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted'
-        WHEN 'unban_user' THEN 'banned' ELSE 'any' END) IN (
-    SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
-      history.next_state, 'any'::text FROM identity.account_state_history history
+/** Disjoint exact membership sets avoid per-action history probes and an oversized
+ * mixed admission/restoration hash. Restoration still binds both state classes,
+ * including duplicate valid/invalid histories. */
+function adminAccountHistoryMatches(restoring: boolean): RawBuilder<boolean> {
+  if (!restoring)
+    return sql<boolean>`COALESCE((action.target_user_id, action.actor_admin_id,
+      action.reason_code, action.occurred_at,
+      CASE action.action_type WHEN 'restrict_user' THEN 'restricted' ELSE 'banned' END) IN (
+      SELECT history.user_id, history.actor_admin_id, history.reason_code,
+        history.changed_at, history.next_state FROM identity.account_state_history history
       WHERE history.actor_type = 'admin' AND history.actor_admin_id IS NOT NULL
         AND history.next_state IN ('restricted','banned')
-    UNION ALL
+    ),false)`;
+  return sql<boolean>`COALESCE((action.target_user_id, action.actor_admin_id, action.reason_code,
+      action.occurred_at, restoration.previous_state,
+      CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted'
+        ELSE 'banned' END) IN (
     SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
       history.next_state, history.previous_state FROM identity.account_state_history history
       WHERE history.actor_type = 'admin' AND history.actor_admin_id IS NOT NULL
@@ -38,10 +41,16 @@ function adminAccountHistoryMatches(): RawBuilder<boolean> {
   ),false)`;
 }
 
-/** Disjoint actor branches keep system restrictions out of administrator attempt/restoration joins.
- * The persisted actor CHECK makes the two branches exhaustive, with one row per action. */
-function moderationActionSource(actor: 'system' | 'admin'): RawBuilder<unknown> {
+/** Disjoint branches keep admission, restoration and non-account actions out of
+ * each other's history sets/joins. Persisted non-null actor/action CHECKs make
+ * these branches exhaustive, with exactly one row per action. */
+function moderationActionSource(
+  actor: 'system' | 'admin',
+  partition: 'admission' | 'restoration' | 'other' = 'admission',
+): RawBuilder<unknown> {
   const isSystem = actor === 'system';
+  const restoring = !isSystem && partition === 'restoration';
+  const other = !isSystem && partition === 'other';
   return sql`
 SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
     AND bound_audit.actor_type = action.actor_type
@@ -73,18 +82,21 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
               AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id))),false)`
     } AS "hasAttempt",
     ${
-      isSystem
-        ? sql`history_binding."hasAccountHistory"`
-        : sql`
-      action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-      ${adminAccountHistoryMatches()}
-    `
+      other
+        ? sql`true`
+        : isSystem
+          ? sql`history_binding."hasAccountHistory"`
+          : adminAccountHistoryMatches(restoring)
     } AS "hasAccountHistory",
-    action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
+    ${
+      other
+        ? sql`true`
+        : sql`action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
       OR COALESCE(bound_notice.id IS NOT NULL AND bound_notice.user_id = action.target_user_id
         AND bound_notice.payload = '{}'::jsonb
         AND bound_notice.notification_type = CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
-          WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END,false) AS "hasNotice",
+          WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END,false)`
+    } AS "hasNotice",
     action.source_report_id IS NULL OR (source_report.id IS NOT NULL
         AND ((action.action_type IN ('create_internal_block','remove_internal_block')
             AND LEAST(source_report.reporter_user_id, source_report.target_user_id) = action.target_pair_low_user_id
@@ -95,9 +107,9 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
     ${
-      isSystem
+      isSystem || partition === 'admission'
         ? sql`LEFT JOIN moderation.reports source_report ON source_report.id = action.source_report_id`
-        : sql`-- Most administrator actions have no source Report. Retain a primary-key
+        : sql`-- Restoration and non-account actions usually have no source Report. Retain a primary-key
     -- candidate lookup that can memoize the repeated null reference instead of
     -- building a full Report hash for that branch. OFFSET 0 preserves this relation.
     LEFT JOIN LATERAL (
@@ -114,6 +126,9 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
         ) history_binding ON true`
         : sql`    LEFT JOIN administration.admin_action_logs attempt
       ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
+    ${
+      restoring
+        ? sql`
     -- One latest prior-state lookup per restoration binding; OFFSET 0 preserves the
     -- parameterized relation so repeated target/type/time bindings can be memoized.
     LEFT JOIN LATERAL (
@@ -125,13 +140,24 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
         AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
       ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
     ) restoration ON true`
+        : sql``
+    }`
     }
     -- Primary/unique keys identify one candidate. Every safety binding remains in
     -- its flag rather than becoming an additional hash key for this lookup.
     LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
       AND bound_audit.actor_type = ${actor}
-    LEFT JOIN notification.notifications bound_notice ON bound_notice.id = action.notification_id
+    ${other ? sql`` : sql`LEFT JOIN notification.notifications bound_notice ON bound_notice.id = action.notification_id`}
     WHERE action.actor_type = ${actor}
+    ${
+      isSystem
+        ? sql``
+        : partition === 'admission'
+          ? sql`AND action.action_type IN ('restrict_user','ban_user')`
+          : restoring
+            ? sql`AND action.action_type IN ('unrestrict_user','unban_user')`
+            : sql`AND action.action_type NOT IN ('restrict_user','ban_user','unrestrict_user','unban_user')`
+    }
 `;
 }
 
@@ -187,25 +213,38 @@ SELECT review.id, COALESCE(report.id IS NOT NULL AND (
     FROM moderation.moderation_reviews review
     LEFT JOIN moderation.reports report ON report.id = review.report_id
 `,
-  actions: sql`(${moderationActionSource('system')}) UNION ALL (${moderationActionSource('admin')})`,
+  actions: sql`(${moderationActionSource('system')}) UNION ALL (${moderationActionSource('admin', 'admission')})
+    UNION ALL (${moderationActionSource('admin', 'restoration')}) UNION ALL (${moderationActionSource('admin', 'other')})`,
   episodes: sql`
 WITH resolution_facts AS MATERIALIZED (
-    SELECT owner.id AS restriction_episode_id FROM moderation.restriction_episodes owner
-    -- A set join lets dense historical populations use the covering resolution index
-    -- once instead of forcing a parameterized lookup for every resolved episode.
-    -- Validate every candidate and attempt before grouping existence, including
-    -- duplicate valid/invalid candidates. All original owner bindings remain.
-    JOIN moderation.moderation_actions resolution
-      ON resolution.restriction_episode_id = owner.id AND resolution.action_type = 'unrestrict_user'
-        AND resolution.actor_type = 'admin' AND resolution.actor_admin_id = owner.resolved_by_admin_id
-        AND resolution.target_user_id = owner.target_user_id AND resolution.reason_code = owner.resolution_reason_code
+    SELECT owner.id AS restriction_episode_id,
+      bool_or(COALESCE(attempt.id IS NOT NULL
+        AND resolution.actor_admin_id = owner.resolved_by_admin_id
+        AND resolution.target_user_id = owner.target_user_id
+        AND resolution.reason_code = owner.resolution_reason_code
         AND resolution.occurred_at = owner.resolved_at
-    JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
-      AND attempt.command_id = resolution.command_id AND attempt.request_id = resolution.request_id
-      AND attempt.request_digest = resolution.request_digest AND attempt.result = 'succeeded'
+        AND attempt.request_id = resolution.request_id
+        AND attempt.request_digest = resolution.request_digest
+        AND attempt.target_id = owner.target_user_id,false)) AS valid
+    FROM moderation.restriction_episodes owner
+    -- Ordered covering-index candidates are independent of the episode scan. The
+    -- boundary keeps a dense set join without reversing into attempt-key probes.
+    JOIN (
+      SELECT restriction_episode_id, actor_admin_id, target_user_id, reason_code,
+        occurred_at, command_id, request_id, request_digest
+      FROM moderation.moderation_actions
+      WHERE restriction_episode_id IS NOT NULL AND actor_type = 'admin'
+        AND action_type = 'unrestrict_user'
+      ORDER BY restriction_episode_id OFFSET 0
+    ) resolution ON resolution.restriction_episode_id = owner.id
+    LEFT JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
+      AND attempt.command_id = resolution.command_id AND attempt.result = 'succeeded'
       AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
-      AND attempt.target_id = owner.target_user_id
-    WHERE owner.status = 'resolved' GROUP BY owner.id
+    -- Keep invalid candidates through grouping: one explicit validation fact per
+    -- episode avoids a near-zero row estimate and quadratic repeated CTE scans.
+    -- bool_or preserves existence when valid and invalid candidates coexist.
+    WHERE owner.status = 'resolved'
+    GROUP BY owner.id
 )
 SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
       AND report.target_user_id = episode.target_user_id) AS "sourceMatches",
@@ -234,7 +273,7 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
       AND restriction_notice.payload_schema_version = 1
       AND restriction_notice.deduplication_key = 'moderation-threshold:' || episode.id::text || ':restriction'
       AND telegram_delivery.notification_id IS NOT NULL,false) AS "hasRestrictionNotice",
-    episode.status <> 'resolved' OR resolution_binding.restriction_episode_id IS NOT NULL AS "hasResolutionAttempt"
+    episode.status <> 'resolved' OR COALESCE(resolution_binding.valid,false) AS "hasResolutionAttempt"
     FROM moderation.restriction_episodes episode
     LEFT JOIN resolution_facts resolution_binding ON resolution_binding.restriction_episode_id = episode.id
     LEFT JOIN (
@@ -261,16 +300,11 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
     ) expected_audit ON true
     -- Primary keys give one candidate each. Validate every metadata/content-free binding
     -- in its flag instead of hashing wide tuples and rebuilding expected JSON in join keys.
+    -- Unique physical references identify candidates; validate all safety fields
+    -- in the flags above. Selective constants here can underestimate candidates
+    -- and cause a repeated materialized audit scan for each episode.
     LEFT JOIN platform.audit_logs restriction_audit ON restriction_audit.id = action.audit_log_id
-      AND restriction_audit.category = 'security' AND restriction_audit.event_type = 'moderation.threshold-restriction.v1'
-      AND restriction_audit.actor_type = 'system' AND restriction_audit.actor_admin_id IS NULL AND restriction_audit.actor_user_id IS NULL
-      AND restriction_audit.subject_type = 'user' AND restriction_audit.result_code = 'restricted'
-      AND restriction_audit.metadata_schema_version = 1
     LEFT JOIN notification.notifications restriction_notice ON restriction_notice.id = action.notification_id
-      AND restriction_notice.notification_type = 'restriction_warning' AND restriction_notice.category = 'restriction'
-      AND restriction_notice.title_key = 'notification.restriction_warning.title'
-      AND restriction_notice.body_key = 'notification.restriction_warning.body'
-      AND restriction_notice.payload = '{}'::jsonb AND restriction_notice.payload_schema_version = 1
     LEFT JOIN (SELECT DISTINCT notification_id FROM notification.notification_deliveries WHERE channel = 'telegram')
       telegram_delivery ON telegram_delivery.notification_id = restriction_notice.id
 `,
