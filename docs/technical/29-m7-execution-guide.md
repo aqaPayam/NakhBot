@@ -2,6 +2,13 @@
 
 ## Current increment: pinned M7 telemetry conversion and alarms
 
+The first collector run on `fa0f8e5` started and exported successfully but failed its evidence gate.
+The pinned awsemf converter emits the fixed EMF `Version: "1"` envelope field; the rehearsal's root
+field allowlist omitted it. The repair permits only that fixed version and keeps unknown fields,
+metrics, scopes, dimensions and private markers forbidden. Fixed evidence-stage labels identify
+future failures without printing provider errors or payload values. This head must pass the full
+check and all six CI jobs before acceptance work advances.
+
 The integrity repair on `146222a` passed the full check, all six CI jobs and 405 PostgreSQL tests.
 All 27 production-shaped plans passed: baseline sampling took 887 ms and terminal sampling 1,132 ms
 under the unchanged 1,500 ms limit. The terminal plan launched an actual worker. All original

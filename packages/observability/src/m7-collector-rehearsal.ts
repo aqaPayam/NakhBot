@@ -40,17 +40,20 @@ function assertEvidence(emf: readonly Emf[]): void {
   let legacy = false;
   for (const record of emf) {
     for (const declaration of record._aws.CloudWatchMetrics) {
+      stage = 'evidence-namespace';
       assert.equal(declaration.Namespace, 'Nakh/Platform');
       for (const metric of declaration.Metrics) {
         if (metric.Name === 'nakh.m1.collector_rehearsal') {
           legacy = true;
           continue;
         }
+        stage = 'evidence-metric-name';
         assert.ok(policy.metricNames.includes(metric.Name), 'Unexpected M7 metric escaped.');
         emitted.add(metric.Name);
         const expected = policy.exporter.metric_declarations.find((item) =>
           item.metric_name_selectors.some((selector) => new RegExp(selector).test(metric.Name)),
         )!;
+        stage = 'evidence-dimensions';
         for (const dimensions of declaration.Dimensions)
           assert.ok(
             expected.dimensions.some(
@@ -61,6 +64,7 @@ function assertEvidence(emf: readonly Emf[]): void {
           );
         assert.ok(declaration.Dimensions.length > 0);
         if (metric.Name === 'nakh.m7.integrity.current_mismatches') {
+          stage = 'evidence-current-count';
           assert.equal(declaration.Dimensions.length, 1);
           assert.deepEqual(declaration.Dimensions[0], ['phase']);
           assert.ok(policy.phases.includes(String(record.phase)));
@@ -70,6 +74,7 @@ function assertEvidence(emf: readonly Emf[]): void {
           counts.set(String(record.phase), values);
         }
         if (metric.Name === 'nakh.m7.integrity.sampled_at') {
+          stage = 'evidence-sample-time';
           assert.deepEqual(declaration.Dimensions, [[]]);
           assert.equal(typeof record[metric.Name], 'number');
           timestamps.add(record[metric.Name] as number);
@@ -79,22 +84,31 @@ function assertEvidence(emf: readonly Emf[]): void {
       }
     }
     if (Object.keys(record).some((key) => key.startsWith('nakh.m7.'))) {
+      stage = 'evidence-field-shape';
       for (const key of Object.keys(record))
         assert.ok(
-          ['_aws', 'Timestamp', 'OTelLib', 'phase', 'outcome', ...policy.metricNames].includes(key),
+          ['_aws', 'Version', 'OTelLib', 'phase', 'outcome', ...policy.metricNames].includes(key),
           'Unexpected M7 field escaped.',
         );
+      assert.equal(record.Version, '1');
+      stage = 'evidence-scope';
       assert.equal(record.OTelLib, 'nakh-m7');
     }
   }
+  stage = 'evidence-instrument-coverage';
   assert.equal(emitted.size, policy.metricNames.length, 'A required M7 metric was lost.');
+  stage = 'evidence-drift-and-clear';
   for (const [index, phase] of policy.phases.entries()) {
     assert.ok(counts.get(phase)?.has(index + 1), 'Drift sample was lost.');
     assert.ok(counts.get(phase)?.has(0), 'Cleared sample was lost.');
   }
+  stage = 'evidence-freshness';
   assert.equal(timestamps.size, 2, 'Fresh/stale timestamp evidence was lost.');
+  stage = 'evidence-first-counter';
   assert.ok(firstFailure, 'First failure counter observation was lost.');
+  stage = 'evidence-legacy';
   assert.ok(legacy, 'Existing milestone metric was lost.');
+  stage = 'evidence-private-markers';
   assert.ok(
     !JSON.stringify(emf).includes('rehearsal-private'),
     'Private synthetic marker escaped.',
