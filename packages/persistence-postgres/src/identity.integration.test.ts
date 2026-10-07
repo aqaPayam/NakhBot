@@ -202,7 +202,14 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(582);
+    expect(Object.keys(english.messages)).toHaveLength(585);
+    expect(english.messages['error.deletion.confirmation_invalid']).toBe(
+      'Prepare a new deletion confirmation.',
+    );
+    expect(english.messages['error.deletion.unavailable']).toBe('Account deletion is unavailable.');
+    expect(english.messages['error.deletion.checkpoint_conflict']).toBe(
+      'Deletion progress changed. Please retry.',
+    );
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(english.messages['media.photos.button.delete']).toBe('Delete');
     expect(english.messages['liked_by.title']).toBe('Liked By ({count})');

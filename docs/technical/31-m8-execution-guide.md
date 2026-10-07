@@ -80,6 +80,13 @@ NO KEY UPDATE so Account-first moderation can complete its FK KEY SHARE while a 
 Native evidence covers twenty-way preparation/request races, cancellation races, expiry, borrowed
 proofs, changed replay, required insert failure, banned deletion, checkpoint guards and lock order.
 
+Admission commit `97da3f9` passed all four image jobs and `pnpm check`. Its native run passed
+421 tests but the pre-existing English catalog assertion still expected 582 entries instead of
+585 after the three deletion errors were seeded. The repair updates that exact catalog assertion
+and verifies each new message. The quality rehearsal separately failed during Docker collector
+startup before any metric export; the completed job is rerun unchanged to diagnose transience.
+Neither failure authorizes advancing to another M8 feature before the repair is fully green.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,
