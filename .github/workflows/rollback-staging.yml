@@ -52,7 +52,7 @@ jobs:
           test "${#TF_VAR_telegram_bot_token}" -ge 20
           test "${#TF_VAR_telegram_webhook_secret}" -ge 32
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
