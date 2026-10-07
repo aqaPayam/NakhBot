@@ -257,6 +257,74 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     await expect(measureM7SyntheticPlans(database, 1000)).rejects.toThrow();
     await assertClean();
   });
+  it('keeps one action candidate per command and rejects changed actor, request and digest bindings', async () => {
+    await withM6SyntheticPlanSession(database, async (connection) => {
+      try {
+        await connection.transaction().execute(async (tx) => {
+          const prefix = randomUUID(),
+            at = new Date();
+          await seedM7IntegrityPlans(tx, prefix, 1000, at);
+          await seedM7AppealIntegrityPlans(tx, prefix, 1000, at);
+          const action = await tx
+            .selectFrom('moderation.moderation_actions')
+            .selectAll()
+            .where(
+              'id',
+              '=',
+              (
+                await sql<{
+                  id: string;
+                }>`SELECT md5(${prefix} || 'terminal-unban-action4')::uuid AS id`.execute(tx)
+              ).rows[0]!.id,
+            )
+            .executeTakeFirstOrThrow();
+          const count = async (): Promise<number> =>
+            withModerationIntegrityRead(tx, async (read) =>
+              Number(
+                (await moderationIntegrityPhaseStatement('admin_logs').execute(read)).rows[0]!
+                  .count,
+              ),
+            );
+          const baseline = await count();
+          for (const changed of [
+            { actor_admin_id: randomUUID() },
+            { request_id: randomUUID() },
+            { request_digest: '0'.repeat(64) },
+            { command_id: randomUUID() },
+          ]) {
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set(changed)
+              .where('id', '=', action.id)
+              .execute();
+            expect(await count()).toBe(baseline + 1);
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set({
+                actor_admin_id: action.actor_admin_id,
+                request_id: action.request_id,
+                request_digest: action.request_digest,
+                command_id: action.command_id,
+              })
+              .where('id', '=', action.id)
+              .execute();
+            expect(await count()).toBe(baseline);
+          }
+          await tx
+            .deleteFrom('moderation.moderation_actions')
+            .where('id', '=', action.id)
+            .execute();
+          expect(await count()).toBe(baseline + 1);
+          await tx.insertInto('moderation.moderation_actions').values(action).execute();
+          expect(await count()).toBe(baseline);
+          throw new FixtureRollback();
+        });
+      } catch (error) {
+        if (!(error instanceof FixtureRollback)) throw error;
+      }
+    });
+    await assertClean();
+  });
   it('restores pooled compilation and work-memory settings after a failed integrity read', async () => {
     await expect(
       withModerationIntegrityRead(database, async (transaction) => {

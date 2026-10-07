@@ -1,6 +1,24 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: authenticated native authenticator HTTP composition
+## Current repair: terminal integrity sample performance
+
+The authenticator HTTP increment on `7c48b1e` passed quality, all four container builds and all
+401 native PostgreSQL tests. Its terminal combined integrity sample failed at 1,541 ms against
+the unchanged 1,500 ms limit. The baseline sample passed at 1,241 ms. Diagnostics retained no
+temporary blocks and showed a wide action-membership hash and unnecessary restoration rows in
+the non-restoration administrator-history membership set.
+
+The repair uses the existing unique moderation command key to find one action candidate, then
+checks the same exact administrator, request and digest. Null/missing or mismatched candidates
+remain failures; the join cannot multiply an attempt. Non-restoration history membership retains
+only restricted/banned next states, because those are the only possible states in that branch.
+Restoration still uses its separate previous-state membership and latest prior-state binding.
+Native regression evidence changes each action binding independently and preserves existing
+valid/invalid duplicate-history evidence. All fixture populations, query plans, independent index
+requirements, work-memory settings and timing limits remain unchanged. No next feature advances
+until the repaired head passes the full local check and all six CI jobs.
+
+## Previous increment: authenticated native authenticator HTTP composition
 
 The explicit native TOTP host now registers strict no-store enrollment/opening, confirmation,
 sign-in and logout routes under `/v1/admin/auth`. Setup and sign-in require the trusted host's

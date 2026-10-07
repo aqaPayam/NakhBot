@@ -29,6 +29,7 @@ function adminAccountHistoryMatches(): RawBuilder<boolean> {
     SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
       history.next_state, 'any'::text FROM identity.account_state_history history
       WHERE history.actor_type = 'admin' AND history.actor_admin_id IS NOT NULL
+        AND history.next_state IN ('restricted','banned')
     UNION ALL
     SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
       history.next_state, history.previous_state FROM identity.account_state_history history
@@ -363,10 +364,13 @@ SELECT attempt.id, CASE
       ELSE true END AS "hasAccess",
       attempt.result <> 'succeeded' OR attempt.command_code NOT IN (
         'moderation.apply-account-action','moderation.apply-photo-action','moderation.change-internal-block','moderation.unban-appeal')
-        OR EXISTS (SELECT 1 FROM moderation.moderation_actions action WHERE action.actor_admin_id = attempt.admin_user_id
-          AND action.command_id = attempt.command_id AND action.request_id = attempt.request_id
-          AND action.request_digest = attempt.request_digest) AS "hasAction"
+        OR COALESCE(effect.id IS NOT NULL AND effect.actor_admin_id = attempt.admin_user_id
+          AND effect.request_id = attempt.request_id
+          AND effect.request_digest = attempt.request_digest,false) AS "hasAction"
     FROM administration.admin_action_logs attempt
+    -- The physical unique command key gives at most one candidate. Compare every
+    -- owner/request/digest binding after lookup rather than hashing the wide tuple.
+    LEFT JOIN moderation.moderation_actions effect ON effect.command_id = attempt.command_id
 `,
   internal_blocks: sql`
 SELECT pair.user_low_id AS "lowId", pair.user_high_id AS "highId",
