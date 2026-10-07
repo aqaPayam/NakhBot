@@ -94,7 +94,17 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
           WHERE photo.id = action.target_photo_id AND profile.user_id = source_report.target_user_id))
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
-    LEFT JOIN moderation.reports source_report ON source_report.id = action.source_report_id
+    ${
+      isSystem
+        ? sql`LEFT JOIN moderation.reports source_report ON source_report.id = action.source_report_id`
+        : sql`-- Most administrator actions have no source Report. Retain a primary-key
+    -- candidate lookup that can memoize the repeated null reference instead of
+    -- building a full Report hash for that branch. OFFSET 0 preserves this relation.
+    LEFT JOIN LATERAL (
+      SELECT report.id, report.reporter_user_id, report.target_user_id
+      FROM moderation.reports report WHERE report.id = action.source_report_id OFFSET 0
+    ) source_report ON true`
+    }
     ${
       isSystem
         ? sql`LEFT JOIN LATERAL (

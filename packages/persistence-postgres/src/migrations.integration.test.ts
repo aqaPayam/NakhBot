@@ -15,7 +15,7 @@ const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80, 81, 82,
+    78, 79, 80, 81, 82, 83,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -31,6 +31,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       legacyEpisodeId = randomUUID(),
       legacySessionId = randomUUID();
     let previousFactor: Record<string, unknown> | undefined;
+    let previousPairFunction: Record<string, unknown> | undefined;
     try {
       await admin.query(`CREATE DATABASE "${name}"`);
       created = true;
@@ -42,6 +43,13 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         baseline,
       );
       target = new pg.Pool({ connectionString: targetUrl.toString() });
+      if (baseline === 83) {
+        previousPairFunction = (
+          await target.query<Record<string, unknown>>(
+            "SELECT prosrc,provolatile,proisstrict,prosecdef FROM pg_proc WHERE oid='moderation.admin_pair_target_id(uuid,uuid)'::regprocedure",
+          )
+        ).rows[0]!;
+      }
       if (baseline === 81) {
         const legacy = createDatabase({
           url: targetUrl.toString(),
@@ -163,9 +171,18 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        83 - baseline,
+        84 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      if (baseline === 83) {
+        expect(
+          (
+            await target.query<Record<string, unknown>>(
+              "SELECT prosrc,provolatile,proisstrict,prosecdef FROM pg_proc WHERE oid='moderation.admin_pair_target_id(uuid,uuid)'::regprocedure",
+            )
+          ).rows,
+        ).toEqual([previousPairFunction]);
+      }
       if (baseline === 81) {
         expect(
           (
@@ -342,6 +359,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000081_m7_restoration_history_index.sql',
         '000082_m7_admin_totp.sql',
         '000083_m7_admin_totp_enrollment.sql',
+        '000084_m7_parallel_pair_target.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -419,9 +437,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000081_m7_restoration_history_index.sql');
       expect(verified).toContain('000082_m7_admin_totp.sql');
       expect(verified).toContain('000083_m7_admin_totp_enrollment.sql');
+      expect(verified).toContain('000084_m7_parallel_pair_target.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(83);
+      expect(replay.existing).toHaveLength(84);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

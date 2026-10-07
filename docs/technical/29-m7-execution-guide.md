@@ -24,6 +24,23 @@ retained its colliding Telegram identity, so a later independent seed hit that u
 That fault test now cleans up its own collision in `finally`; its rollback and trigger assertions
 remain required. No integrity predicate, population, index requirement or timing gate changes.
 
+On `196132c`, all 402 native tests passed, but the terminal sample remained above the unchanged
+limit at 1,548 ms (baseline 1,211 ms), without spills or parallel workers. The next repair
+permits parallel execution of the canonical pair-target function through forward migration 84.
+The existing function uses only UUID inputs and pure byte/hash built-ins; it does not read tables,
+write state or depend on a connection's local state. Its body, immutable/strict properties and
+invoker authority remain unchanged. Native evidence requires actual worker execution, agreement
+with application pair bindings, strict null handling and rejection of unordered pairs. Upgrade
+from 83 compares the retained function body/properties, alongside bootstrap, older upgrades and replay.
+
+Administrator actions now retain a memoizable primary-key source-Report candidate lookup, so
+repeated absent references need not build a full Report hash. System actions retain their existing
+bulk join. Every Report pair, User and photo-owner binding remains in the original flag, and the
+primary key preserves one row per action. Production planner settings and all original fixture,
+index, timeout and timing gates remain unchanged. A Windows-local synthetic timing diagnostic
+could not reproduce CI's fixture setup reliably and is not acceptance evidence. This repair remains
+unverified until the full local check and all six exact-head CI jobs pass; no next feature advances.
+
 ## Previous increment: authenticated native authenticator HTTP composition
 
 The explicit native TOTP host now registers strict no-store enrollment/opening, confirmation,
