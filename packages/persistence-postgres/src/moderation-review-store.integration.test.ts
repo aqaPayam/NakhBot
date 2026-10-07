@@ -31,6 +31,7 @@ import type { ApplyPhotoModerationActionCommand } from '@nakh/contracts';
 import { PostgresConfirmedPhotoActions } from './confirmed-photo-store.js';
 import { seedValidMedia } from './media-fixtures.js';
 import type { GetReportMetadataPageQuery, ReportMetadataPage } from '@nakh/contracts';
+import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const genderOptionId = '20000000-0000-4000-8000-000000000001';
@@ -231,11 +232,13 @@ function adminAttempt(
 describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
   let database: NakhDatabase;
   let workflow: PostgresModerationReviewWorkflow;
+  let isolated: Awaited<ReturnType<typeof createIsolatedTestDatabase>> | undefined;
 
   beforeAll(async () => {
-    await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
+    isolated = await createIsolatedTestDatabase(databaseUrl!, 'nakh_m7_review_queue');
+    await runMigrations(isolated.url, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
-      url: databaseUrl!,
+      url: isolated.url,
       poolMax: 10,
       statementTimeoutMs: 10_000,
       lockTimeoutMs: 5_000,
@@ -244,7 +247,11 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
   });
 
   afterAll(async () => {
-    await database?.destroy();
+    try {
+      await database?.destroy();
+    } finally {
+      await isolated?.destroy();
+    }
   });
   async function assignedReview(): Promise<{
     adminId: string;

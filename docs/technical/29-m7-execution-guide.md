@@ -2,6 +2,14 @@
 
 ## Current repair: threshold audit and notice candidate joins
 
+The first repair run on `3efc194` passed quality and all four images, but two review-queue integration
+assertions encountered pending Reports retained by earlier suites. Queue pagination exhausted its
+bounded test loop and priority claiming selected unrelated candidates. The suite now owns an isolated
+database, applies the same migrations and destroys it after closing its pool; races inside each test
+still use independent connections. This removes execution-order dependence without filtering the
+production queue or relaxing assertions. The performance gate was not reached on that run; the
+candidate-join repair still requires a complete green native/performance run.
+
 The documentation head `1e3140b` passed quality, all four images and 405 native tests, but its terminal
 integrity sample took 1,640 ms against the unchanged 1,500 ms limit. It launched its planned worker,
 with no temporary blocks or multi-batch hashes. The threshold phase still used wide audit and
