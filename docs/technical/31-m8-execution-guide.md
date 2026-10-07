@@ -112,6 +112,25 @@ The isolated 1000-volume diagnostic improved terminal action evaluation from 42.
 and the snapshot from 122.696 to 112.870 ms. This is topology evidence, not full-volume acceptance.
 All fifteen focused native threshold, action-corruption, scanner/metric and health tests pass.
 
+Green repair `1cff2f8` passed all six CI jobs, 422 native tests and all 27 original plans. Its
+terminal snapshot took 1236.938 ms with both required indexes present. No gate was relaxed.
+
+Mandatory deletion work now has bounded SKIP LOCKED claiming and monotonic generation fences.
+The same returning worker ID receives a new generation after expiry. Database-only batches lock
+User, Account, deletion record and work in that order, validate exact phase/version/owner/generation
+and Account tombstone, then recheck database-clock expiry before commit. Failed or expired batches
+roll back; renewal never shortens authority, and release/retry atomically clear the owner with a
+fixed error code and database-clock scheduling. Durable work is independent of outbox/cache loss.
+Migration 86 preserves pending deletion evidence and adds lease mutation and deferred record/work
+consistency guards. Leasing cannot authorize phase advancement: verified phase executors and
+receipts are still required before that transition or the actual purge worker can be enabled.
+Native evidence includes ten work scenarios covering twenty-way ownership, renew/release races,
+SKIP LOCKED progress, same-worker expiry recovery, blocked-lock expiry, transaction rollback,
+expired-batch rollback, required settlement failure, transport loss and forged/raw progress denial.
+The 53-test admission/work/migration run passed; the final guard also passed all twenty focused
+admission/work tests. Migration 85 pending record/work rows survive upgrade unchanged except
+the new generation-zero field. Direct SQL cannot renew expired authority without a new generation.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,

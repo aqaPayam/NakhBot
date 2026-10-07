@@ -9,13 +9,14 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 import { createDatabase } from './database.js';
 import { createReportFixtureAdmin } from './testing/report-fixture.js';
 import { createAdminTotpEnrollment, adminTotpStep } from '@nakh/application';
+import { createDeletionFixture } from './testing/deletion-fixture.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80, 81, 82, 83, 84,
+    78, 79, 80, 81, 82, 83, 84, 85,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -32,6 +33,9 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       legacySessionId = randomUUID();
     let previousFactor: Record<string, unknown> | undefined;
     let previousPairFunction: Record<string, unknown> | undefined;
+    let previousDeletion:
+      | { recordId: string; record: Record<string, unknown>; work: Record<string, unknown> }
+      | undefined;
     try {
       await admin.query(`CREATE DATABASE "${name}"`);
       created = true;
@@ -43,6 +47,34 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         baseline,
       );
       target = new pg.Pool({ connectionString: targetUrl.toString() });
+      if (baseline === 85) {
+        const legacy = createDatabase({
+          url: targetUrl.toString(),
+          poolMax: 2,
+          statementTimeoutMs: 5000,
+          lockTimeoutMs: 1000,
+        });
+        try {
+          const fixture = await createDeletionFixture(legacy);
+          previousDeletion = {
+            recordId: fixture.recordId,
+            record: (
+              await target.query<Record<string, unknown>>(
+                'SELECT * FROM identity.account_deletion_records WHERE id=$1',
+                [fixture.recordId],
+              )
+            ).rows[0]!,
+            work: (
+              await target.query<Record<string, unknown>>(
+                'SELECT * FROM identity.account_deletion_work WHERE deletion_record_id=$1',
+                [fixture.recordId],
+              )
+            ).rows[0]!,
+          };
+        } finally {
+          await legacy.destroy();
+        }
+      }
       if (baseline === 83) {
         previousPairFunction = (
           await target.query<Record<string, unknown>>(
@@ -171,9 +203,27 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        85 - baseline,
+        86 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      if (previousDeletion !== undefined) {
+        expect(
+          (
+            await target.query<Record<string, unknown>>(
+              'SELECT * FROM identity.account_deletion_records WHERE id=$1',
+              [previousDeletion.recordId],
+            )
+          ).rows,
+        ).toEqual([previousDeletion.record]);
+        expect(
+          (
+            await target.query<Record<string, unknown>>(
+              'SELECT * FROM identity.account_deletion_work WHERE deletion_record_id=$1',
+              [previousDeletion.recordId],
+            )
+          ).rows,
+        ).toEqual([{ ...previousDeletion.work, lease_generation: 0 }]);
+      }
       if (baseline === 83) {
         expect(
           (
@@ -361,6 +411,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000083_m7_admin_totp_enrollment.sql',
         '000084_m7_parallel_pair_target.sql',
         '000085_m8_deletion_admission.sql',
+        '000086_m8_deletion_work_fences.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -439,9 +490,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000082_m7_admin_totp.sql');
       expect(verified).toContain('000083_m7_admin_totp_enrollment.sql');
       expect(verified).toContain('000085_m8_deletion_admission.sql');
+      expect(verified).toContain('000086_m8_deletion_work_fences.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(85);
+      expect(replay.existing).toHaveLength(86);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
