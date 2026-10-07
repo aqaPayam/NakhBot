@@ -3,6 +3,7 @@ export * from './billing/billing.js';
 export * from './chat/chat.js';
 export * from './foundation.js';
 export * from './identity/account.js';
+export * from './identity/deletion.js';
 export * from './identity/signup.js';
 export * from './discovery/discovery.js';
 export * from './media/media.js';

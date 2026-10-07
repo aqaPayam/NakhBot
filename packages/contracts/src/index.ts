@@ -9,6 +9,7 @@ export * from './m4.js';
 export * from './m5.js';
 export * from './m6.js';
 export * from './m7.js';
+export * from './m8.js';
 export * from './admin-session.js';
 export * from './shared.js';
 

@@ -1,0 +1,57 @@
+# M8 Execution Guide — Deletion, Retention and Production Hardening
+
+Start from verified M7 implementation `d9ff0e1e681108984369ce82bbae82370541ed59`.
+M7 remains code complete / staging blocked; its provider/operator evidence is not invented here.
+M8 owns `ACC-042..044`. M9 activation is outside this work.
+
+## Current increment
+
+The deletion lifecycle defines eight ordered phases: shared closure, evidence capture, ordinary
+product data, media objects, ephemeral access, retention manifest, verification and completion.
+Checkpoint changes cannot skip, repeat, reverse or restart completion. Fresh return requires a
+deleted Account, completed purge, explicit reactivation approval and no retained safety bar.
+Completion alone never grants return. GuestPreviewCounter and immutable safety history remain.
+
+Own-account contracts require user authority, an opaque confirmation token and an exact Account
+version. Clients cannot select another subject, set retention policy or receive private manifest
+content/provider keys. These contracts do not enable a deletion route yet; durable confirmation,
+tombstone, worker and ingress composition must be implemented and verified before activation.
+
+## Execution sequence
+
+1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,
+   deletion record, audit/outbox and mandatory purge work. Prove twenty-way races, replay, changed
+   payload denial and required-audit rollback. Banned-account deletion remains available.
+2. Close every shared Like/Match/Chat/Nakh/unlock scope in bounded resumable batches; race normal
+   commands and prevent deleted content/access from reaching the other participant.
+3. Secure required Report snapshots before ordinary purge; preserve exact private evidence holds.
+4. Purge ordinary data by a machine-readable entity registry, including dependent references,
+   notifications, support, signup, discovery, interactions and product financial projections.
+   Never rewrite financial history or delete the other participant's financial ledger.
+5. Revoke media delivery immediately; delete and verify ordinary objects, fence retries and preserve
+   only explicitly retained private evidence. Invalidate ephemeral caches/sessions/projections.
+6. Produce a content-free retained-data manifest with policy owner/purpose/access/review rules.
+   Approved retention periods are an external input. Implement policy-controlled release and
+   dependency handling; keep retained-data purge disabled until approval is supplied.
+7. Verify the entire deletion registry and allow only approved fresh return: same stable identity,
+   unchanged preview counter, zero balance and no restored old product data or safety evasion.
+8. Complete localization/static checks, bounded worker scheduling, aggregate telemetry, alarms,
+   load/failure/security tests, backup/PITR/restore/DR procedures and acceptance documentation.
+
+Each necessary commit passes `pnpm check`, is pushed to `main`, and must pass all six exact-head
+CI jobs before the next feature. Diagnose and repair failures first; preserve privacy-safe native,
+migration, concurrency, plan/load and recovery evidence. Count tracked lines with
+`git ls-files -z | xargs -0 wc -l`. Historical production queries and limits remain authoritative.
+
+## Acceptance boundary
+
+Automated evidence must cover interruption at every checkpoint, replay/concurrent deletion,
+pending evidence, provider absence verification, complete entity classification and delete/return
+without restored product content. The full registry follows
+[the retention registry](17-data-retention-registry.md) and
+[testing strategy](11-testing-strategy.md).
+
+Real staging/DR, approved retention periods, external security review and named operational sign-off
+remain separate release requirements. Never label synthetic CI, a local restore or disabled policy
+controls as those approvals. Stop when independent M8 implementation is finished and report exact
+external blockers; do not begin M9.
