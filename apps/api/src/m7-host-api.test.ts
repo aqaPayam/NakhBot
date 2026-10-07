@@ -102,5 +102,9 @@ describe('explicit shared M7 HTTP host', () => {
       ).statusCode,
     ).toBe(404);
     expect(authenticate).toHaveBeenCalledTimes(routes.length);
+    expect(
+      (await app.inject({ method: 'POST', url: '/v1/admin/auth/sessions', headers, payload: {} }))
+        .statusCode,
+    ).toBe(404);
   });
 });

@@ -1,7 +1,14 @@
-import type { AdminMfaProofVerifier, AdminSessionService } from '@nakh/application';
+import type {
+  AdminMfaProofVerifier,
+  AdminSessionService,
+  AdminTotpEnrollments,
+  AdminTotpKeyResolver,
+} from '@nakh/application';
 import {
   createPostgresAdminSessions,
   requireNativeAdminSessions,
+  createPostgresTotpAdminSessions,
+  PostgresAdminTotpEnrollments,
 } from '@nakh/persistence-postgres';
 import type { M7ApiAuthenticator } from './m7-api-boundary.js';
 import {
@@ -28,4 +35,39 @@ export function createM7SessionHostOptions(
         : input.userAuthenticator.authenticate(query),
   };
   return Object.freeze({ host: createM7HostOptions({ ...input, authenticator }), sessions });
+}
+
+/** Actual authenticator-app composition. First-factor authentication is supplied by the trusted
+ * host; native TOTP alone provides administrator sessions. Operator capabilities are not exposed. */
+export function createM7TotpSessionHostOptions(
+  input: Omit<M7HostConfiguration, 'authenticator'> &
+    Readonly<{ userAuthenticator: M7ApiAuthenticator; totpKeys: AdminTotpKeyResolver }>,
+): Readonly<{
+  host: M7HostApiOptions;
+  sessions: AdminSessionService;
+  enrollments: AdminTotpEnrollments;
+}> {
+  const sessions = createPostgresTotpAdminSessions(input.database, input.totpKeys);
+  const enrollments = new PostgresAdminTotpEnrollments(input.database, input.totpKeys);
+  const authenticator: M7ApiAuthenticator = {
+    authenticate: (query) =>
+      query.audience === 'admin'
+        ? sessions.authenticate(query)
+        : input.userAuthenticator.authenticate(query),
+  };
+  const totp = Object.freeze({
+    authenticator,
+    sessions,
+    enrollments,
+    telegramIdentity: async (actorUserId: string): Promise<string | undefined> =>
+      (
+        await input.database
+          .selectFrom('identity.telegram_identities')
+          .select('telegram_user_id')
+          .where('user_id', '=', actorUserId)
+          .executeTakeFirst()
+      )?.telegram_user_id,
+  });
+  const host = Object.freeze({ ...createM7HostOptions({ ...input, authenticator }), totp });
+  return Object.freeze({ host, sessions, enrollments });
 }

@@ -1,6 +1,31 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: approved authenticator enrollment and recovery
+## Current increment: authenticated native authenticator HTTP composition
+
+The explicit native TOTP host now registers strict no-store enrollment/opening, confirmation,
+sign-in and logout routes under `/v1/admin/auth`. Setup and sign-in require the trusted host's
+current first-factor user authentication; administrator sessions never fall back to that provider.
+Sign-in resolves the user's Telegram identity from PostgreSQL and accepts only a six-digit code
+and request identity. Client-supplied roles, identity, verification times and factor provenance are
+rejected. Enrollment retains its separate operator invitation and confirmed-factor requirements.
+Logout derives its bearer from the authenticated header and revokes the exact owning session.
+Neither provisioning nor recovery has a public route. Ordinary host composition leaves these
+routes absent unless native TOTP composition is explicitly selected with a trusted key resolver.
+
+Unit evidence covers strict authority rejection, audience separation, no-store failure responses,
+header-owned logout and provider errors discarded before the global logger. Native HTTP evidence
+uses actual encrypted authenticator seeds, twenty concurrent confirmations, consumed-counter
+rejection, next-counter sign-in, native protected health access, logout, borrowed invitations,
+operator factor revocation and required-activation-audit rollback. URI, invitation, code and bearer
+material are excluded from persistence/audits and sanitized failure logs. This proves provider-neutral
+host behavior with synthetic first-factor authentication; real first-factor/Telegram/operator staging
+acceptance remains separate. No migration is required for this host increment. All six exact-head
+CI jobs must pass before it is verified. Exporter/alert routing and final acceptance remain open.
+
+Enrollment and recovery on `fb2a48d` passed the full local check (884 tests), all six CI jobs,
+399 native PostgreSQL tests and all 27 unchanged performance/index gates.
+
+## Previous increment: approved authenticator enrollment and recovery
 
 Migration 83 separates a trusted operator's audited approval from the authenticated user's
 authenticator confirmation. Approval assigns only the existing fixed roles, records an immutable

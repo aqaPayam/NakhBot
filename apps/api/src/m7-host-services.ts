@@ -38,6 +38,7 @@ import { createM7SupportApiOptions } from './m7-support-services.js';
 import { createM7AppealApiOptions } from './m7-appeal-services.js';
 import type { M7AdminModerationApiOptions } from './m7-admin-moderation-api.js';
 import type { M7OperationalHealthApiOptions } from './m7-operational-health-api.js';
+import type { M7TotpApiOptions } from './m7-totp-api.js';
 
 export type M7HostConfiguration = M7ReportHostConfiguration &
   Readonly<{
@@ -220,4 +221,5 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
     }),
   });
 }
-export type M7HostApiOptions = ReturnType<typeof createM7HostOptions>;
+export type M7HostApiOptions = ReturnType<typeof createM7HostOptions> &
+  Readonly<{ totp?: M7TotpApiOptions }>;
