@@ -10,6 +10,11 @@ import {
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminSessionStore } from './admin-session-store.js';
 import { requireNativeAdminTotp } from './admin-session-policy.js';
+import {
+  consumeAdminTotpAttempt,
+  adminTotpDatabaseTime,
+  hasAdminTotpIdentityAndRoles,
+} from './admin-totp-policy.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 type Credential = {
@@ -51,28 +56,9 @@ export class PostgresAdminTotpVerifier implements AdminMfaProofVerifier {
         admin.telegram_user_id !== input.telegramUserId
       )
         return undefined;
-      const authorized = (
-        await sql`SELECT admin.id FROM administration.admin_users admin
-        JOIN identity.telegram_identities identity ON identity.user_id=admin.user_id AND identity.telegram_user_id=admin.telegram_user_id
-        WHERE admin.id=${admin.id}::uuid AND admin.identity_verified_at IS NOT NULL
-        AND EXISTS(SELECT 1 FROM administration.admin_user_roles assignment
-          JOIN administration.admin_roles role ON role.code=assignment.role_code AND role.is_active
-          JOIN administration.admin_role_permissions permission ON permission.role_code=role.code
-          WHERE assignment.admin_user_id=admin.id AND assignment.revoked_at IS NULL)`.execute(tx)
-      ).rows[0];
-      if (authorized === undefined) return undefined;
-      const at = (await sql<{ at: Date }>`SELECT clock_timestamp() AS at`.execute(tx)).rows[0]!.at;
-      const budget = (
-        await sql`INSERT INTO administration.admin_totp_attempt_windows(admin_user_id,started_at,attempts)
-        VALUES(${admin.id}::uuid,${at}::timestamptz,1)
-        ON CONFLICT(admin_user_id) DO UPDATE SET
-          started_at=CASE WHEN admin_totp_attempt_windows.started_at<=${at}::timestamptz-interval '5 minutes'
-            THEN ${at}::timestamptz ELSE admin_totp_attempt_windows.started_at END,
-          attempts=CASE WHEN admin_totp_attempt_windows.started_at<=${at}::timestamptz-interval '5 minutes'
-            THEN 1 ELSE admin_totp_attempt_windows.attempts+1 END
-        WHERE admin_totp_attempt_windows.started_at<=${at}::timestamptz-interval '5 minutes'
-          OR admin_totp_attempt_windows.attempts<5 RETURNING attempts`.execute(tx)
-      ).rows[0];
+      if (!(await hasAdminTotpIdentityAndRoles(tx, admin.id))) return undefined;
+      const at = await adminTotpDatabaseTime(tx);
+      const budget = await consumeAdminTotpAttempt(tx, admin.id, at);
       const audit = async (
         subjectId: string,
         result: 'verified' | 'rejected' | 'limited',
@@ -98,7 +84,7 @@ export class PostgresAdminTotpVerifier implements AdminMfaProofVerifier {
           })
           .execute();
       };
-      if (budget === undefined) {
+      if (!budget) {
         await audit(admin.id, 'limited');
         return undefined;
       }

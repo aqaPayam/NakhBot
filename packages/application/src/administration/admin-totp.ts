@@ -2,6 +2,7 @@ import {
   createCipheriv,
   createDecipheriv,
   createHmac,
+  hkdfSync,
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
@@ -82,6 +83,22 @@ function aad(subject: AdminTotpSubject, keyId: string, keyVersion: number): Buff
   );
 }
 
+function enrollmentUri(subject: AdminTotpSubject, seed: Buffer): string {
+  let encoded = '';
+  let bits = 0;
+  let value = 0;
+  for (const byte of seed) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      encoded += BASE32[(value >>> bits) & 31];
+    }
+  }
+  const label = encodeURIComponent(`NakhBot:${subject.credentialId.toLowerCase()}`);
+  return `otpauth://totp/${label}?secret=${encoded}&issuer=NakhBot&algorithm=SHA1&digits=6&period=30`;
+}
+
 /** An enrollment URI is a secret: deliver it only through the authenticated enrollment channel. */
 export function createAdminTotpEnrollment(
   subject: AdminTotpSubject,
@@ -92,30 +109,45 @@ export function createAdminTotpEnrollment(
   const key = Buffer.from(encryption.key);
   const seed = randomBytes(20);
   try {
-    // A 160-bit seed encodes to exactly 32 Base32 characters, without padding.
-    let encoded = '';
-    let bits = 0;
-    let value = 0;
-    for (const byte of seed) {
-      value = (value << 8) | byte;
-      bits += 8;
-      while (bits >= 5) {
-        bits -= 5;
-        encoded += BASE32[(value >>> bits) & 31];
-      }
-    }
     const nonce = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', key, nonce);
     cipher.setAAD(binding);
     const ciphertext = Buffer.concat([cipher.update(seed), cipher.final(), cipher.getAuthTag()]);
-    const label = encodeURIComponent(`NakhBot:${subject.credentialId.toLowerCase()}`);
     return {
       secret: { ciphertext, nonce, keyId: encryption.keyId, keyVersion: encryption.keyVersion },
-      enrollmentUri: `otpauth://totp/${label}?secret=${encoded}&issuer=NakhBot&algorithm=SHA1&digits=6&period=30`,
+      enrollmentUri: enrollmentUri(subject, seed),
     };
   } finally {
     seed.fill(0);
     key.fill(0);
+  }
+}
+
+function withProtectedSeed<T>(
+  subject: AdminTotpSubject,
+  secret: ProtectedAdminTotpSecret,
+  resolver: AdminTotpKeyResolver,
+  execute: (seed: Buffer) => T,
+): T {
+  const binding = aad(subject, secret.keyId, secret.keyVersion);
+  if (secret.nonce.byteLength !== 12 || secret.ciphertext.byteLength !== 36)
+    throw new Error('MFA secret is unavailable.');
+  let key: Uint8Array | undefined;
+  let seed: Buffer | undefined;
+  try {
+    key = resolver.resolve(secret.keyId, secret.keyVersion);
+    if (key === undefined || key.byteLength !== 32) throw new Error('Invalid key.');
+    const encrypted = Buffer.from(secret.ciphertext);
+    const decipher = createDecipheriv('aes-256-gcm', key, secret.nonce);
+    decipher.setAAD(binding);
+    decipher.setAuthTag(encrypted.subarray(20));
+    seed = Buffer.concat([decipher.update(encrypted.subarray(0, 20)), decipher.final()]);
+    return execute(seed);
+  } catch {
+    throw new Error('MFA secret is unavailable.');
+  } finally {
+    seed?.fill(0);
+    key?.fill(0);
   }
 }
 
@@ -127,24 +159,39 @@ export function verifyProtectedAdminTotp(
   code: string,
   at: Date,
 ): number | undefined {
-  const binding = aad(subject, secret.keyId, secret.keyVersion);
-  if (secret.nonce.byteLength !== 12 || secret.ciphertext.byteLength !== 36)
-    throw new Error('MFA secret is unavailable.');
-  const key = resolver.resolve(secret.keyId, secret.keyVersion);
-  if (key === undefined) throw new Error('MFA secret is unavailable.');
-  let seed: Buffer | undefined;
+  return withProtectedSeed(subject, secret, resolver, (seed) => matchAdminTotpCode(seed, code, at));
+}
+
+/** Only for an authenticated, approved and still-pending enrollment. The native service checks that state. */
+export function recoverAdminTotpEnrollmentUri(
+  subject: AdminTotpSubject,
+  secret: ProtectedAdminTotpSecret,
+  resolver: AdminTotpKeyResolver,
+): string {
+  return withProtectedSeed(subject, secret, resolver, (seed) => enrollmentUri(subject, seed));
+}
+
+/** Reconstructible operator invitation without retaining a plaintext bearer. A distinct HKDF key
+ * separates invitation authentication from seed encryption. No transport can supply the key. */
+export function createAdminTotpInvitation(
+  subject: AdminTotpSubject,
+  requestId: string,
+  encryption: AdminTotpEncryptionKey,
+): string {
+  const binding = aad(subject, encryption.keyId, encryption.keyVersion);
+  if (!UUID.test(requestId) || encryption.key.byteLength !== 32)
+    throw new Error('Invalid MFA invitation configuration.');
+  const root = Buffer.from(encryption.key);
+  const invitationKey = Buffer.from(
+    hkdfSync('sha256', root, Buffer.alloc(0), 'nakh-admin-totp-invitation-v1', 32),
+  );
   try {
-    if (key.byteLength !== 32) throw new Error('Invalid key.');
-    const encrypted = Buffer.from(secret.ciphertext);
-    const decipher = createDecipheriv('aes-256-gcm', key, secret.nonce);
-    decipher.setAAD(binding);
-    decipher.setAuthTag(encrypted.subarray(20));
-    seed = Buffer.concat([decipher.update(encrypted.subarray(0, 20)), decipher.final()]);
-    return matchAdminTotpCode(seed, code, at);
-  } catch {
-    throw new Error('MFA secret is unavailable.');
+    return `v1.mt.${createHmac('sha256', invitationKey)
+      .update(binding)
+      .update(Buffer.from(requestId.toLowerCase(), 'ascii'))
+      .digest('base64url')}`;
   } finally {
-    seed?.fill(0);
-    key.fill(0);
+    root.fill(0);
+    invitationKey.fill(0);
   }
 }

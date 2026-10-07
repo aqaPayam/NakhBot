@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -8,13 +8,14 @@ import { describe, expect, it } from 'vitest';
 import { runMigrations, verifyMigrations } from './migrations.js';
 import { createDatabase } from './database.js';
 import { createReportFixtureAdmin } from './testing/report-fixture.js';
+import { createAdminTotpEnrollment, adminTotpStep } from '@nakh/application';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80, 81,
+    78, 79, 80, 81, 82,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -29,6 +30,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       appealId = randomUUID(),
       legacyEpisodeId = randomUUID(),
       legacySessionId = randomUUID();
+    let previousFactor: Record<string, unknown> | undefined;
     try {
       await admin.query(`CREATE DATABASE "${name}"`);
       created = true;
@@ -57,6 +59,61 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
             [legacySessionId, adminId, randomUUID()],
           );
         } finally {
+          await legacy.destroy();
+        }
+      }
+      if (baseline === 82) {
+        const legacy = createDatabase({
+          url: targetUrl.toString(),
+          poolMax: 2,
+          statementTimeoutMs: 5000,
+          lockTimeoutMs: 1000,
+        });
+        const key = randomBytes(32);
+        try {
+          const adminId = await createReportFixtureAdmin(legacy);
+          const owner = await legacy
+            .selectFrom('administration.admin_users')
+            .select('user_id')
+            .where('id', '=', adminId)
+            .executeTakeFirstOrThrow();
+          const id = randomUUID(),
+            auditId = randomUUID();
+          const at = (await target.query<{ at: Date }>('SELECT clock_timestamp() AS at')).rows[0]!
+            .at;
+          const { secret } = createAdminTotpEnrollment(
+            { actorUserId: owner.user_id, credentialId: id },
+            { keyId: 'migration-mfa-key', keyVersion: 1, key },
+          );
+          // Existing confirmed native envelope. Upgrade must retain bytes, counter and activation audit.
+          await target.query(
+            `INSERT INTO platform.audit_logs(id,category,event_type,actor_type,actor_user_id,subject_type,subject_id,result_code,metadata_schema_version,metadata,request_id,command_id,occurred_at)
+            VALUES($1,'security','administration.totp-activated.v1','user',$2,'admin_totp_credential',$3,'activated',1,'{}',$4,$5,$6)`,
+            [auditId, owner.user_id, id, randomUUID(), randomUUID(), at],
+          );
+          await target.query(
+            `INSERT INTO administration.admin_totp_credentials(id,admin_user_id,ciphertext,nonce,key_id,key_version,activated_at,activation_audit_id,last_used_step)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [
+              id,
+              adminId,
+              Buffer.from(secret.ciphertext),
+              Buffer.from(secret.nonce),
+              secret.keyId,
+              secret.keyVersion,
+              at,
+              auditId,
+              adminTotpStep(at),
+            ],
+          );
+          previousFactor = (
+            await target.query<Record<string, unknown>>(
+              'SELECT * FROM administration.admin_totp_credentials WHERE id=$1',
+              [id],
+            )
+          ).rows[0]!;
+        } finally {
+          key.fill(0);
           await legacy.destroy();
         }
       }
@@ -106,7 +163,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        82 - baseline,
+        83 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (baseline === 81) {
@@ -123,6 +180,23 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         ).toEqual([]);
         expect(
           (await target.query('SELECT id FROM administration.admin_totp_proofs')).rows,
+        ).toEqual([]);
+      }
+      if (baseline === 82) {
+        expect(
+          (
+            await target.query<Record<string, unknown>>(
+              'SELECT * FROM administration.admin_totp_credentials WHERE id=$1',
+              [previousFactor!.id],
+            )
+          ).rows,
+        ).toEqual([previousFactor]);
+        expect(
+          (await target.query('SELECT id FROM administration.admin_totp_enrollments')).rows,
+        ).toEqual([]);
+        expect(
+          (await target.query('SELECT request_id FROM administration.admin_totp_operator_commands'))
+            .rows,
         ).toEqual([]);
       }
       if (baseline === 78) {
@@ -267,6 +341,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000080_m7_snapshot_shape_projection.sql',
         '000081_m7_restoration_history_index.sql',
         '000082_m7_admin_totp.sql',
+        '000083_m7_admin_totp_enrollment.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -343,9 +418,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000080_m7_snapshot_shape_projection.sql');
       expect(verified).toContain('000081_m7_restoration_history_index.sql');
       expect(verified).toContain('000082_m7_admin_totp.sql');
+      expect(verified).toContain('000083_m7_admin_totp_enrollment.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(82);
+      expect(replay.existing).toHaveLength(83);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

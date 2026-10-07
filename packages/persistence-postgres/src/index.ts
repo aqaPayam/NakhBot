@@ -202,3 +202,5 @@ export * from './moderation-operational-health-store.js';
 export * from './admin-session-store.js';
 export * from './admin-session-policy.js';
 export * from './admin-totp-verifier.js';
+export * from './admin-totp-enrollment-store.js';
+export * from './admin-totp-operator-store.js';

@@ -1,6 +1,36 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: durable authenticator proof admission
+## Current increment: approved authenticator enrollment and recovery
+
+Migration 83 separates a trusted operator's audited approval from the authenticated user's
+authenticator confirmation. Approval assigns only the existing fixed roles, records an immutable
+request digest and creates a ten-minute, user-bound invitation. Only its hash and encrypted seed
+are retained. The stable invitation supports retries and retained encryption keys support rotation;
+an authenticated pending enrollment can recover its secret URI without generating another seed.
+Neither operator approval nor enrollment confirmation issues a session or a verification proof.
+
+Confirmation consumes the shared durable attempt budget and atomically activates the exact approved
+credential with its bound security audit. Concurrent retries return the original activation receipt.
+The confirmation counter remains consumed, so sign-in requires a later admissible counter.
+Expired, cancelled, borrowed, completed and permission-revoked enrollments cannot reveal the URI.
+An active factor cannot be replaced through first-factor authentication. A separate trusted operator
+recovery command revokes the exact factor and all current sessions with required audits before a
+new approval. Old request receipts cannot revoke a replacement credential or change their subject.
+The operational capability has no public HTTP or Telegram route; its operator identity is supplied
+by the authenticated operator host, never by an end-user request.
+
+Native evidence covers concurrent approval/opening/confirmation/revocation, request and actor
+substitution, stable invitations across key rotation, durable limits, expiry, role revocation,
+required-audit rollback and recovery. Migration evidence includes baseline-82 upgrade, preserving
+existing encrypted credentials and counters without inventing operator approvals, plus bootstrap
+and immutable replay. All six exact-head CI jobs remain required before this increment is verified.
+Authenticated host composition, exporter/alert routing and real provider/operator staging acceptance
+remain open. Ordinary startup does not install a permissive first-factor or operator fallback.
+
+The durable-proof increment on `ca97a74` passed the full local check (882 tests), all six CI jobs,
+391 native PostgreSQL tests and all 27 unchanged performance/index gates.
+
+## Previous increment: durable authenticator proof admission
 
 Migration 82 retains encrypted administrator credentials, immutable counter-bound verification
 proofs and a durable five-attempt/five-minute window. Database time and the shared administrator

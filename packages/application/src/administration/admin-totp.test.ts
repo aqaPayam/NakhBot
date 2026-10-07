@@ -4,7 +4,9 @@ import {
   adminTotpCode,
   adminTotpStep,
   createAdminTotpEnrollment,
+  createAdminTotpInvitation,
   matchAdminTotpCode,
+  recoverAdminTotpEnrollmentUri,
   verifyProtectedAdminTotp,
 } from './admin-totp.js';
 
@@ -75,6 +77,9 @@ describe('authenticator-app MFA primitives', () => {
     expect(verifyProtectedAdminTotp(subject, enrollment.secret, resolver, code, at)).toBe(
       adminTotpStep(at),
     );
+    expect(recoverAdminTotpEnrollmentUri(subject, enrollment.secret, resolver)).toBe(
+      enrollment.enrollmentUri,
+    );
     for (const changed of [
       { ...subject, actorUserId: randomUUID() },
       { ...subject, credentialId: randomUUID() },
@@ -96,5 +101,43 @@ describe('authenticator-app MFA primitives', () => {
     expect(resolved.every((copy) => copy.every((byte) => byte === 0))).toBe(true);
     expect(key.some((byte) => byte !== 0)).toBe(true);
     seed.fill(0);
+  });
+  it('derives stable secret invitations with separate request, actor, credential and key bindings', () => {
+    const key = randomBytes(32),
+      requestId = randomUUID();
+    const subject = { actorUserId: randomUUID(), credentialId: randomUUID() };
+    const encryption = { keyId: 'mfa-test-key', keyVersion: 1, key };
+    const token = createAdminTotpInvitation(subject, requestId, encryption);
+    expect(token).toMatch(/^v1\.mt\.[A-Za-z0-9_-]{43}$/u);
+    expect(createAdminTotpInvitation(subject, requestId, encryption)).toBe(token);
+    expect(createAdminTotpInvitation(subject, requestId.toUpperCase(), encryption)).toBe(token);
+    expect(createAdminTotpInvitation(subject, randomUUID(), encryption)).not.toBe(token);
+    for (const changed of [
+      { ...subject, actorUserId: randomUUID() },
+      { ...subject, credentialId: randomUUID() },
+    ])
+      expect(createAdminTotpInvitation(changed, requestId, encryption)).not.toBe(token);
+    for (const changed of [
+      { ...encryption, keyVersion: 2 },
+      { ...encryption, keyId: 'new-test-key' },
+      { ...encryption, key: randomBytes(32) },
+    ])
+      expect(createAdminTotpInvitation(subject, requestId, changed)).not.toBe(token);
+    expect(key.some((byte) => byte !== 0)).toBe(true);
+  });
+  it('sanitizes key-provider failures during enrollment recovery', () => {
+    const subject = { actorUserId: randomUUID(), credentialId: randomUUID() };
+    const enrollment = createAdminTotpEnrollment(subject, {
+      keyId: 'mfa-test-key',
+      keyVersion: 1,
+      key: randomBytes(32),
+    });
+    expect(() =>
+      recoverAdminTotpEnrollmentUri(subject, enrollment.secret, {
+        resolve: () => {
+          throw new Error('private-key-provider-detail');
+        },
+      }),
+    ).toThrow('MFA secret is unavailable.');
   });
 });
