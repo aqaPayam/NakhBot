@@ -1,5 +1,20 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
+## Current milestone status: code complete / staging blocked
+
+The implementation on `dc6487995168883cf54dfe61d9e2a0157546eb39` passed all six exact-head CI jobs,
+888 unit tests, 405 native integration tests, all 27 production-shaped M7 plans and actual pinned
+collector conversion. The collector envelope assertion failure below was diagnosed and repaired
+before acceptance work advanced. Existing report/moderation/support/appeal, separate unban,
+authorization/audit, native authenticator MFA, reconciliation and retention behavior is preserved.
+
+The [M7 acceptance ledger](30-m7-acceptance-evidence.md) records verified evidence and the
+[staging runbook](../../deploy/runbooks/m7-staging-acceptance.md) assigns the remaining provider,
+environment and operator drills. No real staging or named reviewer sign-offs have been supplied.
+This documentation candidate must pass its own full check and six CI jobs before handoff.
+Historical progress entries below describe earlier checkpoints; they do not supersede this status.
+M7 is not production-ready, and M8/M9 are outside this work.
+
 ## Current increment: pinned M7 telemetry conversion and alarms
 
 The first collector run on `fa0f8e5` started and exported successfully but failed its evidence gate.

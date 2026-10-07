@@ -64,6 +64,7 @@ Any product behavior change requires a domain-document update first. Any persist
 | [`27-m6-execution-guide.md`](27-m6-execution-guide.md) | Exact M6 chat, Unmatch, notification delivery, retention, and acceptance sequence |
 | [`28-m6-acceptance-evidence.md`](28-m6-acceptance-evidence.md) | M6 automated evidence, operational gates, external blockers, and staging handoff ledger |
 | [`29-m7-execution-guide.md`](29-m7-execution-guide.md) | Exact M7 reporting, moderation, admin, support, appeal, and acceptance sequence |
+| [`30-m7-acceptance-evidence.md`](30-m7-acceptance-evidence.md) | M7 verified automated evidence, external blockers, and staging handoff ledger |
 
 ## Locked baseline
 
