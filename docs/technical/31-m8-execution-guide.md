@@ -14,8 +14,9 @@ Completion alone never grants return. GuestPreviewCounter and immutable safety h
 
 Own-account contracts require user authority, an opaque confirmation token and an exact Account
 version. Clients cannot select another subject, set retention policy or receive private manifest
-content/provider keys. These contracts do not enable a deletion route yet; durable confirmation,
-tombstone, worker and ingress composition must be implemented and verified before activation.
+content/provider keys. The store now implements durable preparation/confirmation/cancellation and atomic tombstone admission.
+The worker, shared closure, media fences and ingress composition remain required before activation;
+no deletion route or purge worker is enabled by this increment.
 
 Identity reads now preserve deleted-account routing after settings purge, use public default locale
 and disabled visibility while deleted, and retain the original preview counter. Start replay reads
@@ -64,6 +65,20 @@ terminal snapshot took 1584.967 ms. The four action branches repeated large audi
 joins. The next candidate restores the verified two actor branches from green `7a1aab7`, retaining
 all exact history classes, while preserving the indexed episode candidate batch and physical
 audit/notice reference repair. No performance or correctness gate is weakened.
+
+Green repair `30151e9` passed all six CI jobs, 411 native tests and all 27 unchanged historical
+plans (terminal snapshot 1408.185 ms, both required indexes present).
+
+The next M8 admission increment stores only confirmation hashes with a five-minute database-clock
+expiry. An actor/version/request-bound HMAC permits preparation replay and derive-only key rotation.
+A refresh cancels old authority; confirm/cancel use one owning lock and immutable durable receipts.
+Successful confirmation saves Account deleted state/history, cleared username, a private lifecycle
+record with reactivation denied, required content-free audit/outbox and mandatory purge work in one
+transaction. A deferred constraint requires the complete exact admission chain; missing evidence
+rolls everything back. Command receipts outlive the 24-hour transport cache. Stable User locks use
+NO KEY UPDATE so Account-first moderation can complete its FK KEY SHARE while a start waits.
+Native evidence covers twenty-way preparation/request races, cancellation races, expiry, borrowed
+proofs, changed replay, required insert failure, banned deletion, checkpoint guards and lock order.
 
 ## Execution sequence
 

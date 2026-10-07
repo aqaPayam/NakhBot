@@ -6,6 +6,8 @@ import {
   AccountDeletionStatusSchema,
   RequestAccountDeletionCommandSchema,
   PrepareAccountDeletionQuerySchema,
+  CancelAccountDeletionCommandSchema,
+  RequestAccountDeletionResultSchema,
 } from './m8.js';
 
 const addFormats = formatsModule.default as unknown as (ajv: InstanceType<typeof Ajv>) => void;
@@ -17,6 +19,41 @@ function validator(schema: object): ReturnType<InstanceType<typeof Ajv>['compile
   return ajv.compile(schema);
 }
 describe('M8 own-account deletion contracts', () => {
+  it('keeps cancellation user-bound and rejects private deletion result fields', () => {
+    const cancel = validator(CancelAccountDeletionCommandSchema);
+    const command = {
+      commandId: id,
+      commandType: 'account.cancel-deletion',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId: id },
+      requestId: id,
+      idempotencyKey: 'cancel-deletion',
+      occurredAt: at,
+      locale: 'en',
+      data: { confirmationToken: 'a'.repeat(43), expectedAccountVersion: 1 },
+    };
+    expect(cancel(command)).toBe(true);
+    expect(cancel({ ...command, actor: { ...command.actor, kind: 'admin' } })).toBe(false);
+    expect(cancel({ ...command, data: { ...command.data, userId: id } })).toBe(false);
+    const result = validator(RequestAccountDeletionResultSchema);
+    const own = {
+      status: {
+        phase: 'shared_closure',
+        requestedAt: at,
+        completedAt: null,
+        returnDecision: 'purge_pending',
+      },
+      accountVersion: 2,
+      replayed: false,
+    };
+    expect(result(own)).toBe(true);
+    for (const extra of [
+      { deletionRecordId: id },
+      { confirmationToken: 'a'.repeat(43) },
+      { manifest: [] },
+    ])
+      expect(result({ ...own, ...extra })).toBe(false);
+  });
   it('represents absent deleted settings without admitting zero-version live settings or old routes', () => {
     const validate = validator(AccountContextSchema);
     const deleted = {

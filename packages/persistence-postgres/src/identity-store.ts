@@ -375,12 +375,13 @@ export class PostgresIdentityStore implements IdentityStore {
         await this.createFirstStartAggregate(transaction, write);
         context = await this.getContext(transaction, write.command.data.telegramUserId);
       } else {
-        // Same lock order as account mutations: a start must not restore a username after deletion.
+        // Stable User keys do not change; allow Account-first moderation's FK KEY SHARE.
+        // Serialize product mutations without restoring a username after deletion.
         await transaction
           .selectFrom('identity.users')
           .select('id')
           .where('id', '=', context!.userId)
-          .forUpdate()
+          .forNoKeyUpdate()
           .executeTakeFirstOrThrow();
         await transaction
           .selectFrom('identity.accounts')

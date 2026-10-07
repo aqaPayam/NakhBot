@@ -204,3 +204,4 @@ export * from './admin-session-policy.js';
 export * from './admin-totp-verifier.js';
 export * from './admin-totp-enrollment-store.js';
 export * from './admin-totp-operator-store.js';
+export * from './account-deletion-store.js';

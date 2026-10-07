@@ -15,7 +15,7 @@ const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80, 81, 82, 83,
+    78, 79, 80, 81, 82, 83, 84,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -171,7 +171,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        84 - baseline,
+        85 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (baseline === 83) {
@@ -360,6 +360,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000082_m7_admin_totp.sql',
         '000083_m7_admin_totp_enrollment.sql',
         '000084_m7_parallel_pair_target.sql',
+        '000085_m8_deletion_admission.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -437,10 +438,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000081_m7_restoration_history_index.sql');
       expect(verified).toContain('000082_m7_admin_totp.sql');
       expect(verified).toContain('000083_m7_admin_totp_enrollment.sql');
-      expect(verified).toContain('000084_m7_parallel_pair_target.sql');
+      expect(verified).toContain('000085_m8_deletion_admission.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(84);
+      expect(replay.existing).toHaveLength(85);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

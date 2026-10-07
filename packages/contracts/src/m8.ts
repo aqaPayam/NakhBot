@@ -60,6 +60,20 @@ export const RequestAccountDeletionCommandSchema = Type.Object(
 );
 export type RequestAccountDeletionCommand = Static<typeof RequestAccountDeletionCommandSchema>;
 
+export const CancelAccountDeletionCommandSchema = Type.Object(
+  {
+    ...RequestAccountDeletionCommandSchema.properties,
+    commandType: Type.Literal('account.cancel-deletion'),
+  },
+  { additionalProperties: false },
+);
+export type CancelAccountDeletionCommand = Static<typeof CancelAccountDeletionCommandSchema>;
+export const CancelAccountDeletionResultSchema = Type.Object(
+  { cancelled: Type.Literal(true), replayed: Type.Boolean() },
+  { additionalProperties: false },
+);
+export type CancelAccountDeletionResult = Static<typeof CancelAccountDeletionResultSchema>;
+
 /** Own lifecycle only: no user selector, retained evidence, provider keys or private manifest rows. */
 export const GetAccountDeletionStatusQuerySchema = Type.Object(
   { actor, requestId: UuidSchema },
@@ -91,3 +105,8 @@ export const AccountDeletionStatusSchema = Type.Union([
   ),
 ]);
 export type AccountDeletionStatus = Static<typeof AccountDeletionStatusSchema>;
+export const RequestAccountDeletionResultSchema = Type.Object(
+  { status: AccountDeletionStatusSchema, accountVersion: version, replayed: Type.Boolean() },
+  { additionalProperties: false },
+);
+export type RequestAccountDeletionResult = Static<typeof RequestAccountDeletionResultSchema>;
