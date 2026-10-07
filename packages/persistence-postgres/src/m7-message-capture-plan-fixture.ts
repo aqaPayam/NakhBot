@@ -156,7 +156,7 @@ export async function seedM7MessageCapturePlans(
         evidence_type: 'message',
         profile_id: null,
         profile_photo_id: null,
-        chat_session_id: sessionId,
+        chat_session_id: null,
         chat_message_id: messageId,
         unmatch_record_id: null,
         created_at: capturedAt,

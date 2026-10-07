@@ -30,6 +30,14 @@ migration 81 bootstrap, upgrade and immutable replay remain required. Real MFA p
 provisioning, exporter/alerts, provider/operator staging and M8/M9 remain open. This increment is
 unverified until all six exact-head jobs pass.
 
+The first message-volume run passed 381 of 382 native tests but failed fixture insertion
+against `report_evidence_typed_reference_ck`, before measured plan evidence was produced.
+Message evidence must contain only its message reference; its session belongs to the separate
+M6 snapshot envelope. The fixture now leaves the evidence session null and retains the exact
+session in the snapshot and reader subject. The physical constraint, all typed rejection cases,
+original populations and performance gates remain unchanged. No next feature advances until
+the repaired commit passes all six jobs.
+
 ## Previous increment: persisted encrypted captures at production query volume
 
 Both measured scenes now retain every original fixture and add 20,000 synthetic Report/evidence
