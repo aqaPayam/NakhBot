@@ -104,6 +104,14 @@ reconciliation preserves every flag and its original scope. Fifteen focused nati
 including resolution corruption and scanner/metric parity. The isolated 1000-volume probe is
 diagnostic only; full-volume Linux CI must still pass every original plan and index requirement.
 
+Repair `684870f` passed quality, all four images and all 422 native tests. Both required indexes
+remained, but the terminal snapshot still took 1560.106 ms. Its action branch performed 20006
+separate Report probes. The next repair removes that forced parameterized relation and lets the
+primary-key join select a dense batch plan; every owning Report predicate remains unchanged.
+The isolated 1000-volume diagnostic improved terminal action evaluation from 42.906 to 37.908 ms
+and the snapshot from 122.696 to 112.870 ms. This is topology evidence, not full-volume acceptance.
+All fifteen focused native threshold, action-corruption, scanner/metric and health tests pass.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,
