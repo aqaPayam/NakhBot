@@ -22,6 +22,8 @@ import {
   type NakhDatabase,
   type AuditLogTable,
   type NotificationTable,
+  type ModerationActionTable,
+  type AdminActionLogTable,
 } from './database.js';
 import {
   applyModerationThreshold,
@@ -831,12 +833,28 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
     expect((await scanRestrictionEpisodes(database, cursor, 1)).findings).toEqual([]);
     const attempt = await database
       .selectFrom('administration.admin_action_logs')
-      .select('request_digest')
+      .select([
+        'request_digest',
+        'request_id',
+        'command_id',
+        'command_code',
+        'target_type',
+        'target_id',
+        'admin_user_id',
+        'result',
+      ])
       .where('command_id', '=', resolutionCommandId)
       .executeTakeFirstOrThrow();
     const resolution = await database
       .selectFrom('moderation.moderation_actions')
-      .select('id')
+      .select([
+        'id',
+        'actor_admin_id',
+        'target_user_id',
+        'reason_code',
+        'occurred_at',
+        'restriction_episode_id',
+      ])
       .where('command_id', '=', resolutionCommandId)
       .executeTakeFirstOrThrow();
     const samples = new PostgresModerationIntegrityMetricsStore(database),
@@ -883,6 +901,65 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
     }
     expect((await samples.measure()).counts).toEqual(baseline.counts);
     expect((await scanRestrictionEpisodes(database, cursor, 1)).findings).toEqual([]);
+    const bindings: readonly (
+      | Readonly<{ table: 'action'; patch: Updateable<ModerationActionTable> }>
+      | Readonly<{ table: 'attempt'; patch: Updateable<AdminActionLogTable> }>
+    )[] = [
+      { table: 'action', patch: { actor_admin_id: randomUUID() } },
+      { table: 'action', patch: { target_user_id: randomUUID() } },
+      { table: 'action', patch: { reason_code: 'other_resolution' } },
+      { table: 'action', patch: { occurred_at: new Date(resolution.occurred_at.getTime() + 1) } },
+      { table: 'action', patch: { restriction_episode_id: randomUUID() } },
+      { table: 'attempt', patch: { request_id: randomUUID() } },
+      { table: 'attempt', patch: { command_id: randomUUID() } },
+      { table: 'attempt', patch: { admin_user_id: randomUUID() } },
+      { table: 'attempt', patch: { command_code: 'support.reveal-thread' } },
+      { table: 'attempt', patch: { target_type: 'support_thread' } },
+      { table: 'attempt', patch: { target_id: randomUUID() } },
+    ];
+    for (const binding of bindings) {
+      await corrupt(async (tx) => {
+        if (binding.table === 'action')
+          await tx
+            .updateTable('moderation.moderation_actions')
+            .set(binding.patch)
+            .where('id', '=', resolution.id)
+            .execute();
+        else
+          await tx
+            .updateTable('administration.admin_action_logs')
+            .set(binding.patch)
+            .where('command_id', '=', resolutionCommandId)
+            .execute();
+      });
+      try {
+        expect(
+          (await scanRestrictionEpisodes(database, cursor, 1)).findings.map(
+            (row) => row.anomalyType,
+          ),
+        ).toEqual(['threshold_episode_resolution_missing']);
+        expect((await samples.measure()).counts.episodes).toBe(baseline.counts.episodes + 1);
+        expect((await healthStore.measure()).thresholdMismatchCount).toBe(
+          healthBefore.thresholdMismatchCount + 1,
+        );
+      } finally {
+        await corrupt(async (tx) => {
+          if (binding.table === 'action')
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set(resolution)
+              .where('id', '=', resolution.id)
+              .execute();
+          else
+            await tx
+              .updateTable('administration.admin_action_logs')
+              .set(attempt)
+              .where('command_id', '=', binding.patch.command_id ?? resolutionCommandId)
+              .execute();
+        });
+      }
+      expect((await samples.measure()).counts).toEqual(baseline.counts);
+    }
   });
 
   it('counts later commits when the fifth report transaction began first', async () => {

@@ -33,13 +33,21 @@ export async function withModerationIntegrityRead<T>(
 export function moderationIntegrityPhaseStatement(
   phase: ModerationReconciliationPhase,
 ): RawBuilder<IntegrityRow> {
+  // Dense terminal populations often fail this cheap existence flag. Evaluate it
+  // before witness/history/JSON bindings so OR can stop after a known violation.
+  // Keep every flag and the paged scanner's diagnostic ordering unchanged.
+  const flags =
+    phase === 'episodes'
+      ? [
+          'hasResolutionAttempt',
+          ...MODERATION_INTEGRITY_FLAGS[phase].filter((flag) => flag !== 'hasResolutionAttempt'),
+        ]
+      : MODERATION_INTEGRITY_FLAGS[phase];
   return sql<{ phase: ModerationReconciliationPhase; sampledAt: Date; count: string }>`
       SELECT ${phase}::text AS phase, statement_timestamp() AS "sampledAt", count(*)::text AS count
       FROM (${MODERATION_INTEGRITY_SOURCES[phase]}) probe
       WHERE ${sql.join(
-        MODERATION_INTEGRITY_FLAGS[phase].map(
-          (flag) => sql`${sql.ref(`probe.${flag}`)} IS NOT TRUE`,
-        ),
+        flags.map((flag) => sql`${sql.ref(`probe.${flag}`)} IS NOT TRUE`),
         sql` OR `,
       )}
     `;

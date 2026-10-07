@@ -25,6 +25,14 @@ starts and a start blocked behind a committing tombstone. Live accounts missing 
 fail closed rather than attempting to register another identity. These are lifecycle prerequisites;
 they do not authorize return or enable deletion ingress.
 
+M8 prerequisite commit `27ddf1d` passed quality, all four images and 411 native tests, but its
+terminal M7 integrity snapshot took 1618.507 ms against the unchanged 1500 ms budget. No disk spill
+or missing parallel worker explained the failure. The repair uses a set join for exact historical
+resolution candidates and evaluates the cheap resolution-existence violation first in aggregate
+sampling. All owning bindings and paged diagnostic ordering remain; eleven additional single-field
+corruption probes compare scanner, current metrics and health findings, then verify repair. The
+candidate must pass the complete exact-head CI, including all 27 plans, before more M8 features.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,

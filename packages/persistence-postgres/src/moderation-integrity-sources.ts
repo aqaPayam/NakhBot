@@ -191,16 +191,15 @@ SELECT review.id, COALESCE(report.id IS NOT NULL AND (
   episodes: sql`
 WITH resolution_facts AS MATERIALIZED (
     SELECT owner.id AS restriction_episode_id FROM moderation.restriction_episodes owner
-    JOIN LATERAL (
-      -- Enumerate indexed candidates; validate every attempt before grouping existence.
-      SELECT resolution.actor_admin_id, resolution.command_id, resolution.request_id, resolution.request_digest
-      FROM moderation.moderation_actions resolution
-      WHERE resolution.restriction_episode_id = owner.id AND resolution.action_type = 'unrestrict_user'
+    -- A set join lets dense historical populations use the covering resolution index
+    -- once instead of forcing a parameterized lookup for every resolved episode.
+    -- Validate every candidate and attempt before grouping existence, including
+    -- duplicate valid/invalid candidates. All original owner bindings remain.
+    JOIN moderation.moderation_actions resolution
+      ON resolution.restriction_episode_id = owner.id AND resolution.action_type = 'unrestrict_user'
         AND resolution.actor_type = 'admin' AND resolution.actor_admin_id = owner.resolved_by_admin_id
         AND resolution.target_user_id = owner.target_user_id AND resolution.reason_code = owner.resolution_reason_code
         AND resolution.occurred_at = owner.resolved_at
-      OFFSET 0
-    ) resolution ON true
     JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
       AND attempt.command_id = resolution.command_id AND attempt.request_id = resolution.request_id
       AND attempt.request_digest = resolution.request_digest AND attempt.result = 'succeeded'
