@@ -2,6 +2,19 @@
 
 ## Current increment: persisted M6 message captures at production query volume
 
+Current stopping scope is M7 completion: every commit must pass the full local check,
+be pushed to main and pass all six exact-head CI jobs before another increment begins.
+M7 still requires concrete MFA enrollment/provisioning, exporter/alert routing and real
+provider/operator staging acceptance. M8/M9 remain separate later milestones.
+
+The repaired message-reference run on `1ae67a1` passed PostgreSQL reliability and all
+four container builds, including the typed M6 capture and unchanged performance gates.
+Quality passed the full local-equivalent check but failed the production dependency audit:
+`sharp` 0.35.4 is affected by GHSA-wq5f-xc86-pv6w. The worker now pins the maintainer's
+patched 0.35.5 release, with its matching native packages in the lockfile. Image limits,
+accepted formats, audit policy and all volume/index gates remain unchanged. Existing
+image/blur tests, the full check, production audit and all six CI jobs remain required.
+
 The encrypted-capture increment is verified on `460fe26`: all six CI jobs passed,
 including 382 PostgreSQL tests. Baseline/terminal combined sampling measured 992/1,268 ms
 against the unchanged 1,500 ms budgets, with every required index and original population intact.
