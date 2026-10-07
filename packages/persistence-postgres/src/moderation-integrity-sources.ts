@@ -227,16 +227,16 @@ WITH resolution_facts AS MATERIALIZED (
         AND attempt.request_digest = resolution.request_digest
         AND attempt.target_id = owner.target_user_id,false)) AS valid
     FROM moderation.restriction_episodes owner
-    -- Ordered covering-index candidates are independent of the episode scan. The
-    -- boundary keeps a dense set join without reversing into attempt-key probes.
-    JOIN (
+    -- Preserve the episode-specific covering-index lookup. A free dense join
+    -- can prefer sorting the entire action table despite its ordered boundary.
+    JOIN LATERAL (
       SELECT restriction_episode_id, actor_admin_id, target_user_id, reason_code,
         occurred_at, command_id, request_id, request_digest
       FROM moderation.moderation_actions
       WHERE restriction_episode_id IS NOT NULL AND actor_type = 'admin'
-        AND action_type = 'unrestrict_user'
-      ORDER BY restriction_episode_id OFFSET 0
-    ) resolution ON resolution.restriction_episode_id = owner.id
+        AND action_type = 'unrestrict_user' AND restriction_episode_id = owner.id
+      OFFSET 0
+    ) resolution ON true
     LEFT JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
       AND attempt.command_id = resolution.command_id AND attempt.result = 'succeeded'
       AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'

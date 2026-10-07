@@ -35,7 +35,7 @@ candidate must pass the complete exact-head CI, including all 27 plans, before m
 
 Repair candidate `cc24bd3` passed all 411 native tests and five CI jobs, but the terminal snapshot
 took 1772.502 ms and the free set join lost the required resolution-index path. Its replacement
-keeps an ordered covering-index candidate boundary, validates owner/request/digest fields outside
+keeps an episode-specific covering-index candidate boundary, validates owner/request/digest fields outside
 the narrow physical-key joins, and separates administrator admission, restoration and non-account
 actions into exhaustive branches with distinct exact history sets. Resolution facts preserve both
 valid and invalid candidates through grouping. Episode audit/notice joins use unique references,
@@ -44,6 +44,11 @@ audit scan observed in the isolated 1,000-episode diagnostic (124 ms terminal sn
 materialized rescan). That smaller probe is not production acceptance. No safety binding, historical
 plan, fixture volume, repeated sample, required index or execution budget is removed. Native
 account, photo, corruption, metrics and health evidence precedes another complete exact-head CI.
+
+Repair `e8405a7` passed five jobs and every 1,500 ms execution limit (terminal snapshot
+1379.550 ms), but PostgreSQL selected a full action scan/sort instead of the required resolution
+index. The next candidate restores the parameterized episode lookup while retaining grouped
+validation and the audit/notice scan repair. Index requirements remain unchanged.
 
 ## Execution sequence
 
