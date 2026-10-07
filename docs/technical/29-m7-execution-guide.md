@@ -1,6 +1,30 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: persisted M6 message captures at production query volume
+## Current increment: authenticator-app MFA cryptography
+
+The user selected authenticator-app codes. The new application primitive uses RFC 6238
+HMAC-SHA1, a random 160-bit seed, six digits and 30-second counters, with a fixed previous/
+current/next counter tolerance. Verification returns the exact matched counter for native
+replay control. Codes are strict ASCII and every admissible counter is compared before returning.
+The enrollment URI follows the Google Authenticator key URI format; it is secret material
+for an authenticated enrollment channel, never a log, audit fact or public response.
+
+AES-256-GCM protects the seed with purpose/version, administrator, credential and encryption
+key/version as authenticated bindings. A trusted key resolver permits retained-key rotation;
+verification does not return plaintext. Local mutable seed/key buffers are cleared after use,
+without claiming complete process-memory erasure. Unit evidence includes the published SHA1
+vectors, leading zeroes, clock boundaries and rejection of substituted subjects, keys, nonce
+and tag. These primitives alone grant no session: persisted enrollment confirmation, rate limits,
+atomic counter consumption, revocation rechecks and audited provisioning remain the next increment.
+Ordinary startup has no permissive MFA fallback. No schema or runtime composition changes yet.
+
+The dependency repair and persisted typed-message increment are verified on `ede87c0`:
+all six CI jobs passed, including all native PostgreSQL and unchanged 27 performance gates.
+Both scenes retained 20,000 integrity-verified message captures, all eight rejection populations,
+and the unchanged admission population. M7 completion still requires concrete enrollment/
+provisioning, exporter/alert routing and real provider/operator staging acceptance.
+
+## Previous increment: persisted M6 message captures at production query volume
 
 Current stopping scope is M7 completion: every commit must pass the full local check,
 be pushed to main and pass all six exact-head CI jobs before another increment begins.
@@ -40,8 +64,8 @@ Trigger/FK bypass and rollback remain isolated fixture setup; native admission, 
 audited evidence release and provider/operator acceptance are separate required evidence.
 Rollback checks now explicitly include M6 snapshots. No migration or catalog change is introduced:
 migration 81 bootstrap, upgrade and immutable replay remain required. Real MFA provider/enrollment/
-provisioning, exporter/alerts, provider/operator staging and M8/M9 remain open. This increment is
-unverified until all six exact-head jobs pass.
+provisioning, exporter/alerts, provider/operator staging and M8/M9 remain open. The typed-message
+increment and dependency repair passed all six exact-head jobs on `ede87c0`.
 
 The first message-volume run passed 381 of 382 native tests but failed fixture insertion
 against `report_evidence_typed_reference_ck`, before measured plan evidence was produced.
