@@ -1,5 +1,20 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
+## Current repair: threshold audit and notice candidate joins
+
+The documentation head `1e3140b` passed quality, all four images and 405 native tests, but its terminal
+integrity sample took 1,640 ms against the unchanged 1,500 ms limit. It launched its planned worker,
+with no temporary blocks or multi-batch hashes. The threshold phase still used wide audit and
+notification join keys, including expected metadata, instead of their primary-key candidates.
+
+The repair joins each candidate by its unique identifier and checks every original owner, actor,
+request, command, timestamp, metadata, schema, localization, deduplication and delivery binding in
+the corresponding flag. Missing/null candidates still fail; no predicate or fixture is removed.
+Native corruption probes exercise eighteen additional audit/notice variations and verify identical
+scanner, current-count and health behavior, then restore each row. The original eight native
+threshold tests passed locally. Full check and all six exact-head CI jobs remain required before
+this repair is verified; the failed documentation head is not a staging candidate.
+
 ## Current milestone status: code complete / staging blocked
 
 The implementation on `dc6487995168883cf54dfe61d9e2a0157546eb39` passed all six exact-head CI jobs,

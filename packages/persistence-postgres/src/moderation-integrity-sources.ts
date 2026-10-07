@@ -220,8 +220,21 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
         AND history.previous_state IN ('guest','incomplete','active') AND history.next_state = 'restricted'
         AND history.reason_code = 'distinct_reporter_threshold'
     ),false) AS "hasRestrictionHistory",
-    action.id IS NULL OR restriction_audit.id IS NOT NULL AS "hasRestrictionAudit",
-    action.id IS NULL OR (restriction_notice.id IS NOT NULL AND telegram_delivery.notification_id IS NOT NULL) AS "hasRestrictionNotice",
+    action.id IS NULL OR COALESCE(restriction_audit.id IS NOT NULL
+      AND restriction_audit.category = 'security' AND restriction_audit.event_type = 'moderation.threshold-restriction.v1'
+      AND restriction_audit.actor_type = 'system' AND restriction_audit.actor_admin_id IS NULL AND restriction_audit.actor_user_id IS NULL
+      AND restriction_audit.subject_type = 'user' AND restriction_audit.subject_id = episode.target_user_id
+      AND restriction_audit.result_code = 'restricted' AND restriction_audit.metadata_schema_version = 1
+      AND restriction_audit.metadata = expected_audit.metadata
+      AND restriction_audit.command_id = action.command_id AND restriction_audit.request_id = action.request_id
+      AND restriction_audit.occurred_at = action.occurred_at,false) AS "hasRestrictionAudit",
+    action.id IS NULL OR COALESCE(restriction_notice.id IS NOT NULL
+      AND restriction_notice.user_id = episode.target_user_id AND restriction_notice.notification_type = 'restriction_warning'
+      AND restriction_notice.category = 'restriction' AND restriction_notice.title_key = 'notification.restriction_warning.title'
+      AND restriction_notice.body_key = 'notification.restriction_warning.body' AND restriction_notice.payload = '{}'::jsonb
+      AND restriction_notice.payload_schema_version = 1
+      AND restriction_notice.deduplication_key = 'moderation-threshold:' || episode.id::text || ':restriction'
+      AND telegram_delivery.notification_id IS NOT NULL,false) AS "hasRestrictionNotice",
     episode.status <> 'resolved' OR resolution_binding.restriction_episode_id IS NOT NULL AS "hasResolutionAttempt"
     FROM moderation.restriction_episodes episode
     LEFT JOIN resolution_facts resolution_binding ON resolution_binding.restriction_episode_id = episode.id
@@ -247,20 +260,18 @@ SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.
       SELECT jsonb_build_object('reasonCode','distinct_reporter_threshold',
         'distinctReporterCount',episode.distinct_reporter_count) AS metadata OFFSET 0
     ) expected_audit ON true
+    -- Primary keys give one candidate each. Validate every metadata/content-free binding
+    -- in its flag instead of hashing wide tuples and rebuilding expected JSON in join keys.
     LEFT JOIN platform.audit_logs restriction_audit ON restriction_audit.id = action.audit_log_id
       AND restriction_audit.category = 'security' AND restriction_audit.event_type = 'moderation.threshold-restriction.v1'
       AND restriction_audit.actor_type = 'system' AND restriction_audit.actor_admin_id IS NULL AND restriction_audit.actor_user_id IS NULL
-      AND restriction_audit.subject_type = 'user' AND restriction_audit.subject_id = episode.target_user_id
-      AND restriction_audit.result_code = 'restricted' AND restriction_audit.metadata_schema_version = 1
-      AND restriction_audit.metadata = expected_audit.metadata
-      AND restriction_audit.command_id = action.command_id AND restriction_audit.request_id = action.request_id
-      AND restriction_audit.occurred_at = action.occurred_at
+      AND restriction_audit.subject_type = 'user' AND restriction_audit.result_code = 'restricted'
+      AND restriction_audit.metadata_schema_version = 1
     LEFT JOIN notification.notifications restriction_notice ON restriction_notice.id = action.notification_id
-      AND restriction_notice.user_id = episode.target_user_id AND restriction_notice.notification_type = 'restriction_warning'
-      AND restriction_notice.category = 'restriction' AND restriction_notice.title_key = 'notification.restriction_warning.title'
-      AND restriction_notice.body_key = 'notification.restriction_warning.body' AND restriction_notice.payload = '{}'::jsonb
-      AND restriction_notice.payload_schema_version = 1
-      AND restriction_notice.deduplication_key = 'moderation-threshold:' || episode.id::text || ':restriction'
+      AND restriction_notice.notification_type = 'restriction_warning' AND restriction_notice.category = 'restriction'
+      AND restriction_notice.title_key = 'notification.restriction_warning.title'
+      AND restriction_notice.body_key = 'notification.restriction_warning.body'
+      AND restriction_notice.payload = '{}'::jsonb AND restriction_notice.payload_schema_version = 1
     LEFT JOIN (SELECT DISTINCT notification_id FROM notification.notification_deliveries WHERE channel = 'telegram')
       telegram_delivery ON telegram_delivery.notification_id = restriction_notice.id
 `,

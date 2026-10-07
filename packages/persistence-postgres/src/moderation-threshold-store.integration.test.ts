@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
-import { sql } from 'kysely';
+import { sql, type Updateable } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { ModerationThresholdWrite } from '@nakh/application';
@@ -17,7 +17,12 @@ import { createReportFixtureAdmin } from './testing/report-fixture.js';
 import { PostgresModerationIntegrityMetricsStore } from './moderation-integrity-metrics-store.js';
 import { PostgresM7OperationalHealthStore } from './moderation-operational-health-store.js';
 
-import { createDatabase, type NakhDatabase } from './database.js';
+import {
+  createDatabase,
+  type NakhDatabase,
+  type AuditLogTable,
+  type NotificationTable,
+} from './database.js';
 import {
   applyModerationThreshold,
   PostgresModerationThresholdStore,
@@ -634,6 +639,64 @@ describe.skipIf(databaseUrl === undefined)('M7 threshold restriction persistence
           await tx.insertInto('notification.notification_deliveries').values(delivery).execute();
         },
       },
+      ...(
+        [
+          { category: 'account' },
+          { event_type: 'moderation.synthetic.v1' },
+          { actor_type: 'user', actor_user_id: history.user_id },
+          { actor_type: 'admin', actor_admin_id: randomUUID() },
+          { subject_type: 'report' },
+          { subject_id: randomUUID() },
+          { result_code: 'synthetic' },
+          { metadata_schema_version: 2 },
+          { command_id: randomUUID() },
+          { request_id: randomUUID() },
+          { occurred_at: new Date(audit.occurred_at.getTime() + 1) },
+        ] satisfies Updateable<AuditLogTable>[]
+      ).map((patch) => ({
+        anomaly: 'threshold_episode_audit_invalid',
+        break: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('platform.audit_logs')
+            .set(patch)
+            .where('id', '=', audit.id)
+            .execute();
+        },
+        repair: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('platform.audit_logs')
+            .set(audit)
+            .where('id', '=', audit.id)
+            .execute();
+        },
+      })),
+      ...(
+        [
+          { user_id: randomUUID() },
+          { notification_type: 'ban_warning', category: 'ban' },
+          { body_key: 'notification.synthetic.body' },
+          { payload: { unexpected: true } },
+          { payload_schema_version: 2 },
+          { deduplication_key: `synthetic-threshold:${randomUUID()}` },
+          { deduplication_key: null },
+        ] satisfies Updateable<NotificationTable>[]
+      ).map((patch) => ({
+        anomaly: 'threshold_episode_notice_invalid',
+        break: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('notification.notifications')
+            .set(patch)
+            .where('id', '=', notice.id)
+            .execute();
+        },
+        repair: async (tx: NakhDatabase): Promise<void> => {
+          await tx
+            .updateTable('notification.notifications')
+            .set(notice)
+            .where('id', '=', notice.id)
+            .execute();
+        },
+      })),
     ];
     for (const probe of cases) {
       await corrupt(probe.break);
