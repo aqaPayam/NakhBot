@@ -8,7 +8,7 @@ import {
 } from '@nakh/application';
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
-import { requireNativeAdminSessions } from './admin-session-policy.js';
+import { nativeAdminTotpRequired, requireNativeAdminSessions } from './admin-session-policy.js';
 type Identity = { id: string; user_id: string; telegram_user_id: string; version: number };
 type Session = {
   id: string;
@@ -21,7 +21,10 @@ type Session = {
 };
 /** Only hashes and bounded verification times are retained; factor proof and bearer never enter SQL. */
 export class PostgresAdminSessionStore implements AdminSessionStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  public constructor(
+    private readonly database: NakhDatabase,
+    private readonly requireTotp = false,
+  ) {}
   private async audit(
     database: NakhDatabase,
     sessionId: string,
@@ -75,6 +78,23 @@ export class PostgresAdminSessionStore implements AdminSessionStore {
       const verified = input.proof.verifiedAt,
         expiry = new Date(Math.min(input.proof.expiresAt.getTime(), verified.getTime() + 300000));
       if (verified.getTime() > at.getTime() || expiry.getTime() <= at.getTime()) return undefined;
+      if (
+        (this.requireTotp || nativeAdminTotpRequired(this.database)) &&
+        input.proof.totpCredentialId === undefined
+      )
+        return undefined;
+      if (input.proof.totpCredentialId !== undefined) {
+        const currentProof = (
+          await sql`SELECT proof.id FROM administration.admin_totp_proofs proof
+          JOIN administration.admin_totp_credentials credential ON credential.id=proof.credential_id
+          WHERE proof.id=${input.proof.proofId}::uuid AND proof.credential_id=${input.proof.totpCredentialId}::uuid
+          AND proof.admin_user_id=${admin.id}::uuid AND proof.admin_version=${admin.version}
+          AND proof.verified_at=${verified}::timestamptz AND proof.expires_at=${expiry}::timestamptz
+          AND credential.last_used_step=proof.matched_step
+          AND credential.revoked_at IS NULL`.execute(tx)
+        ).rows[0];
+        if (currentProof === undefined) return undefined;
+      }
       // Serialize proof admission and supersession on the verified admin, reject reused proof globally.
       const used = (
         await sql`SELECT id FROM administration.admin_sessions WHERE mfa_proof_id=${input.proof.proofId}::uuid`.execute(
@@ -92,8 +112,8 @@ export class PostgresAdminSessionStore implements AdminSessionStore {
       const sessionId = randomUUID(),
         expiresAt = new Date(at.getTime() + 900000);
       const inserted = (
-        await sql`INSERT INTO administration.admin_sessions(id,admin_user_id,admin_version,token_hash,mfa_proof_id,issued_at,expires_at,mfa_verified_at,mfa_expires_at)
-        VALUES (${sessionId}::uuid,${admin.id}::uuid,${admin.version},${input.tokenHash},${input.proof.proofId}::uuid,${at}::timestamptz,${expiresAt}::timestamptz,${verified}::timestamptz,${expiry}::timestamptz)
+        await sql`INSERT INTO administration.admin_sessions(id,admin_user_id,admin_version,token_hash,mfa_proof_id,issued_at,expires_at,mfa_verified_at,mfa_expires_at,totp_credential_id)
+        VALUES (${sessionId}::uuid,${admin.id}::uuid,${admin.version},${input.tokenHash},${input.proof.proofId}::uuid,${at}::timestamptz,${expiresAt}::timestamptz,${verified}::timestamptz,${expiry}::timestamptz,${input.proof.totpCredentialId ?? null}::uuid)
         ON CONFLICT (mfa_proof_id) DO NOTHING RETURNING id`.execute(tx)
       ).rows;
       if (inserted.length !== 1) throw new Error('Admin session admission unavailable.');
@@ -118,9 +138,12 @@ export class PostgresAdminSessionStore implements AdminSessionStore {
       session.admin_user_id,session.admin_version,session.expires_at,session.mfa_expires_at,session.revoked_at,session.issued_at
       FROM administration.admin_sessions session JOIN administration.admin_users admin ON admin.id=session.admin_user_id
       JOIN identity.telegram_identities identity ON identity.user_id=admin.user_id AND identity.telegram_user_id=admin.telegram_user_id
+      LEFT JOIN administration.admin_totp_credentials credential ON credential.id=session.totp_credential_id
       WHERE ${input.tokenHash === undefined ? sql`admin.telegram_user_id=${input.telegramUserId}::bigint` : sql`session.token_hash=${input.tokenHash}`}
       AND session.revoked_at IS NULL AND admin.is_active AND admin.identity_verified_at IS NOT NULL
       AND session.admin_version=admin.version AND session.expires_at>statement_timestamp() AND session.mfa_expires_at>statement_timestamp()
+      AND (session.totp_credential_id IS NULL OR (credential.id IS NOT NULL AND credential.revoked_at IS NULL))
+      AND ${this.requireTotp || nativeAdminTotpRequired(this.database) ? sql`session.totp_credential_id IS NOT NULL` : sql`true`}
       AND EXISTS(SELECT 1 FROM administration.admin_user_roles assignment
         JOIN administration.admin_roles role ON role.code=assignment.role_code AND role.is_active
         JOIN administration.admin_role_permissions permission ON permission.role_code=role.code

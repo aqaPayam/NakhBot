@@ -7,12 +7,19 @@ export type VerifiedAdminMfaProof = Readonly<{
   proofId: string;
   verifiedAt: Date;
   expiresAt: Date;
+  /** Present only for a native authenticator proof; current credential is rechecked during issuance. */
+  totpCredentialId?: string;
 }>;
 export interface AdminMfaProofVerifier {
   /** Trusted factor provider: verifies the factor, binds both identities, returns a stable one-use proof ID.
    * Client-supplied expiry/identity and a newly generated ID on each validation are forbidden. */
   verify(
-    input: Readonly<{ actorUserId: string; telegramUserId: string; proof: string }>,
+    input: Readonly<{
+      actorUserId: string;
+      telegramUserId: string;
+      proof: string;
+      requestId: string;
+    }>,
   ): Promise<VerifiedAdminMfaProof | undefined>;
 }
 export type CurrentAdminSession = Readonly<{
@@ -73,6 +80,7 @@ export class AdminSessionService {
         actorUserId: input.actor.userId,
         telegramUserId: input.telegramUserId,
         proof: input.proof,
+        requestId: input.requestId,
       });
     } catch {
       throw new ApplicationError('internal_error', 'error.m7.internal', 500);
@@ -81,7 +89,10 @@ export class AdminSessionService {
       proof === undefined ||
       proof.actorUserId !== input.actor.userId ||
       proof.telegramUserId !== input.telegramUserId ||
+      typeof proof.proofId !== 'string' ||
       !UUID.test(proof.proofId) ||
+      (proof.totpCredentialId !== undefined &&
+        (typeof proof.totpCredentialId !== 'string' || !UUID.test(proof.totpCredentialId))) ||
       !(proof.verifiedAt instanceof Date) ||
       !(proof.expiresAt instanceof Date) ||
       !Number.isFinite(proof.verifiedAt.getTime()) ||

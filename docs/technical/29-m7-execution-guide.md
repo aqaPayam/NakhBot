@@ -1,6 +1,38 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current increment: authenticator-app MFA cryptography
+## Current increment: durable authenticator proof admission
+
+Migration 82 retains encrypted administrator credentials, immutable counter-bound verification
+proofs and a durable five-attempt/five-minute window. Database time and the shared administrator
+row lock serialize proof verification with session issuance and future enrollment/revocation.
+The actual encrypted seed is authenticated against its administrator and credential before
+the bounded authenticator comparison. Each accepted counter gets one stable proof and bound
+security audit; retries cannot manufacture another proof. The enrollment-confirmation counter
+has no session proof and cannot be reused. Audit failure rolls back counter consumption and proof.
+
+Native TOTP composition requires credential provenance. Session issuance rechecks the current
+credential, latest admitted counter, administrator version and exact proof times after waiting.
+Physical foreign keys and insertion guards retain the same actor/credential/proof binding.
+Both session lookup and native command authorization reject revoked credentials. Credential
+provenance is mandatory after native TOTP opt-in, including inherited transaction policy;
+later generic session composition cannot admit a legacy external grant or relax that requirement.
+Credential
+material and proof history cannot be rewritten or deleted; activation and revocation require
+their exact bound security audits. Codes, seeds, enrollment URIs and bearer values are absent
+from verification audits and proof/session records.
+
+Native integration evidence covers twenty concurrent submissions with one session/proof/audit,
+stable proof retries, borrowed identity/proof and missing native provenance, restart-safe limits,
+administrator-lock revocation races, live-session revocation, tampered bindings and audit rollback.
+Migration evidence adds baseline-81 upgrade, bootstrap and immutable replay. Historical external
+provider sessions remain unchanged with null TOTP provenance; no factor facts are reconstructed.
+The fixed three-role/fourteen-permission catalog remains unchanged. This increment is not verified
+until all six exact-head CI jobs pass. Audited operator provisioning, confirmed enrollment and
+authenticated host composition remain required before activating the native authenticator path.
+
+Authenticator cryptography on `74f9493` passed the full local check (882 tests) and all six CI jobs.
+
+## Previous increment: authenticator-app MFA cryptography
 
 The user selected authenticator-app codes. The new application primitive uses RFC 6238
 HMAC-SHA1, a random 160-bit seed, six digits and 30-second counters, with a fixed previous/

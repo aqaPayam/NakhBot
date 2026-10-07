@@ -6,13 +6,15 @@ import pg from 'pg';
 import { describe, expect, it } from 'vitest';
 
 import { runMigrations, verifyMigrations } from './migrations.js';
+import { createDatabase } from './database.js';
+import { createReportFixtureAdmin } from './testing/report-fixture.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80,
+    78, 79, 80, 81,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -25,7 +27,8 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
     const userId = randomUUID(),
       historyId = randomUUID(),
       appealId = randomUUID(),
-      legacyEpisodeId = randomUUID();
+      legacyEpisodeId = randomUUID(),
+      legacySessionId = randomUUID();
     try {
       await admin.query(`CREATE DATABASE "${name}"`);
       created = true;
@@ -37,6 +40,26 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         baseline,
       );
       target = new pg.Pool({ connectionString: targetUrl.toString() });
+      if (baseline === 81) {
+        const legacy = createDatabase({
+          url: targetUrl.toString(),
+          poolMax: 2,
+          statementTimeoutMs: 5000,
+          lockTimeoutMs: 1000,
+        });
+        try {
+          const adminId = await createReportFixtureAdmin(legacy);
+          // Historical external-provider grant: migration must preserve it without inventing TOTP provenance.
+          await target.query(
+            `INSERT INTO administration.admin_sessions
+            (id,admin_user_id,admin_version,token_hash,mfa_proof_id,issued_at,expires_at,mfa_verified_at,mfa_expires_at)
+            VALUES($1,$2,1,repeat('c',64),$3,now(),now()+interval '15 minutes',now(),now()+interval '5 minutes')`,
+            [legacySessionId, adminId, randomUUID()],
+          );
+        } finally {
+          await legacy.destroy();
+        }
+      }
       if (baseline === 51) {
         await target.query(
           'INSERT INTO identity.users (id, last_activity_at, created_at, updated_at) VALUES ($1, now(), now(), now())',
@@ -83,9 +106,25 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        81 - baseline,
+        82 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      if (baseline === 81) {
+        expect(
+          (
+            await target.query(
+              'SELECT totp_credential_id FROM administration.admin_sessions WHERE id=$1',
+              [legacySessionId],
+            )
+          ).rows,
+        ).toEqual([{ totp_credential_id: null }]);
+        expect(
+          (await target.query('SELECT id FROM administration.admin_totp_credentials')).rows,
+        ).toEqual([]);
+        expect(
+          (await target.query('SELECT id FROM administration.admin_totp_proofs')).rows,
+        ).toEqual([]);
+      }
       if (baseline === 78) {
         const legacy = await target.query<{
           witness_required: boolean;
@@ -227,6 +266,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000079_m7_threshold_admission_witnesses.sql',
         '000080_m7_snapshot_shape_projection.sql',
         '000081_m7_restoration_history_index.sql',
+        '000082_m7_admin_totp.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -302,9 +342,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000079_m7_threshold_admission_witnesses.sql');
       expect(verified).toContain('000080_m7_snapshot_shape_projection.sql');
       expect(verified).toContain('000081_m7_restoration_history_index.sql');
+      expect(verified).toContain('000082_m7_admin_totp.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(81);
+      expect(replay.existing).toHaveLength(82);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
