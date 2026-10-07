@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "collectorImage": "public.ecr.aws/aws-observability/aws-otel-collector:v0.49.0",
+  "phases": [
+    "reports",
+    "evidence",
+    "reviews",
+    "actions",
+    "episodes",
+    "support_threads",
+    "appeals",
+    "admins",
+    "admin_logs",
+    "internal_blocks"
+  ],
+  "metricNames": [
+    "nakh.m7.reconciliation.batches",
+    "nakh.m7.reconciliation.duration",
+    "nakh.m7.reconciliation.scanned",
+    "nakh.m7.reconciliation.new_findings",
+    "nakh.m7.integrity.current_mismatches",
+    "nakh.m7.reconciliation.failures",
+    "nakh.m7.operational_health.failures",
+    "nakh.m7.backlog.pending_report_oldest_age",
+    "nakh.m7.backlog.in_review_oldest_age",
+    "nakh.m7.reconciliation.active_age",
+    "nakh.m7.reconciliation.completed_age",
+    "nakh.m7.reconciliation.never_completed",
+    "nakh.m7.integrity.sampled_at"
+  ],
+  "processors": {
+    "filter/non_m7": {
+      "error_mode": "propagate",
+      "metric_conditions": ["IsMatch(metric.name, \"^nakh\\\\.m7\\\\.\")"]
+    },
+    "resource/m7": {
+      "attributes": [
+        {
+          "pattern": ".*",
+          "action": "delete"
+        }
+      ]
+    },
+    "filter/m7": {
+      "error_mode": "propagate",
+      "metric_conditions": [
+        "scope.name != \"nakh-m7\"",
+        "scope.version != \"\" or Len(scope.attributes) != 0",
+        "not IsMatch(metric.name, \"^(nakh\\\\.m7\\\\.reconciliation\\\\.batches|nakh\\\\.m7\\\\.reconciliation\\\\.duration|nakh\\\\.m7\\\\.reconciliation\\\\.scanned|nakh\\\\.m7\\\\.reconciliation\\\\.new_findings|nakh\\\\.m7\\\\.integrity\\\\.current_mismatches|nakh\\\\.m7\\\\.reconciliation\\\\.failures|nakh\\\\.m7\\\\.operational_health\\\\.failures|nakh\\\\.m7\\\\.backlog\\\\.pending_report_oldest_age|nakh\\\\.m7\\\\.backlog\\\\.in_review_oldest_age|nakh\\\\.m7\\\\.reconciliation\\\\.active_age|nakh\\\\.m7\\\\.reconciliation\\\\.completed_age|nakh\\\\.m7\\\\.reconciliation\\\\.never_completed|nakh\\\\.m7\\\\.integrity\\\\.sampled_at)$\")",
+        "IsMatch(metric.name, \"^(nakh\\\\.m7\\\\.reconciliation\\\\.batches|nakh\\\\.m7\\\\.reconciliation\\\\.duration)$\") and (Len(datapoint.attributes) != 2 or not IsString(datapoint.attributes[\"phase\"]) or not IsMatch(datapoint.attributes[\"phase\"], \"^(reports|evidence|reviews|actions|episodes|support_threads|appeals|admins|admin_logs|internal_blocks|unknown)$\") or not IsString(datapoint.attributes[\"outcome\"]) or not IsMatch(datapoint.attributes[\"outcome\"], \"^(in_progress|completed|failure)$\"))",
+        "IsMatch(metric.name, \"^(nakh\\\\.m7\\\\.reconciliation\\\\.scanned|nakh\\\\.m7\\\\.reconciliation\\\\.new_findings)$\") and (Len(datapoint.attributes) != 1 or not IsString(datapoint.attributes[\"phase\"]) or not IsMatch(datapoint.attributes[\"phase\"], \"^(reports|evidence|reviews|actions|episodes|support_threads|appeals|admins|admin_logs|internal_blocks|unknown)$\"))",
+        "IsMatch(metric.name, \"^(nakh\\\\.m7\\\\.integrity\\\\.current_mismatches)$\") and (Len(datapoint.attributes) != 1 or not IsString(datapoint.attributes[\"phase\"]) or not IsMatch(datapoint.attributes[\"phase\"], \"^(reports|evidence|reviews|actions|episodes|support_threads|appeals|admins|admin_logs|internal_blocks)$\"))",
+        "IsMatch(metric.name, \"^(nakh\\\\.m7\\\\.reconciliation\\\\.failures|nakh\\\\.m7\\\\.operational_health\\\\.failures|nakh\\\\.m7\\\\.backlog\\\\.pending_report_oldest_age|nakh\\\\.m7\\\\.backlog\\\\.in_review_oldest_age|nakh\\\\.m7\\\\.reconciliation\\\\.active_age|nakh\\\\.m7\\\\.reconciliation\\\\.completed_age|nakh\\\\.m7\\\\.reconciliation\\\\.never_completed|nakh\\\\.m7\\\\.integrity\\\\.sampled_at)$\") and (Len(datapoint.attributes) != 0)",
+        "IsMatch(metric.name, \"^(nakh\\\\.m7\\\\.reconciliation\\\\.batches|nakh\\\\.m7\\\\.reconciliation\\\\.scanned|nakh\\\\.m7\\\\.reconciliation\\\\.new_findings|nakh\\\\.m7\\\\.reconciliation\\\\.failures|nakh\\\\.m7\\\\.operational_health\\\\.failures)$\") and metric.type != METRIC_DATA_TYPE_SUM",
+        "IsMatch(metric.name, \"^(nakh\\\\.m7\\\\.reconciliation\\\\.duration)$\") and metric.type != METRIC_DATA_TYPE_HISTOGRAM",
+        "IsMatch(metric.name, \"^(nakh\\\\.m7\\\\.integrity\\\\.current_mismatches|nakh\\\\.m7\\\\.backlog\\\\.pending_report_oldest_age|nakh\\\\.m7\\\\.backlog\\\\.in_review_oldest_age|nakh\\\\.m7\\\\.reconciliation\\\\.active_age|nakh\\\\.m7\\\\.reconciliation\\\\.completed_age|nakh\\\\.m7\\\\.reconciliation\\\\.never_completed|nakh\\\\.m7\\\\.integrity\\\\.sampled_at)$\") and metric.type != METRIC_DATA_TYPE_GAUGE"
+      ]
+    }
+  },
+  "exporter": {
+    "namespace": "Nakh/Platform",
+    "log_stream_name": "m7-metrics",
+    "dimension_rollup_option": "NoDimensionRollup",
+    "resource_to_telemetry_conversion": {
+      "enabled": false
+    },
+    "retain_initial_value_of_delta_metric": true,
+    "metric_declarations": [
+      {
+        "dimensions": [[], ["phase"], ["phase", "outcome"]],
+        "metric_name_selectors": [
+          "^nakh\\.m7\\.reconciliation\\.batches$",
+          "^nakh\\.m7\\.reconciliation\\.duration$"
+        ]
+      },
+      {
+        "dimensions": [[], ["phase"]],
+        "metric_name_selectors": [
+          "^nakh\\.m7\\.reconciliation\\.scanned$",
+          "^nakh\\.m7\\.reconciliation\\.new_findings$"
+        ]
+      },
+      {
+        "dimensions": [["phase"]],
+        "metric_name_selectors": ["^nakh\\.m7\\.integrity\\.current_mismatches$"]
+      },
+      {
+        "dimensions": [[]],
+        "metric_name_selectors": [
+          "^nakh\\.m7\\.reconciliation\\.failures$",
+          "^nakh\\.m7\\.operational_health\\.failures$",
+          "^nakh\\.m7\\.backlog\\.pending_report_oldest_age$",
+          "^nakh\\.m7\\.backlog\\.in_review_oldest_age$",
+          "^nakh\\.m7\\.reconciliation\\.active_age$",
+          "^nakh\\.m7\\.reconciliation\\.completed_age$",
+          "^nakh\\.m7\\.reconciliation\\.never_completed$",
+          "^nakh\\.m7\\.integrity\\.sampled_at$"
+        ]
+      }
+    ]
+  }
+}

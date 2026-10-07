@@ -26,6 +26,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm audit:security
+      - name: M7 pinned collector conversion and privacy rehearsal
+        run: pnpm test:m7-collector
+      - name: Retain privacy-safe M7 collector evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: m7-telemetry-${{ github.sha }}
+          path: artifacts/m7-telemetry-conversion.json
+          if-no-files-found: error
+          retention-days: 14
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.15.9

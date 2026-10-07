@@ -32,6 +32,7 @@
     "test:m6-load-smoke": "tsx scripts/m6-load-smoke.ts",
     "test:m7-query-plan": "tsx scripts/m7-query-plan-gate.ts",
     "test:m7-load-smoke": "tsx scripts/m7-load-smoke.ts",
+    "test:m7-collector": "tsx packages/observability/src/m7-collector-rehearsal.ts",
     "audit:security": "tsx scripts/audit-production.ts",
     "db:migrate": "tsx packages/persistence-postgres/src/cli/migrate.ts",
     "db:verify": "tsx packages/persistence-postgres/src/cli/verify.ts",

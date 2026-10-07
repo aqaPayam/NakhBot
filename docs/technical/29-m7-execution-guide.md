@@ -1,6 +1,28 @@
 # M7 Execution Guide — Reporting, Moderation, Administration, Support, and Appeal
 
-## Current repair: terminal integrity sample performance
+## Current increment: pinned M7 telemetry conversion and alarms
+
+The integrity repair on `146222a` passed the full check, all six CI jobs and 405 PostgreSQL tests.
+All 27 production-shaped plans passed: baseline sampling took 887 ms and terminal sampling 1,132 ms
+under the unchanged 1,500 ms limit. The terminal plan launched an actual worker. All original
+20,000-row populations, repeated samples and independent indexes remain required.
+
+Staging now consumes a shared pinned collector policy for thirteen M7 instruments. A separate
+pipeline validates the fixed instrumentation scope, exact metric names/types and finite label
+shapes, removes resource attributes and declares only the intended EMF dimensions. Existing
+non-M7 metrics retain their pipeline while all M7-prefixed instruments are excluded from it.
+Initial counter values are retained. Ten phase-only current-drift alarms and an unlabelled
+missing/stale-sample alarm complement the existing eight M7 operational alarms and share SNS routing.
+
+The existing quality job rehearses actual SDK/OTLP HTTP/pinned ADOT/awsemf stdout conversion,
+including invalid/private label and scope rejection, first failures, drift-to-zero transitions,
+stale/fresh timestamps and preserved prior-milestone metrics. Its retained artifact contains only
+fixed metadata and verification flags. This is conversion evidence, never real AWS delivery or
+operator acceptance. No schema migration or seventh CI job is added. Full check and all six
+exact-head jobs must pass before this increment is verified. Final acceptance documentation and
+real environment/provider/operator sign-offs remain open.
+
+## Previous repair: terminal integrity sample performance
 
 The authenticator HTTP increment on `7c48b1e` passed quality, all four container builds and all
 401 native PostgreSQL tests. Its terminal combined integrity sample failed at 1,541 ms against

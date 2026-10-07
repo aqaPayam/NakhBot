@@ -77,33 +77,46 @@ locals {
     },
   ]
 
-  adot_config = <<-YAML
-    receivers:
-      otlp:
-        protocols:
-          http:
-            endpoint: 0.0.0.0:4318
-    processors:
-      batch: {}
-      memory_limiter:
-        check_interval: 5s
-        limit_mib: 192
-    exporters:
-      awsxray: {}
-      awsemf:
-        namespace: Nakh/Platform
-        log_group_name: ${aws_cloudwatch_log_group.telemetry.name}
-    service:
-      pipelines:
-        traces:
-          receivers: [otlp]
-          processors: [memory_limiter, batch]
-          exporters: [awsxray]
-        metrics:
-          receivers: [otlp]
-          processors: [memory_limiter, batch]
-          exporters: [awsemf]
-  YAML
+  m7_telemetry = jsondecode(file("${path.module}/../../telemetry/m7-collector.json"))
+
+  adot_config = yamlencode({
+    receivers = { otlp = { protocols = { http = { endpoint = "0.0.0.0:4318" } } } }
+    processors = merge(local.m7_telemetry.processors, {
+      batch          = {}
+      memory_limiter = { check_interval = "5s", limit_mib = 192 }
+    })
+    exporters = {
+      awsxray = {}
+      awsemf = {
+        namespace      = "Nakh/Platform"
+        log_group_name = aws_cloudwatch_log_group.telemetry.name
+      }
+      "awsemf/m7" = merge(local.m7_telemetry.exporter, {
+        log_group_name = aws_cloudwatch_log_group.telemetry.name
+      })
+    }
+    service = {
+      pipelines = {
+        traces = {
+          receivers  = ["otlp"]
+          processors = ["memory_limiter", "batch"]
+          exporters  = ["awsxray"]
+        }
+        metrics = {
+          receivers  = ["otlp"]
+          processors = ["memory_limiter", "filter/non_m7", "batch"]
+          exporters  = ["awsemf"]
+        }
+        "metrics/m7" = {
+          receivers  = ["otlp"]
+          processors = ["memory_limiter", "resource/m7", "filter/m7", "batch"]
+          exporters  = ["awsemf/m7"]
+        }
+      }
+    }
+  })
+
+
 }
 
 resource "aws_ecr_repository" "service" {
@@ -219,6 +232,10 @@ resource "aws_ecs_cluster" "main" {
   }
 
   lifecycle {
+    precondition {
+      condition     = var.otel_collector_image == local.m7_telemetry.collectorImage
+      error_message = "The collector image must match the M7 conversion evidence pin."
+    }
     precondition {
       condition     = !var.activate_services || (local.dns_enabled && var.image_tag != "bootstrap")
       error_message = "Activation requires public_hostname, route53_zone_id, and an immutable deployed image tag."
