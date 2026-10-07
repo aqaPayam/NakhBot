@@ -7,6 +7,8 @@ import type { NakhDatabase } from './database.js';
 import {
   MODERATION_INTEGRITY_SOURCES,
   MODERATION_INTEGRITY_FLAGS,
+  MODERATION_EPISODE_RESOLUTION_FACTS,
+  moderationEpisodeMetadataSource,
 } from './moderation-integrity-sources.js';
 
 export type ModerationIntegritySample = Readonly<{
@@ -33,16 +35,30 @@ export async function withModerationIntegrityRead<T>(
 export function moderationIntegrityPhaseStatement(
   phase: ModerationReconciliationPhase,
 ): RawBuilder<IntegrityRow> {
-  // Dense terminal populations often fail this cheap existence flag. Evaluate it
-  // before witness/history/JSON bindings so OR can stop after a known violation.
-  // Keep every flag and the paged scanner's diagnostic ordering unchanged.
-  const flags =
-    phase === 'episodes'
-      ? [
-          'hasResolutionAttempt',
-          ...MODERATION_INTEGRITY_FLAGS[phase].filter((flag) => flag !== 'hasResolutionAttempt'),
-        ]
-      : MODERATION_INTEGRITY_FLAGS[phase];
+  // One count per entity: a failed resolution is already a proven violation.
+  // Keep complete flags in the scanner; evaluate other aggregate flags only for
+  // resolution-valid episodes within this same database statement/snapshot.
+  const flags = MODERATION_INTEGRITY_FLAGS[phase];
+  if (phase === 'episodes') {
+    const remaining = flags.filter((flag) => flag !== 'hasResolutionAttempt');
+    return sql<IntegrityRow>`
+      ${MODERATION_EPISODE_RESOLUTION_FACTS}, episode_resolution_status AS MATERIALIZED (
+        SELECT episode.*, (episode.status <> 'resolved' OR COALESCE(binding.valid,false)) AS resolution_valid
+        FROM moderation.restriction_episodes episode
+        LEFT JOIN resolution_facts binding ON binding.restriction_episode_id=episode.id
+      ), eligible_episodes AS MATERIALIZED (
+        SELECT * FROM episode_resolution_status WHERE resolution_valid
+      )
+      SELECT ${phase}::text AS phase, statement_timestamp() AS "sampledAt", (
+        (SELECT count(*) FROM episode_resolution_status WHERE NOT resolution_valid)
+        + (SELECT count(*) FROM (${moderationEpisodeMetadataSource(true)}) probe
+          WHERE ${sql.join(
+            remaining.map((flag) => sql`${sql.ref(`probe.${flag}`)} IS NOT TRUE`),
+            sql` OR `,
+          )})
+      )::text AS count
+    `;
+  }
   return sql<{ phase: ModerationReconciliationPhase; sampledAt: Date; count: string }>`
       SELECT ${phase}::text AS phase, statement_timestamp() AS "sampledAt", count(*)::text AS count
       FROM (${MODERATION_INTEGRITY_SOURCES[phase]}) probe
@@ -54,7 +70,12 @@ export function moderationIntegrityPhaseStatement(
 }
 export function moderationIntegrityStatement(): RawBuilder<IntegrityRow> {
   return sql<{ phase: ModerationReconciliationPhase; sampledAt: Date; count: string }>`
-    ${sql.join(MODERATION_RECONCILIATION_PHASES.map(moderationIntegrityPhaseStatement), sql` UNION ALL `)}
+    ${sql.join(
+      MODERATION_RECONCILIATION_PHASES.map(
+        (phase) => sql`(${moderationIntegrityPhaseStatement(phase)})`,
+      ),
+      sql` UNION ALL `,
+    )}
   `;
 }
 

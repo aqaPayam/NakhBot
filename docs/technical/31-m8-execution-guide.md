@@ -87,6 +87,23 @@ and verifies each new message. The quality rehearsal separately failed during Do
 startup before any metric export; the completed job is rerun unchanged to diagnose transience.
 Neither failure authorizes advancing to another M8 feature before the repair is fully green.
 
+The unchanged quality retry for `97da3f9` passed, but `e6155de` encountered another Docker startup
+failure. Startup now pulls the same versioned public collector image separately, with a bounded
+three-attempt retry only for recognized transient registry/transport failures. Denied, missing,
+runtime-collision and unknown failures fail closed. Each Docker command has a sixty-second bound;
+container start and every SDK/conversion/privacy assertion still execute once. Fourteen unit
+scenarios verify recovery, exhausted retries, permanent failures and fixed diagnostic output.
+Only an allowlisted startup classification can be logged; stderr, URLs and metric payloads remain
+private. Real collector conversion still requires the complete quality CI job.
+
+The catalog repair `e6155de` passed all 422 native tests, but the terminal integrity snapshot
+took 1577.896 ms against the unchanged 1500 ms limit. The aggregate now counts episodes with
+invalid resolution evidence once, then evaluates the remaining complete flags and witness
+aggregation only for resolution-valid episodes in the same statement snapshot. Detailed
+reconciliation preserves every flag and its original scope. Fifteen focused native tests pass,
+including resolution corruption and scanner/metric parity. The isolated 1000-volume probe is
+diagnostic only; full-volume Linux CI must still pass every original plan and index requirement.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,

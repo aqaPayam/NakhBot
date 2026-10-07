@@ -9,11 +9,12 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import policy from '../../../deploy/telemetry/m7-collector.json' with { type: 'json' };
+import { classifyCollectorStartupFailure, pullCollectorImage } from './m7-collector-startup.js';
 
 const execute = promisify(execFile);
 let stage = 'configuration';
-async function docker(args: readonly string[]): Promise<string> {
-  return (await execute('docker', [...args], { maxBuffer: 16 * 1024 * 1024 })).stdout;
+async function docker(args: readonly string[], timeout = 60000): Promise<string> {
+  return (await execute('docker', [...args], { maxBuffer: 16 * 1024 * 1024, timeout })).stdout;
 }
 type Emf = {
   _aws: {
@@ -157,6 +158,8 @@ async function main(): Promise<void> {
   let started = false;
   let provider: MeterProvider | undefined;
   try {
+    stage = 'image-pull';
+    await pullCollectorImage(() => docker(['pull', policy.collectorImage]), delay);
     stage = 'startup';
     await docker([
       'run',
@@ -296,8 +299,12 @@ async function main(): Promise<void> {
     }
   }
 }
-await main().catch(() => {
+await main().catch((error: unknown) => {
   // SDK/collector errors may contain payloads. Never print them or raw EMF.
   console.error(`M7 collector conversion failed at ${stage}; no metric payload was printed.`);
+  if (stage === 'image-pull' || stage === 'startup')
+    console.error(
+      `Collector startup classification: ${classifyCollectorStartupFailure(error).code}.`,
+    );
   process.exitCode = 1;
 });

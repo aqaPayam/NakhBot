@@ -135,6 +135,110 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
 `;
 }
 
+export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_candidates AS MATERIALIZED (
+    -- Bind the narrow episode index before joining dense attempt evidence. This
+    -- boundary gives the batch its actual candidate cardinality, without probing
+    -- the same administrator log once for every owner during dense samples.
+    SELECT owner.id AS restriction_episode_id, owner.resolved_by_admin_id,
+      owner.target_user_id AS owner_target_user_id, owner.resolution_reason_code,
+      owner.resolved_at, resolution.*
+    FROM moderation.restriction_episodes owner
+    JOIN LATERAL (
+      SELECT actor_admin_id, target_user_id, reason_code, occurred_at,
+        command_id, request_id, request_digest
+      FROM moderation.moderation_actions
+      WHERE restriction_episode_id = owner.id AND restriction_episode_id IS NOT NULL
+        AND actor_type = 'admin' AND action_type = 'unrestrict_user' OFFSET 0
+    ) resolution ON true
+    WHERE owner.status = 'resolved'
+), resolution_facts AS MATERIALIZED (
+    SELECT resolution.restriction_episode_id,
+      bool_or(COALESCE(attempt.id IS NOT NULL
+        AND resolution.actor_admin_id = resolution.resolved_by_admin_id
+        AND resolution.target_user_id = resolution.owner_target_user_id
+        AND resolution.reason_code = resolution.resolution_reason_code
+        AND resolution.occurred_at = resolution.resolved_at
+        AND attempt.request_id = resolution.request_id
+        AND attempt.request_digest = resolution.request_digest
+        AND attempt.target_id = resolution.owner_target_user_id,false)) AS valid
+    FROM resolution_candidates resolution
+    LEFT JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
+      AND attempt.command_id = resolution.command_id AND attempt.result = 'succeeded'
+      AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
+    -- Keep invalid candidates through grouping: one explicit validation fact per
+    -- episode avoids a near-zero row estimate and quadratic repeated CTE scans.
+    -- bool_or preserves existence when valid and invalid candidates coexist.
+    GROUP BY resolution.restriction_episode_id
+)
+`;
+
+/** Complete scanner flags; aggregate callers can supply an already resolution-valid scope. */
+export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilder<unknown> {
+  return sql`SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
+      AND report.target_user_id = episode.target_user_id) AS "sourceMatches",
+    episode.witness_required AS "witnessRequired",
+    COALESCE(episode.witness_required AND witness."count" = episode.distinct_reporter_count
+      AND witness."bindingsValid",false) AS "hasAdmissionWitness",
+    action.id IS NOT NULL AS "hasOneSystemAction",
+    action.id IS NULL OR COALESCE((episode.target_user_id,action.occurred_at) IN (
+      SELECT history.user_id,history.changed_at FROM identity.account_state_history history
+      WHERE history.actor_type = 'system' AND history.actor_user_id IS NULL AND history.actor_admin_id IS NULL
+        AND history.previous_state IN ('guest','incomplete','active') AND history.next_state = 'restricted'
+        AND history.reason_code = 'distinct_reporter_threshold'
+    ),false) AS "hasRestrictionHistory",
+    action.id IS NULL OR COALESCE(restriction_audit.id IS NOT NULL
+      AND restriction_audit.category = 'security' AND restriction_audit.event_type = 'moderation.threshold-restriction.v1'
+      AND restriction_audit.actor_type = 'system' AND restriction_audit.actor_admin_id IS NULL AND restriction_audit.actor_user_id IS NULL
+      AND restriction_audit.subject_type = 'user' AND restriction_audit.subject_id = episode.target_user_id
+      AND restriction_audit.result_code = 'restricted' AND restriction_audit.metadata_schema_version = 1
+      AND restriction_audit.metadata = expected_audit.metadata
+      AND restriction_audit.command_id = action.command_id AND restriction_audit.request_id = action.request_id
+      AND restriction_audit.occurred_at = action.occurred_at,false) AS "hasRestrictionAudit",
+    action.id IS NULL OR COALESCE(restriction_notice.id IS NOT NULL
+      AND restriction_notice.user_id = episode.target_user_id AND restriction_notice.notification_type = 'restriction_warning'
+      AND restriction_notice.category = 'restriction' AND restriction_notice.title_key = 'notification.restriction_warning.title'
+      AND restriction_notice.body_key = 'notification.restriction_warning.body' AND restriction_notice.payload = '{}'::jsonb
+      AND restriction_notice.payload_schema_version = 1
+      AND restriction_notice.deduplication_key = 'moderation-threshold:' || episode.id::text || ':restriction'
+      AND telegram_delivery.notification_id IS NOT NULL,false) AS "hasRestrictionNotice",
+    ${eligibleOnly ? sql`true` : sql`episode.status <> 'resolved' OR COALESCE(resolution_binding.valid,false)`} AS "hasResolutionAttempt"
+    FROM ${eligibleOnly ? sql`eligible_episodes` : sql`moderation.restriction_episodes`} episode
+    ${eligibleOnly ? sql`` : sql`LEFT JOIN resolution_facts resolution_binding ON resolution_binding.restriction_episode_id = episode.id`}
+    LEFT JOIN (
+      SELECT roster.restriction_episode_id, count(*) AS "count",
+        bool_and((report.id IS NOT NULL AND report.reporter_user_id = roster.reporter_user_id
+          AND report.target_user_id = owner.target_user_id AND report.submitted_at = roster.submitted_at
+          AND roster.submitted_at > owner.started_at - interval '30 days'
+          AND roster.submitted_at <= owner.started_at) IS TRUE) AS "bindingsValid"
+      FROM moderation.threshold_admission_witnesses roster
+      JOIN ${eligibleOnly ? sql`eligible_episodes` : sql`moderation.restriction_episodes`} owner
+        ON owner.id = roster.restriction_episode_id
+      LEFT JOIN moderation.reports report ON report.id = roster.report_id
+      GROUP BY roster.restriction_episode_id
+    ) witness ON witness.restriction_episode_id = episode.id
+    -- The verified partial unique index guarantees at most one system restriction per episode.
+    -- A direct join preserves that cardinality without repeating an aggregate for every episode.
+    LEFT JOIN moderation.moderation_actions action ON action.restriction_episode_id = episode.id
+        AND action.actor_type = 'system' AND action.actor_admin_id IS NULL AND action.action_type = 'restrict_user'
+        AND action.target_user_id = episode.target_user_id AND action.source_report_id = episode.source_report_id
+        AND action.reason_code = 'distinct_reporter_threshold'
+        AND action.occurred_at = date_trunc('milliseconds',episode.started_at)
+    LEFT JOIN LATERAL (
+      SELECT jsonb_build_object('reasonCode','distinct_reporter_threshold',
+        'distinctReporterCount',episode.distinct_reporter_count) AS metadata OFFSET 0
+    ) expected_audit ON true
+    -- Primary keys give one candidate each. Validate every metadata/content-free binding
+    -- in its flag instead of hashing wide tuples and rebuilding expected JSON in join keys.
+    -- Unique physical references identify candidates; validate all safety fields
+    -- in the flags above. Selective constants here can underestimate candidates
+    -- and cause a repeated materialized audit scan for each episode.
+    LEFT JOIN platform.audit_logs restriction_audit ON restriction_audit.id = action.audit_log_id
+    LEFT JOIN notification.notifications restriction_notice ON restriction_notice.id = action.notification_id
+    LEFT JOIN (SELECT DISTINCT notification_id FROM notification.notification_deliveries WHERE channel = 'telegram')
+      telegram_delivery ON telegram_delivery.notification_id = restriction_notice.id
+`;
+}
+
 /** Owning metadata predicates shared by paged reconciliation and live aggregate sampling.
  * No prose, ciphertext, snapshot bodies, credentials or object keys leave these queries. */
 export const MODERATION_INTEGRITY_SOURCES = {
@@ -188,104 +292,7 @@ SELECT review.id, COALESCE(report.id IS NOT NULL AND (
     LEFT JOIN moderation.reports report ON report.id = review.report_id
 `,
   actions: sql`(${moderationActionSource('system')}) UNION ALL (${moderationActionSource('admin')})`,
-  episodes: sql`
-WITH resolution_candidates AS MATERIALIZED (
-    -- Bind the narrow episode index before joining dense attempt evidence. This
-    -- boundary gives the batch its actual candidate cardinality, without probing
-    -- the same administrator log once for every owner during dense samples.
-    SELECT owner.id AS restriction_episode_id, owner.resolved_by_admin_id,
-      owner.target_user_id AS owner_target_user_id, owner.resolution_reason_code,
-      owner.resolved_at, resolution.*
-    FROM moderation.restriction_episodes owner
-    JOIN LATERAL (
-      SELECT actor_admin_id, target_user_id, reason_code, occurred_at,
-        command_id, request_id, request_digest
-      FROM moderation.moderation_actions
-      WHERE restriction_episode_id = owner.id AND restriction_episode_id IS NOT NULL
-        AND actor_type = 'admin' AND action_type = 'unrestrict_user' OFFSET 0
-    ) resolution ON true
-    WHERE owner.status = 'resolved'
-), resolution_facts AS MATERIALIZED (
-    SELECT resolution.restriction_episode_id,
-      bool_or(COALESCE(attempt.id IS NOT NULL
-        AND resolution.actor_admin_id = resolution.resolved_by_admin_id
-        AND resolution.target_user_id = resolution.owner_target_user_id
-        AND resolution.reason_code = resolution.resolution_reason_code
-        AND resolution.occurred_at = resolution.resolved_at
-        AND attempt.request_id = resolution.request_id
-        AND attempt.request_digest = resolution.request_digest
-        AND attempt.target_id = resolution.owner_target_user_id,false)) AS valid
-    FROM resolution_candidates resolution
-    LEFT JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
-      AND attempt.command_id = resolution.command_id AND attempt.result = 'succeeded'
-      AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
-    -- Keep invalid candidates through grouping: one explicit validation fact per
-    -- episode avoids a near-zero row estimate and quadratic repeated CTE scans.
-    -- bool_or preserves existence when valid and invalid candidates coexist.
-    GROUP BY resolution.restriction_episode_id
-)
-SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
-      AND report.target_user_id = episode.target_user_id) AS "sourceMatches",
-    episode.witness_required AS "witnessRequired",
-    COALESCE(episode.witness_required AND witness."count" = episode.distinct_reporter_count
-      AND witness."bindingsValid",false) AS "hasAdmissionWitness",
-    action.id IS NOT NULL AS "hasOneSystemAction",
-    action.id IS NULL OR COALESCE((episode.target_user_id,action.occurred_at) IN (
-      SELECT history.user_id,history.changed_at FROM identity.account_state_history history
-      WHERE history.actor_type = 'system' AND history.actor_user_id IS NULL AND history.actor_admin_id IS NULL
-        AND history.previous_state IN ('guest','incomplete','active') AND history.next_state = 'restricted'
-        AND history.reason_code = 'distinct_reporter_threshold'
-    ),false) AS "hasRestrictionHistory",
-    action.id IS NULL OR COALESCE(restriction_audit.id IS NOT NULL
-      AND restriction_audit.category = 'security' AND restriction_audit.event_type = 'moderation.threshold-restriction.v1'
-      AND restriction_audit.actor_type = 'system' AND restriction_audit.actor_admin_id IS NULL AND restriction_audit.actor_user_id IS NULL
-      AND restriction_audit.subject_type = 'user' AND restriction_audit.subject_id = episode.target_user_id
-      AND restriction_audit.result_code = 'restricted' AND restriction_audit.metadata_schema_version = 1
-      AND restriction_audit.metadata = expected_audit.metadata
-      AND restriction_audit.command_id = action.command_id AND restriction_audit.request_id = action.request_id
-      AND restriction_audit.occurred_at = action.occurred_at,false) AS "hasRestrictionAudit",
-    action.id IS NULL OR COALESCE(restriction_notice.id IS NOT NULL
-      AND restriction_notice.user_id = episode.target_user_id AND restriction_notice.notification_type = 'restriction_warning'
-      AND restriction_notice.category = 'restriction' AND restriction_notice.title_key = 'notification.restriction_warning.title'
-      AND restriction_notice.body_key = 'notification.restriction_warning.body' AND restriction_notice.payload = '{}'::jsonb
-      AND restriction_notice.payload_schema_version = 1
-      AND restriction_notice.deduplication_key = 'moderation-threshold:' || episode.id::text || ':restriction'
-      AND telegram_delivery.notification_id IS NOT NULL,false) AS "hasRestrictionNotice",
-    episode.status <> 'resolved' OR COALESCE(resolution_binding.valid,false) AS "hasResolutionAttempt"
-    FROM moderation.restriction_episodes episode
-    LEFT JOIN resolution_facts resolution_binding ON resolution_binding.restriction_episode_id = episode.id
-    LEFT JOIN (
-      SELECT roster.restriction_episode_id, count(*) AS "count",
-        bool_and((report.id IS NOT NULL AND report.reporter_user_id = roster.reporter_user_id
-          AND report.target_user_id = owner.target_user_id AND report.submitted_at = roster.submitted_at
-          AND roster.submitted_at > owner.started_at - interval '30 days'
-          AND roster.submitted_at <= owner.started_at) IS TRUE) AS "bindingsValid"
-      FROM moderation.threshold_admission_witnesses roster
-      JOIN moderation.restriction_episodes owner ON owner.id = roster.restriction_episode_id
-      LEFT JOIN moderation.reports report ON report.id = roster.report_id
-      GROUP BY roster.restriction_episode_id
-    ) witness ON witness.restriction_episode_id = episode.id
-    -- The verified partial unique index guarantees at most one system restriction per episode.
-    -- A direct join preserves that cardinality without repeating an aggregate for every episode.
-    LEFT JOIN moderation.moderation_actions action ON action.restriction_episode_id = episode.id
-        AND action.actor_type = 'system' AND action.actor_admin_id IS NULL AND action.action_type = 'restrict_user'
-        AND action.target_user_id = episode.target_user_id AND action.source_report_id = episode.source_report_id
-        AND action.reason_code = 'distinct_reporter_threshold'
-        AND action.occurred_at = date_trunc('milliseconds',episode.started_at)
-    LEFT JOIN LATERAL (
-      SELECT jsonb_build_object('reasonCode','distinct_reporter_threshold',
-        'distinctReporterCount',episode.distinct_reporter_count) AS metadata OFFSET 0
-    ) expected_audit ON true
-    -- Primary keys give one candidate each. Validate every metadata/content-free binding
-    -- in its flag instead of hashing wide tuples and rebuilding expected JSON in join keys.
-    -- Unique physical references identify candidates; validate all safety fields
-    -- in the flags above. Selective constants here can underestimate candidates
-    -- and cause a repeated materialized audit scan for each episode.
-    LEFT JOIN platform.audit_logs restriction_audit ON restriction_audit.id = action.audit_log_id
-    LEFT JOIN notification.notifications restriction_notice ON restriction_notice.id = action.notification_id
-    LEFT JOIN (SELECT DISTINCT notification_id FROM notification.notification_deliveries WHERE channel = 'telegram')
-      telegram_delivery ON telegram_delivery.notification_id = restriction_notice.id
-`,
+  episodes: sql`${MODERATION_EPISODE_RESOLUTION_FACTS}${moderationEpisodeMetadataSource()}`,
   support_threads: sql`
 WITH latest_reply AS MATERIALIZED (
     -- The owning admission path uses this same lexicographic latest-message boundary.
