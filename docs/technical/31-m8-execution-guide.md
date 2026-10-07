@@ -59,6 +59,12 @@ one attempt scan and reports no repeated materialized scan; 17 focused native te
 Windows 20,000-volume diagnostic timed out on a count query without lock/constraint failure;
 it is not acceptance evidence. Full Linux CI remains required.
 
+Repair `2b1bf48` kept both required indexes and passed the native integration suite, but the
+terminal snapshot took 1584.967 ms. The four action branches repeated large audit/notice/attempt
+joins. The next candidate restores the verified two actor branches from green `7a1aab7`, retaining
+all exact history classes, while preserving the indexed episode candidate batch and physical
+audit/notice reference repair. No performance or correctness gate is weakened.
+
 ## Execution sequence
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,
