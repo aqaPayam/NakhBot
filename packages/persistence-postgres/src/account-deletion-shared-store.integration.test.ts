@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -33,6 +33,9 @@ import { PostgresPrepareChatReportEvidenceHandler } from './chat-report-source-s
 import { PostgresSubmitChatReportHandler } from './chat-report-submission-store.js';
 import { PostgresUnmatchStore } from './unmatch-store.js';
 import { lockUserPair } from './pair-lock.js';
+import { PostgresFundingStore } from './funding-store.js';
+import { PostgresTelegramStarsReceiptStore } from './payment-receipt-store.js';
+import { PostgresAccountDeletionCheckpointStore } from './account-deletion-checkpoint-store.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('M8 bounded shared closure', () => {
@@ -135,6 +138,240 @@ describe.skipIf(url === undefined)('M8 bounded shared closure', () => {
     const row = result.rows[0]!;
     return { audits: Number(row.audits), events: Number(row.events), notices: Number(row.notices) };
   }
+  async function capturedPayment(role: 'sender' | 'receiver'): Promise<{
+    userId: string;
+    recordId: string;
+    paymentId: string;
+    pendingId: string;
+    sender: string;
+    receipts: PostgresTelegramStarsReceiptStore;
+    write: Parameters<PostgresTelegramStarsReceiptStore['fulfillPendingNakh']>[0];
+  }> {
+    const other = await counterpart();
+    const telegramId = String(9_000_000_000_000 + Math.floor(Math.random() * 100_000_000));
+    await database
+      .insertInto('identity.telegram_identities')
+      .values({
+        user_id: other,
+        telegram_user_id: telegramId,
+        first_seen_at: new Date(),
+        last_seen_at: new Date(),
+      })
+      .execute();
+    const digest = (value: string): string => createHash('sha256').update(value).digest('hex');
+    const receipts = new PostgresTelegramStarsReceiptStore(
+      database,
+      { uuid: randomUUID },
+      { digest },
+    );
+    let paymentId!: string, pendingId!: string, sender!: string;
+    const fixture = await createDeletionFixture(database, async (owner) => {
+      await activeOwner(owner, other);
+      sender = role === 'sender' ? owner : other;
+      const receiver = role === 'receiver' ? owner : other;
+      const created = await new PostgresPendingNakhStore(database).createPending({
+        command: {
+          commandId: randomUUID(),
+          commandType: 'nakh.create-pending',
+          schemaVersion: 1,
+          actor: { kind: 'user', userId: sender },
+          requestId: randomUUID(),
+          idempotencyKey: randomUUID(),
+          occurredAt: new Date().toISOString(),
+          locale: 'en',
+          data: {
+            targetUserId: receiver,
+            text: 'Synthetic financial closure',
+            autoSettleAuthorized: true,
+          },
+        },
+        flowId: randomUUID(),
+        pendingNakhId: randomUUID(),
+        pendingPaymentId: randomUUID(),
+        flowEventId: randomUUID(),
+        pendingEventId: randomUUID(),
+      });
+      pendingId = created.pendingNakhId;
+      const cleartext = randomBytes(24).toString('base64url');
+      const attempt = await new PostgresFundingStore(database).prepareStarsAttempt({
+        paymentRecordId: randomUUID(),
+        fundingIntentId: created.fundingIntentId,
+        expectedVersion: 1,
+        userId: sender,
+        idempotencyKey: randomUUID(),
+        providerEnvironment: 'test',
+        providerBotIdDigest: 'b'.repeat(64),
+        payload: {
+          cleartext,
+          digest: digest(cleartext),
+          ciphertext: randomBytes(64),
+          keyId: 'm8-test',
+        },
+      });
+      paymentId = attempt.paymentRecordId;
+      const identity = await database
+        .selectFrom('identity.telegram_identities')
+        .select('telegram_user_id')
+        .where('user_id', '=', sender)
+        .executeTakeFirstOrThrow();
+      const event = randomUUID();
+      expect(
+        await receipts.recordSuccessfulPayment({
+          providerEventId: event,
+          telegramUserId: identity.telegram_user_id,
+          invoicePayload: cleartext,
+          currency: 'XTR',
+          totalAmount: attempt.starsAmount,
+          providerEnvironment: 'test',
+          providerBotIdDigest: 'b'.repeat(64),
+          telegramChargeId: `synthetic:${randomUUID()}`,
+          evidence: {
+            digest: digest(event),
+            ciphertext: randomBytes(64),
+            keyId: 'm8-test',
+            schemaVersion: 1,
+          },
+        }),
+      ).toMatchObject({ outcome: 'receipt_recorded' });
+    });
+    const claim = (
+      await receipts.claimFulfillments({ owner: 'm8-financial', leaseMs: 120000, limit: 100 })
+    ).find((item) => item.paymentRecordId === paymentId)!;
+    expect(claim).toBeDefined();
+    const write = {
+      paymentRecordId: paymentId,
+      owner: 'm8-financial',
+      fenceToken: claim.fenceToken,
+      nakhId: randomUUID(),
+      historyId: randomUUID(),
+      refundRecordId: randomUUID(),
+      deliveredEventId: randomUUID(),
+      paymentTerminalEventId: randomUUID(),
+    };
+    return { ...fixture, paymentId, pendingId, sender, receipts, write };
+  }
+  it.each(['sender', 'receiver'] as const)(
+    'waits for exact refund authority when the %s deletes after capture',
+    async (role) => {
+      const scene = await capturedPayment(role),
+        lease = await claim();
+      const payments = await database
+        .selectFrom('billing.payment_records')
+        .selectAll()
+        .where('id', '=', scene.paymentId)
+        .execute();
+      const provider = await database
+        .selectFrom('billing.telegram_stars_receipts')
+        .selectAll()
+        .where('payment_record_id', '=', scene.paymentId)
+        .execute();
+      const ledger = await database
+        .selectFrom('billing.credit_transactions')
+        .selectAll()
+        .where('user_id', '=', scene.sender)
+        .execute();
+      const waits = await Promise.all(Array.from({ length: 20 }, () => store.closeNext(lease)));
+      expect(
+        waits.every(
+          (result) => result.waitingForFinancialResolution && !result.changed && result.hasMore,
+        ),
+      ).toBe(true);
+      expect(await counts(scene.recordId)).toEqual({ audits: 0, events: 0, notices: 0 });
+      const checkpoint = new PostgresAccountDeletionCheckpointStore(database);
+      await expect(checkpoint.finishShared(lease)).rejects.toMatchObject({ code: 'conflict' });
+      const results = await Promise.all([
+        ...Array.from({ length: 20 }, () => scene.receipts.fulfillPendingNakh(scene.write)),
+        ...Array.from({ length: 20 }, () => store.closeNext(lease)),
+      ]);
+      expect(
+        results.slice(0, 20).filter((result) => 'replayed' in result && !result.replayed),
+      ).toHaveLength(1);
+      expect(await store.closeNext(lease)).toEqual({ examined: 0, changed: false, hasMore: false });
+      expect(
+        await database
+          .selectFrom('billing.payment_records')
+          .selectAll()
+          .where('id', '=', scene.paymentId)
+          .execute(),
+      ).toEqual(payments);
+      expect(
+        await database
+          .selectFrom('billing.telegram_stars_receipts')
+          .selectAll()
+          .where('payment_record_id', '=', scene.paymentId)
+          .execute(),
+      ).toEqual(provider);
+      expect(
+        await database
+          .selectFrom('billing.credit_transactions')
+          .selectAll()
+          .where('user_id', '=', scene.sender)
+          .execute(),
+      ).toEqual(ledger);
+      expect(
+        await database
+          .selectFrom('nakh.nakhes')
+          .select('id')
+          .where('payment_record_id', '=', scene.paymentId)
+          .execute(),
+      ).toHaveLength(0);
+      const refunds = await database
+        .selectFrom('billing.refund_records')
+        .select(['id', 'status'])
+        .where('payment_record_id', '=', scene.paymentId)
+        .execute();
+      expect(refunds).toEqual([{ id: scene.write.refundRecordId, status: 'pending' }]);
+      const finishes = await Promise.all(
+        Array.from({ length: 20 }, () => checkpoint.finishShared(lease)),
+      );
+      expect(finishes.filter((result) => !result.replayed)).toHaveLength(1);
+      await sql`DELETE FROM platform.outbox_events WHERE aggregate_id=${scene.recordId}::uuid`.execute(
+        database,
+      );
+      expect(await checkpoint.finishShared(lease)).toMatchObject({ replayed: true });
+    },
+  );
+  it('denies a terminal paid row with missing or altered refund bindings at the database checkpoint', async () => {
+    const scene = await capturedPayment('sender'),
+      lease = await claim();
+    await scene.receipts.fulfillPendingNakh(scene.write);
+    const mutations = [
+      `DELETE FROM billing.refund_records WHERE id='${scene.write.refundRecordId}'`,
+      `UPDATE billing.refund_records SET telegram_charge_id='wrong',version=version+1 WHERE id='${scene.write.refundRecordId}'`,
+      `UPDATE billing.refund_records SET stars_amount=stars_amount+1,version=version+1 WHERE id='${scene.write.refundRecordId}'`,
+      `UPDATE billing.refund_records SET reason_code='system_failure',version=version+1 WHERE id='${scene.write.refundRecordId}'`,
+      `UPDATE billing.refund_records SET idempotency_key='wrong-key',version=version+1 WHERE id='${scene.write.refundRecordId}'`,
+      `UPDATE billing.refund_records SET user_id=(SELECT receiver_user_id FROM nakh.nakh_flows WHERE id=(SELECT nakh_flow_id FROM nakh.pending_nakhes WHERE id='${scene.pendingId}')),version=version+1 WHERE id='${scene.write.refundRecordId}'`,
+    ];
+    for (const mutation of mutations) {
+      const rolledBack = new Error('rollback synthetic corruption');
+      await expect(
+        database.transaction().execute(async (tx) => {
+          // Only this isolated synthetic transaction bypasses the immutable UPDATE
+          // guard; rollback restores the guard and exact good row before normal tests.
+          await sql`ALTER TABLE billing.refund_records DISABLE TRIGGER refund_record_guard`.execute(
+            tx,
+          );
+          await sql.raw(mutation).execute(tx);
+          const proof = await sql<{ bound: boolean; open: boolean }>`SELECT
+          billing.pending_nakh_has_bound_closure(${scene.pendingId}::uuid) AS bound,
+          identity.deletion_has_open_shared_scopes(${scene.userId}::uuid) AS open`.execute(tx);
+          expect(proof.rows[0]).toEqual({ bound: false, open: true });
+          await sql`SAVEPOINT denied_checkpoint`.execute(tx);
+          await expect(
+            sql`SELECT * FROM identity.finish_deletion_shared_phase(${scene.recordId}::uuid,
+          ${scene.userId}::uuid,${lease.leaseOwner}::uuid,${lease.leaseGeneration},1)`.execute(tx),
+          ).rejects.toMatchObject({ code: '40001' });
+          await sql`ROLLBACK TO SAVEPOINT denied_checkpoint`.execute(tx);
+          throw rolledBack;
+        }),
+      ).rejects.toBe(rolledBack);
+    }
+    expect(await store.closeNext(lease)).toMatchObject({ hasMore: false });
+    expect(
+      await new PostgresAccountDeletionCheckpointStore(database).finishShared(lease),
+    ).toMatchObject({ checkpointVersion: 2 });
+  });
   it('twenty retries close one pair, revoke paid access and preserve immutable report evidence and money', async () => {
     const other = await counterpart();
     let scope!: { matchId: string; chatSessionId: string }, reportId!: string;

@@ -230,6 +230,19 @@ migration, concurrency, plan/load and recovery evidence. Count tracked lines wit
 
 ## Acceptance boundary
 
+Migration 88 binds shared closure to financial correction evidence. Paid pending delivery batches
+roll back and return a bounded financial-resolution wait while the existing fenced billing worker
+creates the exact target-unavailable refund obligation. Deletion never cancels a captured payment
+or calls a provider while identity/pair locks are held. Failed unpaid intents may close without
+changing financial history. Closed rows cannot conceal missing or mismatched receipt/refund
+authority: the native checkpoint checks all eight active scope classes plus terminal financial
+bindings, including its deferred commit check. Reconciliation uses the same financial predicate.
+Previously advanced deletion records with unproven financial closure reject upgrade instead of
+inventing progress. Existing verified receipts and work are preserved. A durable pending refund is
+an outstanding billing obligation, not proof that a provider refunded money; billing records remain
+retained. Future product purge must preserve that obligation and prevent late old-life fulfillment
+from crediting a fresh return. Retained-data release and deletion ingress remain disabled.
+
 Automated evidence must cover interruption at every checkpoint, replay/concurrent deletion,
 pending evidence, provider absence verification, complete entity classification and delete/return
 without restored product content. The full registry follows

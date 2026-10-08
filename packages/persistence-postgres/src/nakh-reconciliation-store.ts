@@ -264,6 +264,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
       paymentReason: string;
       paymentExpiresAt: Date;
       paymentStatus: string;
+      boundClosure: boolean;
     }>`
       SELECT pending.id,
         pending.status AS "pendingStatus",
@@ -274,7 +275,9 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         payment.target_id AS "paymentTargetId",
         payment.reason AS "paymentReason",
         payment.expires_at AS "paymentExpiresAt",
-        payment.status AS "paymentStatus"
+        payment.status AS "paymentStatus",
+        CASE WHEN pending.status='closed_by_system' THEN billing.pending_nakh_has_bound_closure(pending.id)
+          ELSE false END AS "boundClosure"
       FROM nakh.pending_nakhes pending
       JOIN billing.pending_payments payment ON payment.id = pending.pending_payment_id
       WHERE (${cursor.lastId ?? null}::uuid IS NULL OR pending.id > ${cursor.lastId ?? null}::uuid)
@@ -306,7 +309,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         });
       if (
         row.pendingStatus === 'closed_by_system'
-          ? !['cancelled', 'expired'].includes(row.paymentStatus)
+          ? !row.boundClosure
           : expectedPaymentStatus[row.pendingStatus] !== row.paymentStatus
       )
         findings.push({

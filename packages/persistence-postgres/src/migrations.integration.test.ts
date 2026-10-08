@@ -11,13 +11,14 @@ import { createReportFixtureAdmin } from './testing/report-fixture.js';
 import { createAdminTotpEnrollment, adminTotpStep } from '@nakh/application';
 import { createDeletionFixture } from './testing/deletion-fixture.js';
 import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.js';
+import { PostgresAccountDeletionCheckpointStore } from './account-deletion-checkpoint-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80, 81, 82, 83, 84, 85, 86,
+    78, 79, 80, 81, 82, 83, 84, 85, 86, 87,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -48,7 +49,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         baseline,
       );
       target = new pg.Pool({ connectionString: targetUrl.toString() });
-      if (baseline === 85 || baseline === 86) {
+      if (baseline >= 85) {
         const legacy = createDatabase({
           url: targetUrl.toString(),
           poolMax: 2,
@@ -57,14 +58,15 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         });
         try {
           const fixture = await createDeletionFixture(legacy);
-          if (baseline === 86) {
-            expect(
-              await new PostgresAccountDeletionWorkStore(legacy).claimDue({
-                workerId: randomUUID(),
-                limit: 1,
-                leaseMs: 120000,
-              }),
-            ).toHaveLength(1);
+          if (baseline >= 86) {
+            const leases = await new PostgresAccountDeletionWorkStore(legacy).claimDue({
+              workerId: randomUUID(),
+              limit: 1,
+              leaseMs: 120000,
+            });
+            expect(leases).toHaveLength(1);
+            if (baseline === 87)
+              await new PostgresAccountDeletionCheckpointStore(legacy).finishShared(leases[0]!);
           }
           previousDeletion = {
             recordId: fixture.recordId,
@@ -226,7 +228,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        87 - baseline,
+        88 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (previousDeletion !== undefined) {
@@ -440,6 +442,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000085_m8_deletion_admission.sql',
         '000086_m8_deletion_work_fences.sql',
         '000087_m8_shared_checkpoint.sql',
+        '000088_m8_shared_payment_proof.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -520,9 +523,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000085_m8_deletion_admission.sql');
       expect(verified).toContain('000086_m8_deletion_work_fences.sql');
       expect(verified).toContain('000087_m8_shared_checkpoint.sql');
+      expect(verified).toContain('000088_m8_shared_payment_proof.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(87);
+      expect(replay.existing).toHaveLength(88);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
