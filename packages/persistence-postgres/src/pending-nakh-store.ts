@@ -28,7 +28,7 @@ import {
 } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
-import { lockUserPair } from './pair-lock.js';
+import { lockNakhLifecyclePair } from './nakh-lifecycle-authority.js';
 
 function commandHash(
   command: CreatePendingNakhCommand | EditPendingNakhCommand | CancelPendingNakhCommand,
@@ -86,20 +86,26 @@ export class PostgresPendingNakhStore
         if (sender?.state !== 'active')
           throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
 
-        const countRow = await transaction
-          .selectFrom('nakh.pending_nakhes')
+        const base = transaction
+          .selectFrom('nakh.pending_nakhes as pending')
+          .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+          .innerJoin('profile.profiles as target', 'target.user_id', 'flow.receiver_user_id')
+          .innerJoin(
+            'identity.accounts as target_account',
+            'target_account.user_id',
+            'target.user_id',
+          )
+          .where('pending.sender_user_id', '=', query.actor.userId)
+          .where('pending.status', '=', 'pending_payment')
+          .where('target_account.state', '!=', 'deleted');
+        const countRow = await base
           .select((expression) => expression.fn.countAll<string>().as('count'))
-          .where('sender_user_id', '=', query.actor.userId)
-          .where('status', '=', 'pending_payment')
           .executeTakeFirstOrThrow();
         const totalCount = Number(countRow.count);
         if (!Number.isSafeInteger(totalCount))
           throw new ApplicationError('internal_error', 'error.internal', 500);
 
-        let pageQuery = transaction
-          .selectFrom('nakh.pending_nakhes as pending')
-          .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
-          .innerJoin('profile.profiles as target', 'target.user_id', 'flow.receiver_user_id')
+        let pageQuery = base
           .select([
             'pending.id as pending_nakh_id',
             'pending.pending_payment_id as funding_intent_id',
@@ -156,6 +162,18 @@ export class PostgresPendingNakhStore
       if (counter === undefined)
         throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
 
+      const locator = await transaction
+        .selectFrom('nakh.pending_nakhes as pending')
+        .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+        .select(['pending.nakh_flow_id', 'flow.receiver_user_id'])
+        .where('pending.id', '=', command.data.pendingNakhId)
+        .where('pending.sender_user_id', '=', senderUserId)
+        .where('flow.sender_user_id', '=', senderUserId)
+        .executeTakeFirst();
+      if (locator === undefined)
+        throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
+      await lockNakhLifecyclePair(transaction, senderUserId, locator.receiver_user_id);
+
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -192,14 +210,6 @@ export class PostgresPendingNakhStore
         return replayResult(existing.response_json);
       }
 
-      const locator = await transaction
-        .selectFrom('nakh.pending_nakhes')
-        .select('nakh_flow_id')
-        .where('id', '=', command.data.pendingNakhId)
-        .where('sender_user_id', '=', senderUserId)
-        .executeTakeFirst();
-      if (locator === undefined)
-        throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
       const flow = await transaction
         .selectFrom('nakh.nakh_flows')
         .select('id')
@@ -287,6 +297,19 @@ export class PostgresPendingNakhStore
       if (counter === undefined)
         throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
 
+      const locator = await transaction
+        .selectFrom('nakh.pending_nakhes as pending')
+        .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+        .select(['pending.nakh_flow_id', 'flow.receiver_user_id'])
+        .where('pending.id', '=', command.data.pendingNakhId)
+        .where('pending.sender_user_id', '=', senderUserId)
+        .where('flow.sender_user_id', '=', senderUserId)
+        .executeTakeFirst();
+      if (locator === undefined)
+        throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
+
+      const receiverUserId = locator.receiver_user_id;
+      const pair = await lockNakhLifecyclePair(transaction, senderUserId, receiverUserId);
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -323,18 +346,6 @@ export class PostgresPendingNakhStore
         return replayResult(existing.response_json);
       }
 
-      const locator = await transaction
-        .selectFrom('nakh.pending_nakhes as pending')
-        .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
-        .select(['pending.nakh_flow_id', 'flow.receiver_user_id'])
-        .where('pending.id', '=', command.data.pendingNakhId)
-        .where('pending.sender_user_id', '=', senderUserId)
-        .executeTakeFirst();
-      if (locator === undefined)
-        throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
-
-      const receiverUserId = locator.receiver_user_id;
-      const pair = await lockUserPair(transaction, senderUserId, receiverUserId);
       const users = await transaction
         .selectFrom('identity.users as user')
         .innerJoin('identity.accounts as account', 'account.user_id', 'user.id')
@@ -789,6 +800,7 @@ export class PostgresPendingNakhStore
       if (counter === undefined)
         throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
 
+      const pair = await lockNakhLifecyclePair(transaction, senderUserId, targetUserId);
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -825,7 +837,6 @@ export class PostgresPendingNakhStore
         return replayResult(existing.response_json);
       }
 
-      const pair = await lockUserPair(transaction, senderUserId, targetUserId);
       const users = await transaction
         .selectFrom('identity.users as user')
         .innerJoin('identity.accounts as account', 'account.user_id', 'user.id')

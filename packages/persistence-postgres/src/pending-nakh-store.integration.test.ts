@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -22,6 +23,7 @@ import { runMigrations } from './migrations.js';
 import { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
 import { PostgresPendingNakhStore } from './pending-nakh-store.js';
 import { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
+import { createDeletionFixture } from './testing/deletion-fixture.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const manGenderId = '20000000-0000-4000-8000-000000000001';
@@ -1099,4 +1101,158 @@ describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => 
       hasMore: false,
     });
   });
+  it.each(['sender', 'receiver'] as const)(
+    'M8 fences pending Nakh content and receipts after real %s deletion without changing money or counters',
+    async (deletedRole) => {
+      const templateUser = await createActiveUser(database);
+      const template = await database
+        .selectFrom('profile.profiles')
+        .selectAll()
+        .where('user_id', '=', templateUser)
+        .executeTakeFirstOrThrow();
+      const items: Array<{
+        source: CreatePendingNakhWrite;
+        id: string;
+        survivor: string;
+        replay?: () => Promise<unknown>;
+        fresh: () => Promise<unknown>;
+      }> = [];
+      const fixture = await createDeletionFixture(database, async (owner) => {
+        await database
+          .updateTable('identity.accounts')
+          .set({ state: 'active', version: sql<number>`version+1` })
+          .where('user_id', '=', owner)
+          .execute();
+        await database
+          .insertInto('profile.profiles')
+          .values({ ...template, id: randomUUID(), user_id: owner })
+          .execute();
+        for (const action of ['edit', 'cancel', 'live'] as const) {
+          const survivor = await createActiveUser(database);
+          const sender = deletedRole === 'sender' ? owner : survivor;
+          const receiver = deletedRole === 'receiver' ? owner : survivor;
+          const source = write(command(sender, receiver));
+          const result = await store.createPending(source);
+          let replay: (() => Promise<unknown>) | undefined;
+          if (action === 'edit') {
+            const input = editWrite(
+              editCommand(sender, result.pendingNakhId, 1, 'Edited before deletion'),
+            );
+            await store.editPending(input);
+            replay = () => store.editPending(input);
+          } else if (action === 'cancel') {
+            const input = cancelWrite(
+              cancelCommand(sender, result.pendingNakhId, 'converted_to_not_interested'),
+            );
+            await store.cancelPending(input);
+            replay = () => store.cancelPending(input);
+          }
+          items.push({
+            source,
+            id: result.pendingNakhId,
+            survivor,
+            ...(replay === undefined ? {} : { replay }),
+            fresh: () =>
+              store.editPending(
+                editWrite(editCommand(sender, result.pendingNakhId, 1, 'Cannot revive')),
+              ),
+          });
+        }
+      });
+      const ids = items.map((item) => item.id),
+        users = [fixture.userId, ...items.map((item) => item.survivor)];
+      const snapshot = async (): Promise<readonly (readonly unknown[])[]> =>
+        Promise.all([
+          database
+            .selectFrom('nakh.pending_nakhes')
+            .selectAll()
+            .where('id', 'in', ids)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('billing.pending_payments')
+            .selectAll()
+            .where('user_id', 'in', users)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('platform.user_counters')
+            .selectAll()
+            .where('user_id', 'in', users)
+            .orderBy('user_id')
+            .execute(),
+          database
+            .selectFrom('billing.credit_accounts')
+            .selectAll()
+            .where('user_id', 'in', users)
+            .orderBy('user_id')
+            .execute(),
+          database
+            .selectFrom('billing.credit_transactions')
+            .selectAll()
+            .where('user_id', 'in', users)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('platform.idempotency_records')
+            .selectAll()
+            .where('actor_user_id', 'in', users)
+            .orderBy('id')
+            .execute(),
+        ]);
+      const before = await snapshot();
+      expect(before[0]).toHaveLength(3);
+      for (const item of items) {
+        await Promise.all(
+          Array.from({ length: 20 }, async () => {
+            await expect(store.createPending(item.source)).rejects.toMatchObject({
+              code: 'nakh_unavailable',
+            });
+            if (item.replay !== undefined)
+              await expect(item.replay()).rejects.toMatchObject({ code: 'nakh_unavailable' });
+          }),
+        );
+        await expect(item.fresh()).rejects.toMatchObject({ code: 'nakh_unavailable' });
+        await expect(
+          store.cancelPending(
+            cancelWrite(
+              cancelCommand(
+                item.source.command.actor.userId,
+                item.id,
+                'converted_to_not_interested',
+              ),
+            ),
+          ),
+        ).rejects.toMatchObject({ code: 'nakh_unavailable' });
+        if (deletedRole === 'receiver')
+          await expect(
+            store.readSenderPage({
+              actor: { kind: 'user', userId: item.survivor },
+              requestId: randomUUID(),
+              limit: 10,
+            }),
+          ).resolves.toEqual({ totalCount: 0, rows: [], hasMore: false });
+      }
+      await expect(
+        store.readSenderPage({
+          actor: { kind: 'user', userId: fixture.userId },
+          requestId: randomUUID(),
+          limit: 10,
+        }),
+      ).rejects.toMatchObject({ code: 'capability_denied' });
+      expect(await snapshot()).toEqual(before);
+      const receiver = await createActiveUser(database);
+      const unrelated = await store.createPending(write(command(templateUser, receiver)));
+      await expect(
+        store.readSenderPage({
+          actor: { kind: 'user', userId: templateUser },
+          requestId: randomUUID(),
+          limit: 10,
+        }),
+      ).resolves.toMatchObject({
+        totalCount: 1,
+        rows: [{ pendingNakhId: unrelated.pendingNakhId }],
+      });
+    },
+  );
 });

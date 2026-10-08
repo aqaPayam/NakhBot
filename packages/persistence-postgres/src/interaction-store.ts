@@ -7,7 +7,7 @@ import type { InteractionResult, MarkNotInterestedCommand, SendLikeCommand } fro
 import { ApplicationError } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
-import { lockUserPair } from './pair-lock.js';
+import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 
 type LikeGenerated = Parameters<InteractionStore['sendLike']>[1];
 type RejectionGenerated = Parameters<InteractionStore['markNotInterested']>[1];
@@ -209,6 +209,9 @@ export class PostgresInteractionStore implements InteractionStore {
       );
     return this.database.transaction().execute(async (transaction) => {
       const pair = await lockUserPair(transaction, command.actor.userId, command.data.targetUserId);
+      const accounts = await lockUserPairAccounts(transaction, pair);
+      if (accounts.length !== 2 || accounts.some((account) => account.state === 'deleted'))
+        throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
       const replay = await claimCommand(transaction, command, generated.occurredAt);
       if (replay !== undefined) return replay;
       const users = await lockAndLoadUsers(transaction, pair.userLowId, pair.userHighId);
@@ -473,6 +476,9 @@ export class PostgresInteractionStore implements InteractionStore {
       );
     return this.database.transaction().execute(async (transaction) => {
       const pair = await lockUserPair(transaction, command.actor.userId, command.data.targetUserId);
+      const accounts = await lockUserPairAccounts(transaction, pair);
+      if (accounts.length !== 2 || accounts.some((account) => account.state === 'deleted'))
+        throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
       const replay = await claimCommand(transaction, command, generated.occurredAt);
       if (replay !== undefined) return replay;
       const users = await lockAndLoadUsers(transaction, pair.userLowId, pair.userHighId);

@@ -451,3 +451,18 @@ still present, twenty concurrent direct/action replays, unchanged financial ledg
 unrelated live content. A worker blocked behind a committing tombstone cannot return its old
 receipt or create another Nakh. All 73 focused native tests in four files passed. This does not
 complete Nakh product purge, old-life financial fencing, the evidence checkpoint or deletion.
+
+Nakh delivery access commit `e2df5f4` passed all six exact-head CI jobs, 551 native tests in 93
+files and all 27 M7 plans (terminal snapshot 1409.186 ms, both required indexes present).
+
+Pending Nakh content/counts now use the same live Profile/non-deleted target scope. Pending
+creation, editing and cancellation check the owning pair's current Accounts before transport
+receipt replay, preserving sender-counter-before-pair lock order. Like and Not Interested replay
+also requires both non-deleted Accounts under sorted stable identity/Account locks. Other existing
+capability, financial, terminal and lifetime-interaction rules remain with their executors.
+Real sender/receiver and actor/target deletion probes retain the original product rows/receipts,
+exercise twenty-way replay and new writes, and verify unchanged payment intents, money, counters,
+interaction facts and consumption history plus unaffected unrelated users. All 63 focused native
+tests in six files passed. Delayed media/notification fences, source-phase completion, product
+purge, provider proofs, financial epochs, manifests, safe return and hardening remain required.
+Retention release and deletion ingress remain disabled.

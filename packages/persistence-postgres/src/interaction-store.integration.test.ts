@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -12,6 +13,7 @@ import { PostgresLikedByStore } from './liked-by-store.js';
 import { PostgresMediaDeliveryAuthorization } from './media-delivery-authorization.js';
 import { seedValidMedia } from './media-fixtures.js';
 import { runMigrations } from './migrations.js';
+import { createDeletionFixture } from './testing/deletion-fixture.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const manGenderId = '20000000-0000-4000-8000-000000000001';
@@ -419,4 +421,105 @@ describe.skipIf(databaseUrl === undefined)('M3 interaction persistence', () => {
       code: 'media_delivery_denied',
     });
   });
+  it.each(['actor', 'target'] as const)(
+    'M8 denies Like and Not Interested receipt replay after real %s deletion before shared purge',
+    async (deletedRole) => {
+      const interactions = new PostgresInteractionStore(database);
+      const templateUser = await createActiveUser(database, manGenderId);
+      const template = await database
+        .selectFrom('profile.profiles')
+        .selectAll()
+        .where('user_id', '=', templateUser)
+        .executeTakeFirstOrThrow();
+      const items: Array<{
+        other: string;
+        replay: () => Promise<unknown>;
+        fresh: () => Promise<unknown>;
+      }> = [];
+      const fixture = await createDeletionFixture(database, async (owner) => {
+        await database
+          .updateTable('identity.accounts')
+          .set({ state: 'active', version: sql<number>`version+1` })
+          .where('user_id', '=', owner)
+          .execute();
+        await database
+          .insertInto('profile.profiles')
+          .values({ ...template, id: randomUUID(), user_id: owner })
+          .execute();
+        for (const action of ['like', 'reject'] as const) {
+          const other = await createActiveUser(database, womanGenderId);
+          const actor = deletedRole === 'actor' ? owner : other;
+          const target = deletedRole === 'target' ? owner : other;
+          if (action === 'like') {
+            const original = likeCommand(actor, target),
+              generated = likeGenerated();
+            await interactions.sendLike(original, generated);
+            items.push({
+              other,
+              replay: () => interactions.sendLike(original, generated),
+              fresh: () => interactions.sendLike(likeCommand(actor, target), likeGenerated()),
+            });
+          } else {
+            const original = rejectionCommand(actor, target),
+              generated = rejectionGenerated();
+            await interactions.markNotInterested(original, generated);
+            items.push({
+              other,
+              replay: () => interactions.markNotInterested(original, generated),
+              fresh: () =>
+                interactions.markNotInterested(
+                  rejectionCommand(actor, target),
+                  rejectionGenerated(),
+                ),
+            });
+          }
+        }
+      });
+      const users = [fixture.userId, ...items.map((item) => item.other)];
+      const snapshot = async (): Promise<readonly (readonly unknown[])[]> =>
+        Promise.all([
+          database
+            .selectFrom('interaction.likes')
+            .selectAll()
+            .where('sender_user_id', 'in', users)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('interaction.not_interested')
+            .selectAll()
+            .where('sender_user_id', 'in', users)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('discovery.explore_consumptions')
+            .selectAll()
+            .where('viewer_user_id', 'in', users)
+            .orderBy('viewer_user_id')
+            .orderBy('target_user_id')
+            .execute(),
+          database
+            .selectFrom('platform.idempotency_records')
+            .selectAll()
+            .where('actor_user_id', 'in', users)
+            .orderBy('id')
+            .execute(),
+        ]);
+      const before = await snapshot();
+      expect(before[0]).toHaveLength(1);
+      expect(before[1]).toHaveLength(1);
+      for (const item of items) {
+        await Promise.all(
+          Array.from({ length: 20 }, () =>
+            expect(item.replay()).rejects.toMatchObject({ code: 'interaction_unavailable' }),
+          ),
+        );
+        await expect(item.fresh()).rejects.toMatchObject({ code: 'interaction_unavailable' });
+      }
+      expect(await snapshot()).toEqual(before);
+      const other = await createActiveUser(database, womanGenderId);
+      await expect(
+        interactions.sendLike(likeCommand(templateUser, other), likeGenerated()),
+      ).resolves.toMatchObject({ outcome: 'liked' });
+    },
+  );
 });
