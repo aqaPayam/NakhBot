@@ -12,7 +12,7 @@ import type {
 import type { ChatMessage, ChatMuteResult, ChatReadResult } from '@nakh/contracts';
 import { ApplicationError, CHAT_VISIBLE_MESSAGE_LIMIT } from '@nakh/domain';
 
-import { loadChatCapability } from './chat-store.js';
+import { loadChatCapability, lockAuthorizedChat } from './chat-store.js';
 import type { NakhDatabase } from './database.js';
 
 type StateWrite = MarkChatReadWrite | ChangeChatMuteWrite;
@@ -180,6 +180,27 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
     if (!capability.canRead) unavailable();
     const rows = await this.database
       .selectFrom('chat.chat_messages as message')
+      .innerJoin(
+        'chat.chat_sessions as scope_session',
+        'scope_session.id',
+        'message.chat_session_id',
+      )
+      .innerJoin('matching.matches as scope_match', 'scope_match.id', 'scope_session.match_id')
+      .innerJoin('identity.accounts as scope_actor', (join) =>
+        join.on('scope_actor.user_id', '=', input.userId),
+      )
+      .innerJoin('identity.accounts as scope_other', (join) =>
+        join.on(
+          'scope_other.user_id',
+          '=',
+          sql<string>`CASE WHEN scope_match.user_low_id=${input.userId}::uuid THEN scope_match.user_high_id ELSE scope_match.user_low_id END`,
+        ),
+      )
+      .innerJoin('interaction.user_pair_states as scope_pair', (join) =>
+        join
+          .onRef('scope_pair.user_low_id', '=', 'scope_match.user_low_id')
+          .onRef('scope_pair.user_high_id', '=', 'scope_match.user_high_id'),
+      )
       .leftJoin(
         'chat.predefined_questions as question',
         'question.id',
@@ -201,6 +222,11 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
         'message.created_at',
       ])
       .where('message.chat_session_id', '=', input.chatSessionId)
+      .where('scope_actor.state', 'in', ['active', 'restricted'])
+      .where('scope_other.state', '!=', 'deleted')
+      .where('scope_session.status', '=', 'active')
+      .where('scope_match.status', '=', 'active')
+      .where('scope_pair.state', '=', 'matched')
       .orderBy('message.sequence_number', 'desc')
       .limit(CHAT_VISIBLE_MESSAGE_LIMIT)
       .execute();
@@ -218,6 +244,12 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
   public markRead(write: MarkChatReadWrite): Promise<ChatReadResult> {
     if (write.command.actor.kind !== 'user') return Promise.reject(new Error('unreachable'));
     return this.database.transaction().execute(async (transaction) => {
+      await lockAuthorizedChat(
+        transaction,
+        write.chatSessionId,
+        write.command.actor.userId,
+        'read',
+      );
       const occurredAt = await databaseTime(transaction);
       const replay = await claimCommand<ChatReadResult>(transaction, write, occurredAt);
       if (replay !== undefined) return replay;
@@ -290,6 +322,12 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
   public changeMute(write: ChangeChatMuteWrite): Promise<ChatMuteResult> {
     if (write.command.actor.kind !== 'user') return Promise.reject(new Error('unreachable'));
     return this.database.transaction().execute(async (transaction) => {
+      await lockAuthorizedChat(
+        transaction,
+        write.chatSessionId,
+        write.command.actor.userId,
+        'read',
+      );
       const occurredAt = await databaseTime(transaction);
       const replay = await claimCommand<ChatMuteResult>(transaction, write, occurredAt);
       if (replay !== undefined) return replay;

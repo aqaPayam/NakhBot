@@ -8,6 +8,7 @@ import { PostgresAccountDeletionStore } from '../account-deletion-store.js';
 /** Native lifecycle fixture uses real identity/admission transactions, not fabricated work rows. */
 export async function createDeletionFixture(
   database: NakhDatabase,
+  beforeDeletion?: (userId: string) => Promise<void>,
 ): Promise<{ userId: string; recordId: string }> {
   const commandId = randomUUID(),
     userId = randomUUID(),
@@ -36,6 +37,12 @@ export async function createDeletionFixture(
     defaultLocale: 'en',
   };
   await new PostgresIdentityStore(database).registerTelegramIdentity(write);
+  await beforeDeletion?.(userId);
+  const account = await database
+    .selectFrom('identity.accounts')
+    .select('version')
+    .where('user_id', '=', userId)
+    .executeTakeFirstOrThrow();
   const key = randomBytes(32),
     deletion = new PostgresAccountDeletionStore(database, {
       activeKeyId: 'm8-work-fixture',
@@ -45,7 +52,7 @@ export async function createDeletionFixture(
     const proof = await deletion.prepare({
       actor: { kind: 'user', userId },
       requestId: randomUUID(),
-      expectedAccountVersion: 1,
+      expectedAccountVersion: account.version,
     });
     const id = randomUUID();
     await deletion.request({
@@ -57,7 +64,7 @@ export async function createDeletionFixture(
       idempotencyKey: `m8-work-delete:${id}`,
       occurredAt: at.toISOString(),
       locale: 'en',
-      data: { expectedAccountVersion: 1, confirmationToken: proof.confirmationToken },
+      data: { expectedAccountVersion: account.version, confirmationToken: proof.confirmationToken },
     });
   } finally {
     key.fill(0);

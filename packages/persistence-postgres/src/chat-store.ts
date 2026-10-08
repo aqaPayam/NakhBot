@@ -126,6 +126,13 @@ export async function loadChatCapability(
         .on('participant.user_id', '=', input.userId),
     )
     .innerJoin('identity.accounts as account', 'account.user_id', 'participant.user_id')
+    .innerJoin('identity.accounts as counterpart', (join) =>
+      join.on(
+        'counterpart.user_id',
+        '=',
+        sql<string>`CASE WHEN match.user_low_id=${input.userId}::uuid THEN match.user_high_id ELSE match.user_low_id END`,
+      ),
+    )
     .leftJoin('identity.user_settings as settings', 'settings.user_id', 'account.user_id')
     .leftJoin('profile.profiles as profile', 'profile.user_id', 'account.user_id')
     .select([
@@ -141,7 +148,8 @@ export async function loadChatCapability(
       'participant.last_read_sequence_number as lastReadSequenceNumber',
       'participant.unlock_safety_warning_shown_at as safetyWarningShownAt',
       'participant.version as version',
-    ]);
+    ])
+    .where('counterpart.state', '!=', 'deleted');
   if (input.matchId !== undefined) query = query.where('match.id', '=', input.matchId);
   if (input.chatSessionId !== undefined)
     query = query.where('session.id', '=', input.chatSessionId);
@@ -187,10 +195,11 @@ type LockedChat = Readonly<{
   sessionVersion: number;
 }>;
 
-async function lockAuthorizedChat(
+export async function lockAuthorizedChat(
   database: NakhDatabase,
   chatSessionId: string,
   actorUserId: string,
+  mode: 'send' | 'read' = 'send',
 ): Promise<LockedChat> {
   const identity = await database
     .selectFrom('chat.chat_sessions as session')
@@ -204,6 +213,7 @@ async function lockAuthorizedChat(
   )
     unavailable();
 
+  await lockUserPair(database, identity.user_low_id, identity.user_high_id);
   const accounts = await database
     .selectFrom('identity.accounts')
     .select(['user_id', 'state'])
@@ -215,12 +225,13 @@ async function lockAuthorizedChat(
   const recipient = accounts.find((account) => account.user_id !== actorUserId);
   if (
     accounts.length !== 2 ||
-    actor?.state !== 'active' ||
-    (recipient?.state !== 'active' && recipient?.state !== 'restricted')
+    recipient === undefined ||
+    (actor?.state !== 'active' && !(mode === 'read' && actor?.state === 'restricted')) ||
+    recipient?.state === 'deleted' ||
+    (mode === 'send' && recipient?.state !== 'active' && recipient?.state !== 'restricted')
   )
     unavailable();
 
-  await lockUserPair(database, identity.user_low_id, identity.user_high_id);
   const match = await database
     .selectFrom('matching.matches as match')
     .innerJoin('interaction.user_pair_states as pair', (join) =>

@@ -54,6 +54,7 @@ export class PostgresUnmatchStore implements UnmatchStore {
         (identity.user_low_id !== actorUserId && identity.user_high_id !== actorUserId)
       )
         unavailable();
+      await lockUserPair(transaction, identity.user_low_id, identity.user_high_id);
       const accounts = await transaction
         .selectFrom('identity.accounts')
         .select(['user_id', 'state'])
@@ -62,9 +63,13 @@ export class PostgresUnmatchStore implements UnmatchStore {
         .forUpdate()
         .execute();
       const actor = accounts.find(({ user_id }) => user_id === actorUserId);
-      if (actor?.state !== 'active' && actor?.state !== 'restricted') unavailable();
+      if (
+        accounts.length !== 2 ||
+        accounts.some(({ state }) => state === 'deleted') ||
+        (actor?.state !== 'active' && actor?.state !== 'restricted')
+      )
+        unavailable();
 
-      await lockUserPair(transaction, identity.user_low_id, identity.user_high_id);
       const match = await transaction
         .selectFrom('matching.matches as match')
         .innerJoin('interaction.user_pair_states as pair', (join) =>

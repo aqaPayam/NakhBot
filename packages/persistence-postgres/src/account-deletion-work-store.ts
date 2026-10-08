@@ -7,6 +7,7 @@ import {
 } from '@nakh/application';
 import { ACCOUNT_DELETION_PHASES, ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
+import { lockUserPair } from './pair-lock.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 function conflict(): ApplicationError {
@@ -105,13 +106,52 @@ export class PostgresAccountDeletionWorkStore implements AccountDeletionWorkStor
     return this.fencedTransaction(lease, batch);
   }
 
+  /** Shared writers take sender counters, then the pair, then identity rows.
+   * Acquire those boundaries before the ordinary deletion-work fence. */
+  public async withPairLease<T>(
+    lease: AccountDeletionLease,
+    otherUserId: string,
+    batch: (tx: NakhDatabase, scope: AccountDeletionLease) => Promise<T>,
+  ): Promise<T> {
+    if (!UUID.test(otherUserId) || otherUserId === lease.userId || lease.phase !== 'shared_closure')
+      throw conflict();
+    return this.fencedTransaction(lease, batch, undefined, async (tx) => {
+      const users = [lease.userId, otherUserId].sort();
+      await tx
+        .selectFrom('platform.user_counters')
+        .select('user_id')
+        .where('user_id', 'in', users)
+        .orderBy('user_id')
+        .forUpdate()
+        .execute();
+      await lockUserPair(tx, lease.userId, otherUserId);
+      await tx
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', 'in', users)
+        .orderBy('id')
+        .forNoKeyUpdate()
+        .execute();
+      const accounts = await tx
+        .selectFrom('identity.accounts')
+        .select('user_id')
+        .where('user_id', 'in', users)
+        .orderBy('user_id')
+        .forUpdate()
+        .execute();
+      if (accounts.length !== 2) throw conflict();
+    });
+  }
+
   private async fencedTransaction<T>(
     lease: AccountDeletionLease,
     batch: (tx: NakhDatabase, scope: AccountDeletionLease) => Promise<T>,
     settlement?: { code: AccountDeletionFailureCode | null; delaySeconds: number },
+    beforeIdentity?: (tx: NakhDatabase) => Promise<void>,
   ): Promise<T> {
     validate(lease);
     return this.database.transaction().execute(async (tx) => {
+      await beforeIdentity?.(tx);
       await tx
         .selectFrom('identity.users')
         .select('id')

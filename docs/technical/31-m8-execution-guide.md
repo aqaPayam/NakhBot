@@ -133,6 +133,27 @@ the new generation-zero field. Direct SQL cannot renew expired authority without
 
 ## Execution sequence
 
+The next backend increment closes one normalized shared pair per fenced transaction. It rescans
+remaining active facts after interruption instead of trusting outbox delivery or a transport cursor.
+It cancels active Likes, closes Match/Chat scopes, revokes grants (including grants on already-closed
+Likes/Matches), cancels unpaid pending Nakh intents with one sender-counter decrement, and closes
+sent/seen Nakh with append-only history. Blocked pair state, Report sources/snapshots and all credit
+ledger/provider evidence remain unchanged. Paid or failed pending fulfillment requires a separate
+financial closure path and currently fails the batch; it never becomes a falsely cancelled payment.
+Each changed pair requires a content-free audit and closure event in the same transaction, plus a
+deduplicated localized chat-closure notice when the surviving participant has a closed chat scope.
+Deletion of both participants suppresses product notification delivery to the deleted counterpart.
+Pair batches take sorted sender counters, the normalized pair and sorted identity locks before the
+work fence. Chat/unmatch use the same pair-before-Account order. Chat capability and the actual
+history read reject a deleted counterpart immediately; read/mute receipts cannot bypass that check.
+Normal unmatch also rejects a deleted counterpart. This does not complete the shared phase:
+verified phase receipts, all remaining ingress/delivery guards and the actual purge worker are pending.
+
+Native shared-closure scenarios cover twenty-way retries, one-pair restart after outbox loss,
+required audit/event/notice rollback, encrypted Report evidence and ledger preservation, immediate
+chat tombstones, pending/delivered Nakh reconciliation, ordinary unmatch races, expiry while waiting
+for a pair lock, and preservation of a blocked pair while closing an orphan active chat/grant.
+
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,
    deletion record, audit/outbox and mandatory purge work. Prove twenty-way races, replay, changed
    payload denial and required-audit rollback. Banned-account deletion remains available.

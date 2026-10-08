@@ -304,7 +304,11 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
           disposition: 'quarantined',
           safeDetail: { pendingStatus: row.pendingStatus, paymentStatus: row.paymentStatus },
         });
-      if (expectedPaymentStatus[row.pendingStatus] !== row.paymentStatus)
+      if (
+        row.pendingStatus === 'closed_by_system'
+          ? !['cancelled', 'expired'].includes(row.paymentStatus)
+          : expectedPaymentStatus[row.pendingStatus] !== row.paymentStatus
+      )
         findings.push({
           anomalyType: 'pending_nakh_payment_status_drift',
           entityType: 'pending_nakh',
