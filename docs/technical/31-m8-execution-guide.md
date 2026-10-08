@@ -428,3 +428,10 @@ replay, bounded batches, unrelated owners, required-write suppression, commit-ti
 populated concurrent migration-93 upgrade including an already-deleted owner. All 121 focused
 native tests in ten files passed. The full evidence checkpoint, provider proofs and remaining purge/return phases remain
 required; deletion ingress and retention-based release remain disabled.
+
+Photo archival commit `361ffd9` passed quality, all four images and all 548 native tests in 93
+files. M3 fixture setup then attempted to physically delete assigned Photos for its photo-missing
+negative case; migration 94 correctly denied removal without verified owning archival. The repair
+leaves those sources unassigned from the outset, preserving the same final absent-photo case and
+all original 24 actionability cases, 5,000 candidates, queries, index requirements and budgets.
+No production safeguard is relaxed. Full exact-head CI remains required before another feature.

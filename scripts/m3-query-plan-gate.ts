@@ -330,9 +330,6 @@ async function applyLikedByMatrix(
       .set({ status: 'deleted', is_primary: false, deleted_at: now, updated_at: now, version: 2 })
       .where('id', 'in', deletedPhotos)
       .execute();
-  const missingPhotos = fixturesInCase(fixtures, 'photo_missing').map(({ photoId }) => photoId);
-  if (missingPhotos.length > 0)
-    await database.deleteFrom('media.profile_photos').where('id', 'in', missingPhotos).execute();
 
   const deletedAssets = fixturesInCase(fixtures, 'asset_deleted').map(({ assetId }) => assetId);
   if (deletedAssets.length > 0)
@@ -699,18 +696,22 @@ async function seedUsers(
     await database
       .insertInto('media.profile_photos')
       .values(
-        batch.map(({ profileId, assetId, photoId }) => ({
-          id: photoId,
-          profile_id: profileId,
-          asset_id: assetId,
-          status: 'visible' as const,
-          is_primary: true,
-          display_order: 0,
-          created_at: now,
-          updated_at: now,
-          hidden_at: null,
-          deleted_at: null,
-        })),
+        // An absent source is never assigned. Existing assignments now require
+        // verified owning deletion receipts before physical archival.
+        batch
+          .filter(({ likedByMatrixCase }) => likedByMatrixCase !== 'photo_missing')
+          .map(({ profileId, assetId, photoId }) => ({
+            id: photoId,
+            profile_id: profileId,
+            asset_id: assetId,
+            status: 'visible' as const,
+            is_primary: true,
+            display_order: 0,
+            created_at: now,
+            updated_at: now,
+            hidden_at: null,
+            deleted_at: null,
+          })),
       )
       .execute();
     await database
