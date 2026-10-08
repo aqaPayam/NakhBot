@@ -587,7 +587,10 @@ async function seedUsers(
       .values(
         batch.map(({ userId, likedByMatrixCase }) => ({
           user_id: userId,
-          state: accountState(likedByMatrixCase),
+          // A deleted source is a previously created Profile. Build that lifecycle
+          // in order, then apply the same final negative case below.
+          state:
+            likedByMatrixCase === 'account_deleted' ? 'active' : accountState(likedByMatrixCase),
           state_reason: null,
           state_changed_at: now,
         })),
@@ -724,6 +727,13 @@ async function seedUsers(
       )
       .execute();
   }
+  const deletedOwners = fixturesInCase(fixtures, 'account_deleted').map(({ userId }) => userId);
+  if (deletedOwners.length > 0)
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'deleted', state_changed_at: now })
+      .where('user_id', 'in', deletedOwners)
+      .execute();
   await applyLikedByMatrix(database, receiverUserId, fixtures, now);
 }
 

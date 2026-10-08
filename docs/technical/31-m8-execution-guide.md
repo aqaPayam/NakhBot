@@ -282,6 +282,17 @@ passes all 20 affected native tests. Production guards and every original assert
 The complete exact-head CI, including the unexecuted performance/load/restore gates, must pass before
 more M8 features.
 
+Fixture repair `a0098b3` passed all 499 native tests. Its M3 performance setup then failed because
+the deleted-account negative case marked the Account deleted before creating its historical Profile.
+The next repair creates that source while active and applies the original deleted state after source
+creation. All 24 final actionability cases, original 5,000 candidates, queries, index requirements and
+budgets remain unchanged. A fresh isolated Windows diagnostic passes the complete M3 gate (pool
+3.604 ms, count 4.680 ms, page 5.875 ms; required indexes present). The reused local database selected
+a count scan and failed its index assertion; that diagnostic is not Linux acceptance. Full exact-head
+Linux CI remains required. The independent collector job failed during public image pull before
+startup/export with a fixed unknown classification, then passed one unchanged completed-job retry,
+including the real SDK/conversion/privacy assertions. No collector, privacy or safety gate was relaxed.
+
 Migration 88 binds shared closure to financial correction evidence. Paid pending delivery batches
 roll back and return a bounded financial-resolution wait while the existing fenced billing worker
 creates the exact target-unavailable refund obligation. Deletion never cancels a captured payment
