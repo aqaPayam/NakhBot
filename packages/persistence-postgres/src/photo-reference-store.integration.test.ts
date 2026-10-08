@@ -63,7 +63,10 @@ describe.skipIf(url === undefined)('M8 original Photo references and populated u
     const upgrades = await Promise.all(
       Array.from({ length: 20 }, () => runMigrations(isolated.url, resolve('migrations'))),
     );
-    expect(upgrades.flatMap((result) => result.applied)).toEqual(['000094_m8_photo_archival.sql']);
+    expect(upgrades.flatMap((result) => result.applied)).toEqual([
+      '000094_m8_photo_archival.sql',
+      '000095_m8_evidence_checkpoint.sql',
+    ]);
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000094_m8_photo_archival.sql',
     );

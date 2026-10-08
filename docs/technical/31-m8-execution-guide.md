@@ -543,3 +543,12 @@ Account, then observes and requires that late-committing capture after expiry. N
 weakened. A filtered diagnostic skipped all tests and supplied no acceptance evidence; the final
 unfiltered suites passed. Native tests also cover required-write rollback, commit/lock-wait expiry,
 twenty-way idempotency, forged authority, original shared receipt replay and dual-participant proof reuse.
+
+Evidence-checkpoint commit `9cdb3cc` passed local quality, GitHub quality and all four image jobs.
+The full native CI passed 591 tests; two legacy Match/Photo upgrade setup assertions still expected
+the migration list to end at 94, preventing eight preservation tests from running. The repair adds
+migration 95 to both exact upgrade expectations without weakening any preservation assertion or
+production guard. Downstream plan/load gates did not run and remain required on the repaired head.
+All 17 focused native tests in the two repaired reference suites and the evidence-checkpoint suite
+passed, including the eight previously blocked preservation tests. The production checkpoint and
+its reporting-window, capture, source, audit and lease guards remain unchanged by this repair.
