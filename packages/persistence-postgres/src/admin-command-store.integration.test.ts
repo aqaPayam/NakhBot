@@ -38,6 +38,15 @@ async function createUser(database: NakhDatabase): Promise<string> {
     .insertInto('identity.users')
     .values({ id, last_activity_at: now, created_at: now, updated_at: now })
     .execute();
+  await database
+    .insertInto('identity.accounts')
+    .values({
+      user_id: id,
+      state: 'active',
+      state_reason: null,
+      state_changed_at: now,
+    })
+    .execute();
   return id;
 }
 

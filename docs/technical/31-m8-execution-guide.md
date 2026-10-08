@@ -274,6 +274,14 @@ retained capture, ledger or counterpart Profile is released. Chat/unmatch/photo 
 provider checks and the full evidence-phase checkpoint remain required; this source-specific receipt
 does not mark product purge complete or authorize return. Deploy migration 90 before these stores.
 
+Profile archival commit `3edd7b8` passed quality and all four images. Its full native CI run passed
+482 tests and failed 17 in two legacy administrative/review fixtures that created a Profile without
+an Account foundation. The new source-reference guard correctly denied those fixtures. The repair
+creates the active Account with each fixture User, removes redundant later Account inserts and
+passes all 20 affected native tests. Production guards and every original assertion remain unchanged.
+The complete exact-head CI, including the unexecuted performance/load/restore gates, must pass before
+more M8 features.
+
 Migration 88 binds shared closure to financial correction evidence. Paid pending delivery batches
 roll back and return a bounded financial-resolution wait while the existing fenced billing worker
 creates the exact target-unavailable refund obligation. Deletion never cancels a captured payment

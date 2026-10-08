@@ -52,6 +52,15 @@ async function createUser(database: NakhDatabase): Promise<string> {
     .insertInto('identity.users')
     .values({ id, last_activity_at: now, created_at: now, updated_at: now })
     .execute();
+  await database
+    .insertInto('identity.accounts')
+    .values({
+      user_id: id,
+      state: 'active',
+      state_reason: null,
+      state_changed_at: now,
+    })
+    .execute();
   return id;
 }
 
@@ -396,15 +405,6 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
       .select(['profile.id', 'profile.user_id'])
       .where('report.id', '=', review.reportId)
       .executeTakeFirstOrThrow();
-    await database
-      .insertInto('identity.accounts')
-      .values({
-        user_id: profile.user_id,
-        state: 'active',
-        state_reason: null,
-        state_changed_at: new Date(),
-      })
-      .execute();
     const assetId = await seedValidMedia(database, profile.user_id),
       photoId = randomUUID(),
       now = new Date();
@@ -753,15 +753,6 @@ describe.skipIf(databaseUrl === undefined)('M7 moderation review queue', () => {
       .select('target_user_id')
       .where('id', '=', review.reportId)
       .executeTakeFirstOrThrow();
-    await database
-      .insertInto('identity.accounts')
-      .values({
-        user_id: report.target_user_id,
-        state: 'active',
-        state_reason: null,
-        state_changed_at: new Date(),
-      })
-      .execute();
     const f = await confirmationFixture(database, adminId);
     const commands = new PostgresConfirmedAccountActions(database, f.tokens, f.key);
     const command: ApplyAccountModerationActionCommand = {
