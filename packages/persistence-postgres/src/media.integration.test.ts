@@ -1214,6 +1214,161 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     ).toEqual(before);
   });
 
+  it.each(['pending', 'claimed', 'uploaded', 'validation_claimed'] as const)(
+    'M8 denies media work and upload replay after deletion (%s)',
+    async (stage) => {
+      let assetId!: string;
+      const fixture = await createDeletionFixture(database, async (owner) => {
+        await database
+          .updateTable('identity.accounts')
+          .set({ state: 'incomplete', version: sql<number>`version+1` })
+          .where('user_id', '=', owner)
+          .execute();
+        await profile(owner);
+        const upload = write(owner);
+        assetId = upload.assetId;
+        await store.beginTelegramIngestion(upload);
+        if (stage !== 'pending')
+          await store.claimPendingQuarantine({ assetId, owner: 'm8-ingestion', leaseMs: 60000 });
+        if (stage === 'uploaded' || stage === 'validation_claimed') {
+          await store.markQuarantineUploaded({
+            assetId,
+            owner: 'm8-ingestion',
+            bytes: 3,
+            sha256: 'a'.repeat(64),
+            uploadedAt: new Date(),
+            scannerVersion: 'scanner-1',
+            signatureVersion: 'signatures-1',
+            scannedAt: new Date(),
+          });
+          if (stage === 'validation_claimed')
+            await validation.claim({ assetId, owner: 'm8-validator', leaseMs: 60000 });
+        }
+      });
+      const original = await database
+        .selectFrom('media.media_assets')
+        .selectAll()
+        .where('id', '=', assetId)
+        .executeTakeFirstOrThrow();
+      expect(original.owner_user_id).toBe(fixture.userId);
+      await Promise.all(
+        Array.from({ length: 20 }, async () => {
+          await expect(
+            store.claimPendingQuarantine({ assetId, owner: 'm8-ingestion', leaseMs: 60000 }),
+          ).rejects.toMatchObject({ code: 'capability_denied' });
+          await expect(
+            validation.claim({ assetId, owner: 'm8-validator', leaseMs: 60000 }),
+          ).rejects.toMatchObject({ code: 'capability_denied' });
+          await expect(
+            store.markQuarantineUploaded({
+              assetId,
+              owner: 'm8-ingestion',
+              bytes: 3,
+              sha256: 'a'.repeat(64),
+              uploadedAt: new Date(),
+              scannerVersion: 'scanner-1',
+              signatureVersion: 'signatures-1',
+              scannedAt: new Date(),
+            }),
+          ).rejects.toMatchObject({ code: 'capability_denied' });
+        }),
+      );
+      expect(
+        await database
+          .selectFrom('media.media_assets')
+          .selectAll()
+          .where('id', '=', assetId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual(original);
+    },
+  );
+
+  it('M8 rechecks a media claim after decryption waits across real deletion', async () => {
+    let entered!: () => void, resume!: () => void;
+    const decrypting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const delayed = new PostgresMediaStore(database, 'test', {
+      decrypt: async () => {
+        entered();
+        await barrier;
+        return { telegramFileId: 'synthetic-file' };
+      },
+    });
+    let outcome!: Promise<unknown>, assetId!: string;
+    try {
+      await createDeletionFixture(database, async (owner) => {
+        await database
+          .updateTable('identity.accounts')
+          .set({ state: 'incomplete', version: sql<number>`version+1` })
+          .where('user_id', '=', owner)
+          .execute();
+        const upload = write(owner);
+        assetId = upload.assetId;
+        await delayed.beginTelegramIngestion(upload);
+        outcome = delayed
+          .claimPendingQuarantine({ assetId, owner: 'm8-delayed', leaseMs: 60000 })
+          .then(
+            () => 'unexpected_claim',
+            (error: unknown) => error,
+          );
+        await decrypting;
+      });
+    } finally {
+      resume();
+    }
+    expect(await outcome).toMatchObject({ code: 'capability_denied' });
+    expect(
+      await database
+        .selectFrom('media.media_assets')
+        .select(['quarantine_uploaded_at', 'ingestion_lease_owner', 'ingestion_lease_expires_at'])
+        .where('id', '=', assetId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({
+      quarantine_uploaded_at: null,
+      ingestion_lease_owner: null,
+      ingestion_lease_expires_at: null,
+    });
+  });
+
+  it('rejects upload settlement after the ingestion lease expires without publishing', async () => {
+    const owner = await user(),
+      upload = write(owner);
+    await store.beginTelegramIngestion(upload);
+    await store.claimPendingQuarantine({
+      assetId: upload.assetId,
+      owner: 'expired',
+      leaseMs: 60000,
+    });
+    await database
+      .updateTable('media.media_assets')
+      .set({ ingestion_lease_expires_at: new Date(Date.now() - 1000) })
+      .where('id', '=', upload.assetId)
+      .execute();
+    await expect(
+      store.markQuarantineUploaded({
+        assetId: upload.assetId,
+        owner: 'expired',
+        bytes: 3,
+        sha256: 'a'.repeat(64),
+        uploadedAt: new Date(),
+        scannerVersion: 'scanner-1',
+        signatureVersion: 'signatures-1',
+        scannedAt: new Date(),
+      }),
+    ).rejects.toMatchObject({ code: 'media_invalid_state' });
+    expect(
+      await database
+        .selectFrom('media.media_assets')
+        .select(['quarantine_uploaded_at', 'malware_scan_result'])
+        .where('id', '=', upload.assetId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ quarantine_uploaded_at: null, malware_scan_result: null });
+  });
+
   it('M8 denies delayed validation publication under its old lease after real deletion', async () => {
     let assetId!: string;
     await createDeletionFixture(database, async (owner) => {

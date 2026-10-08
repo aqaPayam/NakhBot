@@ -466,3 +466,16 @@ interaction facts and consumption history plus unaffected unrelated users. All 6
 tests in six files passed. Delayed media/notification fences, source-phase completion, product
 purge, provider proofs, financial epochs, manifests, safe return and hardening remain required.
 Retention release and deletion ingress remain disabled.
+
+Pending Nakh/interaction commit `1e5de72` passed all six exact-head CI jobs, 555 native tests in
+93 files and all 27 M7 plans (terminal snapshot 1228.29 ms, both required indexes present).
+
+Media ingestion/validation claims and completed-upload replay now require the original asset
+owner's current Account under stable identity-before-Account-before-asset locks. Transport
+decryption runs outside those locks, then rechecks Account and exact unexpired ingestion lease
+before returning private transport material. Upload publication also requires current authority
+and an unexpired lease; cleanup/release remains available. Six new native scenarios cover four
+ingestion stages, twenty concurrent post-deletion attempts, actual deletion during decryption,
+and expired-lease publication. All 43 focused native tests in two files passed. This increment
+does not prove provider-object absence, revoke already-issued delivery grants, or enable deletion
+ingress/retained-data release. Those obligations and the complete remaining M8 phases still apply.

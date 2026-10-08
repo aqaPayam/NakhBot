@@ -6,7 +6,10 @@ import type { MediaValidationStore, PendingMediaValidation } from '@nakh/applica
 import { ApplicationError, type AcceptedMediaType } from '@nakh/domain';
 
 import type { DatabaseSchema, NakhDatabase } from './database.js';
-import { requireMediaAccountInTransaction } from './media-account-authority.js';
+import {
+  lockMediaAssetOwnerInTransaction,
+  requireMediaAccountInTransaction,
+} from './media-account-authority.js';
 
 type Tx = Transaction<DatabaseSchema>;
 type RejectionCode =
@@ -42,25 +45,28 @@ export class PostgresMediaValidationStore implements MediaValidationStore {
       input.leaseMs > 900_000
     )
       throw new ApplicationError('invalid_request', 'error.media.lease.invalid', 400);
-    const row = await this.database
-      .updateTable('media.media_assets')
-      .set({
-        validation_lease_owner: input.owner,
-        validation_lease_expires_at: sql<Date>`clock_timestamp() + (${input.leaseMs} * interval '1 millisecond')`,
-      })
-      .where('id', '=', input.assetId)
-      .where('validation_state', '=', 'pending')
-      .where('quarantine_uploaded_at', 'is not', null)
-      .where('malware_scan_result', '=', 'clean')
-      .where('deleted_at', 'is', null)
-      .where((eb) =>
-        eb.or([
-          eb('validation_lease_expires_at', 'is', null),
-          eb('validation_lease_expires_at', '<', sql<Date>`clock_timestamp()`),
-        ]),
-      )
-      .returning(['id', 'quarantine_key'])
-      .executeTakeFirst();
+    const row = await this.database.transaction().execute(async (transaction) => {
+      if (!(await lockMediaAssetOwnerInTransaction(transaction, input.assetId))) return undefined;
+      return transaction
+        .updateTable('media.media_assets')
+        .set({
+          validation_lease_owner: input.owner,
+          validation_lease_expires_at: sql<Date>`clock_timestamp() + (${input.leaseMs} * interval '1 millisecond')`,
+        })
+        .where('id', '=', input.assetId)
+        .where('validation_state', '=', 'pending')
+        .where('quarantine_uploaded_at', 'is not', null)
+        .where('malware_scan_result', '=', 'clean')
+        .where('deleted_at', 'is', null)
+        .where((eb) =>
+          eb.or([
+            eb('validation_lease_expires_at', 'is', null),
+            eb('validation_lease_expires_at', '<', sql<Date>`clock_timestamp()`),
+          ]),
+        )
+        .returning(['id', 'quarantine_key'])
+        .executeTakeFirst();
+    });
     return row === undefined
       ? undefined
       : {

@@ -22,3 +22,25 @@ export async function requireMediaAccountInTransaction(
   )
     throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
 }
+
+/** Resolve immutable ownership without taking an asset lock before the identity.
+ * Missing work is unavailable; existing work requires current Account authority. */
+export async function lockMediaAssetOwnerInTransaction(
+  transaction: NakhDatabase,
+  assetId: string,
+): Promise<boolean> {
+  const asset = await transaction
+    .selectFrom('media.media_assets')
+    .select('owner_user_id')
+    .where('id', '=', assetId)
+    .executeTakeFirst();
+  if (asset === undefined) return false;
+  await transaction
+    .selectFrom('identity.users')
+    .select('id')
+    .where('id', '=', asset.owner_user_id)
+    .forNoKeyUpdate()
+    .executeTakeFirstOrThrow();
+  await requireMediaAccountInTransaction(transaction, asset.owner_user_id);
+  return true;
+}
