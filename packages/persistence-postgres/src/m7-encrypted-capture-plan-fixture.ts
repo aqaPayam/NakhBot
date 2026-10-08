@@ -15,6 +15,7 @@ import {
 } from '@nakh/application';
 import type { DatabaseSchema, NakhDatabase } from './database.js';
 import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
+import { analyzeM7EvidencePlanTables } from './m7-evidence-plan-statistics.js';
 
 export type M7EncryptedCaptureFixture = Readonly<{
   authenticated: number;
@@ -254,10 +255,15 @@ export async function seedM7EncryptedCapturePlans(
         result.hashRejected++;
       }
     }
+    await analyzeM7EvidencePlanTables(database);
     const observed = (
-      await sql<{ count: string; outsideWindow: string }>`SELECT count(*)::text AS count,
+      await sql<{
+        count: string;
+        outsideWindow: string;
+      }>`WITH fixture_evidence AS MATERIALIZED (${MODERATION_INTEGRITY_SOURCES.evidence})
+      SELECT count(*)::text AS count,
         count(*) FILTER(WHERE report.submitted_at <= ${at}::timestamptz - interval '24 hours')::text AS "outsideWindow"
-      FROM (${MODERATION_INTEGRITY_SOURCES.evidence}) probe
+      FROM fixture_evidence probe
       JOIN moderation.report_snapshots snapshot ON snapshot.report_evidence_id = probe.id
       JOIN moderation.reports report ON report.id = snapshot.report_id
       WHERE snapshot.encryption_key_id = ${keyId} AND probe."hasCapture" AND probe."hasRetainedPhoto"`.execute(

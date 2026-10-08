@@ -207,9 +207,13 @@ export async function measureM7SyntheticPlans(
         messageCaptures = await seedM7MessageCapturePlans(tx, prefix, volume, at);
         await analyzeM7QueryTables(tx);
         const thresholdChains = (
-          await sql<{ count: string; resolved: string }>`SELECT count(*)::text AS count,
+          await sql<{
+            count: string;
+            resolved: string;
+          }>`WITH fixture_episodes AS MATERIALIZED (${MODERATION_INTEGRITY_SOURCES.episodes})
+          SELECT count(*)::text AS count,
             count(*) FILTER(WHERE probe."hasResolutionAttempt")::text AS resolved
-          FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe WHERE probe.id IN (
+          FROM fixture_episodes probe WHERE probe.id IN (
             SELECT md5(${prefix} || 'episode' || n)::uuid FROM generate_series(1,${volume}) n)
             AND probe."hasOneSystemAction"
             AND probe."hasAdmissionWitness"

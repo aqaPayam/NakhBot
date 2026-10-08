@@ -6,7 +6,7 @@ import { MODERATION_RECONCILIATION_PHASES } from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
-import { measureM7SyntheticPlans } from './m7-query-plans.js';
+import { analyzeM7QueryTables, measureM7SyntheticPlans } from './m7-query-plans.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import { seedM7AppealIntegrityPlans } from './m7-appeal-integrity-plan-fixture.js';
 import { withM6SyntheticPlanSession } from './m6-query-plans.js';
@@ -145,8 +145,10 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             at = new Date(),
             store = new PostgresModerationIntegrityMetricsStore(tx);
           await seedM7IntegrityPlans(tx, prefix, 1000, at);
+          await analyzeM7QueryTables(tx);
           const baseline = await store.measure();
           await seedM7AppealIntegrityPlans(tx, prefix, 1000, at);
+          await analyzeM7QueryTables(tx);
           expect((await store.measure()).counts).toEqual(baseline.counts);
           // Both accepted-without-unban and rejected decisions require their own review audit.
           for (const n of [1, 2]) {
@@ -206,6 +208,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             store = new PostgresModerationIntegrityMetricsStore(tx);
           await seedM7IntegrityPlans(tx, prefix, 1000, at);
           await seedM7AppealIntegrityPlans(tx, prefix, 1000, at);
+          await analyzeM7QueryTables(tx);
           const baseline = await store.measure();
           // An invalid duplicate must not hide a valid exact restoration history,
           // and multiple matches must not multiply the owning action.
@@ -277,6 +280,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             at = new Date();
           await seedM7IntegrityPlans(tx, prefix, 1000, at);
           await seedM7AppealIntegrityPlans(tx, prefix, 1000, at);
+          await analyzeM7QueryTables(tx);
           const action = await tx
             .selectFrom('moderation.moderation_actions')
             .selectAll()

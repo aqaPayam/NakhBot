@@ -173,6 +173,20 @@ immutable receipts, denied future-phase advances and a missing pending-counter f
 Migration 87 must be deployed before the checkpoint store; ingress and the full purge worker remain
 disabled until the remaining verifiers and product/media/evidence/retention work are implemented.
 
+Checkpoint commit `536e320` passed quality, four images and all 466 native tests, but the M7
+encrypted-evidence fixture count timed out at 60 seconds before any performance artifact could be
+saved. The repair refreshes statistics for bulk uncommitted evidence before verification and
+materializes complete production integrity-source flags once before filtering verification counts.
+Every capture/custody/threshold binding, cardinality and admission-window assertion remains. The
+20,000-volume Windows diagnostic now completes all verification and measures all plans, authenticates
+20,000 encrypted captures and verifies 20,000 typed-message captures, with exact matching metadata
+counts and both required terminal indexes. Its terminal snapshot is 2547.125 ms; this diagnostic is
+not production acceptance. Linux CI must still pass all original 27 plans and the unchanged 1500 ms
+limit before more M8 features. No fixture volume, repeated sample, index or safety gate is removed.
+Native corruption fixtures also refresh the same table statistics before sampling newly seeded
+uncommitted scenes; all wrong-review, wrong-target, restoration, duplicate and cleanup assertions
+remain, with their original 60-second test limit.
+
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,
    deletion record, audit/outbox and mandatory purge work. Prove twenty-way races, replay, changed
    payload denial and required-audit rollback. Banned-account deletion remains available.
