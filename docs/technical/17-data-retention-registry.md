@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 96: 126 tables, 1,136 columns and 230 foreign keys.
+code-owned M8 catalog inventory for migration 97: 126 tables, 1,138 columns and 230 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -23,6 +23,15 @@ that every polymorphic reference has been resolved. Public catalogs and workforc
 their own actions and cannot become ordinary product purge by inheritance. The four object-prefix
 descriptors record object obligations; they do not claim provider verification or Redis coverage.
 No policy period is invented and retained-data release remains disabled until approval is supplied.
+
+Migration 97 adds explicit initial product epochs to Account and payment intent. Existing rows
+remain epoch zero; neither timestamps nor provider transport infer a later product life. Intent
+ownership is immutable, admission locks the current active Account and an unverified return is
+rejected. Account deletion cannot be bypassed by deleting and reinserting its stable lifecycle row.
+Captured package payments remain original-payer financial obligations after deletion. Fulfillment
+requires the owning active epoch or one exact original-payment refund and correction event; lease
+expiry is checked again at commit. This is an intent/fulfillment fence, not ledger epoch partition,
+product-purge completion, fresh-return approval or a retention period. Those obligations remain open.
 
 Migration 95 extends only the immutable phase-receipt transition from evidence capture to ordinary
 product data; it adds no table, column or foreign key. The transition requires authenticated current

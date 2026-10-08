@@ -13,6 +13,7 @@ import { createDeletionFixture } from './testing/deletion-fixture.js';
 import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.js';
 import { PostgresAccountDeletionCheckpointStore } from './account-deletion-checkpoint-store.js';
 import { PostgresAccountDeletionProductStore } from './account-deletion-product-store.js';
+import { PostgresTelegramStarsReceiptStore } from './payment-receipt-store.js';
 import type { AccountDeletionLease } from '@nakh/application';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
@@ -20,7 +21,7 @@ const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95,
+    78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -36,6 +37,16 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       legacyEpisodeId = randomUUID(),
       legacySessionId = randomUUID();
     let previousFactor: Record<string, unknown> | undefined;
+    let previousPayment:
+      | {
+          payerId: string;
+          intentId: string;
+          paymentId: string;
+          intent: Record<string, unknown>;
+          payment: Record<string, unknown>;
+          receipt: Record<string, unknown>;
+        }
+      | undefined;
     let previousPairFunction: Record<string, unknown> | undefined;
     let pendingProductLease: AccountDeletionLease | undefined;
     let previousDeletion:
@@ -246,10 +257,145 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           throw error;
         }
       }
+      if (baseline === 96) {
+        const payerId = randomUUID(),
+          intentId = randomUUID(),
+          paymentId = randomUUID();
+        await target.query(
+          'INSERT INTO identity.users(id,last_activity_at,created_at,updated_at) VALUES($1,now(),now(),now())',
+          [payerId],
+        );
+        await target.query(
+          "INSERT INTO identity.accounts(user_id,state,state_changed_at) VALUES($1,'active',now())",
+          [payerId],
+        );
+        await target.query(
+          'INSERT INTO billing.credit_accounts(user_id,created_at,updated_at) VALUES($1,now(),now())',
+          [payerId],
+        );
+        await target.query(
+          'INSERT INTO notification.notification_preferences(user_id,created_at,updated_at) VALUES($1,now(),now())',
+          [payerId],
+        );
+        // Historical SQL shape deliberately omits the not-yet-existing epoch column.
+        await target.query(
+          `INSERT INTO billing.pending_payments(id,user_id,reason,target_type,target_id,funding_type,
+          required_stars,package_code_snapshot,package_credit_amount_snapshot,status,idempotency_key,request_hash,expires_at,resolved_at)
+          SELECT $1,$2,'buy_credit_package','credit_package',id,'telegram_stars',stars_price,code,credit_amount,
+            'paid',$3,repeat('d',64),now()+interval '1 hour',now() FROM billing.credit_packages WHERE code='starter'`,
+          [intentId, payerId, `upgrade-intent:${intentId}`],
+        );
+        await target.query(
+          `INSERT INTO billing.payment_records(id,user_id,pending_payment_id,payment_type,credit_package_id,
+          package_code_snapshot,package_credit_amount_snapshot,status,stars_amount,provider,provider_environment,provider_bot_id_digest,
+          invoice_payload_digest,invoice_payload_ciphertext,invoice_payload_key_id,provider_payment_id,idempotency_key,request_hash,paid_at)
+          SELECT $1,$2,$3,'buy_credit_package',id,code,credit_amount,'paid',stars_price,'telegram_stars','test',repeat('b',64),
+            repeat('c',64),decode(repeat('ab',64),'hex'),'upgrade-key',$4,$5,repeat('d',64),now()
+          FROM billing.credit_packages WHERE code='starter'`,
+          [
+            paymentId,
+            payerId,
+            intentId,
+            `upgrade-charge:${paymentId}`,
+            `upgrade-payment:${paymentId}`,
+          ],
+        );
+        await target.query(
+          `INSERT INTO billing.telegram_stars_receipts(payment_record_id,provider_event_id,telegram_charge_id,payer_user_id,stars_amount)
+          VALUES($1,$2,$3,$4,10)`,
+          [paymentId, `upgrade-event:${paymentId}`, `upgrade-charge:${paymentId}`, payerId],
+        );
+        await target.query(
+          'INSERT INTO billing.payment_fulfillments(payment_record_id) VALUES($1)',
+          [paymentId],
+        );
+        previousPayment = {
+          payerId,
+          intentId,
+          paymentId,
+          intent: (
+            await target.query<Record<string, unknown>>(
+              'SELECT * FROM billing.pending_payments WHERE id=$1',
+              [intentId],
+            )
+          ).rows[0]!,
+          payment: (
+            await target.query<Record<string, unknown>>(
+              'SELECT * FROM billing.payment_records WHERE id=$1',
+              [paymentId],
+            )
+          ).rows[0]!,
+          receipt: (
+            await target.query<Record<string, unknown>>(
+              'SELECT * FROM billing.telegram_stars_receipts WHERE payment_record_id=$1',
+              [paymentId],
+            )
+          ).rows[0]!,
+        };
+      }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        96 - baseline,
+        97 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      if (previousPayment !== undefined) {
+        const saved = previousPayment;
+        expect(
+          (
+            await target.query('SELECT * FROM billing.pending_payments WHERE id=$1', [
+              saved.intentId,
+            ])
+          ).rows,
+        ).toEqual([{ ...saved.intent, product_epoch: 0 }]);
+        expect(
+          (
+            await target.query('SELECT * FROM billing.payment_records WHERE id=$1', [
+              saved.paymentId,
+            ])
+          ).rows,
+        ).toEqual([saved.payment]);
+        expect(
+          (
+            await target.query(
+              'SELECT * FROM billing.telegram_stars_receipts WHERE payment_record_id=$1',
+              [saved.paymentId],
+            )
+          ).rows,
+        ).toEqual([saved.receipt]);
+        expect(
+          (
+            await target.query('SELECT product_epoch FROM identity.accounts WHERE user_id=$1', [
+              saved.payerId,
+            ])
+          ).rows,
+        ).toEqual([{ product_epoch: 0 }]);
+        const upgraded = createDatabase({
+          url: targetUrl.toString(),
+          poolMax: 2,
+          statementTimeoutMs: 5000,
+          lockTimeoutMs: 1000,
+        });
+        try {
+          const store = PostgresTelegramStarsReceiptStore.forFulfillment(upgraded);
+          const [claim] = await store.claimFulfillments({
+            owner: 'upgrade-package',
+            leaseMs: 60000,
+            limit: 100,
+          });
+          expect(claim?.paymentRecordId).toBe(saved.paymentId);
+          await expect(
+            store.fulfillCreditPackage({
+              ...claim!,
+              owner: 'upgrade-package',
+              creditTransactionId: randomUUID(),
+              creditIncreasedEventId: randomUUID(),
+              paymentFulfilledEventId: randomUUID(),
+              refundRecordId: randomUUID(),
+            }),
+          ).resolves.toMatchObject({ outcome: 'fulfilled', balanceAfter: 10n, replayed: false });
+        } finally {
+          await upgraded.destroy();
+        }
+      }
       if (previousDeletion !== undefined) {
         expect(
           (
@@ -487,6 +633,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000094_m8_photo_archival.sql',
         '000095_m8_evidence_checkpoint.sql',
         '000096_m8_product_batches.sql',
+        '000097_m8_payment_lifecycle.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -576,9 +723,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000094_m8_photo_archival.sql');
       expect(verified).toContain('000095_m8_evidence_checkpoint.sql');
       expect(verified).toContain('000096_m8_product_batches.sql');
+      expect(verified).toContain('000097_m8_payment_lifecycle.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(96);
+      expect(replay.existing).toHaveLength(97);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

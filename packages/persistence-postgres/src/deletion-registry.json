@@ -1553,6 +1553,11 @@
           "name": "version",
           "type": "integer",
           "nullable": false
+        },
+        {
+          "name": "product_epoch",
+          "type": "integer",
+          "nullable": false
         }
       ],
       "foreignKeys": [
@@ -4236,6 +4241,11 @@
         },
         {
           "name": "version",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "product_epoch",
           "type": "integer",
           "nullable": false
         }

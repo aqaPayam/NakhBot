@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -13,6 +14,7 @@ import type {
 import type { CancelPendingNakhCommand, CreatePendingNakhCommand } from '@nakh/contracts';
 
 import { PostgresBillingReconciliationStore } from './billing-reconciliation-store.js';
+import { PostgresAccountDeletionStore } from './account-deletion-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresFundingStore } from './funding-store.js';
 import { runMigrations } from './migrations.js';
@@ -195,6 +197,482 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     const user = await createUser(database);
     return preparePaymentFor(user, { type: 'credit_package', packageCode: 'starter' });
   }
+
+  async function deletePayer(userId: string): Promise<void> {
+    const account = await database
+      .selectFrom('identity.accounts')
+      .select('version')
+      .where('user_id', '=', userId)
+      .executeTakeFirstOrThrow();
+    const key = randomBytes(32);
+    const deletion = new PostgresAccountDeletionStore(database, {
+      activeKeyId: 'payment-lifecycle-test',
+      keys: new Map([['payment-lifecycle-test', key]]),
+    });
+    try {
+      const proof = await deletion.prepare({
+        actor: { kind: 'user', userId },
+        requestId: randomUUID(),
+        expectedAccountVersion: account.version,
+      });
+      const commandId = randomUUID();
+      await deletion.request({
+        commandId,
+        commandType: 'account.delete',
+        schemaVersion: 1,
+        actor: { kind: 'user', userId },
+        requestId: randomUUID(),
+        idempotencyKey: `package-delete:${commandId}`,
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          expectedAccountVersion: account.version,
+          confirmationToken: proof.confirmationToken,
+        },
+      });
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  async function capturedPackage(deleteBeforeCapture = false): Promise<{
+    payment: Awaited<ReturnType<typeof preparedPayment>>;
+    callback: TelegramSuccessfulPaymentWrite;
+    fulfillment: Parameters<PostgresTelegramStarsReceiptStore['fulfillCreditPackage']>[0];
+  }> {
+    const payment = await preparedPayment();
+    if (deleteBeforeCapture) await deletePayer(payment.userId);
+    const eventId = `package-captured:${randomUUID()}`;
+    const callback: TelegramSuccessfulPaymentWrite = {
+      providerEventId: eventId,
+      telegramUserId: payment.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount,
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      telegramChargeId: `telegram:${randomUUID()}`,
+      evidence: evidence(eventId),
+    };
+    await receipts.recordSuccessfulPayment(callback);
+    const owner = `epoch-worker:${randomUUID()}`;
+    const claim = (await receipts.claimFulfillments({ owner, leaseMs: 60_000, limit: 100 })).find(
+      ({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId,
+    )!;
+    expect(claim).toBeDefined();
+    return {
+      payment,
+      callback,
+      fulfillment: {
+        paymentRecordId: payment.paymentRecordId,
+        owner,
+        fenceToken: claim.fenceToken,
+        creditTransactionId: randomUUID(),
+        creditIncreasedEventId: randomUUID(),
+        paymentFulfilledEventId: randomUUID(),
+        refundRecordId: randomUUID(),
+      },
+    };
+  }
+
+  it('corrects one captured package after real deletion across competing workers and provider replay', async () => {
+    const { payment, callback, fulfillment } = await capturedPackage(true);
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => receipts.fulfillCreditPackage(fulfillment)),
+    );
+    expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
+    expect(results.every(({ outcome }) => outcome === 'correction_required')).toBe(true);
+    expect(
+      await database
+        .selectFrom('billing.credit_accounts')
+        .select(['balance', 'version'])
+        .where('user_id', '=', payment.userId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ balance: '0', version: 1 });
+    expect(
+      await database
+        .selectFrom('billing.credit_transactions')
+        .select('id')
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .execute(),
+    ).toEqual([]);
+    expect(
+      await database
+        .selectFrom('billing.refund_records')
+        .select(['id', 'user_id', 'telegram_charge_id', 'stars_amount', 'reason_code'])
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .execute(),
+    ).toEqual([
+      {
+        id: fulfillment.refundRecordId,
+        user_id: payment.userId,
+        telegram_charge_id: callback.telegramChargeId,
+        stars_amount: payment.starsAmount.toString(),
+        reason_code: 'target_unavailable',
+      },
+    ]);
+    expect(
+      await database
+        .selectFrom('notification.notifications')
+        .select('id')
+        .where('user_id', '=', payment.userId)
+        .where('notification_type', '=', 'payment_success')
+        .execute(),
+    ).toEqual([]);
+    await receipts.recordSuccessfulPayment(callback);
+    await receipts.recordSuccessfulPayment({
+      ...callback,
+      providerEventId: `captured-replay:${randomUUID()}`,
+    });
+    await expect(
+      receipts.fulfillCreditPackage({ ...fulfillment, refundRecordId: randomUUID() }),
+    ).resolves.toMatchObject({
+      outcome: 'correction_required',
+      refundRecordId: fulfillment.refundRecordId,
+      replayed: true,
+    });
+    const refund = (
+      await refunds.claimStarsRefunds({ owner: fulfillment.owner, leaseMs: 60_000, limit: 100 })
+    ).find(({ refundRecordId }) => refundRecordId === fulfillment.refundRecordId)!;
+    expect(refund).toMatchObject({
+      userId: payment.userId,
+      telegramChargeId: callback.telegramChargeId,
+      starsAmount: payment.starsAmount,
+    });
+    await expect(refunds.beginProviderCall(refund)).resolves.toBe(true);
+    await expect(refunds.completeStarsRefund(refund)).resolves.toBe('processed');
+    await expect(refunds.completeStarsRefund(refund)).resolves.toBe('replayed');
+  });
+
+  it('denies a cached checkout and invoice after deletion without rewriting historical provider authority', async () => {
+    const payment = await preparedPayment();
+    const eventId = `epoch-checkout:${randomUUID()}`;
+    const write = {
+      providerEventId: eventId,
+      telegramUserId: payment.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount,
+      providerEnvironment: 'test' as const,
+      providerBotIdDigest: botDigest,
+      evidence: evidence(eventId),
+    };
+    await expect(receipts.validatePreCheckout(write)).resolves.toEqual({
+      allowed: true,
+      replayed: false,
+    });
+    const attempt = await database
+      .selectFrom('billing.payment_records')
+      .select(['pending_payment_id', 'idempotency_key'])
+      .where('id', '=', payment.paymentRecordId)
+      .executeTakeFirstOrThrow();
+    await deletePayer(payment.userId);
+    await expect(receipts.validatePreCheckout(write)).resolves.toEqual({
+      allowed: false,
+      reasonCode: 'target_unavailable',
+      replayed: true,
+    });
+    await expect(
+      receipts.validatePreCheckout({ ...write, providerEventId: `epoch-new:${randomUUID()}` }),
+    ).resolves.toMatchObject({ allowed: false, reasonCode: 'target_unavailable', replayed: false });
+    expect(
+      await database
+        .selectFrom('billing.payment_provider_events')
+        .select('decision')
+        .where('provider_event_id', '=', eventId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ decision: 'allow' });
+    await expect(
+      funding.prepareStarsAttempt({
+        paymentRecordId: randomUUID(),
+        fundingIntentId: attempt.pending_payment_id,
+        userId: payment.userId,
+        expectedVersion: 1,
+        idempotencyKey: attempt.idempotency_key,
+        providerEnvironment: 'test',
+        providerBotIdDigest: botDigest,
+        payload: issuePayload(),
+      }),
+    ).rejects.toMatchObject({ code: 'capability_denied' });
+    // Captured money is still recorded after deletion, even though checkout is no longer authorized.
+    await expect(
+      receipts.recordSuccessfulPayment({
+        ...write,
+        providerEventId: `late-capture:${randomUUID()}`,
+        telegramChargeId: `telegram:${randomUUID()}`,
+      }),
+    ).resolves.toMatchObject({ outcome: 'receipt_recorded' });
+  });
+
+  it('rejects fabricated account and payment epochs and an unverified return', async () => {
+    const payment = await preparedPayment();
+    const attempt = await database
+      .selectFrom('billing.payment_records')
+      .select('pending_payment_id')
+      .where('id', '=', payment.paymentRecordId)
+      .executeTakeFirstOrThrow();
+    await expect(
+      database
+        .updateTable('billing.pending_payments')
+        .set({ product_epoch: 1, status: 'cancelled', version: 2, resolved_at: new Date() })
+        .where('id', '=', attempt.pending_payment_id)
+        .execute(),
+    ).rejects.toMatchObject({ code: '55000' });
+    await expect(
+      database
+        .updateTable('identity.accounts')
+        .set({ product_epoch: 1 })
+        .where('user_id', '=', payment.userId)
+        .execute(),
+    ).rejects.toMatchObject({ code: '55000' });
+    await expect(
+      database.deleteFrom('identity.accounts').where('user_id', '=', payment.userId).execute(),
+    ).rejects.toMatchObject({ code: '55000' });
+    await deletePayer(payment.userId);
+    const originalIntent = await database
+      .selectFrom('billing.pending_payments')
+      .selectAll()
+      .where('id', '=', attempt.pending_payment_id)
+      .executeTakeFirstOrThrow();
+    await expect(
+      database
+        .insertInto('billing.pending_payments')
+        .values({
+          ...originalIntent,
+          id: randomUUID(),
+          idempotency_key: `deleted-admission:${randomUUID()}`,
+        })
+        .execute(),
+    ).rejects.toMatchObject({ code: '40001' });
+    await expect(
+      database
+        .updateTable('identity.accounts')
+        .set({ state: 'guest', product_epoch: 1, version: 3 })
+        .where('user_id', '=', payment.userId)
+        .execute(),
+    ).rejects.toMatchObject({ code: '55000' });
+  });
+
+  it('corrects a captured package after waiting behind a real committing tombstone', async () => {
+    const { payment, fulfillment } = await capturedPackage();
+    await sql
+      .raw(
+        `CREATE FUNCTION identity.test_package_tombstone_wait() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.user_id='${payment.userId}'::uuid AND NEW.state='deleted' THEN
+        PERFORM pg_advisory_xact_lock(410097,1); END IF; RETURN NEW; END $$`,
+      )
+      .execute(database);
+    await sql`CREATE TRIGGER test_package_tombstone_wait AFTER UPDATE ON identity.accounts
+      FOR EACH ROW EXECUTE FUNCTION identity.test_package_tombstone_wait()`.execute(database);
+    let deletion: Promise<boolean> | undefined;
+    let result: ReturnType<typeof receipts.fulfillCreditPackage> | undefined;
+    async function waitForLock(kind: 'deletion' | 'worker'): Promise<void> {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const waiting =
+          kind === 'deletion'
+            ? await sql<{ waiting: boolean }>`SELECT EXISTS(SELECT 1 FROM pg_locks
+              WHERE locktype='advisory' AND classid=410097 AND objid=1 AND NOT granted) AS waiting`.execute(
+                database,
+              )
+            : await sql<{ waiting: boolean }>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+              WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%for no key update%') AS waiting`.execute(
+                database,
+              );
+        if (waiting.rows[0]!.waiting) return;
+        await new Promise<void>((resolveWait) => setTimeout(resolveWait, 25));
+      }
+      throw new Error('Expected canonical lifecycle lock was not observed');
+    }
+    try {
+      await database.transaction().execute(async (barrier) => {
+        await sql`SELECT pg_advisory_xact_lock(410097,1)`.execute(barrier);
+        deletion = deletePayer(payment.userId).then(
+          () => true,
+          () => false,
+        );
+        await waitForLock('deletion');
+        result = receipts.fulfillCreditPackage(fulfillment);
+        await waitForLock('worker');
+      });
+      expect(await deletion).toBe(true);
+      await expect(result).resolves.toMatchObject({
+        outcome: 'correction_required',
+        replayed: false,
+      });
+      expect(
+        await database
+          .selectFrom('billing.credit_transactions')
+          .select('id')
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .execute(),
+      ).toEqual([]);
+    } finally {
+      await deletion;
+      await result?.catch(() => undefined);
+      await sql`DROP TRIGGER test_package_tombstone_wait ON identity.accounts`.execute(database);
+      await sql`DROP FUNCTION identity.test_package_tombstone_wait()`.execute(database);
+    }
+  });
+
+  it('uses the current clock after waiting for the canonical payer lock', async () => {
+    const { payment, fulfillment } = await capturedPackage();
+    await database
+      .updateTable('billing.payment_fulfillments')
+      .set((eb) => ({
+        lease_expires_at: sql<Date>`clock_timestamp()+interval '700 milliseconds'`,
+        version: eb('version', '+', 1),
+      }))
+      .where('payment_record_id', '=', payment.paymentRecordId)
+      .execute();
+    let finished: Promise<unknown> | undefined;
+    await database.transaction().execute(async (transaction) => {
+      await transaction
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', payment.userId)
+        .forNoKeyUpdate()
+        .execute();
+      await transaction
+        .selectFrom('identity.accounts')
+        .select('user_id')
+        .where('user_id', '=', payment.userId)
+        .forUpdate()
+        .execute();
+      finished = expect(receipts.fulfillCreditPackage(fulfillment)).rejects.toMatchObject({
+        code: 'conflict',
+      });
+      await sql`SELECT pg_sleep(1.1)`.execute(transaction);
+    });
+    await finished;
+    expect(
+      await database
+        .selectFrom('billing.credit_transactions')
+        .select('id')
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .execute(),
+    ).toEqual([]);
+    const claim = (
+      await receipts.claimFulfillments({ owner: fulfillment.owner, leaseMs: 60_000, limit: 100 })
+    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId)!;
+    expect(claim.fenceToken).toBe(fulfillment.fenceToken + 1n);
+    await expect(receipts.fulfillCreditPackage(fulfillment)).rejects.toMatchObject({
+      code: 'conflict',
+    });
+    await expect(
+      receipts.fulfillCreditPackage({ ...fulfillment, fenceToken: claim.fenceToken }),
+    ).resolves.toMatchObject({ outcome: 'fulfilled', balanceAfter: 10n, replayed: false });
+  });
+
+  it('rolls back a package grant whose lease expires during deferred commit checks', async () => {
+    const { payment, fulfillment } = await capturedPackage();
+    await database
+      .updateTable('billing.payment_fulfillments')
+      .set((eb) => ({
+        lease_expires_at: sql<Date>`clock_timestamp()+interval '700 milliseconds'`,
+        version: eb('version', '+', 1),
+      }))
+      .where('payment_record_id', '=', payment.paymentRecordId)
+      .execute();
+    await sql
+      .raw(
+        `CREATE FUNCTION billing.test_package_commit_wait() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.payment_record_id='${payment.paymentRecordId}'::uuid AND NEW.state='fulfilled'
+        THEN PERFORM pg_sleep(1.1); END IF; RETURN NULL; END $$`,
+      )
+      .execute(database);
+    await sql`CREATE CONSTRAINT TRIGGER aaa_package_commit_wait AFTER UPDATE ON billing.payment_fulfillments
+      DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION billing.test_package_commit_wait()`.execute(
+      database,
+    );
+    try {
+      await expect(receipts.fulfillCreditPackage(fulfillment)).rejects.toMatchObject({
+        code: '23514',
+      });
+      expect(
+        await database
+          .selectFrom('billing.credit_accounts')
+          .select(['balance', 'version'])
+          .where('user_id', '=', payment.userId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ balance: '0', version: 1 });
+      expect(
+        await database
+          .selectFrom('billing.credit_transactions')
+          .select('id')
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .execute(),
+      ).toEqual([]);
+      expect(
+        await database
+          .selectFrom('platform.outbox_events')
+          .select('id')
+          .where('id', 'in', [
+            fulfillment.creditIncreasedEventId,
+            fulfillment.paymentFulfilledEventId,
+          ])
+          .execute(),
+      ).toEqual([]);
+    } finally {
+      await sql`DROP TRIGGER aaa_package_commit_wait ON billing.payment_fulfillments`.execute(
+        database,
+      );
+      await sql`DROP FUNCTION billing.test_package_commit_wait()`.execute(database);
+    }
+    const claim = (
+      await receipts.claimFulfillments({ owner: fulfillment.owner, leaseMs: 60_000, limit: 100 })
+    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId)!;
+    await expect(
+      receipts.fulfillCreditPackage({ ...fulfillment, fenceToken: claim.fenceToken }),
+    ).resolves.toMatchObject({ outcome: 'fulfilled', balanceAfter: 10n });
+  });
+
+  it.each(['refund', 'event'] as const)(
+    'rolls back package correction when its required %s is suppressed',
+    async (missing) => {
+      const { payment, fulfillment } = await capturedPackage();
+      await deletePayer(payment.userId);
+      const target = missing === 'refund' ? 'billing.refund_records' : 'platform.outbox_events';
+      // Test-only suppression proves the deferred guard checks committed facts, not application intentions.
+      await sql
+        .raw(
+          `CREATE FUNCTION billing.test_package_suppression() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF ${missing === 'refund' ? 'NEW.payment_record_id' : 'NEW.aggregate_id'}='${payment.paymentRecordId}'::uuid THEN RETURN NULL; END IF; RETURN NEW; END $$`,
+        )
+        .execute(database);
+      await sql
+        .raw(
+          `CREATE TRIGGER test_package_suppression BEFORE INSERT ON ${target}
+      FOR EACH ROW EXECUTE FUNCTION billing.test_package_suppression()`,
+        )
+        .execute(database);
+      try {
+        await expect(receipts.fulfillCreditPackage(fulfillment)).rejects.toMatchObject({
+          code: '23514',
+        });
+        expect(
+          await database
+            .selectFrom('billing.payment_fulfillments')
+            .select('state')
+            .where('payment_record_id', '=', payment.paymentRecordId)
+            .executeTakeFirstOrThrow(),
+        ).toEqual({ state: 'fulfillment_pending' });
+        expect(
+          await database
+            .selectFrom('billing.refund_records')
+            .select('id')
+            .where('payment_record_id', '=', payment.paymentRecordId)
+            .execute(),
+        ).toEqual([]);
+      } finally {
+        await sql.raw(`DROP TRIGGER test_package_suppression ON ${target}`).execute(database);
+        await sql`DROP FUNCTION billing.test_package_suppression()`.execute(database);
+      }
+      await expect(receipts.fulfillCreditPackage(fulfillment)).resolves.toMatchObject({
+        outcome: 'correction_required',
+        replayed: false,
+      });
+    },
+  );
 
   async function preparePaymentFor(
     user: Readonly<{ userId: string; telegramUserId: string }>,
@@ -460,6 +938,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       creditTransactionId: randomUUID(),
       creditIncreasedEventId: randomUUID(),
       paymentFulfilledEventId: randomUUID(),
+      refundRecordId: randomUUID(),
     };
     const fulfillments = await Promise.all(
       Array.from({ length: 20 }, () => receipts.fulfillCreditPackage(fulfillmentWrite)),

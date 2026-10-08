@@ -205,6 +205,7 @@ export interface AccountTable {
   state_reason: string | null;
   state_changed_at: Date;
   version: Generated<number>;
+  product_epoch: Generated<number>;
 }
 
 export interface AccountStateHistoryTable {
@@ -544,6 +545,7 @@ export interface PendingPaymentTable {
   expires_at: Date;
   resolved_at: Date | null;
   version: Generated<number>;
+  product_epoch: Generated<number>;
 }
 
 export interface PaymentRecordTable {

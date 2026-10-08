@@ -582,3 +582,34 @@ removed in 100/100/5 batches. Probes cover twenty-way idempotency, counterpart p
 required-write suppression/type/payload corruption, database-clock expiry during delete and at
 deferred commit, expiry behind the Account lock, schema drift and restart after transport loss.
 No full M8 completion, retained-data approval or external staging/security evidence is claimed.
+
+Ordinary-product commit `952120b` passed the full local check (917 unit tests in 216 files), all six
+exact-head CI jobs, 614 native tests in 96 files and all 27 unchanged plans. The terminal integrity
+snapshot took 846.69 ms against 1500 ms and retained both required indexes. Tracked source count
+was 185,490 lines. This verifies the bounded sweep only, not whole-product deletion.
+
+The next payment increment adds explicit immutable intent epochs and a current Account fence to
+package fulfillment, funding admission and invoice/checkout replay. Existing Account and intent
+rows remain epoch zero without changing prior payment or captured receipt facts. A deleted or
+different-epoch payer cannot receive a new package credit grant. One original-payment refund and
+correction event are committed instead, under the original payer, charge and Stars amount. The
+worker reports correction rather than claiming successful credit fulfillment. Deferred guards
+require actual purchase/events or original refund/event facts and an unexpired worker generation
+at commit; current time is rechecked after canonical Account lock waits. Captured money remains
+recordable after deletion and original refund processing remains available.
+
+Migration 97 prevents arbitrary epoch changes, stable Account deletion/reinsertion and unverified
+deleted-to-guest return. Return remains disabled. Full credit-ledger epoch partition, a new empty
+product life, whole-product purge, provider/ephemeral/retention verification and worker/ingress
+composition remain required. No retention periods have been approved; retained-data release stays
+disabled. No external staging, restore/DR, security review or operator acceptance is claimed.
+
+Native verification passed 90 tests across the seven focused suites; the one remaining populated
+migration-96 case initially lacked historical CreditAccount timestamps and notification preferences.
+Its corrected case then passed independently, preserving exact original payment and receipt bytes,
+adding only epoch zero to its intent and successfully fulfilling through the upgraded worker. The
+eight new package probes cover late captured money, twenty-way correction/replay and original
+refund completion, cached checkout/invoice denial, epoch/return forgery, a real committing-tombstone
+lock race, current-clock lease expiry after a payer lock wait, expiry at deferred commit and required
+refund/event suppression rollback. The worker's eight unit tests and persistence type check passed.
+The complete local check and all six exact-head CI jobs remain required for this candidate.

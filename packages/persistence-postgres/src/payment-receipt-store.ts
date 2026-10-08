@@ -52,6 +52,7 @@ type StoredPayment = Readonly<{
   target_id: string;
   expires_at: Date;
   intent_version: number;
+  product_epoch: number;
 }>;
 
 export type PaymentFulfillmentClaim = Readonly<{
@@ -75,17 +76,26 @@ export type PaymentFulfillmentLease = Readonly<{
 
 export type CreditPackageFulfillmentWrite = PaymentFulfillmentLease &
   Readonly<{
+    refundRecordId: string;
     creditTransactionId: string;
     creditIncreasedEventId: string;
     paymentFulfilledEventId: string;
   }>;
 
-export type CreditPackageFulfillmentResult = Readonly<{
-  paymentRecordId: string;
-  creditTransactionId: string;
-  balanceAfter: bigint;
-  replayed: boolean;
-}>;
+export type CreditPackageFulfillmentResult =
+  | Readonly<{
+      outcome: 'fulfilled';
+      paymentRecordId: string;
+      creditTransactionId: string;
+      balanceAfter: bigint;
+      replayed: boolean;
+    }>
+  | Readonly<{
+      paymentRecordId: string;
+      outcome: 'correction_required';
+      refundRecordId: string;
+      replayed: boolean;
+    }>;
 
 export type DirectPaidActionFulfillmentWrite = PaymentFulfillmentLease &
   Readonly<{
@@ -225,6 +235,22 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           );
           return { allowed: false, reasonCode: 'callback_conflict', replayed: true };
         }
+        if (replay.decision === 'allow') {
+          const payment = await this.findPayment(transaction, write.invoicePayload, false);
+          if (payment === undefined || !(await this.targetAvailable(transaction, payment)))
+            return { allowed: false, reasonCode: 'target_unavailable', replayed: true };
+          const current = await this.findPayment(transaction, write.invoicePayload, true);
+          const clock = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(
+            transaction,
+          );
+          const reason = reasonForPayment(
+            current,
+            await this.findPayer(transaction, write.telegramUserId),
+            write,
+            clock.rows[0]!.now,
+          );
+          if (reason !== undefined) return { allowed: false, reasonCode: reason, replayed: true };
+        }
         if (replay.reason_code === null)
           return { allowed: replay.decision === 'allow', replayed: true };
         return {
@@ -236,13 +262,18 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
 
       const payment = await this.findPayment(transaction, write.invoicePayload, false);
       const payerUserId = await this.findPayer(transaction, write.telegramUserId);
-      const clock = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(
-        transaction,
-      );
+      const clock = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);
       let reason = reasonForPayment(payment, payerUserId, write, clock.rows[0]!.now);
       if (reason === undefined && payment !== undefined) {
         const available = await this.targetAvailable(transaction, payment);
         if (!available) reason = 'target_unavailable';
+        else {
+          const current = await this.findPayment(transaction, write.invoicePayload, true);
+          const checkedAt = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(
+            transaction,
+          );
+          reason = reasonForPayment(current, payerUserId, write, checkedAt.rows[0]!.now);
+        }
       }
       const allowed = reason === undefined;
       await this.insertProviderEvent(transaction, {
@@ -498,10 +529,29 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
   ): Promise<CreditPackageFulfillmentResult> {
     this.validateLease(input);
     return this.database.transaction().execute(async (transaction) => {
+      const locator = await transaction
+        .selectFrom('billing.payment_records')
+        .select('user_id')
+        .where('id', '=', input.paymentRecordId)
+        .executeTakeFirst();
+      if (locator === undefined)
+        throw new ApplicationError('not_found', 'error.billing.fulfillment_not_found', 404);
+      await transaction
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', locator.user_id)
+        .forNoKeyUpdate()
+        .execute();
+      const lifecycle = await transaction
+        .selectFrom('identity.accounts')
+        .select(['state', 'product_epoch'])
+        .where('user_id', '=', locator.user_id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
       const fulfillment = await transaction
         .selectFrom('billing.payment_fulfillments')
         .selectAll()
-        .select(sql<Date>`transaction_timestamp()`.as('database_now'))
+        .select(sql<Date>`clock_timestamp()`.as('database_now'))
         .where('payment_record_id', '=', input.paymentRecordId)
         .forUpdate()
         .executeTakeFirst();
@@ -515,9 +565,23 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           .where('transaction_type', '=', 'purchase')
           .executeTakeFirstOrThrow();
         return {
+          outcome: 'fulfilled',
           paymentRecordId: input.paymentRecordId,
           creditTransactionId: prior.id,
           balanceAfter: BigInt(prior.balance_after),
+          replayed: true,
+        };
+      }
+      if (fulfillment.state === 'correction_required') {
+        const prior = await transaction
+          .selectFrom('billing.refund_records')
+          .select('id')
+          .where('payment_record_id', '=', input.paymentRecordId)
+          .executeTakeFirstOrThrow();
+        return {
+          paymentRecordId: input.paymentRecordId,
+          outcome: 'correction_required',
+          refundRecordId: prior.id,
           replayed: true,
         };
       }
@@ -548,7 +612,9 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           'payment.credit_package_id',
           'intent.status as intent_status',
           'intent.target_id',
+          'intent.product_epoch',
           'receipt.stars_amount as receipt_stars_amount',
+          'receipt.telegram_charge_id',
         ])
         .where('payment.id', '=', input.paymentRecordId)
         .forUpdate()
@@ -568,6 +634,64 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           'error.billing.payment_mismatch',
           409,
         );
+
+      if (lifecycle.state !== 'active' || lifecycle.product_epoch !== payment.product_epoch) {
+        const now = fulfillment.database_now;
+        await transaction
+          .insertInto('billing.refund_records')
+          .values({
+            id: input.refundRecordId,
+            user_id: payment.user_id,
+            funding_type: 'telegram_stars',
+            payment_record_id: payment.id,
+            original_credit_transaction_id: null,
+            refund_credit_transaction_id: null,
+            telegram_charge_id: payment.telegram_charge_id,
+            reason_code: 'target_unavailable',
+            stars_amount: payment.stars_amount,
+            credits_amount: null,
+            lease_owner: null,
+            lease_expires_at: null,
+            last_error_code: null,
+            idempotency_key: `stars-refund:${payment.id}`,
+            processed_at: null,
+            failed_at: null,
+          })
+          .execute();
+        const corrected = await transaction
+          .updateTable('billing.payment_fulfillments')
+          .set((expression) => ({
+            state: 'correction_required',
+            lease_owner: null,
+            lease_expires_at: null,
+            last_error_code: 'target_unavailable',
+            correction_required_at: now,
+            updated_at: now,
+            version: expression('version', '+', 1),
+          }))
+          .where('payment_record_id', '=', payment.id)
+          .where('state', '=', 'fulfillment_pending')
+          .where('lease_owner', '=', input.owner)
+          .where('fence_token', '=', input.fenceToken.toString())
+          .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+          .returning('payment_record_id')
+          .execute();
+        if (corrected.length !== 1)
+          throw new ApplicationError('conflict', 'error.billing.fulfillment_lease_lost', 409);
+        await this.insertTerminalPaymentEvent(
+          transaction,
+          input.paymentFulfilledEventId,
+          payment.id,
+          'billing.payment-correction-required.v1',
+          now,
+        );
+        return {
+          paymentRecordId: payment.id,
+          outcome: 'correction_required',
+          refundRecordId: input.refundRecordId,
+          replayed: false,
+        };
+      }
 
       const account = await transaction
         .selectFrom('billing.credit_accounts')
@@ -679,6 +803,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         },
       });
       return {
+        outcome: 'fulfilled',
         paymentRecordId: payment.id,
         creditTransactionId: input.creditTransactionId,
         balanceAfter,
@@ -1517,6 +1642,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         'intent.target_id',
         'intent.expires_at',
         'intent.version as intent_version',
+        'intent.product_epoch',
       ])
       .where('payment.invoice_payload_digest', '=', digest);
     if (lock) query = query.forUpdate();
@@ -1524,6 +1650,20 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
   }
 
   private async targetAvailable(database: NakhDatabase, payment: StoredPayment): Promise<boolean> {
+    await database
+      .selectFrom('identity.users')
+      .select('id')
+      .where('id', '=', payment.user_id)
+      .forNoKeyUpdate()
+      .execute();
+    const lifecycle = await database
+      .selectFrom('identity.accounts')
+      .select(['state', 'product_epoch'])
+      .where('user_id', '=', payment.user_id)
+      .forUpdate()
+      .executeTakeFirst();
+    if (lifecycle?.state !== 'active' || lifecycle.product_epoch !== payment.product_epoch)
+      return false;
     if (payment.reason === 'buy_credit_package') {
       const packageRow = await database
         .selectFrom('billing.credit_packages')

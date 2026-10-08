@@ -41,11 +41,30 @@ type IntentFacts = Readonly<{
 export class PostgresFundingStore implements BillingFundingStore {
   public constructor(private readonly database: NakhDatabase) {}
 
+  private async lockProductEpoch(database: NakhDatabase, userId: string): Promise<number> {
+    await database
+      .selectFrom('identity.users')
+      .select('id')
+      .where('id', '=', userId)
+      .forNoKeyUpdate()
+      .execute();
+    const account = await database
+      .selectFrom('identity.accounts')
+      .select(['state', 'product_epoch'])
+      .where('user_id', '=', userId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (account?.state !== 'active')
+      throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+    return account.product_epoch;
+  }
+
   public async createFundingIntent(write: CreateFundingIntentWrite): Promise<StoredFundingIntent> {
     return this.database.transaction().execute(async (transaction) => {
       await sql`SELECT pg_advisory_xact_lock(hashtextextended(${'billing-user:'} || ${write.userId}::text, 0))`.execute(
         transaction,
       );
+      const productEpoch = await this.lockProductEpoch(transaction, write.userId);
       const facts = await this.resolveIntentFacts(
         transaction,
         write.userId,
@@ -69,6 +88,8 @@ export class PostgresFundingStore implements BillingFundingStore {
         .where('idempotency_key', '=', write.idempotencyKey)
         .executeTakeFirst();
       if (existing !== undefined) {
+        if (existing.product_epoch !== productEpoch)
+          throw new ApplicationError('payment_pending', 'error.billing.payment_unavailable', 409);
         if (existing.request_hash !== requestHash)
           throw new ApplicationError(
             'idempotency_conflict',
@@ -86,6 +107,7 @@ export class PostgresFundingStore implements BillingFundingStore {
         .where('target_type', '=', facts.targetType)
         .where('target_id', '=', facts.targetId)
         .where('status', '=', 'pending')
+        .where('product_epoch', '=', productEpoch)
         .executeTakeFirst();
       if (open !== undefined) {
         if (open.request_hash === requestHash) return this.intentResult(open, true);
@@ -102,6 +124,7 @@ export class PostgresFundingStore implements BillingFundingStore {
         .values({
           id: write.intentId,
           user_id: write.userId,
+          product_epoch: productEpoch,
           reason: facts.reason,
           target_type: facts.targetType,
           target_id: facts.targetId,
@@ -126,6 +149,7 @@ export class PostgresFundingStore implements BillingFundingStore {
       await sql`SELECT pg_advisory_xact_lock(hashtextextended(${'billing-user:'} || ${write.userId}::text, 0))`.execute(
         transaction,
       );
+      const productEpoch = await this.lockProductEpoch(transaction, write.userId);
       const requestHash = hash({
         userId: write.userId,
         fundingIntentId: write.fundingIntentId,
@@ -148,9 +172,11 @@ export class PostgresFundingStore implements BillingFundingStore {
           );
         const intent = await transaction
           .selectFrom('billing.pending_payments')
-          .select('expires_at')
+          .select(['expires_at', 'product_epoch'])
           .where('id', '=', existing.pending_payment_id)
           .executeTakeFirstOrThrow();
+        if (intent.product_epoch !== productEpoch)
+          throw new ApplicationError('payment_pending', 'error.billing.payment_unavailable', 409);
         return this.attemptResult(existing, intent.expires_at, true);
       }
 
@@ -163,9 +189,9 @@ export class PostgresFundingStore implements BillingFundingStore {
         .executeTakeFirst();
       if (intent === undefined)
         throw new ApplicationError('not_found', 'error.billing.payment_not_found', 404);
-      const time = await sql<{ now: Date }>`SELECT transaction_timestamp() AS now`.execute(
-        transaction,
-      );
+      if (intent.product_epoch !== productEpoch)
+        throw new ApplicationError('payment_pending', 'error.billing.payment_unavailable', 409);
+      const time = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);
       const now = time.rows[0]!.now;
       if (intent.status !== 'pending')
         throw new ApplicationError('payment_pending', 'error.billing.payment_unavailable', 409);

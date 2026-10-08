@@ -94,6 +94,17 @@ try {
         )
         .execute();
       await transaction
+        .insertInto('identity.accounts')
+        .values(
+          batch.map((fixture) => ({
+            user_id: fixture.userId,
+            state: 'active' as const,
+            state_reason: null,
+            state_changed_at: old,
+          })),
+        )
+        .execute();
+      await transaction
         .insertInto('billing.pending_payments')
         .values(
           batch.map((fixture) => ({

@@ -73,6 +73,7 @@ describe('payment fulfillment processor', () => {
       creditTransactionId: generatedIds[0],
       creditIncreasedEventId: generatedIds[1],
       paymentFulfilledEventId: generatedIds[2],
+      refundRecordId: generatedIds[3],
     });
   });
 
@@ -91,6 +92,14 @@ describe('payment fulfillment processor', () => {
       refundRecordId: generatedIds[1],
       featureUnlockedEventId: generatedIds[2],
       paymentTerminalEventId: generatedIds[3],
+    });
+  });
+  it('reports a package correction without claiming a new credit grant', async () => {
+    const { processor, store } = fixture(claim('buy_credit_package'));
+    store.fulfillCreditPackage.mockResolvedValue({ outcome: 'correction_required' });
+    await expect(processor.processNext()).resolves.toEqual({
+      outcome: 'correction_required',
+      paymentType: 'buy_credit_package',
     });
   });
 

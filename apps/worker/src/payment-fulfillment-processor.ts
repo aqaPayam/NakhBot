@@ -73,13 +73,14 @@ export class PaymentFulfillmentProcessor {
     };
     try {
       if (fulfillment.paymentType === 'buy_credit_package') {
-        await this.store.fulfillCreditPackage({
+        const result = await this.store.fulfillCreditPackage({
           ...lease,
           creditTransactionId: this.ids.uuid(),
           creditIncreasedEventId: this.ids.uuid(),
           paymentFulfilledEventId: this.ids.uuid(),
+          refundRecordId: this.ids.uuid(),
         });
-        return { outcome: 'fulfilled', paymentType: fulfillment.paymentType };
+        return { outcome: result.outcome, paymentType: fulfillment.paymentType };
       }
       if (fulfillment.paymentType === 'direct_paid_action') {
         const result = await this.store.fulfillDirectPaidAction({
