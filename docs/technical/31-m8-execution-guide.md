@@ -257,6 +257,23 @@ than a false absence. This registry is a prerequisite for the full purge/verific
 linked observations do not resolve all polymorphic references, authorize purge, complete evidence
 capture, verify provider objects or cover Redis invalidation. Retention release remains disabled.
 
+Migration 90 creates minimal original Profile reference anchors (Profile ID and owner ID only),
+backfilled from live source identities without copying product content or inventing Report captures.
+Profile evidence and photo associations keep their original IDs and ownership after source removal.
+Historical photo-action reconciliation follows that same immutable owner reference; new Report
+admission still requires a live authorized source. Profile identity/owner reassignment, unaudited
+source deletion and deleted-account Profile reconstruction are denied. The fenced archive executor
+checks the complete schema registry and every linked Profile/photo capture receipt, then atomically
+records its required content-free audit/event/receipt and deletes the owning Profile plus cascading
+ordinary details. Missing captures wait; required-write failure or commit-time expiry rolls back the
+source deletion. Receipts replay independently of transport expiry and new worker generations.
+The registry now covers 120 tables, 1,092 columns and 217 foreign keys; photo ownership selectors
+follow the minimal anchor after source removal. Native probes include twenty-way archival, preserved
+audited evidence reveals, exact private photo holds and ownership observations. No media object,
+retained capture, ledger or counterpart Profile is released. Chat/unmatch/photo source archival,
+provider checks and the full evidence-phase checkpoint remain required; this source-specific receipt
+does not mark product purge complete or authorize return. Deploy migration 90 before these stores.
+
 Migration 88 binds shared closure to financial correction evidence. Paid pending delivery batches
 roll back and return a bounded financial-resolution wait while the existing fenced billing worker
 creates the exact target-unavailable refund obligation. Deletion never cancels a captured payment

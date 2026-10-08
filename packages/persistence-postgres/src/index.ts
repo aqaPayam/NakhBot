@@ -210,3 +210,4 @@ export * from './account-deletion-shared-store.js';
 export * from './account-deletion-checkpoint-store.js';
 export * from './account-deletion-evidence-store.js';
 export * from './deletion-registry.js';
+export * from './account-deletion-profile-store.js';

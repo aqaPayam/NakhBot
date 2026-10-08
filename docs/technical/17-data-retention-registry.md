@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 89: 118 tables, 1,081 columns and 213 foreign keys.
+code-owned M8 catalog inventory for migration 90: 120 tables, 1,092 columns and 217 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -36,6 +36,8 @@ No policy period is invented and retained-data release remains disabled until ap
 | `identity.account_deletion_work` | mandatory deletion ID, phase/version, monotonic claim generation and bounded lease/retry metadata | resume the exact owning deletion event independently of transport/cache lifetime; expired workers cannot write; never skip a failed phase; completed work requires controlled cleanup | Identity/Operations; fixed error codes only, no arbitrary job payload or retained user content |
 | `identity.account_deletion_phase_receipts` | immutable content-free phase/version, checklist, worker generation/expiry and exact audit/event references | preserve verified checkpoint evidence independently of transport expiry; controlled release follows the approved deletion/audit policy | Identity/Privacy/Operations; cannot skip a phase, authorize return or retain product content |
 | `identity.account_deletion_evidence_receipts` | restricted capture/snapshot identifiers and integrity fingerprints, owning worker fence and audit/event references | record bounded authentication of existing Report captures before source archival; preserve independently of transport expiry; controlled release under approved policy | Identity/Moderation/Privacy; no copied prose, ciphertext, key identifiers, storage keys or provider payload; capture integrity is not provider-object verification or permission to purge |
+| `identity.account_deletion_profile_receipts` | minimal original Profile reference, owning worker fence and required audit/event | prove source removal only after every linked Profile/photo capture is authenticated; immutable replay survives outbox expiry; controlled release under approved policy | Identity/Profile/Privacy; does not authorize phase completion, provider deletion or return |
+| `profile.profile_reference_anchors` | original Profile ID and stable owner ID only | preserve exact Report/photo ownership while deleting the ordinary Profile and cascading details; controlled release with governing evidence/lifecycle dependencies | Profile/Moderation/Privacy; no Profile content, location, timestamps or reconstructed capture; cannot authorize new Report admission or Profile reconstruction |
 | `identity.users` | internal identifier | retain minimal row | Stable identity and deletion/return safety; Identity |
 | `identity.telegram_identities` | direct identifier | retain Telegram ID; clear mutable username when deletion completes | Prevent duplicate identity and enforce return policy; Identity |
 | `identity.accounts` | account/safety state | retain state and sanitized reason | Deletion/return and safety enforcement; Identity |

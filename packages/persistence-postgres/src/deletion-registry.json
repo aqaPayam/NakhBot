@@ -3588,6 +3588,77 @@
       ]
     },
     {
+      "table": "identity.account_deletion_profile_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "verified_profile_source_archival",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "profile_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "checklist_version",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "profile.profile_reference_anchors",
+          "definition": "FOREIGN KEY (profile_id) REFERENCES profile.profile_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
       "table": "identity.account_deletion_records",
       "owner": "identity",
       "classification": "lifecycle",
@@ -4901,7 +4972,7 @@
       "classification": "retained_safety",
       "action": "approved_policy_release",
       "purpose": "governing_safety_evidence",
-      "subjectScope": "EXISTS (SELECT 1 FROM media.profile_photos photo JOIN profile.profiles governing ON governing.id=photo.profile_id WHERE photo.id=row.photo_id AND governing.user_id=:userId)",
+      "subjectScope": "EXISTS (SELECT 1 FROM media.profile_photos photo JOIN profile.profile_reference_anchors governing ON governing.id=photo.profile_id WHERE photo.id=row.photo_id AND governing.user_id=:userId)",
       "scopeCoverage": "linked_rows",
       "releasePolicy": "approval_required",
       "columns": [
@@ -5050,7 +5121,7 @@
       "classification": "media",
       "action": "revoke_verify_objects_then_purge",
       "purpose": "object_absence_and_exact_evidence_holds",
-      "subjectScope": "EXISTS (SELECT 1 FROM profile.profiles governing WHERE governing.id=row.profile_id AND governing.user_id=:userId)",
+      "subjectScope": "EXISTS (SELECT 1 FROM profile.profile_reference_anchors governing WHERE governing.id=row.profile_id AND governing.user_id=:userId)",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -5116,8 +5187,8 @@
           "definition": "FOREIGN KEY (asset_id) REFERENCES media.media_assets(id)"
         },
         {
-          "target": "profile.profiles",
-          "definition": "FOREIGN KEY (profile_id) REFERENCES profile.profiles(id)"
+          "target": "profile.profile_reference_anchors",
+          "definition": "FOREIGN KEY (profile_id) REFERENCES profile.profile_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
     },
@@ -5374,7 +5445,7 @@
       "classification": "retained_safety",
       "action": "approved_policy_release",
       "purpose": "governing_safety_evidence",
-      "subjectScope": "row.target_user_id=:userId OR :userId IN (row.target_pair_low_user_id,row.target_pair_high_user_id) OR EXISTS (SELECT 1 FROM media.profile_photos photo JOIN profile.profiles governing ON governing.id=photo.profile_id WHERE photo.id=row.target_photo_id AND governing.user_id=:userId)",
+      "subjectScope": "row.target_user_id=:userId OR :userId IN (row.target_pair_low_user_id,row.target_pair_high_user_id) OR EXISTS (SELECT 1 FROM media.profile_photos photo JOIN profile.profile_reference_anchors governing ON governing.id=photo.profile_id WHERE photo.id=row.target_photo_id AND governing.user_id=:userId)",
       "scopeCoverage": "linked_rows",
       "releasePolicy": "approval_required",
       "columns": [
@@ -5657,8 +5728,8 @@
           "definition": "FOREIGN KEY (chat_session_id) REFERENCES chat.chat_sessions(id) ON DELETE RESTRICT"
         },
         {
-          "target": "profile.profiles",
-          "definition": "FOREIGN KEY (profile_id) REFERENCES profile.profiles(id) ON DELETE RESTRICT"
+          "target": "profile.profile_reference_anchors",
+          "definition": "FOREIGN KEY (profile_id) REFERENCES profile.profile_reference_anchors(id) ON DELETE RESTRICT"
         },
         {
           "target": "media.profile_photos",
@@ -7590,6 +7661,34 @@
         {
           "target": "profile.profiles",
           "definition": "FOREIGN KEY (profile_id) REFERENCES profile.profiles(id) ON DELETE CASCADE"
+        }
+      ]
+    },
+    {
+      "table": "profile.profile_reference_anchors",
+      "owner": "profile",
+      "classification": "retained_safety",
+      "action": "approved_policy_release",
+      "purpose": "minimal_original_source_identity",
+      "subjectScope": "row.user_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
         }
       ]
     },

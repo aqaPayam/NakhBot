@@ -94,7 +94,9 @@ export async function analyzeM7QueryTables(database: NakhDatabase): Promise<void
     platform.audit_logs, notification.notifications, notification.notification_deliveries, interaction.user_pair_states,
     matching.matches, chat.chat_sessions, interaction.likes, interaction.feature_unlocks,
     media.report_photo_evidence_holds, media.photo_variants, media.media_assets,
-    media.profile_photos, profile.profiles, chat.chat_message_snapshots`.execute(database);
+    media.profile_photos, profile.profiles, profile.profile_reference_anchors, chat.chat_message_snapshots`.execute(
+    database,
+  );
 }
 
 async function explainTerminalAppealQueries(

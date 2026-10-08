@@ -26,6 +26,7 @@ import {
   createReportMessage,
   createReportPhoto,
   createReportUnmatch,
+  createReportFixtureAdmin,
 } from './testing/report-fixture.js';
 import { retainPhotoEvidenceInTransaction } from './photo-evidence-retention-store.js';
 import { captureReportedMessagesInTransaction } from './chat-retention-store.js';
@@ -33,6 +34,9 @@ import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.
 import { PostgresAccountDeletionSharedStore } from './account-deletion-shared-store.js';
 import { PostgresAccountDeletionCheckpointStore } from './account-deletion-checkpoint-store.js';
 import { PostgresAccountDeletionEvidenceStore } from './account-deletion-evidence-store.js';
+import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-store.js';
+import { PostgresReportEvidenceRevealStore } from './profile-evidence-reveal-store.js';
+import { PostgresDeletionRegistryStore, DELETION_REGISTRY } from './deletion-registry.js';
 import type { ReportEvidenceReaders } from './report-capture-integrity.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
@@ -413,6 +417,257 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
       await sql`DROP FUNCTION identity.m8_suppress_capture()`.execute(database);
     }
     expect(await store.verifyNext(item.lease)).toMatchObject({ verified: true });
+    item.key.fill(0);
+  });
+  it.each(['profile', 'photo'] as const)(
+    'archives %s product sources once while retaining exact audited evidence',
+    async (kind) => {
+      const item = await scene(kind),
+        verification = new PostgresAccountDeletionEvidenceStore(database, item.readers);
+      const source = await database
+        .selectFrom('profile.profiles')
+        .selectAll()
+        .where('user_id', '=', item.userId)
+        .executeTakeFirstOrThrow();
+      await database
+        .insertInto('profile.profile_optional_details')
+        .values({ profile_id: source.id, job_title: 'Synthetic ordinary detail' })
+        .execute();
+      const archive = new PostgresAccountDeletionProfileStore(database);
+      expect(await archive.archive(item.lease)).toEqual({
+        archived: false,
+        waitingForCapture: true,
+      });
+      expect(await verification.verifyNext(item.lease)).toMatchObject({ verified: true });
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => archive.archive(item.lease)),
+      );
+      expect(results.filter((result) => result.archived)).toHaveLength(1);
+      expect(JSON.stringify(results)).not.toContain(item.userId);
+      await expect(
+        database
+          .insertInto('profile.profiles')
+          .values({ ...source, id: randomUUID() })
+          .execute(),
+      ).rejects.toThrow();
+      expect(
+        await database
+          .selectFrom('profile.profiles')
+          .select('id')
+          .where('id', '=', source.id)
+          .execute(),
+      ).toHaveLength(0);
+      expect(
+        await database
+          .selectFrom('profile.profile_optional_details')
+          .select('profile_id')
+          .where('profile_id', '=', source.id)
+          .execute(),
+      ).toHaveLength(0);
+      const references = (
+        await sql<{
+          id: string;
+          user_id: string;
+        }>`SELECT id,user_id FROM profile.profile_reference_anchors WHERE id=${source.id}::uuid`.execute(
+          database,
+        )
+      ).rows;
+      expect(references).toEqual([{ id: source.id, user_id: item.userId }]);
+      const proof = (
+        await sql<{
+          audit_id: string;
+          event_id: string;
+        }>`SELECT audit_id,event_id FROM identity.account_deletion_profile_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+          database,
+        )
+      ).rows;
+      expect(proof).toHaveLength(1);
+      await sql`DELETE FROM platform.outbox_events WHERE id=${proof[0]!.event_id}::uuid`.execute(
+        database,
+      );
+      expect(await archive.archive(item.lease)).toEqual({ archived: false });
+      expect(await verification.verifyNext(item.lease)).toEqual({
+        examined: 0,
+        verified: false,
+        hasMore: false,
+      });
+      if (kind === 'photo') {
+        expect(
+          (
+            await new PostgresDeletionRegistryStore(database).observe(
+              item.lease,
+              DELETION_REGISTRY.findIndex((entry) => entry.table === 'media.profile_photos'),
+            )
+          ).present,
+        ).toBe(true);
+        expect(
+          (
+            await sql`SELECT 1 FROM media.report_photo_evidence_holds WHERE report_evidence_id=${item.evidenceId}::uuid`.execute(
+              database,
+            )
+          ).rows,
+        ).toHaveLength(1);
+      }
+      const admin = await createReportFixtureAdmin(database);
+      await database
+        .insertInto('administration.admin_user_roles')
+        .values({
+          admin_user_id: admin,
+          role_code: 'super_admin',
+          assigned_by_admin_id: admin,
+          revoked_by_admin_id: null,
+          revoked_at: null,
+        })
+        .execute();
+      const revealed = await new PostgresReportEvidenceRevealStore(database, item.readers).reveal({
+        logId: randomUUID(),
+        adminUserId: admin,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        requestDigest: 'a'.repeat(64),
+        commandCode: 'moderation.reveal-evidence',
+        requiredPermission: 'view_reports',
+        targetType: 'report_evidence',
+        targetId: item.evidenceId,
+        expectedTargetVersion: 1,
+        reasonDigest: 'b'.repeat(64),
+        metadata: {},
+        correlationId: randomUUID(),
+      });
+      expect(revealed.value?.content.evidenceType).toBe(kind);
+      expect(
+        (
+          await database
+            .selectFrom('moderation.evidence_access_audits')
+            .select('id')
+            .where('report_evidence_id', '=', item.evidenceId)
+            .execute()
+        ).length,
+      ).toBe(1);
+      await work.release(item.lease);
+      const fresh = (
+        await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 })
+      )[0]!;
+      expect(await archive.archive(fresh)).toEqual({ archived: false });
+      item.key.fill(0);
+    },
+  );
+  it('keeps a source with missing captures and rejects raw deletion, anchor mutation and deleted-user reconstruction', async () => {
+    const item = await scene('profile', true),
+      archive = new PostgresAccountDeletionProfileStore(database);
+    const source = await database
+      .selectFrom('profile.profiles')
+      .selectAll()
+      .where('user_id', '=', item.userId)
+      .executeTakeFirstOrThrow();
+    expect(await archive.archive(item.lease)).toEqual({ archived: false, waitingForCapture: true });
+    await expect(
+      database.deleteFrom('profile.profiles').where('id', '=', source.id).execute(),
+    ).rejects.toThrow();
+    await expect(
+      sql`DELETE FROM profile.profile_reference_anchors WHERE id=${source.id}::uuid`.execute(
+        database,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      database
+        .insertInto('profile.profiles')
+        .values({ ...source, id: randomUUID() })
+        .execute(),
+    ).rejects.toThrow();
+    await expect(archive.archive({ ...item.lease, userId: randomUUID() })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+    expect(
+      await database
+        .selectFrom('profile.profiles')
+        .select('id')
+        .where('id', '=', source.id)
+        .execute(),
+    ).toHaveLength(1);
+    item.key.fill(0);
+  });
+  it.each([
+    'platform.audit_logs',
+    'platform.outbox_events',
+    'identity.account_deletion_profile_receipts',
+  ])('rolls back source deletion when %s suppresses archival evidence', async (table) => {
+    const item = await scene('profile');
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await sql`CREATE FUNCTION identity.m8_suppress_profile() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$`.execute(
+      database,
+    );
+    await sql
+      .raw(
+        `CREATE TRIGGER m8_suppress_profile BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION identity.m8_suppress_profile()`,
+      )
+      .execute(database);
+    try {
+      await expect(
+        new PostgresAccountDeletionProfileStore(database).archive(item.lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await database
+          .selectFrom('profile.profiles')
+          .select('id')
+          .where('user_id', '=', item.userId)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_profile_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toHaveLength(0);
+    } finally {
+      await sql.raw(`DROP TRIGGER m8_suppress_profile ON ${table}`).execute(database);
+      await sql`DROP FUNCTION identity.m8_suppress_profile()`.execute(database);
+    }
+    expect(await new PostgresAccountDeletionProfileStore(database).archive(item.lease)).toEqual({
+      archived: true,
+    });
+    item.key.fill(0);
+  });
+  it('rolls back source archival when the original fence expires at commit', async () => {
+    const item = await scene('profile');
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await sql`CREATE FUNCTION identity.m8_delay_profile() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1.1); RETURN NULL; END $$`.execute(
+      database,
+    );
+    await sql`CREATE CONSTRAINT TRIGGER a_m8_delay_profile AFTER INSERT ON identity.account_deletion_profile_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION identity.m8_delay_profile()`.execute(
+      database,
+    );
+    await work.release(item.lease);
+    const lease = (await work.claimDue({ workerId: randomUUID(), leaseMs: 1000, limit: 1 }))[0]!;
+    try {
+      await expect(
+        new PostgresAccountDeletionProfileStore(database).archive(lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await database
+          .selectFrom('profile.profiles')
+          .select('id')
+          .where('user_id', '=', item.userId)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_profile_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toHaveLength(0);
+    } finally {
+      await sql`DROP TRIGGER a_m8_delay_profile ON identity.account_deletion_profile_receipts`.execute(
+        database,
+      );
+      await sql`DROP FUNCTION identity.m8_delay_profile()`.execute(database);
+    }
+    const fresh = (await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 }))[0]!;
+    expect(await new PostgresAccountDeletionProfileStore(database).archive(fresh)).toEqual({
+      archived: true,
+    });
     item.key.fill(0);
   });
 });

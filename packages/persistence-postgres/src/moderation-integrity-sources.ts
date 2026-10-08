@@ -90,7 +90,7 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
             AND LEAST(source_report.reporter_user_id, source_report.target_user_id) = action.target_pair_low_user_id
             AND GREATEST(source_report.reporter_user_id, source_report.target_user_id) = action.target_pair_high_user_id)
           OR source_report.target_user_id = action.target_user_id OR EXISTS (
-          SELECT 1 FROM media.profile_photos photo JOIN profile.profiles profile ON profile.id = photo.profile_id
+          SELECT 1 FROM media.profile_photos photo JOIN profile.profile_reference_anchors profile ON profile.id = photo.profile_id
           WHERE photo.id = action.target_photo_id AND profile.user_id = source_report.target_user_id))
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
