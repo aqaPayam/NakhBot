@@ -23,6 +23,12 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
   let database: NakhDatabase;
   let initialJit: string;
   let initialWorkMem: string;
+  const parallelSettings = [
+    'parallel_setup_cost',
+    'parallel_tuple_cost',
+    'max_parallel_workers_per_gather',
+  ] as const;
+  const initialParallelSettings: Record<string, string> = {};
   let isolated: Awaited<ReturnType<typeof createIsolatedTestDatabase>> | undefined;
   beforeAll(async () => {
     isolated = await createIsolatedTestDatabase(url!, 'nakh_m7_plans');
@@ -36,6 +42,10 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     initialJit = (await sql<{ jit: string }>`SHOW jit`.execute(database)).rows[0]!.jit;
     initialWorkMem = (await sql<{ work_mem: string }>`SHOW work_mem`.execute(database)).rows[0]!
       .work_mem;
+    for (const name of parallelSettings)
+      initialParallelSettings[name] = (
+        await sql<{ value: string }>`SELECT current_setting(${name}) AS value`.execute(database)
+      ).rows[0]!.value;
   });
   afterAll(async () => {
     try {
@@ -57,6 +67,11 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     expect(
       (await sql<{ work_mem: string }>`SHOW work_mem`.execute(database)).rows[0]!.work_mem,
     ).toBe(initialWorkMem);
+    for (const name of parallelSettings)
+      expect(
+        (await sql<{ value: string }>`SELECT current_setting(${name}) AS value`.execute(database))
+          .rows[0]!.value,
+      ).toBe(initialParallelSettings[name]);
     for (const table of [
       'moderation.reports',
       'moderation.report_evidence',
@@ -342,7 +357,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     });
     await assertClean();
   });
-  it('restores pooled compilation and work-memory settings after a failed integrity read', async () => {
+  it('restores pooled compilation, memory and parallel settings after a failed integrity read', async () => {
     await expect(
       withModerationIntegrityRead(database, async (transaction) => {
         expect((await sql<{ jit: string }>`SHOW jit`.execute(transaction)).rows[0]!.jit).toBe(
@@ -351,9 +366,54 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
         expect(
           (await sql<{ work_mem: string }>`SHOW work_mem`.execute(transaction)).rows[0]!.work_mem,
         ).toBe('16MB');
+        for (const [name, expected] of [
+          ['parallel_setup_cost', '100'],
+          ['parallel_tuple_cost', '0.03'],
+        ])
+          expect(
+            (
+              await sql<{ value: string }>`SELECT current_setting(${name}) AS value`.execute(
+                transaction,
+              )
+            ).rows[0]!.value,
+          ).toBe(expected);
         await sql`SELECT 1 / 0`.execute(transaction);
       }),
     ).rejects.toThrow('division by zero');
+    await assertClean();
+  });
+  it('caps parallel workers, respects disabled/lower operator limits and restores a successful read', async () => {
+    await database.connection().execute(async (connection) => {
+      try {
+        for (const limit of [0, 1, 8]) {
+          await sql`SELECT set_config('max_parallel_workers_per_gather',${String(limit)},false)`.execute(
+            connection,
+          );
+          await withModerationIntegrityRead(connection, async (read) => {
+            expect(
+              (
+                await sql<{
+                  value: string;
+                }>`SELECT current_setting('max_parallel_workers_per_gather') AS value`.execute(read)
+              ).rows[0]!.value,
+            ).toBe(String(Math.min(limit, 2)));
+          });
+          expect(
+            (
+              await sql<{
+                value: string;
+              }>`SELECT current_setting('max_parallel_workers_per_gather') AS value`.execute(
+                connection,
+              )
+            ).rows[0]!.value,
+          ).toBe(String(limit));
+        }
+      } finally {
+        await sql`SELECT set_config('max_parallel_workers_per_gather',${initialParallelSettings.max_parallel_workers_per_gather!},false)`.execute(
+          connection,
+        );
+      }
+    });
     await assertClean();
   });
   it('keeps exact review and unban bindings under single-field drift and duplicate review audits', async () => {
