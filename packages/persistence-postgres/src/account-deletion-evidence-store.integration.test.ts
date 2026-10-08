@@ -12,9 +12,16 @@ import {
   AesGcmUnmatchedReportSnapshotProtector,
   AesGcmUnmatchedReportSnapshotReader,
   IntegrityMessageReportSnapshotReader,
+  ReportTokens,
   type AccountDeletionLease,
   type StoredProfileReportSnapshot,
 } from '@nakh/application';
+import type { SubmitReportCommand } from '@nakh/contracts';
+import {
+  resolveUnmatchedReportSource,
+  PostgresPrepareUnmatchedReportEvidenceHandler,
+} from './unmatched-report-source-store.js';
+import { PostgresSubmitUnmatchedReportHandler } from './unmatched-report-submission-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
@@ -69,6 +76,7 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
     kind: Kind,
     missing = false,
     extraMessages = 0,
+    unmatchAt?: Date,
   ): Promise<{
     userId: string;
     recordId: string;
@@ -119,7 +127,7 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
           await createReportMessage(database, chatId, owner);
       }
       if (kind === 'unmatched_user')
-        reference = (await createReportUnmatch(database, reporter, owner)).matchId;
+        reference = (await createReportUnmatch(database, reporter, owner, unmatchAt)).matchId;
       await database.transaction().execute(async (tx) => {
         const reason = await tx
           .selectFrom('moderation.report_reasons')
@@ -711,6 +719,115 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
       )
       .executeTakeFirstOrThrow();
   }
+  it('preserves survivor report preparation, concurrent submission and late capture obligations after chat archival', async () => {
+    const item = await scene('unmatched_user'),
+      source = await chatSource(item);
+    const verifier = new PostgresAccountDeletionEvidenceStore(database, item.readers);
+    await verifier.verifyNext(item.lease);
+    expect(
+      (await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease)).archived,
+    ).toBe(true);
+    const survivor = source.user_low_id === item.userId ? source.user_high_id : source.user_low_id;
+    const context = { kind: 'unmatched' as const, referenceId: source.match_id };
+    expect(await resolveUnmatchedReportSource(database, item.userId, context)).toBeUndefined();
+    expect(
+      await resolveUnmatchedReportSource(database, await createReportUser(database), context),
+    ).toBeUndefined();
+    const values = new Map<string, string>();
+    const tokens = new ReportTokens(
+      {
+        get: (id) => Promise.resolve(values.get(id)),
+        putIfAbsent: (id, value) => {
+          if (values.has(id)) return Promise.resolve(false);
+          values.set(id, value);
+          return Promise.resolve(true);
+        },
+      },
+      item.key,
+    );
+    const actor = { kind: 'user' as const, userId: survivor };
+    const prepared = await new PostgresPrepareUnmatchedReportEvidenceHandler(
+      database,
+      tokens,
+    ).execute(
+      {
+        actor,
+        requestId: randomUUID(),
+        sourceActionToken: (await tokens.issueSource(survivor, context)).token,
+        requestedEvidenceTypes: ['unmatched_user'],
+      },
+      actor,
+    );
+    const command: SubmitReportCommand = {
+      commandType: 'moderation.submit-report',
+      schemaVersion: 1,
+      actor,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: {
+        evidenceIntentToken: prepared.evidenceIntentToken,
+        reasonCode: 'harassment',
+        text: 'Synthetic late report',
+      },
+    };
+    const handler = new PostgresSubmitUnmatchedReportHandler(
+      database,
+      tokens,
+      new AesGcmUnmatchedReportSnapshotProtector('m8-capture-test', 1, item.key),
+    );
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => handler.execute(command, actor)),
+    );
+    expect(new Set(results.map((result) => result.reportId)).size).toBe(1);
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(await count(item.recordId)).toBe(1);
+    expect(await verifier.verifyNext(item.lease)).toMatchObject({ verified: true });
+    expect(await count(item.recordId)).toBe(2);
+    expect(await verifier.verifyNext(item.lease)).toMatchObject({ hasMore: false });
+  });
+  it.each([false, true])(
+    'keeps the immutable archived report deadline, waiting for source lock: %s',
+    async (waiting) => {
+      const { now } = (await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(database))
+        .rows[0]!;
+      const expires = new Date(now.getTime() + (waiting ? 10000 : 5000));
+      const item = await scene('unmatched_user', false, 0, new Date(expires.getTime() - 86400000));
+      const source = await chatSource(item);
+      await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+      await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease);
+      const actor = source.user_low_id === item.userId ? source.user_high_id : source.user_low_id;
+      const context = { kind: 'unmatched' as const, referenceId: source.match_id };
+      if (!waiting) {
+        await sql`SELECT pg_sleep_until(${expires.toISOString()}::timestamptz)`.execute(database);
+        expect(await resolveUnmatchedReportSource(database, actor, context)).toBeUndefined();
+        return;
+      }
+      expect(await resolveUnmatchedReportSource(database, actor, context)).toBeDefined();
+      let release!: () => void;
+      const ready = new Promise<void>((done) => {
+        release = done;
+      });
+      const blocker = database.transaction().execute(async (tx) => {
+        await tx
+          .selectFrom('matching.unmatch_records')
+          .select('match_id')
+          .where('match_id', '=', source.match_id)
+          .forUpdate()
+          .execute();
+        release();
+        await sql`SELECT pg_sleep_until(${expires.toISOString()}::timestamptz)`.execute(tx);
+      });
+      await ready;
+      const result = await database
+        .transaction()
+        .execute((tx) => resolveUnmatchedReportSource(tx, actor, context, true));
+      await blocker;
+      expect(result).toBeUndefined();
+    },
+  );
   it.each(['chat', 'message', 'unmatched_user'] as const)(
     'archives exact %s chat under twenty-way replay and preserves audited reveal',
     async (kind) => {

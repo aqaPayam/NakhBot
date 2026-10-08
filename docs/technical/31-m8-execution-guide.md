@@ -352,8 +352,10 @@ event, lease and original-message roster; the final batch also removes live Chat
 cleanup progress and the ChatSession. Deferred guards recheck capture integrity, actual removal and
 the original lease at commit. Ordinary M6 cleanup remains available for live accounts; deletion
 cannot use it to bypass capture receipts. The original Unmatch consistency predicates remain and
-use the verified terminal chat receipt after source removal. New report admission still requires
-its live authorized source, never a reference anchor. Deleted-participant Chat reconstruction, raw
+use the verified terminal chat receipt after source removal. New post-unmatch report admission uses
+the immutable Unmatch deadline, exact original Match participants and either live Chat membership
+or the verified terminal unmatch Chat receipt; a reference anchor alone grants no authority.
+Deleted-participant Chat reconstruction, raw
 source deletion and anchor mutation are denied. Historical snapshots, capture markers and immutable
 Unmatch records remain exact and require approved policy for release. The registry now records
 122 tables, 1108 columns and 221 foreign keys. Match/photo archival, provider proofs and the complete
