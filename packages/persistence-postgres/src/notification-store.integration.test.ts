@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from 'kysely';
 
 import type { NotificationType } from '@nakh/domain';
 
@@ -9,6 +10,8 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresNotificationStore, type NotificationWrite } from './notification-store.js';
 import { PostgresNotificationDeliveryStore } from './notification-delivery-store.js';
+import { createDeletionFixture } from './testing/deletion-fixture.js';
+import { createReportChat, createReportMessage } from './testing/report-fixture.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 
@@ -37,6 +40,15 @@ async function createMutedUser(database: NakhDatabase): Promise<string> {
 async function createDeliverableUser(database: NakhDatabase): Promise<string> {
   const userId = await createMutedUser(database);
   const now = new Date();
+  await database
+    .insertInto('identity.accounts')
+    .values({
+      user_id: userId,
+      state: 'active',
+      state_reason: null,
+      state_changed_at: now,
+    })
+    .execute();
   await database
     .insertInto('identity.telegram_identities')
     .values({
@@ -305,6 +317,173 @@ describe.skipIf(databaseUrl === undefined)('M4 durable notification classificati
       lease_owner: null,
       lease_expires_at: null,
     });
+  });
+
+  it('M8 denies twenty-way notification rendering and provider admission after real deletion', async () => {
+    const deliveries = new PostgresNotificationDeliveryStore(database);
+    let lease!: { deliveryId: string; leaseOwner: string; fenceToken: string };
+    await createDeletionFixture(database, async (owner) => {
+      const recorded = await store.record(notice(owner, 'safety_notice'));
+      const workerId = `m8-notification:${randomUUID()}`;
+      const claims = await deliveries.claimDue({ workerId, limit: 100, leaseMs: 60000 });
+      const claim = claims.find((row) => row.deliveryId === recorded.telegramDeliveryId)!;
+      expect(claim).toBeDefined();
+      lease = { deliveryId: claim.deliveryId, leaseOwner: workerId, fenceToken: claim.fenceToken };
+      expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+    });
+    const before = await database
+      .selectFrom('notification.notification_deliveries')
+      .selectAll()
+      .where('id', '=', lease.deliveryId)
+      .executeTakeFirstOrThrow();
+    await Promise.all(
+      Array.from({ length: 20 }, async () => {
+        expect(await deliveries.loadTelegramProjection(lease)).toBeUndefined();
+        expect(await deliveries.markProviderCallStarted(lease)).toBe(false);
+      }),
+    );
+    expect(
+      await database
+        .selectFrom('notification.notification_deliveries')
+        .selectAll()
+        .where('id', '=', lease.deliveryId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual(before);
+  });
+
+  it.each(['sender', 'recipient'] as const)(
+    'M8 denies an existing chat message notification after %s deletion',
+    async (deletedParticipant) => {
+      const survivor = await createDeliverableUser(database);
+      const deliveries = new PostgresNotificationDeliveryStore(database);
+      let lease!: { deliveryId: string; leaseOwner: string; fenceToken: string };
+      let messageId!: string;
+      await createDeletionFixture(database, async (owner) => {
+        await database
+          .updateTable('identity.accounts')
+          .set({ state: 'active', version: sql<number>`version+1` })
+          .where('user_id', '=', owner)
+          .execute();
+        const sender = deletedParticipant === 'sender' ? owner : survivor;
+        const recipient = deletedParticipant === 'recipient' ? owner : survivor;
+        await database
+          .updateTable('notification.notification_preferences')
+          .set({ chat_enabled: true })
+          .where('user_id', '=', recipient)
+          .execute();
+        const chat = await createReportChat(database, sender, recipient);
+        messageId = await createReportMessage(database, chat.chatSessionId, sender);
+        const recorded = await store.record({
+          ...notice(recipient, 'new_chat_message'),
+          payload: { chatSessionId: chat.chatSessionId, messageId },
+        });
+        const workerId = `m8-chat-notice:${randomUUID()}`;
+        const claim = (await deliveries.claimDue({ workerId, limit: 100, leaseMs: 60000 })).find(
+          (row) => row.deliveryId === recorded.telegramDeliveryId,
+        )!;
+        expect(claim).toBeDefined();
+        lease = {
+          deliveryId: claim.deliveryId,
+          leaseOwner: workerId,
+          fenceToken: claim.fenceToken,
+        };
+        expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+      });
+      const original = await database
+        .selectFrom('chat.chat_messages')
+        .selectAll()
+        .where('id', '=', messageId)
+        .executeTakeFirstOrThrow();
+      const before = await database
+        .selectFrom('notification.notification_deliveries')
+        .selectAll()
+        .where('id', '=', lease.deliveryId)
+        .executeTakeFirstOrThrow();
+      await Promise.all(
+        Array.from({ length: 20 }, async () => {
+          expect(await deliveries.loadTelegramProjection(lease)).toBeUndefined();
+          expect(await deliveries.markProviderCallStarted(lease)).toBe(false);
+        }),
+      );
+      expect(
+        await database
+          .selectFrom('chat.chat_messages')
+          .selectAll()
+          .where('id', '=', messageId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual(original);
+      expect(
+        await database
+          .selectFrom('notification.notification_deliveries')
+          .selectAll()
+          .where('id', '=', lease.deliveryId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual(before);
+    },
+  );
+
+  it('M8 waits for a committing tombstone before notification provider admission', async () => {
+    const owner = await createDeliverableUser(database);
+    const recorded = await store.record(notice(owner, 'payment_success'));
+    const deliveries = new PostgresNotificationDeliveryStore(database);
+    const workerId = `m8-wait:${randomUUID()}`;
+    const claim = (await deliveries.claimDue({ workerId, limit: 100, leaseMs: 60000 })).find(
+      (row) => row.deliveryId === recorded.telegramDeliveryId,
+    )!;
+    const lease = {
+      deliveryId: claim.deliveryId,
+      leaseOwner: workerId,
+      fenceToken: claim.fenceToken,
+    };
+    expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+    let release!: () => void, acquired!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tombstone = database.transaction().execute(async (transaction) => {
+      await transaction
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', owner)
+        .forNoKeyUpdate()
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable('identity.accounts')
+        .set({ state: 'deleted', version: sql<number>`version+1` })
+        .where('user_id', '=', owner)
+        .execute();
+      acquired();
+      await barrier;
+    });
+    await locked;
+    const attempt = deliveries.markProviderCallStarted(lease);
+    try {
+      let waiting = false;
+      for (let probe = 0; probe < 100 && !waiting; probe++) {
+        waiting = (
+          await sql<{ waiting: boolean }>`SELECT EXISTS(
+          SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+          AND wait_event_type='Lock' AND query LIKE '%users%') AS waiting`.execute(database)
+        ).rows[0]!.waiting;
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(true);
+    } finally {
+      release();
+      await tombstone;
+    }
+    expect(await attempt).toBe(false);
+    expect(await deliveries.loadTelegramProjection(lease)).toBeUndefined();
+    expect(
+      await database
+        .selectFrom('notification.notification_deliveries')
+        .select('provider_progress')
+        .where('id', '=', lease.deliveryId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ provider_progress: 'not_started' });
   });
 
   it('retries a known failure but quarantines an ambiguous provider call', async () => {

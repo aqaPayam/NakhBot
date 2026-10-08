@@ -479,3 +479,20 @@ ingestion stages, twenty concurrent post-deletion attempts, actual deletion duri
 and expired-lease publication. All 43 focused native tests in two files passed. This increment
 does not prove provider-object absence, revoke already-issued delivery grants, or enable deletion
 ingress/retained-data release. Those obligations and the complete remaining M8 phases still apply.
+
+Media-worker commit `ff0a71b` passed all six exact-head CI jobs, 561 native tests in 93 files and
+all 27 M7 plans (terminal snapshot 1170.753 ms, both required indexes present).
+
+Notification rendering and provider-call admission now check the recipient's current Account;
+chat-message notices also require the exact existing message/recipient scope and a non-deleted
+sender. Stable identities and Accounts are locked in sorted order before delivery mutation, and
+the exact lease is checked again at mutation. Known provider outcomes still settle under their
+original fence, including outcomes of calls admitted before deletion. Four new native scenarios
+cover twenty concurrent post-deletion requests, retained messages after actual sender/recipient
+deletion, and a provider admission blocked behind a committing tombstone. All 22 focused native
+tests in two files passed in a fresh isolated database. The first local run's accumulated service
+queue exceeded the existing bounded claim lookup; isolation resolved those fixture failures
+without increasing the production claim limit or weakening assertions. Other linked product
+notification scopes, provider/media proofs, source-phase completion, purge, financial epochs,
+manifests, safe return and production hardening remain; deletion ingress and retention release
+remain disabled.

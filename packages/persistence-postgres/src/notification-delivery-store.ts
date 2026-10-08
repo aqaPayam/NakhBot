@@ -39,6 +39,91 @@ function object(value: unknown): Readonly<Record<string, unknown>> | undefined {
     : undefined;
 }
 
+/** Delivery admission precedes the provider call. Resolve immutable participants,
+ * then take stable identities and Accounts in one order before delivery writes. */
+async function lockNotificationAuthority(
+  transaction: NakhDatabase,
+  lease: NotificationDeliveryLease,
+): Promise<boolean> {
+  const notice = await transaction
+    .selectFrom('notification.notification_deliveries as delivery')
+    .innerJoin(
+      'notification.notifications as notification',
+      'notification.id',
+      'delivery.notification_id',
+    )
+    .select(['notification.user_id', 'notification.notification_type', 'notification.payload'])
+    .where('delivery.id', '=', lease.deliveryId)
+    .where('delivery.channel', '=', 'telegram')
+    .where('delivery.status', 'in', ['pending', 'failed_retryable'])
+    .where('delivery.provider_progress', '=', 'not_started')
+    .where('delivery.lease_owner', '=', lease.leaseOwner)
+    .where('delivery.fence_token', '=', lease.fenceToken)
+    .where('delivery.lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+    .executeTakeFirst();
+  if (notice === undefined) return false;
+  const users = new Set([notice.user_id]);
+  let messageId: string | undefined, chatSessionId: string | undefined;
+  if (notice.notification_type === 'new_chat_message') {
+    const payload = object(notice.payload);
+    if (
+      typeof payload?.messageId !== 'string' ||
+      !UUID.test(payload.messageId) ||
+      typeof payload.chatSessionId !== 'string' ||
+      !UUID.test(payload.chatSessionId)
+    )
+      return false;
+    messageId = payload.messageId;
+    chatSessionId = payload.chatSessionId;
+    const message = await transaction
+      .selectFrom('chat.chat_messages as message')
+      .innerJoin('chat.chat_participants as participant', (join) =>
+        join
+          .onRef('participant.chat_session_id', '=', 'message.chat_session_id')
+          .on('participant.user_id', '=', notice.user_id),
+      )
+      .select('message.sender_user_id')
+      .where('message.id', '=', messageId)
+      .where('message.chat_session_id', '=', chatSessionId)
+      .executeTakeFirst();
+    if (message?.sender_user_id === null || message?.sender_user_id === undefined) return false;
+    users.add(message.sender_user_id);
+  }
+  const ordered = [...users].sort();
+  await transaction
+    .selectFrom('identity.users')
+    .select('id')
+    .where('id', 'in', ordered)
+    .orderBy('id')
+    .forNoKeyUpdate()
+    .execute();
+  const accounts = await transaction
+    .selectFrom('identity.accounts')
+    .select(['user_id', 'state'])
+    .where('user_id', 'in', ordered)
+    .orderBy('user_id')
+    .forUpdate()
+    .execute();
+  if (accounts.length !== ordered.length || accounts.some((account) => account.state === 'deleted'))
+    return false;
+  if (messageId !== undefined && chatSessionId !== undefined) {
+    const current = await transaction
+      .selectFrom('chat.chat_messages as message')
+      .innerJoin('chat.chat_participants as participant', (join) =>
+        join
+          .onRef('participant.chat_session_id', '=', 'message.chat_session_id')
+          .on('participant.user_id', '=', notice.user_id),
+      )
+      .select('message.id')
+      .where('message.id', '=', messageId)
+      .where('message.chat_session_id', '=', chatSessionId)
+      .where('message.sender_user_id', 'in', ordered)
+      .executeTakeFirst();
+    if (current === undefined) return false;
+  }
+  return true;
+}
+
 /** Durable M6 notification delivery leases, rendering authorization, and fenced settlement. */
 export class PostgresNotificationDeliveryStore implements NotificationDeliveryStore {
   public constructor(private readonly database: NakhDatabase) {}
@@ -119,91 +204,97 @@ export class PostgresNotificationDeliveryStore implements NotificationDeliverySt
     lease: NotificationDeliveryLease,
   ): Promise<TelegramNotificationProjection | undefined> {
     validateLease(lease);
-    const row = await this.database
-      .selectFrom('notification.notification_deliveries as delivery')
-      .innerJoin(
-        'notification.notifications as notification',
-        'notification.id',
-        'delivery.notification_id',
-      )
-      .innerJoin(
-        'identity.telegram_identities as telegram',
-        'telegram.user_id',
-        'notification.user_id',
-      )
-      .innerJoin('identity.user_settings as settings', 'settings.user_id', 'notification.user_id')
-      .select([
-        'delivery.id as delivery_id',
-        'notification.user_id',
-        'notification.notification_type',
-        'notification.title_key',
-        'notification.body_key',
-        'notification.payload',
-        'telegram.telegram_user_id',
-        'settings.ui_locale_code',
-      ])
-      .where('delivery.id', '=', lease.deliveryId)
-      .where('delivery.channel', '=', 'telegram')
-      .where('delivery.status', 'in', ['pending', 'failed_retryable'])
-      .where('delivery.provider_progress', '=', 'not_started')
-      .where('delivery.lease_owner', '=', lease.leaseOwner)
-      .where('delivery.fence_token', '=', lease.fenceToken)
-      .where('delivery.lease_expires_at', '>', sql<Date>`clock_timestamp()`)
-      .executeTakeFirst();
-    if (row === undefined) return undefined;
-
-    if (row.notification_type === 'new_chat_message') {
-      const payload = object(row.payload);
-      const chatSessionId = payload?.chatSessionId;
-      const messageId = payload?.messageId;
-      if (
-        typeof chatSessionId !== 'string' ||
-        !UUID.test(chatSessionId) ||
-        typeof messageId !== 'string' ||
-        !UUID.test(messageId)
-      )
-        return undefined;
-      const message = await this.database
-        .selectFrom('chat.chat_messages as message')
-        .innerJoin('chat.chat_participants as participant', (join) =>
-          join
-            .onRef('participant.chat_session_id', '=', 'message.chat_session_id')
-            .on('participant.user_id', '=', row.user_id),
+    return this.database.transaction().execute(async (transaction) => {
+      if (!(await lockNotificationAuthority(transaction, lease))) return undefined;
+      const row = await transaction
+        .selectFrom('notification.notification_deliveries as delivery')
+        .innerJoin(
+          'notification.notifications as notification',
+          'notification.id',
+          'delivery.notification_id',
         )
-        .select('message.id')
-        .where('message.id', '=', messageId)
-        .where('message.chat_session_id', '=', chatSessionId)
+        .innerJoin(
+          'identity.telegram_identities as telegram',
+          'telegram.user_id',
+          'notification.user_id',
+        )
+        .innerJoin('identity.user_settings as settings', 'settings.user_id', 'notification.user_id')
+        .select([
+          'delivery.id as delivery_id',
+          'notification.user_id',
+          'notification.notification_type',
+          'notification.title_key',
+          'notification.body_key',
+          'notification.payload',
+          'telegram.telegram_user_id',
+          'settings.ui_locale_code',
+        ])
+        .where('delivery.id', '=', lease.deliveryId)
+        .where('delivery.channel', '=', 'telegram')
+        .where('delivery.status', 'in', ['pending', 'failed_retryable'])
+        .where('delivery.provider_progress', '=', 'not_started')
+        .where('delivery.lease_owner', '=', lease.leaseOwner)
+        .where('delivery.fence_token', '=', lease.fenceToken)
+        .where('delivery.lease_expires_at', '>', sql<Date>`clock_timestamp()`)
         .executeTakeFirst();
-      if (message === undefined) return undefined;
-    }
+      if (row === undefined) return undefined;
 
-    return {
-      deliveryId: row.delivery_id,
-      telegramUserId: row.telegram_user_id,
-      locale: row.ui_locale_code,
-      titleKey: row.title_key,
-      bodyKey: row.body_key,
-    };
+      if (row.notification_type === 'new_chat_message') {
+        const payload = object(row.payload);
+        const chatSessionId = payload?.chatSessionId;
+        const messageId = payload?.messageId;
+        if (
+          typeof chatSessionId !== 'string' ||
+          !UUID.test(chatSessionId) ||
+          typeof messageId !== 'string' ||
+          !UUID.test(messageId)
+        )
+          return undefined;
+        const message = await transaction
+          .selectFrom('chat.chat_messages as message')
+          .innerJoin('chat.chat_participants as participant', (join) =>
+            join
+              .onRef('participant.chat_session_id', '=', 'message.chat_session_id')
+              .on('participant.user_id', '=', row.user_id),
+          )
+          .select('message.id')
+          .where('message.id', '=', messageId)
+          .where('message.chat_session_id', '=', chatSessionId)
+          .executeTakeFirst();
+        if (message === undefined) return undefined;
+      }
+
+      return {
+        deliveryId: row.delivery_id,
+        telegramUserId: row.telegram_user_id,
+        locale: row.ui_locale_code,
+        titleKey: row.title_key,
+        bodyKey: row.body_key,
+      };
+    });
   }
 
   public async markProviderCallStarted(lease: NotificationDeliveryLease): Promise<boolean> {
     validateLease(lease);
-    const updated = await this.database
-      .updateTable('notification.notification_deliveries')
-      .set((expression) => ({
-        provider_progress: 'call_started',
-        updated_at: sql<Date>`clock_timestamp()`,
-        version: expression('version', '+', 1),
-      }))
-      .where('id', '=', lease.deliveryId)
-      .where('channel', '=', 'telegram')
-      .where('status', 'in', ['pending', 'failed_retryable'])
-      .where('provider_progress', '=', 'not_started')
-      .where('lease_owner', '=', lease.leaseOwner)
-      .where('fence_token', '=', lease.fenceToken)
-      .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
-      .executeTakeFirst();
-    return updated.numUpdatedRows === 1n;
+    return this.database.transaction().execute(async (transaction) => {
+      if (!(await lockNotificationAuthority(transaction, lease))) return false;
+      const updated = await transaction
+        .updateTable('notification.notification_deliveries')
+        .set((expression) => ({
+          provider_progress: 'call_started',
+          updated_at: sql<Date>`clock_timestamp()`,
+          version: expression('version', '+', 1),
+        }))
+        .where('id', '=', lease.deliveryId)
+        .where('channel', '=', 'telegram')
+        .where('status', 'in', ['pending', 'failed_retryable'])
+        .where('provider_progress', '=', 'not_started')
+        .where('lease_owner', '=', lease.leaseOwner)
+        .where('fence_token', '=', lease.fenceToken)
+        .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+        .executeTakeFirst();
+      return updated.numUpdatedRows === 1n;
+    });
   }
 
   public async settle(write: NotificationDeliverySettlementWrite): Promise<boolean> {
