@@ -367,7 +367,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           (await sql<{ work_mem: string }>`SHOW work_mem`.execute(transaction)).rows[0]!.work_mem,
         ).toBe('16MB');
         for (const [name, expected] of [
-          ['parallel_setup_cost', '100'],
+          ['parallel_setup_cost', '1000'],
           ['parallel_tuple_cost', '0.03'],
         ])
           expect(
@@ -385,11 +385,24 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
   it('caps parallel workers, respects disabled/lower operator limits and restores a successful read', async () => {
     await database.connection().execute(async (connection) => {
       try {
+        await sql`SELECT set_config('parallel_setup_cost','4321',false),
+          set_config('parallel_tuple_cost','0.27',false)`.execute(connection);
         for (const limit of [0, 1, 8]) {
           await sql`SELECT set_config('max_parallel_workers_per_gather',${String(limit)},false)`.execute(
             connection,
           );
           await withModerationIntegrityRead(connection, async (read) => {
+            for (const [name, expected] of [
+              ['parallel_setup_cost', '1000'],
+              ['parallel_tuple_cost', '0.03'],
+            ])
+              expect(
+                (
+                  await sql<{ value: string }>`SELECT current_setting(${name}) AS value`.execute(
+                    read,
+                  )
+                ).rows[0]!.value,
+              ).toBe(expected);
             expect(
               (
                 await sql<{
@@ -407,11 +420,23 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
               )
             ).rows[0]!.value,
           ).toBe(String(limit));
+          for (const [name, expected] of [
+            ['parallel_setup_cost', '4321'],
+            ['parallel_tuple_cost', '0.27'],
+          ])
+            expect(
+              (
+                await sql<{ value: string }>`SELECT current_setting(${name}) AS value`.execute(
+                  connection,
+                )
+              ).rows[0]!.value,
+            ).toBe(expected);
         }
       } finally {
-        await sql`SELECT set_config('max_parallel_workers_per_gather',${initialParallelSettings.max_parallel_workers_per_gather!},false)`.execute(
-          connection,
-        );
+        for (const name of parallelSettings)
+          await sql`SELECT set_config(${name},${initialParallelSettings[name]!},false)`.execute(
+            connection,
+          );
       }
     });
     await assertClean();
