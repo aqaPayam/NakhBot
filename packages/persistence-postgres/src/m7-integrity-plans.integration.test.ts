@@ -9,6 +9,7 @@ import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { analyzeM7QueryTables, measureM7SyntheticPlans } from './m7-query-plans.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import { seedM7AppealIntegrityPlans } from './m7-appeal-integrity-plan-fixture.js';
+import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
 import { withM6SyntheticPlanSession } from './m6-query-plans.js';
 import {
   PostgresModerationIntegrityMetricsStore,
@@ -353,6 +354,208 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
         await sql`SELECT 1 / 0`.execute(transaction);
       }),
     ).rejects.toThrow('division by zero');
+    await assertClean();
+  });
+  it('keeps exact review and unban bindings under single-field drift and duplicate review audits', async () => {
+    await withM6SyntheticPlanSession(database, async (connection) => {
+      try {
+        await connection.transaction().execute(async (tx) => {
+          const prefix = randomUUID(),
+            at = new Date();
+          await seedM7IntegrityPlans(tx, prefix, 1000, at);
+          await seedM7AppealIntegrityPlans(tx, prefix, 1000, at);
+          await analyzeM7QueryTables(tx);
+          const ids = (
+            await sql<{
+              appeal: string;
+              audit: string;
+              review: string;
+              action: string;
+              history: string;
+              unban: string;
+            }>`SELECT
+            md5(${prefix} || 'terminal-appeal4')::uuid AS appeal,
+            md5(${prefix} || 'terminal-review-audit4')::uuid AS audit,
+            md5(${prefix} || 'terminal-review-attempt4')::uuid AS review,
+            md5(${prefix} || 'terminal-unban-action4')::uuid AS action,
+            md5(${prefix} || 'terminal-unban-history4')::uuid AS history,
+            md5(${prefix} || 'terminal-unban-attempt4')::uuid AS unban`.execute(tx)
+          ).rows[0]!;
+          const count = async (): Promise<number> =>
+            withModerationIntegrityRead(tx, async (read) =>
+              Number(
+                (await moderationIntegrityPhaseStatement('appeals').execute(read)).rows[0]!.count,
+              ),
+            );
+          const flags = async (): Promise<{ hasReview: boolean; unbanMatches: boolean }> =>
+            (
+              await sql<{
+                hasReview: boolean;
+                unbanMatches: boolean;
+              }>`SELECT "hasReview","unbanMatches" FROM (${MODERATION_INTEGRITY_SOURCES.appeals}) probe WHERE id=${ids.appeal}::uuid`.execute(
+                tx,
+              )
+            ).rows[0]!;
+          const baseline = await count();
+          const audit = await tx
+            .selectFrom('platform.audit_logs')
+            .selectAll()
+            .where('id', '=', ids.audit)
+            .executeTakeFirstOrThrow();
+          for (const changed of [
+            { actor_admin_id: randomUUID() },
+            { command_id: randomUUID() },
+            { request_id: randomUUID() },
+            { subject_id: randomUUID() },
+            { subject_type: 'user' },
+            { event_type: 'moderation.account-action.v1' },
+            { result_code: 'appeal_rejected' },
+          ]) {
+            await tx
+              .updateTable('platform.audit_logs')
+              .set(changed)
+              .where('id', '=', audit.id)
+              .execute();
+            expect(await flags()).toEqual({ hasReview: false, unbanMatches: true });
+            expect(await count()).toBe(baseline + 1);
+            await tx
+              .updateTable('platform.audit_logs')
+              .set(audit)
+              .where('id', '=', audit.id)
+              .execute();
+            expect(await count()).toBe(baseline);
+          }
+          const review = await tx
+            .selectFrom('administration.admin_action_logs')
+            .selectAll()
+            .where('id', '=', ids.review)
+            .executeTakeFirstOrThrow();
+          for (const changed of [
+            { admin_user_id: randomUUID() },
+            { command_id: randomUUID() },
+            { request_id: randomUUID() },
+            { target_id: randomUUID() },
+            { target_type: 'user' },
+            { command_code: 'moderation.unban-appeal' },
+            { expected_target_version: review.expected_target_version! + 1 },
+            { result: 'rejected' },
+          ] as const) {
+            await tx
+              .updateTable('administration.admin_action_logs')
+              .set(changed)
+              .where('id', '=', review.id)
+              .execute();
+            expect((await flags()).hasReview).toBe(false);
+            expect(await count()).toBe(baseline + 1);
+            await tx
+              .updateTable('administration.admin_action_logs')
+              .set(review)
+              .where('id', '=', review.id)
+              .execute();
+          }
+          // Multiple matching audits keep existence semantics; a wrong outcome cannot
+          // mask a valid one or become accepted after the valid audit is removed.
+          const duplicate = randomUUID(),
+            wrong = randomUUID();
+          await tx
+            .insertInto('platform.audit_logs')
+            .values([
+              { ...audit, id: duplicate },
+              { ...audit, id: wrong, result_code: 'appeal_rejected' },
+            ])
+            .execute();
+          expect(await count()).toBe(baseline);
+          await tx
+            .deleteFrom('platform.audit_logs')
+            .where('id', 'in', [audit.id, duplicate])
+            .execute();
+          expect((await flags()).hasReview).toBe(false);
+          expect(await count()).toBe(baseline + 1);
+          await tx.insertInto('platform.audit_logs').values(audit).execute();
+          expect(await count()).toBe(baseline);
+          const history = await tx
+            .selectFrom('identity.account_state_history')
+            .selectAll()
+            .where('id', '=', ids.history)
+            .executeTakeFirstOrThrow();
+          for (const changed of [
+            { user_id: randomUUID() },
+            { actor_admin_id: randomUUID() },
+            { previous_state: 'active' },
+            { changed_at: new Date(history.changed_at.getTime() + 1) },
+          ] as const) {
+            await tx
+              .updateTable('identity.account_state_history')
+              .set(changed)
+              .where('id', '=', history.id)
+              .execute();
+            expect(await flags()).toEqual({ hasReview: true, unbanMatches: false });
+            expect(await count()).toBe(baseline + 1);
+            await tx
+              .updateTable('identity.account_state_history')
+              .set(history)
+              .where('id', '=', history.id)
+              .execute();
+          }
+          const unban = await tx
+            .selectFrom('administration.admin_action_logs')
+            .selectAll()
+            .where('id', '=', ids.unban)
+            .executeTakeFirstOrThrow();
+          for (const changed of [
+            { admin_user_id: randomUUID() },
+            { command_id: randomUUID() },
+            { target_id: randomUUID() },
+            { target_type: 'user' },
+            { command_code: 'moderation.review-appeal' },
+            { result: 'rejected' },
+          ] as const) {
+            await tx
+              .updateTable('administration.admin_action_logs')
+              .set(changed)
+              .where('id', '=', unban.id)
+              .execute();
+            expect((await flags()).unbanMatches).toBe(false);
+            expect(await count()).toBe(baseline + 1);
+            await tx
+              .updateTable('administration.admin_action_logs')
+              .set(unban)
+              .where('id', '=', unban.id)
+              .execute();
+          }
+          const action = await tx
+            .selectFrom('moderation.moderation_actions')
+            .selectAll()
+            .where('id', '=', ids.action)
+            .executeTakeFirstOrThrow();
+          for (const changed of [
+            { action_type: 'ban_user' },
+            { target_user_id: randomUUID() },
+            { actor_admin_id: randomUUID() },
+            { command_id: randomUUID() },
+            { occurred_at: new Date(action.occurred_at.getTime() + 1) },
+          ] as const) {
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set(changed)
+              .where('id', '=', action.id)
+              .execute();
+            expect((await flags()).unbanMatches).toBe(false);
+            expect(await count()).toBe(baseline + 1);
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set(action)
+              .where('id', '=', action.id)
+              .execute();
+          }
+          expect(await flags()).toEqual({ hasReview: true, unbanMatches: true });
+          expect(await count()).toBe(baseline);
+          throw new FixtureRollback();
+        });
+      } catch (error) {
+        if (!(error instanceof FixtureRollback)) throw error;
+      }
+    });
     await assertClean();
   });
 });

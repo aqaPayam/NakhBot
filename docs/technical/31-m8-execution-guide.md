@@ -373,3 +373,15 @@ A full local check passed formatting, lint, types and all 917 unit tests, then t
 build process exited with a Windows breakpoint exception (0x80000003) without a source diagnostic.
 The unchanged isolated application build passed, including declarations. This classifies the observed
 process exit, not its underlying cause; a complete successful check retry is still mandatory.
+
+Report-window repair `049d594` preserves survivor preparation and idempotent submission after
+verified chat archival, denies outsiders/deleted actors and rechecks the immutable deadline after
+source-lock waits. Late Report captures remain discoverable by the evidence verifier. Quality and
+all 518 Linux native tests passed, but the terminal integrity snapshot took 1578.327 ms against the
+unchanged 1500 ms budget. Both required indexes were present; no disk spill, hash batching or
+missing parallel worker explained the failure. The repair replaces grouped terminal-review outcomes
+with exact tuple membership and binds unban candidates by immutable primary keys, validating every
+original owner/history/command predicate in the resulting fact. Duplicate valid/invalid audits keep
+existence semantics. Full-volume Windows diagnostics remove the review sort and preserve both
+required indexes; their timings do not constitute Linux production acceptance. No fixture volume,
+repeated sample, safety predicate, execution budget or index requirement is reduced.

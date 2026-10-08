@@ -325,21 +325,36 @@ SELECT thread.id, thread.status <> 'open' OR COALESCE(unanswered.count,0) <= 2 A
 WITH unban_facts AS MATERIALIZED (
     -- Evaluate the uniquely owned link/effect facts once, independently of Appeal joins.
     SELECT unban.appeal_id, action.target_user_id,
-      (action.id IS NOT NULL AND history.id IS NOT NULL AND attempt.id IS NOT NULL) AS valid
+      COALESCE(action.id IS NOT NULL AND action.action_type = 'unban_user'
+        AND history.id IS NOT NULL AND history.user_id = action.target_user_id
+        AND history.previous_state = 'banned' AND history.actor_admin_id = action.actor_admin_id
+        AND history.changed_at = action.occurred_at
+        AND attempt.id IS NOT NULL AND attempt.admin_user_id = action.actor_admin_id
+        AND attempt.command_id = action.command_id AND attempt.command_code = 'moderation.unban-appeal'
+        AND attempt.target_type = 'user_appeal' AND attempt.target_id = unban.appeal_id
+        AND attempt.result = 'succeeded',false) AS valid
     FROM moderation.appeal_unbans unban
-    LEFT JOIN moderation.moderation_actions action ON action.id = unban.action_id AND action.action_type = 'unban_user'
+    -- Each immutable primary key gives one candidate. Check every owner/effect
+    -- binding in the fact instead of carrying wide compound keys through hashes.
+    LEFT JOIN moderation.moderation_actions action ON action.id = unban.action_id
     LEFT JOIN identity.account_state_history history ON history.id = unban.unban_history_id
-      AND history.user_id = action.target_user_id AND history.previous_state = 'banned'
-      AND history.actor_admin_id = action.actor_admin_id AND history.changed_at = action.occurred_at
     LEFT JOIN administration.admin_action_logs attempt ON attempt.id = unban.admin_action_log_id
-      AND attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
-      AND attempt.command_code = 'moderation.unban-appeal' AND attempt.target_type = 'user_appeal'
-      AND attempt.target_id = unban.appeal_id AND attempt.result = 'succeeded'
 )
 SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
     ban.id IS NOT NULL AS "banMatches",
     appeal.status NOT IN ('accepted','rejected') OR COALESCE(
-      CASE appeal.status WHEN 'accepted' THEN review.accepted ELSE review.rejected END,false) AS "hasReview",
+      (appeal.id,appeal.reviewed_by_admin_id,appeal.version - 1,
+        CASE appeal.status WHEN 'accepted' THEN 'appeal_accepted' ELSE 'appeal_rejected' END) IN (
+        -- Exact tuple membership retains EXISTS semantics for duplicate attempts/audits
+        -- without sorting and grouping both terminal outcomes for every review.
+        SELECT attempt.target_id,attempt.admin_user_id,attempt.expected_target_version,audit.result_code
+        FROM administration.admin_action_logs attempt JOIN platform.audit_logs audit
+          ON audit.command_id = attempt.command_id AND audit.actor_admin_id = attempt.admin_user_id
+          AND audit.subject_type = 'user_appeal' AND audit.subject_id = attempt.target_id
+          AND audit.event_type = 'moderation.appeal-reviewed.v1' AND audit.request_id = attempt.request_id
+        WHERE attempt.target_type = 'user_appeal' AND attempt.command_code = 'moderation.review-appeal'
+          AND attempt.result = 'succeeded'
+      ),false) AS "hasReview",
     unban.appeal_id IS NULL OR COALESCE(appeal.status = 'accepted'
       AND unban.target_user_id = appeal.user_id AND unban.valid,false) AS "unbanMatches"
     FROM moderation.user_appeals appeal
@@ -351,21 +366,6 @@ SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
     LEFT JOIN unban_facts unban ON unban.appeal_id = appeal.id
     LEFT JOIN identity.account_state_history ban ON ban.id = appeal.ban_state_history_id
       AND ban.user_id = appeal.user_id AND ban.next_state = 'banned'
-    LEFT JOIN (
-      -- Each exact actor/target/version fact retains both independent terminal outcomes.
-      -- Matching duplicates retain EXISTS semantics and never duplicate an Appeal.
-      SELECT attempt.target_id, attempt.admin_user_id, attempt.expected_target_version,
-        bool_or(audit.result_code = 'appeal_accepted') AS accepted,
-        bool_or(audit.result_code = 'appeal_rejected') AS rejected
-      FROM administration.admin_action_logs attempt JOIN platform.audit_logs audit
-        ON audit.command_id = attempt.command_id AND audit.actor_admin_id = attempt.admin_user_id
-        AND audit.subject_type = 'user_appeal' AND audit.subject_id = attempt.target_id
-        AND audit.event_type = 'moderation.appeal-reviewed.v1' AND audit.request_id = attempt.request_id
-      WHERE attempt.target_type = 'user_appeal' AND attempt.command_code = 'moderation.review-appeal'
-        AND attempt.result = 'succeeded'
-      GROUP BY attempt.target_id, attempt.admin_user_id, attempt.expected_target_version
-    ) review ON review.target_id = appeal.id AND review.admin_user_id = appeal.reviewed_by_admin_id
-      AND review.expected_target_version = appeal.version - 1
 `,
   admins: sql`
 SELECT admin.id, NOT admin.is_active OR (admin.identity_verified_at IS NOT NULL AND EXISTS (
