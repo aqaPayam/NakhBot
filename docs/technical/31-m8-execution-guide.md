@@ -133,6 +133,10 @@ the new generation-zero field. Direct SQL cannot renew expired authority without
 
 ## Execution sequence
 
+Green shared-closure commit `75fc59b` passed all six CI jobs, 443 native tests and all 27 historical
+plans. The terminal snapshot took 1487.074 ms against the unchanged 1500 ms limit, with both
+required indexes present. Local final checks passed 908 unit tests and 32 focused native scenarios.
+
 The next backend increment closes one normalized shared pair per fenced transaction. It rescans
 remaining active facts after interruption instead of trusting outbox delivery or a transport cursor.
 It cancels active Likes, closes Match/Chat scopes, revokes grants (including grants on already-closed
@@ -153,6 +157,21 @@ Native shared-closure scenarios cover twenty-way retries, one-pair restart after
 required audit/event/notice rollback, encrypted Report evidence and ledger preservation, immediate
 chat tombstones, pending/delivered Nakh reconciliation, ordinary unmatch races, expiry while waiting
 for a pair lock, and preservation of a blocked pair while closing an orphan active chat/grant.
+
+Migration 87 adds immutable, content-free phase receipts. The shared checkpoint locks the owning
+User, Account, deletion record and mandatory work, verifies the exact live lease and every active
+shared scope, and atomically saves its receipt, required audit/event and both phase/version updates.
+The lease is checked again at transaction commit. Only shared closure to evidence capture is
+enabled; missing/altered evidence, invented milestones and later phase advances fail closed.
+An exact owning worker replay uses the durable receipt after transport loss; a borrowed identity,
+owner or generation cannot reuse it. A newly claimed evidence-capture lease has a new generation.
+Existing pending/claimed work survives upgrade without invented progress; unexplained legacy
+milestones fail the migration. Receipts cannot grant return or authorize retained-data release.
+Native checkpoint scenarios exercise twenty-way completion/replay, each of the eight shared scope
+classes, missing required writes, altered audit/event/lease bindings, commit/lock-wait expiry,
+immutable receipts, denied future-phase advances and a missing pending-counter foundation.
+Migration 87 must be deployed before the checkpoint store; ingress and the full purge worker remain
+disabled until the remaining verifiers and product/media/evidence/retention work are implemented.
 
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,
    deletion record, audit/outbox and mandatory purge work. Prove twenty-way races, replay, changed

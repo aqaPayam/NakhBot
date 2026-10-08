@@ -207,3 +207,4 @@ export * from './admin-totp-operator-store.js';
 export * from './account-deletion-store.js';
 export * from './account-deletion-work-store.js';
 export * from './account-deletion-shared-store.js';
+export * from './account-deletion-checkpoint-store.js';

@@ -333,7 +333,7 @@ describe.skipIf(url === undefined)('M8 durable fenced deletion work', () => {
       sql`UPDATE identity.account_deletion_records SET phase='evidence_capture',checkpoint_version=2 WHERE id=${fixture.recordId}::uuid`.execute(
         database,
       ),
-    ).rejects.toMatchObject({ code: '23514' });
+    ).rejects.toMatchObject({ code: '55000' });
     await expect(
       sql`UPDATE identity.account_deletion_records SET last_error_code='deletion_phase_failed' WHERE id=${fixture.recordId}::uuid`.execute(
         database,
