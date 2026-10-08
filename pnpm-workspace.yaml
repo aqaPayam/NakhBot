@@ -5,10 +5,14 @@ packages:
 injectWorkspacePackages: true
 overrides:
   '@grpc/grpc-js': 1.14.5
-  'brace-expansion@2': 2.1.6
-  'brace-expansion@5': 5.0.11
-  'fast-uri@3': 3.1.7
-  'fast-uri@4': 4.1.4
+  'brace-expansion@2': 2.1.7
+  'brace-expansion@5': 5.0.12
+  'fast-uri@3': 3.1.8
+  'fast-uri@4': 4.1.5
+  'undici@8': 8.10.2
+  'source-map-js@1': 1.2.2
+  'esbuild@0.27': 0.28.2
+  'fastify@5': 5.12.5
 syncInjectedDepsAfterScripts:
   - build
 
@@ -29,7 +33,7 @@ catalog:
   ajv-formats: 3.0.1
   bullmq: 6.3.3
   dotenv: 17.4.2
-  fastify: 5.12.4
+  fastify: 5.12.5
   ioredis: 6.0.0
   kysely: 0.29.5
   pg: 8.23.0

@@ -187,6 +187,23 @@ Native corruption fixtures also refresh the same table statistics before samplin
 uncommitted scenes; all wrong-review, wrong-target, restoration, duplicate and cleanup assertions
 remain, with their original 60-second test limit.
 
+Repair commit `918b457` passed all six exact-head CI jobs, including all 466 native tests and
+27 original query plans. The Linux terminal snapshot was 964.198 ms against the unchanged
+1500 ms limit, with both required indexes. This resolves the preceding fixture timeout before
+further M8 implementation.
+
+The M8 dependency review updates published patches for Undici 8, source-map-js 1, both
+brace-expansion branches, both fast-uri branches, Fastify 5 (including Nest's dependency) and
+esbuild 0.27 consumers. The esbuild override crosses a minor version and requires the full
+build/test checks and all four image builds. The audit policy is unchanged. A full dependency
+audit still reports the development-only `braces` stack-exhaustion finding through
+`eslint-plugin-boundaries` / `@boundaries/elements` / `micromatch`. Registry verification found
+no published `braces@3.0.4`; the [upstream advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
+lists no patched release. Do not invent a patch pin, suppress the finding, or treat a production-only
+audit pass as a clean full dependency scan. The unresolved high finding remains a launch blocker
+until a verified remediation or explicit, owned, expiring risk approval exists. No exception is
+approved by this change, and the fallback security audit continues to inspect the complete lockfile.
+
 1. Implement durable actor/version-bound confirmation and atomic Account tombstone, history,
    deletion record, audit/outbox and mandatory purge work. Prove twenty-way races, replay, changed
    payload denial and required-audit rollback. Banned-account deletion remains available.
