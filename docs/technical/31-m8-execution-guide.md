@@ -435,3 +435,19 @@ negative case; migration 94 correctly denied removal without verified owning arc
 leaves those sources unassigned from the outset, preserving the same final absent-photo case and
 all original 24 actionability cases, 5,000 candidates, queries, index requirements and budgets.
 No production safeguard is relaxed. Full exact-head CI remains required before another feature.
+
+Fixture repair `06cc5a9` passed all six exact-head CI jobs, 548 native tests in 93 files and all
+27 M7 plans (terminal integrity snapshot 1460.162 ms, both required indexes present). M3 retains
+all 24 actionability cases and 5,000 candidates. This verifies Photo archival with the repaired
+absent-source fixture; retained-data release and deletion ingress remain disabled.
+
+The next increment fences Nakh delivery reads and command receipts immediately after either
+participant becomes deleted. Lists/counts share the same live Profile/non-deleted counterparty
+predicate; details independently require both non-deleted Accounts. Direct creation, receiver
+view, acceptance and rejection take the pair, sorted stable identity and Account locks before
+consulting transport receipts. Existing command capability and terminal-state policies remain.
+Native probes use real sender/receiver deletion admission with product rows and durable receipts
+still present, twenty concurrent direct/action replays, unchanged financial ledger/balances and
+unrelated live content. A worker blocked behind a committing tombstone cannot return its old
+receipt or create another Nakh. All 73 focused native tests in four files passed. This does not
+complete Nakh product purge, old-life financial fencing, the evidence checkpoint or deletion.

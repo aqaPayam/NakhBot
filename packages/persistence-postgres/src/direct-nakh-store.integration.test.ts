@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -22,6 +23,7 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
 import { runMigrations } from './migrations.js';
+import { createDeletionFixture } from './testing/deletion-fixture.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const manGenderId = '20000000-0000-4000-8000-000000000001';
@@ -650,4 +652,214 @@ describe.skipIf(databaseUrl === undefined)('M5 direct credit Nakh persistence', 
       expect(chatParticipants).toHaveLength(0);
     }
   });
+  it('M8 rechecks deletion after new and replayed Nakh commands wait for the stable identity lock', async () => {
+    const sender = await createActiveUser(database),
+      receiver = await createActiveUser(database);
+    await grantCredits(database, sender, 4n);
+    const source = write(command(sender, receiver));
+    await store.createDirect(source);
+    let unlock!: () => void, locked!: () => void;
+    const release = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const tombstone = database.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', receiver)
+        .forNoKeyUpdate()
+        .execute();
+      locked();
+      await release;
+      await tx
+        .updateTable('identity.accounts')
+        .set({ state: 'deleted', version: sql<number>`version+1` })
+        .where('user_id', '=', receiver)
+        .execute();
+    });
+    await ready;
+    let settled = 0;
+    const attempts = [source, write(command(sender, receiver))].map((input) =>
+      store.createDirect(input).then(
+        () => {
+          settled++;
+          return 'succeeded';
+        },
+        (error: unknown) => {
+          settled++;
+          return errorCode(error);
+        },
+      ),
+    );
+    try {
+      await sql`SELECT pg_sleep(0.05)`.execute(database);
+      expect(settled).toBe(0);
+    } finally {
+      unlock();
+    }
+    await tombstone;
+    expect(await Promise.all(attempts)).toEqual(['nakh_unavailable', 'nakh_unavailable']);
+    expect(
+      await database
+        .selectFrom('billing.credit_accounts')
+        .select('balance')
+        .where('user_id', '=', sender)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ balance: '2' });
+    expect(
+      await database
+        .selectFrom('nakh.nakhes')
+        .select('id')
+        .where('sender_user_id', '=', sender)
+        .execute(),
+    ).toHaveLength(1);
+  });
+  it.each(['sender', 'receiver'] as const)(
+    'M8 immediately fences %s deletion reads and twenty-way durable receipt replays before purge',
+    async (deletedRole) => {
+      const deliveredStore = new PostgresDeliveredNakhStore(database);
+      const templateUser = await createActiveUser(database);
+      const template = await database
+        .selectFrom('profile.profiles')
+        .selectAll()
+        .where('user_id', '=', templateUser)
+        .executeTakeFirstOrThrow();
+      const items: Array<{
+        source: CreateDirectNakhWrite;
+        nakhId: string;
+        survivor: string;
+        replay: () => Promise<unknown>;
+        fresh: () => Promise<unknown>;
+      }> = [];
+      const fixture = await createDeletionFixture(database, async (owner) => {
+        await database
+          .updateTable('identity.accounts')
+          .set({ state: 'active', version: sql<number>`version+1` })
+          .where('user_id', '=', owner)
+          .execute();
+        await database
+          .insertInto('profile.profiles')
+          .values({ ...template, id: randomUUID(), user_id: owner })
+          .execute();
+        await grantCredits(database, owner, 6n);
+        for (const action of ['view', 'accept', 'reject'] as const) {
+          const survivor = await createActiveUser(database);
+          const sender = deletedRole === 'sender' ? owner : survivor;
+          const receiver = deletedRole === 'receiver' ? owner : survivor;
+          if (sender === survivor) await grantCredits(database, sender, 2n);
+          const source = write(command(sender, receiver));
+          const result = await store.createDirect(source);
+          let replay: () => Promise<unknown>, fresh: () => Promise<unknown>;
+          if (action === 'view') {
+            const handler = new ViewNakhProfileHandler(deliveredStore, { uuid: randomUUID });
+            const original = viewCommand(receiver, result.nakhId);
+            await handler.execute(original);
+            replay = () => handler.execute(original);
+            fresh = () => handler.execute(viewCommand(receiver, result.nakhId));
+          } else if (action === 'accept') {
+            const handler = new AcceptNakhHandler(deliveredStore, { uuid: randomUUID });
+            const original = acceptCommand(receiver, result.nakhId);
+            await handler.execute(original);
+            replay = () => handler.execute(original);
+            fresh = () => handler.execute(acceptCommand(receiver, result.nakhId));
+          } else {
+            const handler = new RejectNakhHandler(deliveredStore, { uuid: randomUUID });
+            const original = rejectCommand(receiver, result.nakhId);
+            await handler.execute(original);
+            replay = () => handler.execute(original);
+            fresh = () => handler.execute(rejectCommand(receiver, result.nakhId));
+          }
+          items.push({ source, nakhId: result.nakhId, survivor, replay, fresh });
+        }
+      });
+      const ids = items.map((item) => item.nakhId),
+        users = [fixture.userId, ...items.map((item) => item.survivor)];
+      const snapshot = async (): Promise<
+        Readonly<{
+          nakhes: readonly unknown[];
+          receipts: readonly unknown[];
+          balances: readonly unknown[];
+          ledger: readonly unknown[];
+          actions: readonly unknown[];
+        }>
+      > => ({
+        nakhes: await database
+          .selectFrom('nakh.nakhes')
+          .selectAll()
+          .where('id', 'in', ids)
+          .orderBy('id')
+          .execute(),
+        receipts: await database
+          .selectFrom('platform.idempotency_records')
+          .selectAll()
+          .where('actor_user_id', 'in', users)
+          .orderBy('id')
+          .execute(),
+        balances: await database
+          .selectFrom('billing.credit_accounts')
+          .selectAll()
+          .where('user_id', 'in', users)
+          .orderBy('user_id')
+          .execute(),
+        ledger: await database
+          .selectFrom('billing.credit_transactions')
+          .selectAll()
+          .where('user_id', 'in', users)
+          .orderBy('id')
+          .execute(),
+        actions: await database
+          .selectFrom('nakh.nakh_receiver_actions')
+          .selectAll()
+          .where('nakh_id', 'in', ids)
+          .orderBy('id')
+          .execute(),
+      });
+      const before = await snapshot();
+      expect(before.nakhes).toHaveLength(3);
+      expect(
+        await database
+          .selectFrom('profile.profiles')
+          .select('id')
+          .where('user_id', '=', fixture.userId)
+          .execute(),
+      ).toHaveLength(1);
+      for (const item of items) {
+        await Promise.all(
+          Array.from({ length: 20 }, async () => {
+            await expect(store.createDirect(item.source)).rejects.toMatchObject({
+              code: 'nakh_unavailable',
+            });
+            await expect(item.replay()).rejects.toMatchObject({ code: 'nakh_unavailable' });
+          }),
+        );
+        await expect(item.fresh()).rejects.toMatchObject({ code: 'nakh_unavailable' });
+        await expect(
+          deliveredStore.readPage(
+            item.survivor,
+            deletedRole === 'sender' ? 'received' : 'sent',
+            10,
+          ),
+        ).resolves.toEqual({ totalCount: 0, rows: [], hasMore: false });
+        await expect(deliveredStore.readDetail(item.survivor, item.nakhId)).rejects.toMatchObject({
+          code: 'not_found',
+        });
+        await expect(deliveredStore.readDetail(fixture.userId, item.nakhId)).rejects.toMatchObject({
+          code: 'capability_denied',
+        });
+      }
+      await expect(deliveredStore.readPage(fixture.userId, 'received', 10)).rejects.toMatchObject({
+        code: 'capability_denied',
+      });
+      expect(await snapshot()).toEqual(before);
+      const unrelatedReceiver = await createActiveUser(database);
+      await grantCredits(database, templateUser, 2n);
+      const unrelated = await store.createDirect(write(command(templateUser, unrelatedReceiver)));
+      await expect(
+        deliveredStore.readPage(unrelatedReceiver, 'received', 10),
+      ).resolves.toMatchObject({ totalCount: 1, rows: [{ nakhId: unrelated.nakhId }] });
+    },
+  );
 });

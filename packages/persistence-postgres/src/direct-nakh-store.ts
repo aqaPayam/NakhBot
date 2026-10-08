@@ -13,7 +13,7 @@ import {
 
 import type { NakhDatabase } from './database.js';
 import { insertNotification } from './notification-store.js';
-import { lockUserPair } from './pair-lock.js';
+import { lockNakhLifecyclePair } from './nakh-lifecycle-authority.js';
 
 function commandHash(command: CreateDirectNakhCommand): string {
   return createHash('sha256')
@@ -57,6 +57,7 @@ export class PostgresDirectNakhStore implements DirectNakhStore {
     const receiverUserId = command.data.targetUserId;
     const requestHash = commandHash(command);
     return this.database.transaction().execute(async (transaction) => {
+      const pair = await lockNakhLifecyclePair(transaction, senderUserId, receiverUserId);
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -93,7 +94,6 @@ export class PostgresDirectNakhStore implements DirectNakhStore {
         return replayResult(existing.response_json);
       }
 
-      const pair = await lockUserPair(transaction, senderUserId, receiverUserId);
       const users = await transaction
         .selectFrom('identity.users as user')
         .innerJoin('identity.accounts as account', 'account.user_id', 'user.id')
