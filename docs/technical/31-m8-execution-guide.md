@@ -230,6 +230,22 @@ migration, concurrency, plan/load and recovery evidence. Count tracked lines wit
 
 ## Acceptance boundary
 
+Migration 89 adds bounded, resumable verification receipts for existing Report evidence belonging
+to the deleted reporter or target. The same internal reader authenticates administrator reveals
+and deletion verification: encrypted captures require exact AEAD/AAD/key-version/content-hash
+validation, typed message captures require their complete integrity digest, and photo/unmatch
+references retain their exact bindings. Administrator authorization and reveal/access audits remain
+at the administrator boundary. Deletion discards decrypted content and requires its exact live work
+fence, content-free audit/event and immutable receipt; verification is checked again at commit.
+Receipts bind the complete persisted capture fingerprint and never depend on an expired outbox
+event for replay. Missing captures wait, missing keys or invalid captures fail closed, and previously
+verified captures cannot silently change. Photo verification here covers the capture and held
+metadata; provider bytes and absence are still separate media obligations. No phase advance or
+source deletion is enabled: controlled source archival and the complete evidence-phase verifier
+remain required. Deploy migration 89 before the new verification store. Retained-data release
+remains disabled without approved policy. The schema inventory currently has 117 tables and 210
+foreign keys before migration 89; complete registry coverage must follow actual catalog state.
+
 Migration 88 binds shared closure to financial correction evidence. Paid pending delivery batches
 roll back and return a bounded financial-resolution wait while the existing fenced billing worker
 creates the exact target-unavailable refund obligation. Deletion never cancels a captured payment

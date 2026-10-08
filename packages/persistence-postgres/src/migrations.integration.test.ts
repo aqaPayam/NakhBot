@@ -18,7 +18,7 @@ const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80, 81, 82, 83, 84, 85, 86, 87,
+    78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -65,7 +65,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
               leaseMs: 120000,
             });
             expect(leases).toHaveLength(1);
-            if (baseline === 87)
+            if (baseline >= 87)
               await new PostgresAccountDeletionCheckpointStore(legacy).finishShared(leases[0]!);
           }
           previousDeletion = {
@@ -228,7 +228,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        88 - baseline,
+        89 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (previousDeletion !== undefined) {
@@ -443,6 +443,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000086_m8_deletion_work_fences.sql',
         '000087_m8_shared_checkpoint.sql',
         '000088_m8_shared_payment_proof.sql',
+        '000089_m8_capture_verification.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -524,9 +525,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000086_m8_deletion_work_fences.sql');
       expect(verified).toContain('000087_m8_shared_checkpoint.sql');
       expect(verified).toContain('000088_m8_shared_payment_proof.sql');
+      expect(verified).toContain('000089_m8_capture_verification.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(88);
+      expect(replay.existing).toHaveLength(89);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
