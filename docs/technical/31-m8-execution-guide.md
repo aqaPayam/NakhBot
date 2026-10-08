@@ -402,3 +402,17 @@ migration attempts, unchanged product/Unmatch rows, new reference creation, reas
 rejection and preserved survivor-only reporting. The catalog now covers 123 tables, 1,111 columns
 and 223 FKs. Anchors alone grant no report or archival authority. Verified Match archival, photo
 archival and the complete evidence checkpoint are still required; deletion ingress remains off.
+
+Match-reference commit `fe672b1` passed all six CI jobs, 526 native tests in 92 files and all 27
+historical plans (terminal snapshot 1411.752 ms, both required indexes present).
+
+The next Match archival increment removes one closed source and its participants under the
+existing pair lock and evidence-phase lease. It requires complete Chat archival/current capture
+proof and no active grant. Immutable receipts preserve exact status/time and original Nakh source
+identity for funding and Unmatch consistency; revoked grants and both participants' money remain.
+Post-unmatch report admission keeps the original actor/pair/deadline rules after Match removal,
+including late capture obligations. New grants still require a live Match. Native probes cover
+concurrent archival/replay, required-write suppression, borrowed/stale workers, commit-time expiry,
+late survivor reporting and accepted Nakh/revoked paid access without balance or ledger changes.
+Photo archival, the full evidence checkpoint and subsequent purge/return phases remain required.
+The catalog covers 124 tables, 1,124 columns and 226 FKs; retained-data release remains disabled.

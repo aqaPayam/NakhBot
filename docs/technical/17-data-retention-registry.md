@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 92: 123 tables, 1,111 columns and 223 foreign keys.
+code-owned M8 catalog inventory for migration 93: 124 tables, 1,124 columns and 226 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -147,3 +147,14 @@ selectors and other Match-based deletion observations follow it. Original produc
 protected from raw removal while those retained references exist. This migration grants no Match
 archival, report admission, fresh return or retained-data release. Verified Match archival remains
 required before ordinary source deletion can proceed.
+
+Migration 93 permits one closed Match archival per pair-ordered evidence-phase transaction, after
+all live Chats are archived, every linked capture/marker is verified and no active paid grant
+remains. An immutable receipt keeps only its exact terminal status/time, original source kind and
+Nakh funding identity plus the deletion fence and required audit/event chain. Match participants
+and the live Match are removed atomically. Revoked grants, money, captures and immutable Unmatch
+facts remain unchanged. Internal lifecycle facts combine live Matches with verified archival
+receipts for original Unmatch consistency, post-unmatch reporting and Nakh funding reconciliation;
+ordinary product reads still require the live source. New paid grants cannot reference an archived
+Match. A receipt alone grants no new product access, report window, phase completion or fresh return.
+Commit-time checks revalidate captures, actual source removal and the exact unexpired worker lease.

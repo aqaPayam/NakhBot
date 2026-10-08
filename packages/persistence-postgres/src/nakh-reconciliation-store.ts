@@ -376,7 +376,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
           WHERE notification.user_id = delivered.receiver_user_id
             AND notification.notification_type = 'nakh_received'
             AND notification.payload ->> 'nakhId' = delivered.id::text) AS "notificationCount",
-        (SELECT count(*)::integer FROM matching.matches match
+        (SELECT count(*)::integer FROM matching.match_lifecycle_facts match
           WHERE match.source = 'nakh_accept'
             AND match.source_nakh_id = delivered.id) AS "acceptedMatchCount"
       FROM nakh.nakhes delivered

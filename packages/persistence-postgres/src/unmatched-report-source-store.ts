@@ -25,7 +25,17 @@ export async function resolveUnmatchedReportSource(
   if (account === undefined || !canSubmitUserReport(account.state)) return undefined;
   const query = database
     .selectFrom('matching.unmatch_records as unmatch')
-    .innerJoin('matching.matches as match', 'match.id', 'unmatch.match_id')
+    .innerJoin(
+      sql<{
+        id: string;
+        user_low_id: string;
+        user_high_id: string;
+        status: string;
+        closed_at: Date | null;
+      }>`matching.match_lifecycle_facts`.as('match'),
+      'match.id',
+      'unmatch.match_id',
+    )
     .select(['match.id', 'match.user_low_id', 'match.user_high_id'])
     .where('match.id', '=', source.referenceId)
     .where('match.status', '=', 'unmatched')

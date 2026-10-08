@@ -39,9 +39,9 @@ describe.skipIf(url === undefined)('M8 native deletion registry', () => {
   });
   it('covers every real table, column and foreign-key action with qualified names', async () => {
     const actual = await readDeletionCatalog(database);
-    expect(actual.tables).toHaveLength(123);
-    expect(actual.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1111);
-    expect(actual.foreignKeys).toHaveLength(223);
+    expect(actual.tables).toHaveLength(124);
+    expect(actual.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1124);
+    expect(actual.foreignKeys).toHaveLength(226);
     expect(() => assertDeletionCatalogCoverage(actual)).not.toThrow();
     await database.transaction().execute(async (tx) => {
       await sql`SET LOCAL search_path=nakh,public`.execute(tx);

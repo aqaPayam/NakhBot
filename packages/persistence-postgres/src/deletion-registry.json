@@ -3630,6 +3630,97 @@
       ]
     },
     {
+      "table": "identity.account_deletion_match_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "deletion_replay_and_verification",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "match_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "source",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "source_nakh_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "checklist_version",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "matching.match_reference_anchors",
+          "definition": "FOREIGN KEY (match_id) REFERENCES matching.match_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
       "table": "identity.account_deletion_phase_receipts",
       "owner": "identity",
       "classification": "lifecycle",
@@ -4526,8 +4617,8 @@
           "definition": "FOREIGN KEY (like_id) REFERENCES interaction.likes(id) ON DELETE RESTRICT"
         },
         {
-          "target": "matching.matches",
-          "definition": "FOREIGN KEY (match_id) REFERENCES matching.matches(id) ON DELETE RESTRICT"
+          "target": "matching.match_reference_anchors",
+          "definition": "FOREIGN KEY (match_id) REFERENCES matching.match_reference_anchors(id) ON DELETE RESTRICT"
         },
         {
           "target": "identity.users",

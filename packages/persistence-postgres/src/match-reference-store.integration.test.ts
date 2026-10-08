@@ -61,6 +61,7 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
     );
     expect(upgrades.flatMap((result) => result.applied)).toEqual([
       '000092_m8_match_references.sql',
+      '000093_m8_match_archival.sql',
     ]);
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000092_m8_match_references.sql',

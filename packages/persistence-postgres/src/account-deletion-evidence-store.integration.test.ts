@@ -12,6 +12,7 @@ import {
   AesGcmUnmatchedReportSnapshotProtector,
   AesGcmUnmatchedReportSnapshotReader,
   IntegrityMessageReportSnapshotReader,
+  AcceptNakhHandler,
   ReportTokens,
   type AccountDeletionLease,
   type StoredProfileReportSnapshot,
@@ -34,6 +35,7 @@ import {
   createReportPhoto,
   createReportUnmatch,
   createReportFixtureAdmin,
+  createReportNakh,
 } from './testing/report-fixture.js';
 import { retainPhotoEvidenceInTransaction } from './photo-evidence-retention-store.js';
 import { captureReportedMessagesInTransaction } from './chat-retention-store.js';
@@ -43,6 +45,11 @@ import { PostgresAccountDeletionCheckpointStore } from './account-deletion-check
 import { PostgresAccountDeletionEvidenceStore } from './account-deletion-evidence-store.js';
 import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-store.js';
 import { PostgresAccountDeletionChatStore } from './account-deletion-chat-store.js';
+import { PostgresAccountDeletionMatchStore } from './account-deletion-match-store.js';
+import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
+import { PostgresPaidActionStore } from './paid-action-store.js';
+import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
+import { PostgresNakhReconciliationStore } from './nakh-reconciliation-store.js';
 import { PostgresReportEvidenceRevealStore } from './profile-evidence-reveal-store.js';
 import { PostgresDeletionRegistryStore, DELETION_REGISTRY } from './deletion-registry.js';
 import type { ReportEvidenceReaders } from './report-capture-integrity.js';
@@ -719,115 +726,126 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
       )
       .executeTakeFirstOrThrow();
   }
-  it('preserves survivor report preparation, concurrent submission and late capture obligations after chat archival', async () => {
-    const item = await scene('unmatched_user'),
-      source = await chatSource(item);
-    const verifier = new PostgresAccountDeletionEvidenceStore(database, item.readers);
-    await verifier.verifyNext(item.lease);
-    expect(
-      (await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease)).archived,
-    ).toBe(true);
-    const survivor = source.user_low_id === item.userId ? source.user_high_id : source.user_low_id;
-    const context = { kind: 'unmatched' as const, referenceId: source.match_id };
-    expect(await resolveUnmatchedReportSource(database, item.userId, context)).toBeUndefined();
-    expect(
-      await resolveUnmatchedReportSource(database, await createReportUser(database), context),
-    ).toBeUndefined();
-    const values = new Map<string, string>();
-    const tokens = new ReportTokens(
-      {
-        get: (id) => Promise.resolve(values.get(id)),
-        putIfAbsent: (id, value) => {
-          if (values.has(id)) return Promise.resolve(false);
-          values.set(id, value);
-          return Promise.resolve(true);
-        },
-      },
-      item.key,
-    );
-    const actor = { kind: 'user' as const, userId: survivor };
-    const prepared = await new PostgresPrepareUnmatchedReportEvidenceHandler(
-      database,
-      tokens,
-    ).execute(
-      {
-        actor,
-        requestId: randomUUID(),
-        sourceActionToken: (await tokens.issueSource(survivor, context)).token,
-        requestedEvidenceTypes: ['unmatched_user'],
-      },
-      actor,
-    );
-    const command: SubmitReportCommand = {
-      commandType: 'moderation.submit-report',
-      schemaVersion: 1,
-      actor,
-      commandId: randomUUID(),
-      requestId: randomUUID(),
-      idempotencyKey: randomUUID(),
-      occurredAt: new Date().toISOString(),
-      locale: 'en',
-      data: {
-        evidenceIntentToken: prepared.evidenceIntentToken,
-        reasonCode: 'harassment',
-        text: 'Synthetic late report',
-      },
-    };
-    const handler = new PostgresSubmitUnmatchedReportHandler(
-      database,
-      tokens,
-      new AesGcmUnmatchedReportSnapshotProtector('m8-capture-test', 1, item.key),
-    );
-    const results = await Promise.all(
-      Array.from({ length: 20 }, () => handler.execute(command, actor)),
-    );
-    expect(new Set(results.map((result) => result.reportId)).size).toBe(1);
-    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
-    expect(await count(item.recordId)).toBe(1);
-    expect(await verifier.verifyNext(item.lease)).toMatchObject({ verified: true });
-    expect(await count(item.recordId)).toBe(2);
-    expect(await verifier.verifyNext(item.lease)).toMatchObject({ hasMore: false });
-  });
   it.each([false, true])(
-    'keeps the immutable archived report deadline, waiting for source lock: %s',
-    async (waiting) => {
-      const { now } = (await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(database))
-        .rows[0]!;
-      const expires = new Date(now.getTime() + (waiting ? 10000 : 5000));
-      const item = await scene('unmatched_user', false, 0, new Date(expires.getTime() - 86400000));
-      const source = await chatSource(item);
-      await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
-      await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease);
-      const actor = source.user_low_id === item.userId ? source.user_high_id : source.user_low_id;
+    'preserves survivor report preparation, concurrent submission and late capture obligations after Match archival: %s',
+    async (archiveMatch) => {
+      const item = await scene('unmatched_user'),
+        source = await chatSource(item);
+      const verifier = new PostgresAccountDeletionEvidenceStore(database, item.readers);
+      await verifier.verifyNext(item.lease);
+      expect(
+        (await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease)).archived,
+      ).toBe(true);
+      if (archiveMatch)
+        expect(
+          await new PostgresAccountDeletionMatchStore(database).archiveNext(item.lease),
+        ).toEqual({ archived: true, hasMore: false });
+      const survivor =
+        source.user_low_id === item.userId ? source.user_high_id : source.user_low_id;
       const context = { kind: 'unmatched' as const, referenceId: source.match_id };
-      if (!waiting) {
-        await sql`SELECT pg_sleep_until(${expires.toISOString()}::timestamptz)`.execute(database);
-        expect(await resolveUnmatchedReportSource(database, actor, context)).toBeUndefined();
-        return;
-      }
-      expect(await resolveUnmatchedReportSource(database, actor, context)).toBeDefined();
-      let release!: () => void;
-      const ready = new Promise<void>((done) => {
-        release = done;
-      });
-      const blocker = database.transaction().execute(async (tx) => {
-        await tx
-          .selectFrom('matching.unmatch_records')
-          .select('match_id')
-          .where('match_id', '=', source.match_id)
-          .forUpdate()
-          .execute();
-        release();
-        await sql`SELECT pg_sleep_until(${expires.toISOString()}::timestamptz)`.execute(tx);
-      });
-      await ready;
-      const result = await database
-        .transaction()
-        .execute((tx) => resolveUnmatchedReportSource(tx, actor, context, true));
-      await blocker;
-      expect(result).toBeUndefined();
+      expect(await resolveUnmatchedReportSource(database, item.userId, context)).toBeUndefined();
+      expect(
+        await resolveUnmatchedReportSource(database, await createReportUser(database), context),
+      ).toBeUndefined();
+      const values = new Map<string, string>();
+      const tokens = new ReportTokens(
+        {
+          get: (id) => Promise.resolve(values.get(id)),
+          putIfAbsent: (id, value) => {
+            if (values.has(id)) return Promise.resolve(false);
+            values.set(id, value);
+            return Promise.resolve(true);
+          },
+        },
+        item.key,
+      );
+      const actor = { kind: 'user' as const, userId: survivor };
+      const prepared = await new PostgresPrepareUnmatchedReportEvidenceHandler(
+        database,
+        tokens,
+      ).execute(
+        {
+          actor,
+          requestId: randomUUID(),
+          sourceActionToken: (await tokens.issueSource(survivor, context)).token,
+          requestedEvidenceTypes: ['unmatched_user'],
+        },
+        actor,
+      );
+      const command: SubmitReportCommand = {
+        commandType: 'moderation.submit-report',
+        schemaVersion: 1,
+        actor,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          evidenceIntentToken: prepared.evidenceIntentToken,
+          reasonCode: 'harassment',
+          text: 'Synthetic late report',
+        },
+      };
+      const handler = new PostgresSubmitUnmatchedReportHandler(
+        database,
+        tokens,
+        new AesGcmUnmatchedReportSnapshotProtector('m8-capture-test', 1, item.key),
+      );
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => handler.execute(command, actor)),
+      );
+      expect(new Set(results.map((result) => result.reportId)).size).toBe(1);
+      expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+      expect(await count(item.recordId)).toBe(1);
+      expect(await verifier.verifyNext(item.lease)).toMatchObject({ verified: true });
+      expect(await count(item.recordId)).toBe(2);
+      expect(await verifier.verifyNext(item.lease)).toMatchObject({ hasMore: false });
     },
   );
+  it.each([
+    { waiting: false, archiveMatch: false },
+    { waiting: true, archiveMatch: false },
+    { waiting: false, archiveMatch: true },
+    { waiting: true, archiveMatch: true },
+  ])('keeps the immutable archived report deadline: %j', async ({ waiting, archiveMatch }) => {
+    const { now } = (await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(database))
+      .rows[0]!;
+    const expires = new Date(now.getTime() + (waiting ? 10000 : 5000));
+    const item = await scene('unmatched_user', false, 0, new Date(expires.getTime() - 86400000));
+    const source = await chatSource(item);
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease);
+    if (archiveMatch) await new PostgresAccountDeletionMatchStore(database).archiveNext(item.lease);
+    const actor = source.user_low_id === item.userId ? source.user_high_id : source.user_low_id;
+    const context = { kind: 'unmatched' as const, referenceId: source.match_id };
+    if (!waiting) {
+      await sql`SELECT pg_sleep_until(${expires.toISOString()}::timestamptz)`.execute(database);
+      expect(await resolveUnmatchedReportSource(database, actor, context)).toBeUndefined();
+      return;
+    }
+    expect(await resolveUnmatchedReportSource(database, actor, context)).toBeDefined();
+    let release!: () => void;
+    const ready = new Promise<void>((done) => {
+      release = done;
+    });
+    const blocker = database.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('matching.unmatch_records')
+        .select('match_id')
+        .where('match_id', '=', source.match_id)
+        .forUpdate()
+        .execute();
+      release();
+      await sql`SELECT pg_sleep_until(${expires.toISOString()}::timestamptz)`.execute(tx);
+    });
+    await ready;
+    const result = await database
+      .transaction()
+      .execute((tx) => resolveUnmatchedReportSource(tx, actor, context, true));
+    await blocker;
+    expect(result).toBeUndefined();
+  });
   it.each(['chat', 'message', 'unmatched_user'] as const)(
     'archives exact %s chat under twenty-way replay and preserves audited reveal',
     async (kind) => {
@@ -1226,5 +1244,356 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
       true,
     );
     item.key.fill(0);
+  });
+  it.each(['chat', 'message', 'unmatched_user'] as const)(
+    'archives exact %s Match once under twenty-way replay',
+    async (kind) => {
+      const item = await scene(kind),
+        source = await chatSource(item),
+        archive = new PostgresAccountDeletionMatchStore(database);
+      const unrelated = await createReportChat(
+        database,
+        await createReportUser(database),
+        await createReportUser(database),
+      );
+      expect(await archive.archiveNext(item.lease)).toEqual({
+        archived: false,
+        hasMore: true,
+        waitingForCapture: true,
+      });
+      await expect(
+        archive.archiveNext({ ...item.lease, userId: randomUUID() }),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+      await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease);
+      const original = await database
+        .selectFrom('matching.matches')
+        .selectAll()
+        .where('id', '=', source.match_id)
+        .executeTakeFirstOrThrow();
+      const unmatch = await database
+        .selectFrom('matching.unmatch_records')
+        .selectAll()
+        .where('match_id', '=', source.match_id)
+        .execute();
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => archive.archiveNext(item.lease)),
+      );
+      expect(results.filter((r) => r.archived)).toHaveLength(1);
+      expect(results.every((r) => !r.hasMore)).toBe(true);
+      expect(
+        await database
+          .selectFrom('matching.matches')
+          .select('id')
+          .where('id', '=', source.match_id)
+          .execute(),
+      ).toEqual([]);
+      expect(
+        await database
+          .selectFrom('matching.match_participants')
+          .select('user_id')
+          .where('match_id', '=', source.match_id)
+          .execute(),
+      ).toEqual([]);
+      expect(
+        await database
+          .selectFrom('matching.matches')
+          .select('id')
+          .where('id', '=', unrelated.matchId)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        await database
+          .selectFrom('matching.unmatch_records')
+          .selectAll()
+          .where('match_id', '=', source.match_id)
+          .execute(),
+      ).toEqual(unmatch);
+      const receipt = (
+        await sql<{
+          status: string;
+          closed_at: Date;
+          source: string;
+          source_nakh_id: string | null;
+        }>`SELECT status,closed_at,source,source_nakh_id FROM identity.account_deletion_match_receipts WHERE match_id=${source.match_id}::uuid`.execute(
+          database,
+        )
+      ).rows[0]!;
+      expect(receipt).toEqual({
+        status: original.status,
+        closed_at: original.closed_at,
+        source: original.source,
+        source_nakh_id: original.source_nakh_id,
+      });
+      await expect(
+        sql`DELETE FROM identity.account_deletion_match_receipts WHERE match_id=${source.match_id}::uuid`.execute(
+          database,
+        ),
+      ).rejects.toMatchObject({ code: '55000' });
+      expect(
+        await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(
+          item.lease,
+        ),
+      ).toMatchObject({ hasMore: false });
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_match_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toHaveLength(1);
+      await work.release(item.lease);
+      await expect(archive.archiveNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+      const fresh = (
+        await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 })
+      )[0]!;
+      expect(await archive.archiveNext(fresh)).toEqual({ archived: false, hasMore: false });
+      item.key.fill(0);
+    },
+  );
+  it.each([
+    'platform.audit_logs',
+    'platform.outbox_events',
+    'identity.account_deletion_match_receipts',
+  ])('rolls back Match archival when %s suppresses required proof', async (table) => {
+    const item = await scene('unmatched_user'),
+      source = await chatSource(item);
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease);
+    await sql`CREATE FUNCTION identity.m8_suppress_match() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$`.execute(
+      database,
+    );
+    await sql
+      .raw(
+        `CREATE TRIGGER m8_suppress_match BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION identity.m8_suppress_match()`,
+      )
+      .execute(database);
+    try {
+      await expect(
+        new PostgresAccountDeletionMatchStore(database).archiveNext(item.lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await database
+          .selectFrom('matching.matches')
+          .select('id')
+          .where('id', '=', source.match_id)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        await database
+          .selectFrom('matching.match_participants')
+          .select('user_id')
+          .where('match_id', '=', source.match_id)
+          .execute(),
+      ).toHaveLength(2);
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_match_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([]);
+      expect(
+        await database
+          .selectFrom('platform.audit_logs')
+          .select('id')
+          .where('subject_id', '=', item.recordId)
+          .where('event_type', '=', 'account.deletion-match-archived.v1')
+          .execute(),
+      ).toEqual([]);
+    } finally {
+      await sql.raw(`DROP TRIGGER m8_suppress_match ON ${table}`).execute(database);
+      await sql`DROP FUNCTION identity.m8_suppress_match()`.execute(database);
+    }
+    expect(
+      (await new PostgresAccountDeletionMatchStore(database).archiveNext(item.lease)).archived,
+    ).toBe(true);
+    item.key.fill(0);
+  });
+  it('rolls back Match archival at lease expiry and resumes under a fresh generation', async () => {
+    const item = await scene('unmatched_user'),
+      source = await chatSource(item);
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease);
+    await sql`CREATE FUNCTION identity.m8_delay_match() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1.1); RETURN NULL; END $$`.execute(
+      database,
+    );
+    await sql`CREATE CONSTRAINT TRIGGER a_m8_delay_match AFTER INSERT ON identity.account_deletion_match_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION identity.m8_delay_match()`.execute(
+      database,
+    );
+    await work.release(item.lease);
+    const lease = (await work.claimDue({ workerId: randomUUID(), leaseMs: 1000, limit: 1 }))[0]!;
+    try {
+      await expect(
+        new PostgresAccountDeletionMatchStore(database).archiveNext(lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await database
+          .selectFrom('matching.matches')
+          .select('id')
+          .where('id', '=', source.match_id)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_match_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([]);
+    } finally {
+      await sql`DROP TRIGGER a_m8_delay_match ON identity.account_deletion_match_receipts`.execute(
+        database,
+      );
+      await sql`DROP FUNCTION identity.m8_delay_match()`.execute(database);
+    }
+    const fresh = (await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 }))[0]!;
+    expect(
+      (await new PostgresAccountDeletionMatchStore(database).archiveNext(fresh)).archived,
+    ).toBe(true);
+    item.key.fill(0);
+  });
+  it('preserves accepted Nakh funding, revoked grants and both participants money after Match archival', async () => {
+    const survivor = await createReportUser(database, true);
+    let matchId = '',
+      nakhId = '';
+    const item = await createDeletionFixture(database, async (owner) => {
+      const profile = await database
+        .selectFrom('profile.profiles')
+        .selectAll()
+        .where('user_id', '=', survivor)
+        .executeTakeFirstOrThrow();
+      await database
+        .insertInto('profile.profiles')
+        .values({ ...profile, id: randomUUID(), user_id: owner })
+        .execute();
+      await sql`UPDATE identity.accounts SET state='active',version=version+1,state_changed_at=clock_timestamp() WHERE user_id=${owner}::uuid`.execute(
+        database,
+      );
+      nakhId = await createReportNakh(database, survivor, owner);
+      const accepted = await new AcceptNakhHandler(new PostgresDeliveredNakhStore(database), {
+        uuid: randomUUID,
+      }).execute({
+        commandType: 'nakh.accept',
+        schemaVersion: 1,
+        actor: { kind: 'user', userId: survivor },
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: { nakhId, expectedVersion: 1 },
+      });
+      matchId = accepted.matchId!;
+      await new PostgresCreditLedgerStore(database).append({
+        transactionId: randomUUID(),
+        userId: survivor,
+        transactionType: 'admin_adjustment',
+        amount: 10n,
+        idempotencyKey: randomUUID(),
+        correlationId: randomUUID(),
+      });
+      await new PostgresPaidActionStore(database).spendCredits({
+        featureUnlockId: randomUUID(),
+        creditTransactionId: randomUUID(),
+        outboxEventId: randomUUID(),
+        userId: survivor,
+        target: { type: 'match', targetId: matchId },
+        idempotencyKey: randomUUID(),
+        correlationId: randomUUID(),
+      });
+    });
+    const shared = (await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 }))[0]!;
+    const closure = new PostgresAccountDeletionSharedStore(database);
+    for (let i = 0; i < 10; i++) if (!(await closure.closeNext(shared)).hasMore) break;
+    await new PostgresAccountDeletionCheckpointStore(database).finishShared(shared);
+    const lease = (await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 }))[0]!;
+    const balances = await database
+      .selectFrom('billing.credit_accounts')
+      .selectAll()
+      .where('user_id', 'in', [survivor, item.userId])
+      .orderBy('user_id')
+      .execute();
+    const ledger = await database
+      .selectFrom('billing.credit_transactions')
+      .selectAll()
+      .where('user_id', 'in', [survivor, item.userId])
+      .orderBy('id')
+      .execute();
+    const grants = await database
+      .selectFrom('interaction.feature_unlocks')
+      .selectAll()
+      .where('match_id', '=', matchId)
+      .execute();
+    expect(grants.map((g) => g.status)).toEqual(['revoked']);
+    await new PostgresAccountDeletionChatStore(database).archiveNext(lease);
+    expect(await new PostgresAccountDeletionMatchStore(database).archiveNext(lease)).toEqual({
+      archived: true,
+      hasMore: false,
+    });
+    expect(
+      await database
+        .selectFrom('billing.credit_accounts')
+        .selectAll()
+        .where('user_id', 'in', [survivor, item.userId])
+        .orderBy('user_id')
+        .execute(),
+    ).toEqual(balances);
+    expect(
+      await database
+        .selectFrom('billing.credit_transactions')
+        .selectAll()
+        .where('user_id', 'in', [survivor, item.userId])
+        .orderBy('id')
+        .execute(),
+    ).toEqual(ledger);
+    expect(
+      await database
+        .selectFrom('interaction.feature_unlocks')
+        .selectAll()
+        .where('match_id', '=', matchId)
+        .execute(),
+    ).toEqual(grants);
+    await expect(
+      database
+        .insertInto('interaction.feature_unlocks')
+        .values({ ...grants[0]!, id: randomUUID() })
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    await database.transaction().execute(async (tx) => {
+      await sql`CREATE TEMP TABLE m8_archived_nakh_probe(source_nakh_id uuid) ON COMMIT DROP`.execute(
+        tx,
+      );
+      await sql`CREATE TRIGGER m8_archived_nakh_probe AFTER INSERT ON m8_archived_nakh_probe FOR EACH ROW EXECUTE FUNCTION nakh.verify_nakh_match()`.execute(
+        tx,
+      );
+      await sql`INSERT INTO m8_archived_nakh_probe VALUES(${nakhId}::uuid)`.execute(tx);
+    });
+    expect(
+      (
+        await sql<{
+          count: number;
+        }>`SELECT count(*)::integer AS count FROM matching.match_lifecycle_facts WHERE source_nakh_id=${nakhId}::uuid`.execute(
+          database,
+        )
+      ).rows[0]!.count,
+    ).toBe(1);
+    const reconciliation = new PostgresNakhReconciliationStore(database);
+    const run = await reconciliation.resumeOrStart(randomUUID());
+    let complete = false;
+    for (let i = 0; i < 10; i++)
+      if ((await reconciliation.scanNextBatch(run, 500)).completed) {
+        complete = true;
+        break;
+      }
+    expect(complete).toBe(true);
+    expect(
+      await database
+        .selectFrom('billing.reconciliation_anomalies')
+        .select('id')
+        .where('run_id', '=', run)
+        .where('entity_id', '=', nakhId)
+        .execute(),
+    ).toEqual([]);
   });
 });
