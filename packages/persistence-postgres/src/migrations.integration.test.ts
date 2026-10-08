@@ -18,7 +18,7 @@ const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M7 upgrade', () => {
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
-    78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
+    78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -228,7 +228,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         }
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        90 - baseline,
+        91 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (previousDeletion !== undefined) {
@@ -445,6 +445,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000088_m8_shared_payment_proof.sql',
         '000089_m8_capture_verification.sql',
         '000090_m8_profile_archival.sql',
+        '000091_m8_chat_archival.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -528,9 +529,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000088_m8_shared_payment_proof.sql');
       expect(verified).toContain('000089_m8_capture_verification.sql');
       expect(verified).toContain('000090_m8_profile_archival.sql');
+      expect(verified).toContain('000091_m8_chat_archival.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(90);
+      expect(replay.existing).toHaveLength(91);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

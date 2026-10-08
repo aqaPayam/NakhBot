@@ -35,6 +35,7 @@ import { PostgresAccountDeletionSharedStore } from './account-deletion-shared-st
 import { PostgresAccountDeletionCheckpointStore } from './account-deletion-checkpoint-store.js';
 import { PostgresAccountDeletionEvidenceStore } from './account-deletion-evidence-store.js';
 import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-store.js';
+import { PostgresAccountDeletionChatStore } from './account-deletion-chat-store.js';
 import { PostgresReportEvidenceRevealStore } from './profile-evidence-reveal-store.js';
 import { PostgresDeletionRegistryStore, DELETION_REGISTRY } from './deletion-registry.js';
 import type { ReportEvidenceReaders } from './report-capture-integrity.js';
@@ -67,6 +68,7 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
   async function scene(
     kind: Kind,
     missing = false,
+    extraMessages = 0,
   ): Promise<{
     userId: string;
     recordId: string;
@@ -113,6 +115,8 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
         chatId = chat.chatSessionId;
         reference =
           kind === 'message' ? await createReportMessage(database, chatId, owner) : chatId;
+        for (let index = 0; index < extraMessages; index++)
+          await createReportMessage(database, chatId, owner);
       }
       if (kind === 'unmatched_user')
         reference = (await createReportUnmatch(database, reporter, owner)).matchId;
@@ -180,13 +184,23 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
             unmatch_record_id: kind === 'unmatched_user' ? reference : null,
           })
           .execute();
-        if (kind === 'message')
-          await captureReportedMessagesInTransaction(tx, {
-            reportId,
-            chatSessionId: chatId!,
-            messageIds: [reference],
-          });
-        else if (!missing && capture)
+        if (kind === 'message') {
+          if (missing)
+            await tx
+              .insertInto('chat.chat_message_snapshot_requests')
+              .values({
+                report_id: reportId,
+                chat_session_id: chatId!,
+                original_message_id: reference,
+              })
+              .execute();
+          else
+            await captureReportedMessagesInTransaction(tx, {
+              reportId,
+              chatSessionId: chatId!,
+              messageIds: [reference],
+            });
+        } else if (!missing && capture)
           await tx
             .insertInto('moderation.report_snapshots')
             .values({
@@ -668,6 +682,432 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
     expect(await new PostgresAccountDeletionProfileStore(database).archive(fresh)).toEqual({
       archived: true,
     });
+    item.key.fill(0);
+  });
+  async function chatSource(item: { userId: string }): Promise<{
+    id: string;
+    match_id: string;
+    closed_at: Date | null;
+    closed_reason: string | null;
+    user_low_id: string;
+    user_high_id: string;
+  }> {
+    return await database
+      .selectFrom('chat.chat_sessions as session')
+      .innerJoin('matching.matches as relationship', 'relationship.id', 'session.match_id')
+      .select([
+        'session.id',
+        'session.match_id',
+        'session.closed_at',
+        'session.closed_reason',
+        'relationship.user_low_id',
+        'relationship.user_high_id',
+      ])
+      .where((eb) =>
+        eb.or([
+          eb('relationship.user_low_id', '=', item.userId),
+          eb('relationship.user_high_id', '=', item.userId),
+        ]),
+      )
+      .executeTakeFirstOrThrow();
+  }
+  it.each(['chat', 'message', 'unmatched_user'] as const)(
+    'archives exact %s chat under twenty-way replay and preserves audited reveal',
+    async (kind) => {
+      const item = await scene(kind),
+        source = await chatSource(item),
+        archive = new PostgresAccountDeletionChatStore(database);
+      await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+      const snapshots = await database
+        .selectFrom('moderation.report_snapshots')
+        .selectAll()
+        .where('report_id', '=', item.reportId)
+        .execute();
+      const messageSnapshots = await database
+        .selectFrom('chat.chat_message_snapshots')
+        .selectAll()
+        .where('report_id', '=', item.reportId)
+        .execute();
+      const originalUnmatch = await database
+        .selectFrom('matching.unmatch_records')
+        .selectAll()
+        .where('match_id', '=', source.match_id)
+        .execute();
+      const unrelated = await createReportChat(
+        database,
+        await createReportUser(database, true),
+        await createReportUser(database, true),
+      );
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => archive.archiveNext(item.lease)),
+      );
+      expect(results.filter((result) => result.archived)).toHaveLength(1);
+      expect(results.every((result) => !result.hasMore)).toBe(true);
+      expect(
+        await database
+          .selectFrom('chat.chat_sessions')
+          .select('id')
+          .where('id', '=', source.id)
+          .execute(),
+      ).toEqual([]);
+      expect(
+        await database
+          .selectFrom('chat.chat_participants')
+          .select('user_id')
+          .where('chat_session_id', '=', source.id)
+          .execute(),
+      ).toEqual([]);
+      expect(
+        await database
+          .selectFrom('chat.chat_sessions')
+          .select('id')
+          .where('id', '=', unrelated.chatSessionId)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql<{
+            id: string;
+            match_id: string;
+          }>`SELECT * FROM chat.chat_reference_anchors WHERE id=${source.id}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([{ id: source.id, match_id: source.match_id }]);
+      expect(
+        await database
+          .selectFrom('moderation.report_snapshots')
+          .selectAll()
+          .where('report_id', '=', item.reportId)
+          .execute(),
+      ).toEqual(snapshots);
+      expect(
+        await database
+          .selectFrom('chat.chat_message_snapshots')
+          .selectAll()
+          .where('report_id', '=', item.reportId)
+          .execute(),
+      ).toEqual(messageSnapshots);
+      expect(
+        await database
+          .selectFrom('matching.unmatch_records')
+          .selectAll()
+          .where('match_id', '=', source.match_id)
+          .execute(),
+      ).toEqual(originalUnmatch);
+      if (kind === 'unmatched_user')
+        await database.transaction().execute(async (tx) => {
+          await sql`CREATE TEMP TABLE m8_archived_unmatch_probe(user_low_id uuid,user_high_id uuid) ON COMMIT DROP`.execute(
+            tx,
+          );
+          await sql`CREATE TRIGGER m8_archived_unmatch_probe AFTER INSERT ON m8_archived_unmatch_probe FOR EACH ROW EXECUTE FUNCTION matching.verify_unmatch_consistency()`.execute(
+            tx,
+          );
+          await sql`INSERT INTO m8_archived_unmatch_probe VALUES(${source.user_low_id}::uuid,${source.user_high_id}::uuid)`.execute(
+            tx,
+          );
+        });
+      const admin = await createReportFixtureAdmin(database);
+      await database
+        .insertInto('administration.admin_user_roles')
+        .values({
+          admin_user_id: admin,
+          role_code: 'super_admin',
+          assigned_by_admin_id: admin,
+          revoked_by_admin_id: null,
+          revoked_at: null,
+        })
+        .execute();
+      const revealed = await new PostgresReportEvidenceRevealStore(database, item.readers).reveal({
+        logId: randomUUID(),
+        adminUserId: admin,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        requestDigest: 'a'.repeat(64),
+        commandCode: 'moderation.reveal-evidence',
+        requiredPermission: 'view_reports',
+        targetType: 'report_evidence',
+        targetId: item.evidenceId,
+        expectedTargetVersion: 1,
+        reasonDigest: 'b'.repeat(64),
+        metadata: {},
+        correlationId: randomUUID(),
+      });
+      expect(revealed.value?.content.evidenceType).toBe(kind);
+      expect(
+        await database
+          .selectFrom('moderation.evidence_access_audits')
+          .select('id')
+          .where('report_evidence_id', '=', item.evidenceId)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_chat_receipts WHERE deletion_record_id=${item.recordId}::uuid AND final_batch`.execute(
+            database,
+          )
+        ).rows,
+      ).toHaveLength(1);
+      await sql`DELETE FROM platform.outbox_events WHERE aggregate_id=${item.recordId}::uuid`.execute(
+        database,
+      );
+      await work.release(item.lease);
+      const fresh = (
+        await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 })
+      )[0]!;
+      expect(await archive.archiveNext(fresh)).toEqual({
+        deletedMessages: 0,
+        archived: false,
+        hasMore: false,
+      });
+      await expect(archive.archiveNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+      await expect(
+        database
+          .insertInto('chat.chat_sessions')
+          .values({
+            id: source.id,
+            match_id: source.match_id,
+            status: 'active',
+            created_at: new Date(),
+            closed_at: null,
+            closed_reason: null,
+          })
+          .execute(),
+      ).rejects.toThrow();
+      await expect(
+        sql`DELETE FROM chat.chat_reference_anchors WHERE id=${source.id}::uuid`.execute(database),
+      ).rejects.toThrow();
+      item.key.fill(0);
+    },
+  );
+  it('purges 501 live messages in bounded resumable batches with verified exact-message evidence', async () => {
+    const item = await scene('message', false, 500),
+      source = await chatSource(item),
+      archive = new PostgresAccountDeletionChatStore(database);
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    expect(await archive.archiveNext(item.lease)).toEqual({
+      deletedMessages: 500,
+      archived: false,
+      hasMore: true,
+    });
+    expect(
+      await database
+        .selectFrom('chat.chat_messages')
+        .select('id')
+        .where('chat_session_id', '=', source.id)
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('chat.chat_sessions')
+        .select('id')
+        .where('id', '=', source.id)
+        .execute(),
+    ).toHaveLength(1);
+    await work.release(item.lease);
+    const fresh = (await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 }))[0]!;
+    await expect(archive.archiveNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+    expect(await archive.archiveNext(fresh)).toEqual({
+      deletedMessages: 1,
+      archived: true,
+      hasMore: false,
+    });
+    expect(
+      (
+        await sql<{
+          size: number;
+          final_batch: boolean;
+        }>`SELECT cardinality(original_message_ids) AS size,final_batch FROM identity.account_deletion_chat_receipts WHERE deletion_record_id=${item.recordId}::uuid ORDER BY final_batch`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([
+      { size: 500, final_batch: false },
+      { size: 1, final_batch: true },
+    ]);
+    expect(
+      await database
+        .selectFrom('chat.chat_message_snapshots')
+        .select('id')
+        .where('report_id', '=', item.reportId)
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(fresh),
+    ).toEqual({ examined: 0, verified: false, hasMore: false });
+    item.key.fill(0);
+  });
+  it('keeps unverified chat sources and denies raw source/message removal and borrowed worker authority', async () => {
+    const item = await scene('chat', true, 1),
+      source = await chatSource(item),
+      archive = new PostgresAccountDeletionChatStore(database);
+    expect(await archive.archiveNext(item.lease)).toEqual({
+      deletedMessages: 0,
+      archived: false,
+      hasMore: true,
+      waitingForCapture: true,
+    });
+    await expect(
+      database.deleteFrom('chat.chat_sessions').where('id', '=', source.id).execute(),
+    ).rejects.toThrow();
+    await expect(
+      database.deleteFrom('chat.chat_messages').where('chat_session_id', '=', source.id).execute(),
+    ).rejects.toThrow();
+    await expect(
+      archive.archiveNext({ ...item.lease, userId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect(
+      await database
+        .selectFrom('chat.chat_messages')
+        .select('id')
+        .where('chat_session_id', '=', source.id)
+        .execute(),
+    ).toHaveLength(1);
+    item.key.fill(0);
+  });
+  it('waits for every authorized pending message marker and resumes after its real capture', async () => {
+    const item = await scene('message', true),
+      source = await chatSource(item),
+      archive = new PostgresAccountDeletionChatStore(database);
+    const message = await database
+      .selectFrom('chat.chat_messages')
+      .select('id')
+      .where('chat_session_id', '=', source.id)
+      .executeTakeFirstOrThrow();
+    expect(await archive.archiveNext(item.lease)).toEqual({
+      deletedMessages: 0,
+      archived: false,
+      hasMore: true,
+      waitingForCapture: true,
+    });
+    expect(
+      await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease),
+    ).toEqual({ examined: 1, verified: false, hasMore: true, waitingForCapture: true });
+    expect(
+      await database
+        .selectFrom('chat.chat_message_snapshots')
+        .select('id')
+        .where('report_id', '=', item.reportId)
+        .execute(),
+    ).toEqual([]);
+    expect(
+      await database
+        .selectFrom('chat.chat_messages')
+        .select('id')
+        .where('id', '=', message.id)
+        .execute(),
+    ).toHaveLength(1);
+    await database.transaction().execute(async (tx) => {
+      await captureReportedMessagesInTransaction(tx, {
+        reportId: item.reportId,
+        chatSessionId: source.id,
+        messageIds: [message.id],
+      });
+    });
+    expect(
+      (
+        await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(
+          item.lease,
+        )
+      ).verified,
+    ).toBe(true);
+    expect(await archive.archiveNext(item.lease)).toEqual({
+      deletedMessages: 1,
+      archived: true,
+      hasMore: false,
+    });
+    item.key.fill(0);
+  });
+  it.each([
+    'platform.audit_logs',
+    'platform.outbox_events',
+    'identity.account_deletion_chat_receipts',
+  ])('rolls back all chat archival writes when %s suppresses required evidence', async (table) => {
+    const item = await scene('message'),
+      source = await chatSource(item);
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await sql`CREATE FUNCTION identity.m8_suppress_chat() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$`.execute(
+      database,
+    );
+    await sql
+      .raw(
+        `CREATE TRIGGER m8_suppress_chat BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION identity.m8_suppress_chat()`,
+      )
+      .execute(database);
+    try {
+      await expect(
+        new PostgresAccountDeletionChatStore(database).archiveNext(item.lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await database
+          .selectFrom('chat.chat_sessions')
+          .select('id')
+          .where('id', '=', source.id)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        await database
+          .selectFrom('chat.chat_messages')
+          .select('id')
+          .where('chat_session_id', '=', source.id)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_chat_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([]);
+    } finally {
+      await sql.raw(`DROP TRIGGER m8_suppress_chat ON ${table}`).execute(database);
+      await sql`DROP FUNCTION identity.m8_suppress_chat()`.execute(database);
+    }
+    expect(
+      (await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease)).archived,
+    ).toBe(true);
+    item.key.fill(0);
+  });
+  it('rolls back a chat batch when its exact lease expires at commit and resumes under a new fence', async () => {
+    const item = await scene('message'),
+      source = await chatSource(item);
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await sql`CREATE FUNCTION identity.m8_delay_chat() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1.1); RETURN NULL; END $$`.execute(
+      database,
+    );
+    await sql`CREATE CONSTRAINT TRIGGER a_m8_delay_chat AFTER INSERT ON identity.account_deletion_chat_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION identity.m8_delay_chat()`.execute(
+      database,
+    );
+    await work.release(item.lease);
+    const lease = (await work.claimDue({ workerId: randomUUID(), leaseMs: 1000, limit: 1 }))[0]!;
+    try {
+      await expect(
+        new PostgresAccountDeletionChatStore(database).archiveNext(lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await database
+          .selectFrom('chat.chat_messages')
+          .select('id')
+          .where('chat_session_id', '=', source.id)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        await database
+          .selectFrom('chat.chat_sessions')
+          .select('id')
+          .where('id', '=', source.id)
+          .execute(),
+      ).toHaveLength(1);
+    } finally {
+      await sql`DROP TRIGGER a_m8_delay_chat ON identity.account_deletion_chat_receipts`.execute(
+        database,
+      );
+      await sql`DROP FUNCTION identity.m8_delay_chat()`.execute(database);
+    }
+    const fresh = (await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 }))[0]!;
+    expect((await new PostgresAccountDeletionChatStore(database).archiveNext(fresh)).archived).toBe(
+      true,
+    );
     item.key.fill(0);
   });
 });

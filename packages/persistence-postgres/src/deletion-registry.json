@@ -2880,6 +2880,34 @@
       ]
     },
     {
+      "table": "chat.chat_reference_anchors",
+      "owner": "chat",
+      "classification": "retained_safety",
+      "action": "approved_policy_release",
+      "purpose": "minimal_original_source_identity",
+      "subjectScope": "EXISTS (SELECT 1 FROM matching.matches governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "match_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "matching.matches",
+          "definition": "FOREIGN KEY (match_id) REFERENCES matching.matches(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
       "table": "chat.chat_sessions",
       "owner": "chat",
       "classification": "ordinary_shared",
@@ -3340,6 +3368,102 @@
         {
           "target": "identity.users",
           "definition": "FOREIGN KEY (user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "identity.account_deletion_chat_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "deletion_replay_and_verification",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "chat_session_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "original_message_ids",
+          "type": "uuid[]",
+          "nullable": false
+        },
+        {
+          "name": "final_batch",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "closed_reason",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "checklist_version",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "chat.chat_reference_anchors",
+          "definition": "FOREIGN KEY (chat_session_id) REFERENCES chat.chat_reference_anchors(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
         }
       ]
     },
@@ -5724,8 +5848,8 @@
       ],
       "foreignKeys": [
         {
-          "target": "chat.chat_sessions",
-          "definition": "FOREIGN KEY (chat_session_id) REFERENCES chat.chat_sessions(id) ON DELETE RESTRICT"
+          "target": "chat.chat_reference_anchors",
+          "definition": "FOREIGN KEY (chat_session_id) REFERENCES chat.chat_reference_anchors(id) ON DELETE RESTRICT"
         },
         {
           "target": "profile.profile_reference_anchors",

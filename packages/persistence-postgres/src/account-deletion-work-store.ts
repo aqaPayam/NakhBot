@@ -113,7 +113,11 @@ export class PostgresAccountDeletionWorkStore implements AccountDeletionWorkStor
     otherUserId: string,
     batch: (tx: NakhDatabase, scope: AccountDeletionLease) => Promise<T>,
   ): Promise<T> {
-    if (!UUID.test(otherUserId) || otherUserId === lease.userId || lease.phase !== 'shared_closure')
+    if (
+      !UUID.test(otherUserId) ||
+      otherUserId === lease.userId ||
+      !['shared_closure', 'evidence_capture'].includes(lease.phase)
+    )
       throw conflict();
     return this.fencedTransaction(lease, batch, undefined, async (tx) => {
       const users = [lease.userId, otherUserId].sort();

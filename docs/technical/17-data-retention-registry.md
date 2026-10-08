@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 90: 120 tables, 1,092 columns and 217 foreign keys.
+code-owned M8 catalog inventory for migration 91: 122 tables, 1,108 columns and 221 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -129,3 +129,11 @@ M2 quarantine completion stores byte length, SHA-256, and completion time on `me
 - A permitted return reuses the same User and TelegramIdentity and never creates a second counter.
 
 M8 must turn these rules into the automated deletion-registry test required by [`11-testing-strategy.md`](11-testing-strategy.md). M2 introduces the media records, but does not yet implement account deletion or retention-window scheduling.
+
+Migration 91 preserves the exact original Chat/Match reference in `chat.chat_reference_anchors`
+(two identifiers only, governing safety policy). `identity.account_deletion_chat_receipts` retains
+minimal lifecycle proof, bounded original-message identifiers and exact terminal closure/fence/audit
+bindings. It contains no message body or preference state and never authorizes retained-data release.
+The final verified batch removes the ordinary ChatSession, participants/preferences and cleanup
+checkpoint, while original message snapshots/markers and Unmatch history remain retained. New
+reference entities are classified explicitly; a worker rejects all unclassified schema drift.

@@ -339,3 +339,35 @@ notification deliveries, overflowing the unchanged tests' 100-row claims and cau
 fixture-claim failures. A fresh isolated full-suite replay passes 500 tests; four Redis probes are
 skipped locally and require Linux CI. No notification implementation, batch or assertion was changed.
 Initial test field/lock-probe mistakes and two lint assertions were corrected before commitment.
+
+Media fence commit `3877710` passed all six exact-head CI jobs, 504 native tests in 91 files,
+all 27 M7 plans (terminal snapshot 1046.464 ms, both required indexes), collector privacy and
+migration/restore checks. No retained-data release or full M8 completion is claimed.
+
+Migration 91 adds exact two-ID Chat/Match anchors and immutable bounded chat archival receipts.
+The evidence-phase worker locks both relationship participants in the existing pair order, checks
+the full schema registry and every linked chat/message/unmatch capture plus pending message marker,
+then removes at most 500 oldest live messages. Each batch requires its exact content-free audit,
+event, lease and original-message roster; the final batch also removes live Chat preferences,
+cleanup progress and the ChatSession. Deferred guards recheck capture integrity, actual removal and
+the original lease at commit. Ordinary M6 cleanup remains available for live accounts; deletion
+cannot use it to bypass capture receipts. The original Unmatch consistency predicates remain and
+use the verified terminal chat receipt after source removal. New report admission still requires
+its live authorized source, never a reference anchor. Deleted-participant Chat reconstruction, raw
+source deletion and anchor mutation are denied. Historical snapshots, capture markers and immutable
+Unmatch records remain exact and require approved policy for release. The registry now records
+122 tables, 1108 columns and 221 foreign keys. Match/photo archival, provider proofs and the complete
+evidence checkpoint remain required; no phase advances, return authority or deletion ingress is enabled.
+
+The chat candidate passes 111 focused native tests in eight files, including 38 migration
+upgrade/replay cases, unchanged chat cleanup/report authorization, a 501-message resumable purge,
+twenty-way source archival, preserved audited reveals, pending capture recovery and mandatory-write/
+commit-time lease rollback. The initial pending-marker fixture correctly failed the existing typed
+message authorization guard and was replaced by an authorized uncaptured request. A Windows fork
+exit had no diagnostic exception code; the complete focused retry passed. The helper return type
+and a formatter second-pass layout were corrected before commitment. Full exact-head CI is required.
+
+A full local check passed formatting, lint, types and all 917 unit tests, then the application
+build process exited with a Windows breakpoint exception (0x80000003) without a source diagnostic.
+The unchanged isolated application build passed, including declarations. This classifies the observed
+process exit, not its underlying cause; a complete successful check retry is still mandatory.
