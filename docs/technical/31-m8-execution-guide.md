@@ -416,3 +416,15 @@ concurrent archival/replay, required-write suppression, borrowed/stale workers, 
 late survivor reporting and accepted Nakh/revoked paid access without balance or ledger changes.
 Photo archival, the full evidence checkpoint and subsequent purge/return phases remain required.
 The catalog covers 124 tables, 1,124 columns and 226 FKs; retained-data release remains disabled.
+
+Match archival commit `8dbc16b` passed all six exact-head CI jobs, 538 native tests in 92 files
+and all 27 historical plans (terminal snapshot 1190.829 ms, both required indexes present).
+
+The next increment archives owning live Photo sources behind immutable original Photo/Profile/asset
+references and exact evidence-phase lease/capture receipts. It preserves held evidence and media
+objects, moderation history and permission-checked audited reveals after Profile/Photo removal.
+The catalog covers 126 tables, 1,136 columns and 230 FKs. Native probes cover concurrent archival,
+replay, bounded batches, unrelated owners, required-write suppression, commit-time expiry and a
+populated concurrent migration-93 upgrade including an already-deleted owner. All 121 focused
+native tests in ten files passed. The full evidence checkpoint, provider proofs and remaining purge/return phases remain
+required; deletion ingress and retention-based release remain disabled.

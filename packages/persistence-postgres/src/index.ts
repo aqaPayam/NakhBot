@@ -214,3 +214,4 @@ export * from './account-deletion-profile-store.js';
 
 export { PostgresAccountDeletionChatStore } from './account-deletion-chat-store.js';
 export { PostgresAccountDeletionMatchStore } from './account-deletion-match-store.js';
+export { PostgresAccountDeletionPhotoStore } from './account-deletion-photo-store.js';

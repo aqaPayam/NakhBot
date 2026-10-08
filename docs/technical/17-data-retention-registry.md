@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 93: 124 tables, 1,124 columns and 226 foreign keys.
+code-owned M8 catalog inventory for migration 94: 126 tables, 1,136 columns and 230 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -158,3 +158,14 @@ receipts for original Unmatch consistency, post-unmatch reporting and Nakh fundi
 ordinary product reads still require the live source. New paid grants cannot reference an archived
 Match. A receipt alone grants no new product access, report window, phase completion or fresh return.
 Commit-time checks revalidate captures, actual source removal and the exact unexpired worker lease.
+
+Migration 94 preserves original Photo/Profile/asset identities in immutable photo references.
+Verified owning evidence-phase workers may archive one live Photo per transaction, after all
+linked Report captures have authenticated receipts. The commit fence checks source absence,
+current captures, the exact unexpired lease and mandatory content-free audit/event bindings.
+Report holds, assets, variants and moderation history retain their exact identities. Historical
+integrity checks resolve ownership through the original reference; audited evidence access still
+requires current administrator permission and its committed access log. The reference grants no
+product access. Asset identity deliberately has no foreign key so future verified provider cleanup
+can remove ordinary assets; held evidence keeps its independent asset/variant protections.
+This archival does not assert provider absence, release retained data or complete a deletion phase.

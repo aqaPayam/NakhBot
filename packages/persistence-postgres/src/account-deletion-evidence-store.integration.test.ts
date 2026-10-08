@@ -46,6 +46,10 @@ import { PostgresAccountDeletionEvidenceStore } from './account-deletion-evidenc
 import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-store.js';
 import { PostgresAccountDeletionChatStore } from './account-deletion-chat-store.js';
 import { PostgresAccountDeletionMatchStore } from './account-deletion-match-store.js';
+import { PostgresAccountDeletionPhotoStore } from './account-deletion-photo-store.js';
+import { PostgresPhotoModerationWorkflow } from './photo-moderation-store.js';
+import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
+import { PostgresAuditedReportPhotoStore } from './audited-report-photo-store.js';
 import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 import { PostgresPaidActionStore } from './paid-action-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
@@ -124,7 +128,11 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
       let reference: string = profileId,
         chatId: string | undefined;
       if (kind === 'profile' || kind === 'photo') await createReportLike(database, reporter, owner);
-      if (kind === 'photo') reference = await createReportPhoto(database, owner);
+      if (kind === 'photo') {
+        reference = await createReportPhoto(database, owner);
+        for (let index = 0; index < extraMessages; index++)
+          await createReportPhoto(database, owner, false);
+      }
       if (kind === 'chat' || kind === 'message') {
         const chat = await createReportChat(database, reporter, owner);
         chatId = chat.chatSessionId;
@@ -1595,5 +1603,362 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
         .where('entity_id', '=', nakhId)
         .execute(),
     ).toEqual([]);
+  });
+  async function photoSource(item: {
+    userId: string;
+  }): Promise<{ id: string; profile_id: string; asset_id: string }> {
+    return (
+      await sql<{
+        id: string;
+        profile_id: string;
+        asset_id: string;
+      }>`SELECT photo.id,photo.profile_id,photo.asset_id FROM media.profile_photos photo
+      JOIN profile.profile_reference_anchors profile ON profile.id=photo.profile_id WHERE profile.user_id=${item.userId}::uuid ORDER BY photo.id LIMIT 1`.execute(
+        database,
+      )
+    ).rows[0]!;
+  }
+  it('archives a held photo once under twenty retries while preserving audited evidence and moderation history', async () => {
+    const item = await scene('photo'),
+      source = await photoSource(item),
+      archive = new PostgresAccountDeletionPhotoStore(database);
+    const admin = await createReportFixtureAdmin(database);
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: admin,
+        role_code: 'super_admin',
+        assigned_by_admin_id: admin,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    await database.transaction().execute(async (tx) => {
+      await tx
+        .updateTable('moderation.reports')
+        .set({ status: 'pending_review', version: 2 })
+        .where('id', '=', item.reportId)
+        .execute();
+      await tx
+        .insertInto('moderation.moderation_reviews')
+        .values({
+          id: randomUUID(),
+          report_id: item.reportId,
+          status: 'in_review',
+          assigned_admin_id: admin,
+          assigned_at: new Date(),
+        })
+        .execute();
+    });
+    const moderation = await new PostgresPhotoModerationWorkflow(database, {
+      execute: () => Promise.resolve(),
+    }).apply(
+      {
+        logId: randomUUID(),
+        adminUserId: admin,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        requestDigest: 'a'.repeat(64),
+        commandCode: 'moderation.apply-photo-action',
+        requiredPermission: 'hide_photo',
+        targetType: 'photo',
+        targetId: source.id,
+        expectedTargetVersion: 1,
+        reasonDigest: 'b'.repeat(64),
+        metadata: {},
+        correlationId: randomUUID(),
+        sourceReportId: item.reportId,
+      },
+      'hide_photo',
+    );
+    expect(moderation.result).toBe('succeeded');
+    expect(await archive.archiveNext(item.lease)).toEqual({
+      archived: false,
+      hasMore: true,
+      waitingForCapture: true,
+    });
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await new PostgresAccountDeletionProfileStore(database).archive(item.lease);
+    const holds = await database
+      .selectFrom('media.report_photo_evidence_holds')
+      .selectAll()
+      .where('photo_id', '=', source.id)
+      .execute();
+    const variants = await database
+      .selectFrom('media.photo_variants')
+      .selectAll()
+      .where('asset_id', '=', source.asset_id)
+      .orderBy('id')
+      .execute();
+    const history = await database
+      .selectFrom('media.photo_moderation_records')
+      .selectAll()
+      .where('photo_id', '=', source.id)
+      .execute();
+    const assets = await database
+      .selectFrom('media.media_assets')
+      .selectAll()
+      .where('id', '=', source.asset_id)
+      .execute();
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => archive.archiveNext(item.lease)),
+    );
+    expect(results.filter((r) => r.archived)).toHaveLength(1);
+    expect(results.every((r) => !r.hasMore)).toBe(true);
+    expect(
+      await database
+        .selectFrom('media.profile_photos')
+        .select('id')
+        .where('id', '=', source.id)
+        .execute(),
+    ).toEqual([]);
+    expect(
+      (
+        await sql`SELECT * FROM media.photo_reference_anchors WHERE id=${source.id}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([source]);
+    expect(
+      await database
+        .selectFrom('media.report_photo_evidence_holds')
+        .selectAll()
+        .where('photo_id', '=', source.id)
+        .execute(),
+    ).toEqual(holds);
+    expect(
+      await database
+        .selectFrom('media.photo_variants')
+        .selectAll()
+        .where('asset_id', '=', source.asset_id)
+        .orderBy('id')
+        .execute(),
+    ).toEqual(variants);
+    expect(
+      await database
+        .selectFrom('media.media_assets')
+        .selectAll()
+        .where('id', '=', source.asset_id)
+        .execute(),
+    ).toEqual(assets);
+    expect(
+      await database
+        .selectFrom('media.photo_moderation_records')
+        .selectAll()
+        .where('photo_id', '=', source.id)
+        .execute(),
+    ).toEqual(history);
+    const findings = (
+      await sql<{
+        reportMatches: boolean;
+      }>`SELECT probe."reportMatches" FROM (${MODERATION_INTEGRITY_SOURCES.actions}) probe WHERE probe.id=${moderation.value!.actionId}::uuid`.execute(
+        database,
+      )
+    ).rows;
+    expect(findings).toEqual([{ reportMatches: true }]);
+    const logId = randomUUID(),
+      commandId = randomUUID();
+    const revealed = await new PostgresReportEvidenceRevealStore(database, item.readers).reveal({
+      logId,
+      adminUserId: admin,
+      commandId,
+      requestId: randomUUID(),
+      requestDigest: 'c'.repeat(64),
+      commandCode: 'moderation.reveal-evidence',
+      requiredPermission: 'view_reports',
+      targetType: 'report_evidence',
+      targetId: item.evidenceId,
+      expectedTargetVersion: 1,
+      reasonDigest: 'd'.repeat(64),
+      metadata: {},
+      correlationId: randomUUID(),
+    });
+    expect(revealed.value?.content.evidenceType).toBe('photo');
+    const identity = await database
+      .selectFrom('administration.admin_users')
+      .select(['user_id', 'telegram_user_id'])
+      .where('id', '=', admin)
+      .executeTakeFirstOrThrow();
+    expect(
+      await new PostgresAuditedReportPhotoStore(database).resolve({
+        actor: { kind: 'admin', userId: identity.user_id },
+        recipient: identity.telegram_user_id,
+        commandId,
+        logId,
+        objectRef: `v1.pe.${item.evidenceId}`,
+        contentSha256: holds[0]!.content_sha256,
+      }),
+    ).toBeDefined();
+    await expect(
+      sql`UPDATE media.photo_variants SET deleted_at=clock_timestamp(),storage_deleted_at=clock_timestamp() WHERE id=${holds[0]!.variant_id}::uuid`.execute(
+        database,
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`UPDATE media.media_assets SET deleted_at=clock_timestamp(),storage_deleted_at=clock_timestamp() WHERE id=${source.asset_id}::uuid`.execute(
+        database,
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`DELETE FROM media.photo_reference_anchors WHERE id=${source.id}::uuid`.execute(database),
+    ).rejects.toMatchObject({ code: '55000' });
+    await expect(
+      sql`DELETE FROM identity.account_deletion_photo_receipts WHERE photo_id=${source.id}::uuid`.execute(
+        database,
+      ),
+    ).rejects.toMatchObject({ code: '55000' });
+    const registry = new PostgresDeletionRegistryStore(database);
+    expect(
+      (
+        await registry.observe(
+          item.lease,
+          DELETION_REGISTRY.findIndex((t) => t.table === 'media.profile_photos'),
+        )
+      ).present,
+    ).toBe(false);
+    expect(
+      (
+        await registry.observe(
+          item.lease,
+          DELETION_REGISTRY.findIndex((t) => t.table === 'media.report_photo_evidence_holds'),
+        )
+      ).present,
+    ).toBe(true);
+    expect(
+      (
+        await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(
+          item.lease,
+        )
+      ).hasMore,
+    ).toBe(false);
+    await work.release(item.lease);
+    await expect(archive.archiveNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+    const fresh = (await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 }))[0]!;
+    expect(await archive.archiveNext(fresh)).toEqual({ archived: false, hasMore: false });
+    item.key.fill(0);
+  });
+  it('archives one photo at a time, preserves unrelated users and refuses borrowed authority and raw removal', async () => {
+    const item = await scene('photo', false, 2),
+      archive = new PostgresAccountDeletionPhotoStore(database),
+      source = await photoSource(item);
+    const other = await createReportUser(database, true),
+      otherPhoto = await createReportPhoto(database, other);
+    await expect(
+      database.deleteFrom('media.profile_photos').where('id', '=', source.id).execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(archive.archiveNext({ ...item.lease, userId: other })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    for (let index = 0; index < 3; index++)
+      expect(await archive.archiveNext(item.lease)).toEqual({ archived: true, hasMore: index < 2 });
+    expect(
+      (
+        await sql`SELECT 1 FROM identity.account_deletion_photo_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toHaveLength(3);
+    expect(
+      await database
+        .selectFrom('media.profile_photos')
+        .select('id')
+        .where('id', '=', otherPhoto)
+        .execute(),
+    ).toHaveLength(1);
+    item.key.fill(0);
+  });
+  it.each([
+    'platform.audit_logs',
+    'platform.outbox_events',
+    'identity.account_deletion_photo_receipts',
+  ])('rolls back photo archival when %s suppresses required proof', async (table) => {
+    const item = await scene('photo'),
+      source = await photoSource(item);
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await sql`CREATE FUNCTION identity.m8_suppress_photo() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$`.execute(
+      database,
+    );
+    await sql
+      .raw(
+        `CREATE TRIGGER m8_suppress_photo BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION identity.m8_suppress_photo()`,
+      )
+      .execute(database);
+    try {
+      await expect(
+        new PostgresAccountDeletionPhotoStore(database).archiveNext(item.lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await database
+          .selectFrom('media.profile_photos')
+          .select('id')
+          .where('id', '=', source.id)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_photo_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([]);
+      expect(
+        await database
+          .selectFrom('platform.audit_logs')
+          .select('id')
+          .where('subject_id', '=', item.recordId)
+          .where('event_type', '=', 'account.deletion-photo-archived.v1')
+          .execute(),
+      ).toEqual([]);
+    } finally {
+      await sql.raw(`DROP TRIGGER m8_suppress_photo ON ${table}`).execute(database);
+      await sql`DROP FUNCTION identity.m8_suppress_photo()`.execute(database);
+    }
+    expect(
+      (await new PostgresAccountDeletionPhotoStore(database).archiveNext(item.lease)).archived,
+    ).toBe(true);
+    item.key.fill(0);
+  });
+  it('rolls back photo removal when the owning lease expires at commit and resumes under a fresh generation', async () => {
+    const item = await scene('photo'),
+      source = await photoSource(item);
+    await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+    await sql`CREATE FUNCTION identity.m8_delay_photo() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1.1); RETURN NULL; END $$`.execute(
+      database,
+    );
+    await sql`CREATE CONSTRAINT TRIGGER a_m8_delay_photo AFTER INSERT ON identity.account_deletion_photo_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION identity.m8_delay_photo()`.execute(
+      database,
+    );
+    await work.release(item.lease);
+    const lease = (await work.claimDue({ workerId: randomUUID(), leaseMs: 1000, limit: 1 }))[0]!;
+    try {
+      await expect(
+        new PostgresAccountDeletionPhotoStore(database).archiveNext(lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await database
+          .selectFrom('media.profile_photos')
+          .select('id')
+          .where('id', '=', source.id)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql`SELECT 1 FROM identity.account_deletion_photo_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([]);
+    } finally {
+      await sql`DROP TRIGGER a_m8_delay_photo ON identity.account_deletion_photo_receipts`.execute(
+        database,
+      );
+      await sql`DROP FUNCTION identity.m8_delay_photo()`.execute(database);
+    }
+    const fresh = (await work.claimDue({ workerId: randomUUID(), leaseMs: 120000, limit: 1 }))[0]!;
+    expect(
+      (await new PostgresAccountDeletionPhotoStore(database).archiveNext(fresh)).archived,
+    ).toBe(true);
+    item.key.fill(0);
   });
 });
