@@ -246,6 +246,17 @@ remain required. Deploy migration 89 before the new verification store. Retained
 remains disabled without approved policy. The schema inventory currently has 117 tables and 210
 foreign keys before migration 89; complete registry coverage must follow actual catalog state.
 
+The machine-readable deletion registry now covers migration 89's actual 118 tables, 1,081 columns
+and 213 fully qualified foreign keys. Native probes compare the complete current catalog, execute
+every linked selector under an owning deletion fence and reject table/column/dependency drift.
+One-resource observations are bounded, content-free and repeatable; forged subjects, unknown
+resource indices and stale generations cannot inspect another scope. Columns inherit a reviewed
+table action, without an unknown-table default. Required financial/safety/workforce policies remain
+distinct from ordinary product purge. Global typed operational obligations return unknown rather
+than a false absence. This registry is a prerequisite for the full purge/verification executor;
+linked observations do not resolve all polymorphic references, authorize purge, complete evidence
+capture, verify provider objects or cover Redis invalidation. Retention release remains disabled.
+
 Migration 88 binds shared closure to financial correction evidence. Paid pending delivery batches
 roll back and return a bounded financial-resolution wait while the existing fenced billing worker
 creates the exact target-unavailable refund obligation. Deletion never cancels a captured payment

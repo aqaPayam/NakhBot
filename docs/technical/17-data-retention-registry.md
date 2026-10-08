@@ -2,6 +2,28 @@
 
 This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M8, with M7 owning moderation/evidence decisions; new migrations must update this file immediately.
 
+## Executable catalog inventory
+
+[`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
+code-owned M8 catalog inventory for migration 89: 118 tables, 1,081 columns and 213 foreign keys.
+Every column inherits its table's explicit classification/action, and every foreign-key target and
+delete/defer action is recorded. There is no default classification for a new table or column.
+The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
+actions before a deletion worker observes the resource. Schema references are fully qualified and
+independent of PostgreSQL's search path. Future migrations must update and review this inventory.
+
+The bounded worker observer checks one resource under its exact live deletion lease, using a
+code-owned, parameter-bound subject selector. It returns presence only, never rows, content,
+storage keys or identifiers. Related rows follow their governing Report/payment/relationship,
+rather than an unrelated participant's identity. This inventory is not a purge executor: retained
+source archival, dependency release, lifecycle/financial epoch fences and provider absence remain
+separate obligations. Globally typed transport/audit/reconciliation obligations without a complete
+subject selector return **unknown**, never absence; a linked-row presence observation is not proof
+that every polymorphic reference has been resolved. Public catalogs and workforce authority have
+their own actions and cannot become ordinary product purge by inheritance. The four object-prefix
+descriptors record object obligations; they do not claim provider verification or Redis coverage.
+No policy period is invented and retained-data release remains disabled until approval is supplied.
+
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|
 | `administration.admin_sessions` | restricted bearer hashes, factor-proof identifiers and verification/expiry/revocation times | revoke current grants immediately when operator authority ends; retain security history under the approved audit policy; M8 must implement controlled release before deletion | Administration/Security; never retain bearer, factor assertion, OTP or factor secret; ordinary deletion/extension/revival is forbidden |
