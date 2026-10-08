@@ -552,3 +552,33 @@ production guard. Downstream plan/load gates did not run and remain required on 
 All 17 focused native tests in the two repaired reference suites and the evidence-checkpoint suite
 passed, including the eight previously blocked preservation tests. The production checkpoint and
 its reporting-window, capture, source, audit and lease guards remain unchanged by this repair.
+
+Repair `9c27389` passed all six exact-head CI jobs, all 599 native tests in 95 files and all 27
+unchanged M7 plans. The terminal snapshot took 1380.32 ms against 1500 ms and used both required
+indexes. Local quality passed all 917 unit tests in 216 files and the full build. The previous
+eight blocked upgrade-preservation tests ran successfully; no production guard was weakened.
+
+The next internal ordinary-product sweep runs only under phase 3 and removes at most 100 rows per
+transaction from eight code-owned resource groups: signup drafts/progress, filters with required
+gender selections, candidate deliveries, consumptions, NotInterested, notification preferences and
+settings. Large filter groups leave a required selection until the final children and parent are
+removed together, preserving the existing required-selection invariant in every bounded batch.
+Migration 96 requires each nonempty batch's exact content-free audit/event and live
+owning lease at commit; the worker also rechecks authority after Account lock waits and batch work.
+Empty retries produce no audit/event. Restart uses actual committed absence, not transport receipts.
+This sweep leaves all retained safety/financial/workforce facts and stable identity/preview state
+untouched. Its local `hasMore` describes these resources only. Financial epochs, Nakh/Like/unlock and
+typed notification/operational dependencies, provider verification, ephemeral invalidation, policy
+manifests, safe return and hardening remain required. Product completion, deletion ingress and
+retained-data release remain disabled; no retention period or external approval is invented.
+
+Native verification passed 71 tests in five files, including the full populated-upgrade matrix and
+exact live phase-3 lease preservation from migration 95. Its initial run diagnosed an outdated
+`95 - baseline` count in 41 upgrade cases; updating the count to 96 and adding the migration-95
+baseline restored every preservation assertion without weakening production guards. The final
+bounded-filter implementation then passed all 21 purge/registry tests in two files, including
+103 selections split while preserving the required-selection invariant and 205 delivery rows
+removed in 100/100/5 batches. Probes cover twenty-way idempotency, counterpart preservation,
+required-write suppression/type/payload corruption, database-clock expiry during delete and at
+deferred commit, expiry behind the Account lock, schema drift and restart after transport loss.
+No full M8 completion, retained-data approval or external staging/security evidence is claimed.

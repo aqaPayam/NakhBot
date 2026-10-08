@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 95: 126 tables, 1,136 columns and 230 foreign keys.
+code-owned M8 catalog inventory for migration 96: 126 tables, 1,136 columns and 230 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -30,6 +30,20 @@ capture receipts, verified source absence and closure of original survivor repor
 including captures committed while its Account lock was waiting. It rechecks those obligations at
 commit and recognizes the one original shared-source receipt if both participants delete. It does
 not mark ordinary product purge, provider absence, retention release or fresh return complete.
+
+Migration 96 adds a deferred commit fence for nonempty ordinary-product batch audit/events;
+it changes no table, column or foreign key. The internal phase-3 sweep covers signup drafts/progress,
+ExploreFilter with its required gender selections, candidate deliveries, ExploreConsumption,
+NotInterested, notification preferences and User settings. Resource numbers 0..7 are append-only
+and code-owned. Each transaction removes at most 100 rows, including filter selections and parent.
+Large filter groups leave at least one required selection until the final selection and parent can
+be deleted together. The exact current deleted Account, root, phase, lease owner/generation/expiry, original command/request
+and matching content-free audit/event are required at commit. Empty retries write nothing.
+Committed row absence supports restart independently of expired transport; no product body or
+provider identifier is put in these batch records. Remaining financial, Nakh/Like/unlock, notification,
+support, media and polymorphic operational dependencies still require their owning executors and
+proofs before whole-product completion. Neither a finished sweep nor `hasMore=false` grants a phase
+advance, product-purged milestone, completion, retention release or fresh return.
 
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|
