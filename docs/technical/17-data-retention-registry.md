@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 94: 126 tables, 1,136 columns and 230 foreign keys.
+code-owned M8 catalog inventory for migration 95: 126 tables, 1,136 columns and 230 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -23,6 +23,13 @@ that every polymorphic reference has been resolved. Public catalogs and workforc
 their own actions and cannot become ordinary product purge by inheritance. The four object-prefix
 descriptors record object obligations; they do not claim provider verification or Redis coverage.
 No policy period is invented and retained-data release remains disabled until approval is supplied.
+
+Migration 95 extends only the immutable phase-receipt transition from evidence capture to ordinary
+product data; it adds no table, column or foreign key. The transition requires authenticated current
+capture receipts, verified source absence and closure of original survivor reporting windows,
+including captures committed while its Account lock was waiting. It rechecks those obligations at
+commit and recognizes the one original shared-source receipt if both participants delete. It does
+not mark ordinary product purge, provider absence, retention release or fresh return complete.
 
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|

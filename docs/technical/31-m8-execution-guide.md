@@ -513,3 +513,33 @@ normal unmatch between rendering and provider admission, and the survivor closur
 All 40 focused native tests in three files passed in isolated databases. Source-phase completion,
 signed delivery revocation, ordinary purge, provider proofs, ephemeral invalidation, financial epochs,
 manifests, safe return and production hardening remain required. Ingress and retention release stay off.
+
+Exact notification-scope commit `f7b7e97` passed all six CI jobs, 583 native tests in 94 files
+and all 27 unchanged M7 plans (terminal snapshot 1083.293 ms, both required indexes present).
+The first quality job failed during public collector image pull before SDK export with an unknown
+startup classification. One unchanged completed-job diagnostic rerun passed all checks, including
+real collector conversion/privacy and infrastructure validation. The original pull cause remains
+unidentified; no assertion or policy was bypassed.
+
+Migration 95 permits only verified evidence-capture checkpoint 2 to ordinary-product checkpoint 3.
+The executor takes the stable User, Account, root and work locks, checks exact current lease authority,
+and requires every current relevant capture to match its authenticated immutable receipt. Owning
+Profile and Photo sources require their exact root receipts and absence. Shared Chat and Match
+sources require original verified archival receipts and absence; a second participant deletion
+recognizes the same original shared proof and verifies its own capture obligations. All original
+Unmatch reporting windows must have elapsed; waiting never creates a completion receipt or shortens
+that window. Required content-free audit/event, both checkpoint writes and immutable phase receipt
+are checked at commit, including renewed capture/source checks and database-clock lease expiry.
+The previous shared receipt remains replayable under its original authority after the next phase.
+Neither product_purged_at, completion nor reactivation is set. Provider bytes/absence, ordinary purge,
+ephemeral invalidation, financial epochs, policy manifests, safe return and hardening remain required;
+deletion ingress and retained-data release remain disabled.
+
+All 94 final focused native tests in four checkpoint/capture/registry files passed. The populated
+migration-upgrade suite also passed, including preservation of pending migration-94 deletion rows.
+The initial new race probe paused before the original post-lock evidence deadline and was correctly
+rejected; its corrected barrier pauses after authorized capture, proves the checkpoint waits on the
+Account, then observes and requires that late-committing capture after expiry. No deadline guard was
+weakened. A filtered diagnostic skipped all tests and supplied no acceptance evidence; the final
+unfiltered suites passed. Native tests also cover required-write rollback, commit/lock-wait expiry,
+twenty-way idempotency, forged authority, original shared receipt replay and dual-participant proof reuse.

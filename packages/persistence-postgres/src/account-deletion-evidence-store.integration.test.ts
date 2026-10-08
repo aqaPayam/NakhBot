@@ -266,6 +266,264 @@ describe.skipIf(url === undefined)('M8 fenced Report capture verification', () =
       },
     };
   }
+  async function archiveEvidenceSources(item: { lease: AccountDeletionLease }): Promise<void> {
+    await new PostgresAccountDeletionProfileStore(database).archive(item.lease);
+    await new PostgresAccountDeletionPhotoStore(database).archiveNext(item.lease);
+    await new PostgresAccountDeletionChatStore(database).archiveNext(item.lease);
+    await new PostgresAccountDeletionMatchStore(database).archiveNext(item.lease);
+  }
+  it.each(['profile', 'photo', 'chat', 'message'] as const)(
+    'requires exact authenticated %s capture and all source receipts before advancing evidence',
+    async (kind) => {
+      const item = await scene(kind),
+        checkpoint = new PostgresAccountDeletionCheckpointStore(database);
+      try {
+        const before = await database
+          .selectFrom('moderation.report_snapshots')
+          .selectAll()
+          .where('report_id', '=', item.reportId)
+          .execute();
+        const messages = await database
+          .selectFrom('chat.chat_message_snapshots')
+          .selectAll()
+          .where('report_id', '=', item.reportId)
+          .execute();
+        expect(await checkpoint.finishEvidence(item.lease)).toMatchObject({
+          waitingFor: 'captures',
+        });
+        expect(
+          await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(
+            item.lease,
+          ),
+        ).toMatchObject({ verified: true });
+        expect(await checkpoint.finishEvidence(item.lease)).toMatchObject({
+          waitingFor: 'profile_sources',
+        });
+        await archiveEvidenceSources(item);
+        const results = await Promise.all(
+          Array.from({ length: 20 }, () => checkpoint.finishEvidence(item.lease)),
+        );
+        expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+        expect(results.every((result) => result.phase === 'product_data')).toBe(true);
+        expect(
+          await database
+            .selectFrom('moderation.report_snapshots')
+            .selectAll()
+            .where('report_id', '=', item.reportId)
+            .execute(),
+        ).toEqual(before);
+        expect(
+          await database
+            .selectFrom('chat.chat_message_snapshots')
+            .selectAll()
+            .where('report_id', '=', item.reportId)
+            .execute(),
+        ).toEqual(messages);
+        expect(await count(item.recordId)).toBe(1);
+      } finally {
+        item.key.fill(0);
+      }
+    },
+  );
+  it('waits for the original survivor report window without changing its immutable deadline', async () => {
+    const item = await scene(
+      'unmatched_user',
+      false,
+      0,
+      new Date(Date.now() - 24 * 60 * 60 * 1000 + 5000),
+    );
+    const checkpoint = new PostgresAccountDeletionCheckpointStore(database),
+      source = await chatSource(item);
+    try {
+      const original = await database
+        .selectFrom('matching.unmatch_records')
+        .selectAll()
+        .where('match_id', '=', source.match_id)
+        .executeTakeFirstOrThrow();
+      expect(await checkpoint.finishEvidence(item.lease)).toMatchObject({
+        waitingFor: 'report_window',
+      });
+      await new PostgresAccountDeletionEvidenceStore(database, item.readers).verifyNext(item.lease);
+      await archiveEvidenceSources(item);
+      expect(await checkpoint.finishEvidence(item.lease)).toMatchObject({
+        waitingFor: 'report_window',
+      });
+      expect(
+        await database
+          .selectFrom('matching.unmatch_records')
+          .selectAll()
+          .where('match_id', '=', source.match_id)
+          .execute(),
+      ).toEqual([original]);
+      await sql`SELECT pg_sleep_until(${original.report_window_expires_at.toISOString()}::timestamptz)`.execute(
+        database,
+      );
+      expect(await checkpoint.finishEvidence(item.lease)).toEqual({
+        phase: 'product_data',
+        checkpointVersion: 3,
+        replayed: false,
+      });
+      expect(
+        await database
+          .selectFrom('matching.unmatch_records')
+          .selectAll()
+          .where('match_id', '=', source.match_id)
+          .execute(),
+      ).toEqual([original]);
+    } finally {
+      item.key.fill(0);
+    }
+  });
+  it('observes a report admitted before the deadline but committed after it while the checkpoint waits for its Account lock', async () => {
+    const item = await scene(
+      'unmatched_user',
+      false,
+      0,
+      new Date(Date.now() - 24 * 60 * 60 * 1000 + 8000),
+    );
+    const source = await chatSource(item),
+      verifier = new PostgresAccountDeletionEvidenceStore(database, item.readers);
+    let release!: () => void;
+    let holder: Promise<void> | undefined,
+      submission: Promise<boolean> | undefined,
+      attempt: Promise<unknown> | undefined;
+    try {
+      await verifier.verifyNext(item.lease);
+      await archiveEvidenceSources(item);
+      const survivor =
+        source.user_low_id === item.userId ? source.user_high_id : source.user_low_id;
+      const context = { kind: 'unmatched' as const, referenceId: source.match_id },
+        values = new Map<string, string>();
+      const tokens = new ReportTokens(
+        {
+          get: (id) => Promise.resolve(values.get(id)),
+          putIfAbsent: (id, value) => {
+            if (values.has(id)) return Promise.resolve(false);
+            values.set(id, value);
+            return Promise.resolve(true);
+          },
+        },
+        item.key,
+      );
+      const actor = { kind: 'user' as const, userId: survivor };
+      const prepared = await new PostgresPrepareUnmatchedReportEvidenceHandler(
+        database,
+        tokens,
+      ).execute(
+        {
+          actor,
+          requestId: randomUUID(),
+          sourceActionToken: (await tokens.issueSource(survivor, context)).token,
+          requestedEvidenceTypes: ['unmatched_user'],
+        },
+        actor,
+      );
+      const deadline = (
+        await database
+          .selectFrom('matching.unmatch_records')
+          .select('report_window_expires_at')
+          .where('match_id', '=', source.match_id)
+          .executeTakeFirstOrThrow()
+      ).report_window_expires_at;
+      await sql
+        .raw(
+          `CREATE FUNCTION identity.m8_pause_late_report() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.report_id<>'${item.reportId}'::uuid AND EXISTS(SELECT 1 FROM moderation.reports
+          WHERE id=NEW.report_id AND target_user_id='${item.userId}'::uuid) THEN
+          PERFORM pg_advisory_xact_lock(380095,1); END IF; RETURN NEW; END $$`,
+        )
+        .execute(database);
+      await sql`CREATE TRIGGER m8_pause_late_report AFTER INSERT ON moderation.report_snapshots FOR EACH ROW EXECUTE FUNCTION identity.m8_pause_late_report()`.execute(
+        database,
+      );
+      let ready!: () => void;
+      const locked = new Promise<void>((done) => {
+          ready = done;
+        }),
+        gate = new Promise<void>((done) => {
+          release = done;
+        });
+      holder = database.transaction().execute(async (tx) => {
+        await sql`SELECT pg_advisory_xact_lock(380095,1)`.execute(tx);
+        ready();
+        await gate;
+      });
+      await locked;
+      submission = new PostgresSubmitUnmatchedReportHandler(
+        database,
+        tokens,
+        new AesGcmUnmatchedReportSnapshotProtector('m8-capture-test', 1, item.key),
+      )
+        .execute(
+          {
+            commandType: 'moderation.submit-report',
+            schemaVersion: 1,
+            actor,
+            commandId: randomUUID(),
+            requestId: randomUUID(),
+            idempotencyKey: randomUUID(),
+            occurredAt: new Date().toISOString(),
+            locale: 'en',
+            data: { evidenceIntentToken: prepared.evidenceIntentToken, reasonCode: 'harassment' },
+          },
+          actor,
+        )
+        .then(
+          () => true,
+          () => false,
+        );
+      let reportBlocked = false;
+      for (let i = 0; i < 100; i++) {
+        reportBlocked = (
+          await sql<{
+            blocked: boolean;
+          }>`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=380095 AND objid=1 AND NOT granted) AS blocked`.execute(
+            database,
+          )
+        ).rows[0]!.blocked;
+        if (reportBlocked) break;
+        await sql`SELECT pg_sleep(0.02)`.execute(database);
+      }
+      expect(reportBlocked).toBe(true);
+      attempt = new PostgresAccountDeletionCheckpointStore(database).finishEvidence(item.lease);
+      let checkpointBlocked = false;
+      for (let i = 0; i < 100; i++) {
+        checkpointBlocked = (
+          await sql<{
+            blocked: boolean;
+          }>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+          AND wait_event_type='Lock' AND query LIKE '%finish_deletion_evidence_phase%' AND query NOT LIKE '%pg_stat_activity%') AS blocked`.execute(
+            database,
+          )
+        ).rows[0]!.blocked;
+        if (checkpointBlocked) break;
+        await sql`SELECT pg_sleep(0.02)`.execute(database);
+      }
+      expect(checkpointBlocked).toBe(true);
+      await sql`SELECT pg_sleep_until(${deadline.toISOString()}::timestamptz+interval '0.1 seconds')`.execute(
+        database,
+      );
+      release();
+      await holder;
+      expect(await submission).toBe(true);
+      expect(await attempt).toMatchObject({ waitingFor: 'captures' });
+      expect(await count(item.recordId)).toBe(1);
+      expect(await verifier.verifyNext(item.lease)).toMatchObject({ verified: true });
+      expect(
+        await new PostgresAccountDeletionCheckpointStore(database).finishEvidence(item.lease),
+      ).toMatchObject({ phase: 'product_data', replayed: false });
+    } finally {
+      release?.();
+      await holder;
+      await submission;
+      await attempt;
+      await sql`DROP TRIGGER IF EXISTS m8_pause_late_report ON moderation.report_snapshots`.execute(
+        database,
+      );
+      await sql`DROP FUNCTION IF EXISTS identity.m8_pause_late_report()`.execute(database);
+      item.key.fill(0);
+    }
+  });
   async function count(record: string): Promise<number> {
     return (
       await sql`SELECT 1 FROM identity.account_deletion_evidence_receipts WHERE deletion_record_id=${record}::uuid`.execute(
