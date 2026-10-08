@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 91: 122 tables, 1,108 columns and 221 foreign keys.
+code-owned M8 catalog inventory for migration 92: 123 tables, 1,111 columns and 223 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -137,3 +137,13 @@ bindings. It contains no message body or preference state and never authorizes r
 The final verified batch removes the ordinary ChatSession, participants/preferences and cleanup
 checkpoint, while original message snapshots/markers and Unmatch history remain retained. New
 reference entities are classified explicitly; a worker rejects all unclassified schema drift.
+
+Migration 92 adds `matching.match_reference_anchors`: only the original Match ID and its
+normalized two User IDs. Existing Matches, including deleted participants, are backfilled without
+changing product rows or immutable Unmatch facts. New Matches require an exact reference at commit;
+missing/suppressed inserts roll back. References cannot be reassigned, deleted or synthesized from
+an absent source. Chat anchors and Unmatch facts reference this minimal identity; their subject
+selectors and other Match-based deletion observations follow it. Original product sources remain
+protected from raw removal while those retained references exist. This migration grants no Match
+archival, report admission, fresh return or retained-data release. Verified Match archival remains
+required before ordinary source deletion can proceed.

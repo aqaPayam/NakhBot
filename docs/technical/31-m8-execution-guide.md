@@ -385,3 +385,20 @@ original owner/history/command predicate in the resulting fact. Duplicate valid/
 existence semantics. Full-volume Windows diagnostics remove the review sort and preserve both
 required indexes; their timings do not constitute Linux production acceptance. No fixture volume,
 repeated sample, safety predicate, execution budget or index requirement is reduced.
+
+Repair `98ed670` passed all six exact-head CI jobs, 520 native tests and all 27 unchanged
+historical plans (terminal snapshot 1413.674 ms, both required indexes present). Its predecessor
+`43c3bad` passed the native suite but exhausted container shared memory during the plan gate;
+there was no completed M7 performance artifact or timing on that failed run. The repair retains
+transaction-scoped planner settings, respects a lower operator parallel-worker limit and raises
+parallel setup cost to avoid excessive shared hash arenas. No volume, index, execution budget,
+safety predicate or container memory setting changed.
+
+The next increment establishes minimal immutable original Match references and migrates retained
+Chat/Unmatch identity FKs to them. A mandatory deferred check rolls back source creation if its
+reference is suppressed, and a source deletion guard preserves the former live-FK protection.
+Populated migration-91 upgrade probes include an already-deleted participant, twenty concurrent
+migration attempts, unchanged product/Unmatch rows, new reference creation, reassignment/orphan
+rejection and preserved survivor-only reporting. The catalog now covers 123 tables, 1,111 columns
+and 223 FKs. Anchors alone grant no report or archival authority. Verified Match archival, photo
+archival and the complete evidence checkpoint are still required; deletion ingress remains off.

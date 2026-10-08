@@ -2585,7 +2585,7 @@
       "classification": "ordinary_shared",
       "action": "close_snapshot_then_purge",
       "purpose": "shared_lifecycle_and_capture",
-      "subjectScope": "EXISTS (SELECT 1 FROM chat.chat_sessions session JOIN matching.matches governing ON governing.id=session.match_id WHERE session.id=row.chat_session_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "EXISTS (SELECT 1 FROM chat.chat_sessions session JOIN matching.match_reference_anchors governing ON governing.id=session.match_id WHERE session.id=row.chat_session_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -2744,7 +2744,7 @@
       "classification": "ordinary_shared",
       "action": "close_snapshot_then_purge",
       "purpose": "shared_lifecycle_and_capture",
-      "subjectScope": "EXISTS (SELECT 1 FROM chat.chat_sessions session JOIN matching.matches governing ON governing.id=session.match_id WHERE session.id=row.chat_session_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "EXISTS (SELECT 1 FROM chat.chat_sessions session JOIN matching.match_reference_anchors governing ON governing.id=session.match_id WHERE session.id=row.chat_session_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -2828,7 +2828,7 @@
       "classification": "ordinary_shared",
       "action": "close_snapshot_then_purge",
       "purpose": "shared_lifecycle_and_capture",
-      "subjectScope": "EXISTS (SELECT 1 FROM chat.chat_sessions session JOIN matching.matches governing ON governing.id=session.match_id WHERE session.id=row.chat_session_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "EXISTS (SELECT 1 FROM chat.chat_sessions session JOIN matching.match_reference_anchors governing ON governing.id=session.match_id WHERE session.id=row.chat_session_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -2885,7 +2885,7 @@
       "classification": "retained_safety",
       "action": "approved_policy_release",
       "purpose": "minimal_original_source_identity",
-      "subjectScope": "EXISTS (SELECT 1 FROM matching.matches governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "EXISTS (SELECT 1 FROM matching.match_reference_anchors governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": "approval_required",
       "columns": [
@@ -2902,8 +2902,8 @@
       ],
       "foreignKeys": [
         {
-          "target": "matching.matches",
-          "definition": "FOREIGN KEY (match_id) REFERENCES matching.matches(id) ON DELETE RESTRICT"
+          "target": "matching.match_reference_anchors",
+          "definition": "FOREIGN KEY (match_id) REFERENCES matching.match_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
     },
@@ -2913,7 +2913,7 @@
       "classification": "ordinary_shared",
       "action": "close_snapshot_then_purge",
       "purpose": "shared_lifecycle_and_capture",
-      "subjectScope": "EXISTS (SELECT 1 FROM matching.matches governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "EXISTS (SELECT 1 FROM matching.match_reference_anchors governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -4436,7 +4436,7 @@
       "classification": "financial_projection",
       "action": "fence_epoch_then_reset",
       "purpose": "product_epoch_projection",
-      "subjectScope": "row.payer_user_id=:userId OR EXISTS (SELECT 1 FROM interaction.likes governing WHERE governing.id=row.like_id AND :userId IN (governing.sender_user_id,governing.receiver_user_id)) OR EXISTS (SELECT 1 FROM matching.matches governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "row.payer_user_id=:userId OR EXISTS (SELECT 1 FROM interaction.likes governing WHERE governing.id=row.like_id AND :userId IN (governing.sender_user_id,governing.receiver_user_id)) OR EXISTS (SELECT 1 FROM matching.match_reference_anchors governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -4705,7 +4705,7 @@
       "classification": "ordinary_shared",
       "action": "close_snapshot_then_purge",
       "purpose": "shared_lifecycle_and_capture",
-      "subjectScope": "EXISTS (SELECT 1 FROM matching.matches governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "EXISTS (SELECT 1 FROM matching.match_reference_anchors governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -4733,6 +4733,43 @@
         {
           "target": "identity.users",
           "definition": "FOREIGN KEY (user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "matching.match_reference_anchors",
+      "owner": "matching",
+      "classification": "retained_safety",
+      "action": "approved_policy_release",
+      "purpose": "minimal_original_source_identity",
+      "subjectScope": "row.user_low_id=:userId OR row.user_high_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "user_low_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "user_high_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (user_high_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (user_low_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
         }
       ]
     },
@@ -4831,7 +4868,7 @@
       "classification": "retained_safety",
       "action": "approved_policy_release",
       "purpose": "governing_safety_evidence",
-      "subjectScope": "EXISTS (SELECT 1 FROM matching.matches governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "EXISTS (SELECT 1 FROM matching.match_reference_anchors governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": "approval_required",
       "columns": [
@@ -4877,8 +4914,8 @@
           "definition": "FOREIGN KEY (actor_user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
         },
         {
-          "target": "matching.matches",
-          "definition": "FOREIGN KEY (match_id) REFERENCES matching.matches(id) ON DELETE RESTRICT"
+          "target": "matching.match_reference_anchors",
+          "definition": "FOREIGN KEY (match_id) REFERENCES matching.match_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
     },
