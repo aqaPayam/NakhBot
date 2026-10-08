@@ -9,6 +9,7 @@ import { ApplicationError, NOTIFICATION_DELIVERY_MAX_ATTEMPTS } from '@nakh/doma
 import { sql } from 'kysely';
 
 import type { NakhDatabase } from './database.js';
+import { resolveNotificationScope } from './notification-scope-authority.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const OWNER = /^[A-Za-z0-9._:-]{1,128}$/u;
@@ -31,12 +32,6 @@ function validateLease(input: NotificationDeliveryLease): void {
     !FENCE.test(input.fenceToken)
   )
     invalidDelivery();
-}
-
-function object(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : undefined;
 }
 
 /** Delivery admission precedes the provider call. Resolve immutable participants,
@@ -62,34 +57,9 @@ async function lockNotificationAuthority(
     .where('delivery.lease_expires_at', '>', sql<Date>`clock_timestamp()`)
     .executeTakeFirst();
   if (notice === undefined) return false;
-  const users = new Set([notice.user_id]);
-  let messageId: string | undefined, chatSessionId: string | undefined;
-  if (notice.notification_type === 'new_chat_message') {
-    const payload = object(notice.payload);
-    if (
-      typeof payload?.messageId !== 'string' ||
-      !UUID.test(payload.messageId) ||
-      typeof payload.chatSessionId !== 'string' ||
-      !UUID.test(payload.chatSessionId)
-    )
-      return false;
-    messageId = payload.messageId;
-    chatSessionId = payload.chatSessionId;
-    const message = await transaction
-      .selectFrom('chat.chat_messages as message')
-      .innerJoin('chat.chat_participants as participant', (join) =>
-        join
-          .onRef('participant.chat_session_id', '=', 'message.chat_session_id')
-          .on('participant.user_id', '=', notice.user_id),
-      )
-      .select('message.sender_user_id')
-      .where('message.id', '=', messageId)
-      .where('message.chat_session_id', '=', chatSessionId)
-      .executeTakeFirst();
-    if (message?.sender_user_id === null || message?.sender_user_id === undefined) return false;
-    users.add(message.sender_user_id);
-  }
-  const ordered = [...users].sort();
+  const scope = await resolveNotificationScope(transaction, notice);
+  if (scope === undefined) return false;
+  const ordered = [...new Set(scope)].sort();
   await transaction
     .selectFrom('identity.users')
     .select('id')
@@ -106,22 +76,13 @@ async function lockNotificationAuthority(
     .execute();
   if (accounts.length !== ordered.length || accounts.some((account) => account.state === 'deleted'))
     return false;
-  if (messageId !== undefined && chatSessionId !== undefined) {
-    const current = await transaction
-      .selectFrom('chat.chat_messages as message')
-      .innerJoin('chat.chat_participants as participant', (join) =>
-        join
-          .onRef('participant.chat_session_id', '=', 'message.chat_session_id')
-          .on('participant.user_id', '=', notice.user_id),
-      )
-      .select('message.id')
-      .where('message.id', '=', messageId)
-      .where('message.chat_session_id', '=', chatSessionId)
-      .where('message.sender_user_id', 'in', ordered)
-      .executeTakeFirst();
-    if (current === undefined) return false;
-  }
-  return true;
+  const current = await resolveNotificationScope(transaction, notice);
+  if (current === undefined) return false;
+  const currentUsers = [...new Set(current)].sort();
+  return (
+    currentUsers.length === ordered.length &&
+    currentUsers.every((user, index) => user === ordered[index])
+  );
 }
 
 /** Durable M6 notification delivery leases, rendering authorization, and fenced settlement. */
@@ -221,11 +182,8 @@ export class PostgresNotificationDeliveryStore implements NotificationDeliverySt
         .innerJoin('identity.user_settings as settings', 'settings.user_id', 'notification.user_id')
         .select([
           'delivery.id as delivery_id',
-          'notification.user_id',
-          'notification.notification_type',
           'notification.title_key',
           'notification.body_key',
-          'notification.payload',
           'telegram.telegram_user_id',
           'settings.ui_locale_code',
         ])
@@ -238,31 +196,6 @@ export class PostgresNotificationDeliveryStore implements NotificationDeliverySt
         .where('delivery.lease_expires_at', '>', sql<Date>`clock_timestamp()`)
         .executeTakeFirst();
       if (row === undefined) return undefined;
-
-      if (row.notification_type === 'new_chat_message') {
-        const payload = object(row.payload);
-        const chatSessionId = payload?.chatSessionId;
-        const messageId = payload?.messageId;
-        if (
-          typeof chatSessionId !== 'string' ||
-          !UUID.test(chatSessionId) ||
-          typeof messageId !== 'string' ||
-          !UUID.test(messageId)
-        )
-          return undefined;
-        const message = await transaction
-          .selectFrom('chat.chat_messages as message')
-          .innerJoin('chat.chat_participants as participant', (join) =>
-            join
-              .onRef('participant.chat_session_id', '=', 'message.chat_session_id')
-              .on('participant.user_id', '=', row.user_id),
-          )
-          .select('message.id')
-          .where('message.id', '=', messageId)
-          .where('message.chat_session_id', '=', chatSessionId)
-          .executeTakeFirst();
-        if (message === undefined) return undefined;
-      }
 
       return {
         deliveryId: row.delivery_id,

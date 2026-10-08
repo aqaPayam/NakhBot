@@ -496,3 +496,20 @@ without increasing the production claim limit or weakening assertions. Other lin
 notification scopes, provider/media proofs, source-phase completion, purge, financial epochs,
 manifests, safe return and production hardening remain; deletion ingress and retention release
 remain disabled.
+
+Notification-account commit `fedf344` passed all six exact-head CI jobs, 565 native tests in 93
+files and all 27 M7 plans (terminal snapshot 1217.83 ms, both required indexes present).
+
+Product notification authority now resolves the exact owning Like, delivered/pending Nakh, Match
+or paid unlock before sorted identity/Account locks, then resolves again before rendering or
+provider admission. Closed, expired, revoked, missing, malformed or borrowed scopes cannot
+authorize those notices. Chat unlock safety warnings share the exact grant; generic critical
+safety notices keep their existing policy. A closure notice requires the recipient's own terminal
+Match fact, including a verified archival receipt, and deliberately permits delivery to the survivor
+after counterpart deletion; it grants no product access. Existing provider settlement fencing remains.
+Eighteen new native scenarios cover seven product scopes with actual counterpart deletion,
+twenty-way requests, unchanged money/grants/product rows, borrowed recipients, malformed references,
+normal unmatch between rendering and provider admission, and the survivor closure exception.
+All 40 focused native tests in three files passed in isolated databases. Source-phase completion,
+signed delivery revocation, ordinary purge, provider proofs, ephemeral invalidation, financial epochs,
+manifests, safe return and production hardening remain required. Ingress and retention release stay off.
