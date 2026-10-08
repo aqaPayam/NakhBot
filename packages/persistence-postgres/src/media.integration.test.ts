@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from 'kysely';
+import { createDeletionFixture } from './testing/deletion-fixture.js';
 import { EnsureBlurredPreview, type BeginMediaIngestionWrite } from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -1131,5 +1133,266 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
         .where('id', '=', second)
         .execute(),
     ).rejects.toMatchObject({ code: '23505' });
+  });
+  it('M8 denies twenty-way upload and photo receipt replay after real deletion admission', async () => {
+    let upload!: BeginMediaIngestionWrite;
+    let mutation!: Parameters<PostgresPhotoManagementStore['mutateOwn']>[0];
+    const fixture = await createDeletionFixture(database, async (owner) => {
+      await database
+        .updateTable('identity.accounts')
+        .set({ state: 'incomplete', version: sql<number>`version+1` })
+        .where('user_id', '=', owner)
+        .execute();
+      const source = await profile(owner);
+      const assets = await Promise.all([
+        seedValidMedia(database, owner),
+        seedValidMedia(database, owner),
+      ]);
+      await assign(source, assets[0], 0, true);
+      await assign(source, assets[1], 1);
+      upload = write(owner);
+      await store.beginTelegramIngestion(upload);
+      const collection = await photoManagement.listOwn(owner);
+      mutation = {
+        userId: owner,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        expectedProfileVersion: collection.profileVersion,
+        action: {
+          type: 'reorder',
+          orderedPhotoIds: collection.photos.map((photo) => photo.id).reverse(),
+        },
+        auditId: randomUUID(),
+        eventId: randomUUID(),
+        profileEventId: randomUUID(),
+        occurredAt: new Date(),
+      };
+      await photoManagement.mutateOwn(mutation);
+    });
+    const saved = await database
+      .selectFrom('platform.idempotency_records')
+      .select(['id', 'response_json'])
+      .where('actor_user_id', '=', fixture.userId)
+      .where('scope', 'in', ['media.manage-own-photos', 'media.begin-telegram-photo-ingestion'])
+      .orderBy('id')
+      .execute();
+    const before = await database
+      .selectFrom('profile.profiles')
+      .selectAll()
+      .where('user_id', '=', fixture.userId)
+      .executeTakeFirstOrThrow();
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 20 }, async () => {
+        await expect(store.beginTelegramIngestion(upload)).rejects.toMatchObject({
+          code: 'capability_denied',
+        });
+        await expect(photoManagement.mutateOwn(mutation)).rejects.toMatchObject({
+          code: 'capability_denied',
+        });
+        await expect(photoManagement.listOwn(fixture.userId)).rejects.toMatchObject({
+          code: 'capability_denied',
+        });
+      }),
+    );
+    expect(attempts.every((result) => result.status === 'fulfilled')).toBe(true);
+    expect(
+      await database
+        .selectFrom('platform.idempotency_records')
+        .select(['id', 'response_json'])
+        .where('actor_user_id', '=', fixture.userId)
+        .where('scope', 'in', ['media.manage-own-photos', 'media.begin-telegram-photo-ingestion'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual(saved);
+    expect(
+      await database
+        .selectFrom('profile.profiles')
+        .selectAll()
+        .where('user_id', '=', fixture.userId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual(before);
+  });
+
+  it('M8 denies delayed validation publication under its old lease after real deletion', async () => {
+    let assetId!: string;
+    await createDeletionFixture(database, async (owner) => {
+      await database
+        .updateTable('identity.accounts')
+        .set({ state: 'incomplete', version: sql<number>`version+1` })
+        .where('user_id', '=', owner)
+        .execute();
+      await profile(owner);
+      const upload = write(owner);
+      assetId = upload.assetId;
+      await store.beginTelegramIngestion(upload);
+      await store.claimPendingQuarantine({ assetId, owner: 'm8-ingestion', leaseMs: 60000 });
+      await store.markQuarantineUploaded({
+        assetId,
+        owner: 'm8-ingestion',
+        bytes: 3,
+        sha256: 'a'.repeat(64),
+        uploadedAt: new Date(),
+        scannerVersion: 'scanner-1',
+        signatureVersion: 'signatures-1',
+        scannedAt: new Date(),
+      });
+      await validation.claim({ assetId, owner: 'm8-validator', leaseMs: 60000 });
+    });
+    const completion = {
+      assetId,
+      owner: 'm8-validator',
+      detectedMediaType: 'image/jpeg' as const,
+      sizeBytes: 3,
+      width: 800,
+      height: 700,
+      originalSha256: 'a'.repeat(64),
+      normalizedSha256: 'b'.repeat(64),
+      validatedKey: `validated/test/${assetId}/original`,
+      thumbnailKey: `variants/test/${assetId}/thumbnail-v1.webp`,
+      thumbnailBytes: 2,
+      thumbnailSha256: 'c'.repeat(64),
+      completedAt: new Date(),
+    };
+    await Promise.all(
+      Array.from({ length: 20 }, () =>
+        expect(validation.complete(completion)).rejects.toMatchObject({
+          code: 'capability_denied',
+        }),
+      ),
+    );
+    expect(
+      await database
+        .selectFrom('media.media_assets')
+        .select(['validation_state', 'validated_key'])
+        .where('id', '=', assetId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ validation_state: 'pending', validated_key: null });
+    expect(
+      await database
+        .selectFrom('media.photo_variants')
+        .select('id')
+        .where('asset_id', '=', assetId)
+        .execute(),
+    ).toEqual([]);
+    expect(
+      await database
+        .selectFrom('media.profile_photos')
+        .select('id')
+        .where('asset_id', '=', assetId)
+        .execute(),
+    ).toEqual([]);
+  });
+
+  it.each([false, true])(
+    'M8 denies blur preparation and completion replay after deletion (already published %s)',
+    async (published) => {
+      let assetId!: string;
+      let completion!: Parameters<PostgresBlurGenerationStore['complete']>[0];
+      await createDeletionFixture(database, async (owner) => {
+        await database
+          .updateTable('identity.accounts')
+          .set({ state: 'incomplete', version: sql<number>`version+1` })
+          .where('user_id', '=', owner)
+          .execute();
+        const source = await profile(owner);
+        assetId = await seedValidMedia(database, owner);
+        await assign(source, assetId, 0, true);
+        expect((await blur.prepare(assetId)).status).toBe('pending');
+        completion = {
+          assetId,
+          blurredKey: `variants/test/${assetId}/blurred-preview-v1.webp`,
+          bytes: 123,
+          sha256: 'a'.repeat(64),
+          completedAt: new Date(),
+        };
+        if (published) await blur.complete(completion);
+      });
+      await expect(blur.prepare(assetId)).rejects.toMatchObject({ code: 'media_delivery_denied' });
+      await Promise.all(
+        Array.from({ length: 20 }, () =>
+          expect(blur.complete(completion)).rejects.toMatchObject({ code: 'capability_denied' }),
+        ),
+      );
+      expect(
+        await database
+          .selectFrom('media.photo_variants')
+          .select('id')
+          .where('asset_id', '=', assetId)
+          .where('variant_type', '=', 'blurred_preview')
+          .execute(),
+      ).toHaveLength(published ? 1 : 0);
+    },
+  );
+
+  it('M8 rechecks Account after a publishing worker waits for a committing tombstone', async () => {
+    const owner = await user(),
+      source = await profile(owner),
+      assetId = await seedValidMedia(database, owner);
+    await assign(source, assetId, 0, true);
+    let release!: () => void, locked!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tombstone = database.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', owner)
+        .forNoKeyUpdate()
+        .executeTakeFirstOrThrow();
+      await tx
+        .updateTable('identity.accounts')
+        .set({ state: 'deleted', version: sql<number>`version+1` })
+        .where('user_id', '=', owner)
+        .execute();
+      locked();
+      await barrier;
+    });
+    await acquired;
+    const completion = {
+      assetId,
+      blurredKey: `variants/test/${assetId}/blurred-preview-v1.webp`,
+      bytes: 123,
+      sha256: 'a'.repeat(64),
+      completedAt: new Date(),
+    };
+    const attempts = Promise.allSettled(
+      Array.from({ length: 20 }, () => blur.complete(completion)),
+    );
+    try {
+      // Confirm the worker actually reached a database lock, not just a timing delay.
+      let waiting = false;
+      for (let probe = 0; probe < 100 && !waiting; probe++) {
+        waiting = (
+          await sql<{
+            waiting: boolean;
+          }>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%users%') AS waiting`.execute(
+            database,
+          )
+        ).rows[0]!.waiting;
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(true);
+    } finally {
+      release();
+      await tombstone;
+    }
+    for (const result of await attempts) {
+      expect(result.status).toBe('rejected');
+      if (result.status === 'rejected')
+        expect(result.reason).toMatchObject({ code: 'capability_denied' });
+    }
+    expect(
+      await database
+        .selectFrom('media.photo_variants')
+        .select('id')
+        .where('asset_id', '=', assetId)
+        .where('variant_type', '=', 'blurred_preview')
+        .execute(),
+    ).toEqual([]);
   });
 });

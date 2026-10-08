@@ -13,9 +13,9 @@ import {
   assertDeclaredUpload,
   assertUploadAttemptAvailable,
   MEDIA_LIMITS,
-  evaluateCapability,
 } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
+import { requireMediaAccountInTransaction } from './media-account-authority.js';
 
 /** Persists intent only: no network I/O, no decoder, and no ability to mark an asset valid. */
 export class PostgresMediaStore implements MediaIngestionStore, QuarantineAssetStore {
@@ -323,10 +323,11 @@ export class PostgresMediaStore implements MediaIngestionStore, QuarantineAssetS
         .selectFrom('identity.users')
         .select('id')
         .where('id', '=', userId)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirst();
       if (user === undefined)
         throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+      await requireMediaAccountInTransaction(transaction, userId);
       const existing = await transaction
         .selectFrom('platform.idempotency_records')
         .selectAll()
@@ -348,18 +349,6 @@ export class PostgresMediaStore implements MediaIngestionStore, QuarantineAssetS
           replayed: true,
         };
       }
-      const account = await transaction
-        .selectFrom('identity.accounts')
-        .select('state')
-        .where('user_id', '=', userId)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      const allowed = evaluateCapability(
-        { accountState: account.state, profileCompletion: null, visibilityEnabled: false },
-        account.state === 'incomplete' ? 'continue_signup' : 'edit_profile',
-      );
-      if (!allowed.allowed)
-        throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
       // Read server time AFTER waiting for the per-User lock. Equal timestamps count too;
       // neither an old client timestamp nor a future stored attempt can evade the limit.
       const time = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(transaction);

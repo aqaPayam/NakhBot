@@ -6,6 +6,7 @@ import type { MediaValidationStore, PendingMediaValidation } from '@nakh/applica
 import { ApplicationError, type AcceptedMediaType } from '@nakh/domain';
 
 import type { DatabaseSchema, NakhDatabase } from './database.js';
+import { requireMediaAccountInTransaction } from './media-account-authority.js';
 
 type Tx = Transaction<DatabaseSchema>;
 type RejectionCode =
@@ -116,8 +117,9 @@ export class PostgresMediaValidationStore implements MediaValidationStore {
         .selectFrom('identity.users')
         .select('id')
         .where('id', '=', identity.owner_user_id)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirstOrThrow();
+      await requireMediaAccountInTransaction(tx, identity.owner_user_id);
       const profile = await tx
         .selectFrom('profile.profiles')
         .selectAll()

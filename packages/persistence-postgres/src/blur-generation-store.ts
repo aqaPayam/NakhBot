@@ -4,6 +4,7 @@ import type { BlurGenerationStore } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { requireMediaAccountInTransaction } from './media-account-authority.js';
 
 function denied(): never {
   throw new ApplicationError('media_delivery_denied', 'error.media.delivery_denied', 403);
@@ -19,8 +20,10 @@ export class PostgresBlurGenerationStore implements BlurGenerationStore {
     const asset = await this.database
       .selectFrom('media.media_assets as asset')
       .innerJoin('media.profile_photos as photo', 'photo.asset_id', 'asset.id')
+      .innerJoin('identity.accounts as account', 'account.user_id', 'asset.owner_user_id')
       .select(['asset.id', 'asset.validated_key'])
       .where('asset.id', '=', assetId)
+      .where('account.state', 'in', ['active', 'restricted', 'incomplete'])
       .where('asset.validation_state', '=', 'valid')
       .where('asset.deleted_at', 'is', null)
       .where('asset.storage_deleted_at', 'is', null)
@@ -70,8 +73,9 @@ export class PostgresBlurGenerationStore implements BlurGenerationStore {
         .selectFrom('identity.users')
         .select('id')
         .where('id', '=', assignment.user_id)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirstOrThrow();
+      await requireMediaAccountInTransaction(tx, assignment.user_id);
       await tx
         .selectFrom('profile.profiles')
         .select('id')

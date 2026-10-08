@@ -316,3 +316,26 @@ Real staging/DR, approved retention periods, external security review and named 
 remain separate release requirements. Never label synthetic CI, a local restore or disabled policy
 controls as those approvals. Stop when independent M8 implementation is finished and report exact
 external blockers; do not begin M9.
+
+Fixture-order repair `3be0702` passed all six exact-head CI jobs, 499 native tests in 91 files,
+all 27 unchanged M7 plans (terminal snapshot 909.170 ms, both required indexes), the real collector
+privacy/conversion rehearsal and migration/restore checks. This verifies the profile archival
+implementation together with its repaired fixtures; synthetic CI is not staging or operator approval.
+
+The next M8 media increment checks current Account capability under the stable User then Account
+locks before upload/photo command receipts, own-photo reads and delayed validation/blur publication.
+User locks use NO KEY UPDATE so Account-first moderation can acquire its FK KEY SHARE without a
+lock cycle. Blur preparation also rejects a deleted owner before returning ready or pending paths.
+Existing signup/restricted photo capability remains. Native probes use real deletion admission,
+twenty-way old receipt/publication attempts and a worker observed waiting on a database lock before
+a tombstone commits. This fences these PostgreSQL publication paths only: ingestion claims, provider
+object cleanup/absence, issued edge grants and full deletion-phase completion still require their
+separate M8 work. No retained capture, safety source or financial record is purged. Retained-data
+release remains disabled because retention periods have not been approved.
+
+The media candidate passes the full local quality check (917 unit tests) and five new native
+deletion probes among 27 focused media tests. The reused local full-suite database had 330 due
+notification deliveries, overflowing the unchanged tests' 100-row claims and causing two missing
+fixture-claim failures. A fresh isolated full-suite replay passes 500 tests; four Redis probes are
+skipped locally and require Linux CI. No notification implementation, batch or assertion was changed.
+Initial test field/lock-probe mistakes and two lint assertions were corrected before commitment.

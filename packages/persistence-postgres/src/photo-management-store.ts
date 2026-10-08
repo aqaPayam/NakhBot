@@ -18,6 +18,7 @@ import {
 } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { requireMediaAccountInTransaction } from './media-account-authority.js';
 import { profilePhotosAreEligible } from './media-eligibility.js';
 import type { ProfilePhotoTable } from './media-tables.js';
 
@@ -367,20 +368,29 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
   public constructor(private readonly database: NakhDatabase) {}
 
   public async listOwn(userId: string): Promise<OwnPhotoCollection> {
-    const profile = await this.database
-      .selectFrom('profile.profiles')
-      .select(['id', 'version'])
-      .where('user_id', '=', userId)
-      .executeTakeFirst();
-    if (profile === undefined) missingPhoto();
-    const rows = await this.database
-      .selectFrom('media.profile_photos')
-      .selectAll()
-      .where('profile_id', '=', profile.id)
-      .where('status', '!=', 'deleted')
-      .orderBy('display_order')
-      .execute();
-    return { profileVersion: profile.version, photos: managed(rows) };
+    return this.database.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', userId)
+        .forNoKeyUpdate()
+        .executeTakeFirstOrThrow();
+      await requireMediaAccountInTransaction(tx, userId);
+      const profile = await tx
+        .selectFrom('profile.profiles')
+        .select(['id', 'version'])
+        .where('user_id', '=', userId)
+        .executeTakeFirst();
+      if (profile === undefined) missingPhoto();
+      const rows = await tx
+        .selectFrom('media.profile_photos')
+        .selectAll()
+        .where('profile_id', '=', profile.id)
+        .where('status', '!=', 'deleted')
+        .orderBy('display_order')
+        .execute();
+      return { profileVersion: profile.version, photos: managed(rows) };
+    });
   }
 
   public async mutateOwn(
@@ -412,8 +422,9 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
         .selectFrom('identity.users')
         .select('id')
         .where('id', '=', input.userId)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirstOrThrow();
+      await requireMediaAccountInTransaction(tx, input.userId);
       const claimed = await tx
         .insertInto('platform.idempotency_records')
         .values({
