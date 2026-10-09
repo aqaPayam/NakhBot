@@ -1,5 +1,17 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: irreversible deleted-account plan fixture
+
+Payment-epoch commit `a16b53d` passed quality, all four container jobs and 623 native
+integration tests in 96 files. Its restarted PostgreSQL job then failed in the M3
+Liked By matrix: the fixture changed its receiver to deleted and subsequently
+restored it to active without verified fresh-return authority. Migration 97 correctly
+rejected that transition. The repair exercises deleted-receiver denial last, after
+the reversible account, visibility and profile cases, and leaves the tombstone intact.
+Every exclusion case, fixture population, index and timing budget remains unchanged.
+The complete local check and all six exact-head CI jobs must pass before further M8
+features; the failed payment-epoch head is not an accepted staging candidate.
+
 Start from verified M7 implementation `d9ff0e1e681108984369ce82bbae82370541ed59`.
 M7 remains code complete / staging blocked; its provider/operator evidence is not invented here.
 M8 owns `ACC-042..044`. M9 activation is outside this work.

@@ -444,7 +444,7 @@ async function verifyLikedByMatrix(
     if (!expectedIds.has(likeId)) throw new Error('ACC-019 exposed a prohibited Like.');
 
   const now = new Date();
-  for (const state of ['guest', 'incomplete', 'restricted', 'banned', 'deleted'] as const) {
+  for (const state of ['guest', 'incomplete', 'restricted', 'banned'] as const) {
     await database
       .updateTable('identity.accounts')
       .set({ state, state_changed_at: now })
@@ -479,6 +479,15 @@ async function verifyLikedByMatrix(
     .set({ completion_status: 'complete', updated_at: now })
     .where('user_id', '=', receiverUserId)
     .execute();
+
+  // Deletion is terminal without verified fresh-return authority. Exercise it
+  // after the reversible receiver states so the fixture never revives a tombstone.
+  await database
+    .updateTable('identity.accounts')
+    .set({ state: 'deleted', state_changed_at: now })
+    .where('user_id', '=', receiverUserId)
+    .execute();
+  await requireReceiverDenied(store, receiverUserId);
 
   const cases = Object.fromEntries(
     likedByMatrixCases.map((matrixCase) => [
