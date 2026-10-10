@@ -24,6 +24,7 @@ import { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
 import { PostgresPendingNakhStore } from './pending-nakh-store.js';
 import { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
 import { createDeletionFixture } from './testing/deletion-fixture.js';
+import { resolveNotificationScope } from './notification-scope-authority.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const manGenderId = '20000000-0000-4000-8000-000000000001';
@@ -401,6 +402,124 @@ describe.skipIf(databaseUrl === undefined)('M5 pending Nakh persistence', () => 
   afterAll(async () => {
     await database?.destroy();
   });
+
+  it.each(['sender', 'receiver'] as const)(
+    'M8 denies borrowed %s lives in pending content and cached creation/edit commands',
+    async (side) => {
+      const sender = await createActiveUser(database),
+        receiver = await createActiveUser(database);
+      const creation = command(sender, receiver);
+      const pending = await store.createPending(write(creation));
+      const edit = editCommand(sender, pending.pendingNakhId, 1, 'Original-life private edit');
+      await store.editPending(editWrite(edit));
+      expect((await store.createPending(write(creation))).replayed).toBe(true);
+      const owner = side === 'sender' ? sender : receiver;
+      const snapshot = async (): Promise<readonly unknown[]> =>
+        Promise.all([
+          database
+            .selectFrom('nakh.pending_nakhes')
+            .selectAll()
+            .where('id', '=', pending.pendingNakhId)
+            .execute(),
+          database
+            .selectFrom('nakh.nakh_flows')
+            .selectAll()
+            .where('sender_user_id', '=', sender)
+            .execute(),
+          database
+            .selectFrom('billing.pending_payments')
+            .selectAll()
+            .where('id', '=', pending.fundingIntentId)
+            .execute(),
+          database
+            .selectFrom('platform.user_counters')
+            .selectAll()
+            .where('user_id', '=', sender)
+            .execute(),
+          database
+            .selectFrom('platform.idempotency_records')
+            .selectAll()
+            .where('actor_user_id', '=', sender)
+            .orderBy('id')
+            .execute(),
+        ]);
+      const before = await snapshot();
+      // Negative corruption only: this must not authorize a return or new product
+      // life. Restore the original Account before leaving this test.
+      const setEpoch = async (value: number): Promise<void> => {
+        await database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            await sql`UPDATE identity.accounts SET product_epoch=${value} WHERE user_id=${owner}::uuid`.execute(
+              connection,
+            );
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      };
+      await setEpoch(1);
+      try {
+        const source = await database
+          .selectFrom('nakh.pending_nakhes')
+          .selectAll()
+          .where('id', '=', pending.pendingNakhId)
+          .executeTakeFirstOrThrow();
+        const borrowedId = randomUUID();
+        await expect(
+          database
+            .insertInto('nakh.pending_nakhes')
+            .values({ ...source, id: borrowedId })
+            .execute(),
+        ).rejects.toMatchObject({ code: '40001' });
+        expect(
+          await database
+            .selectFrom('nakh.pending_nakhes')
+            .select('id')
+            .where('id', '=', borrowedId)
+            .execute(),
+        ).toEqual([]);
+        await expect(
+          store.readSenderPage({
+            actor: { kind: 'user', userId: sender },
+            requestId: randomUUID(),
+            limit: 10,
+          }),
+        ).resolves.toMatchObject({ totalCount: 0, rows: [] });
+        const outcomes = await Promise.allSettled(
+          Array.from({ length: 20 }, () => store.createPending(write(creation))),
+        );
+        expect(
+          outcomes.every(
+            (result) =>
+              result.status === 'rejected' &&
+              result.reason instanceof ApplicationError &&
+              result.reason.code === 'nakh_unavailable',
+          ),
+        ).toBe(true);
+        await expect(store.editPending(editWrite(edit))).rejects.toMatchObject({
+          code: 'nakh_unavailable',
+        });
+        await expect(
+          store.cancelPending(
+            cancelWrite(cancelCommand(sender, pending.pendingNakhId, 'converted_to_like')),
+          ),
+        ).rejects.toMatchObject({ code: 'nakh_unavailable' });
+        expect(
+          await resolveNotificationScope(database, {
+            user_id: sender,
+            notification_type: 'pending_nakh_payment_reminder',
+            payload: { pendingNakhId: pending.pendingNakhId },
+          }),
+        ).toBeUndefined();
+        expect(await snapshot()).toEqual(before);
+      } finally {
+        await setEpoch(0);
+      }
+      expect(await snapshot()).toEqual(before);
+      expect((await store.editPending(editWrite(edit))).replayed).toBe(true);
+    },
+  );
 
   it('ACC-021 returns one stable result for twenty simultaneous command replays', async () => {
     const senderUserId = await createActiveUser(database);

@@ -58,12 +58,13 @@ export async function resolveNotificationScope(
       const nakhId = identifier(payload?.nakhId);
       if (nakhId === undefined) return undefined;
       const nakh = await database
-        .selectFrom('nakh.nakhes')
-        .select(['sender_user_id', 'receiver_user_id'])
-        .where('id', '=', nakhId)
-        .where('receiver_user_id', '=', notice.user_id)
-        .where('status', 'in', ['sent', 'seen'])
-        .where('expires_at', '>', sql<Date>`clock_timestamp()`)
+        .selectFrom('nakh.nakhes as delivered')
+        .innerJoin('nakh.current_flow_lives as flow', 'flow.id', 'delivered.nakh_flow_id')
+        .select(['delivered.sender_user_id', 'delivered.receiver_user_id'])
+        .where('delivered.id', '=', nakhId)
+        .where('delivered.receiver_user_id', '=', notice.user_id)
+        .where('delivered.status', 'in', ['sent', 'seen'])
+        .where('delivered.expires_at', '>', sql<Date>`clock_timestamp()`)
         .executeTakeFirst();
       return nakh === undefined ? undefined : [nakh.sender_user_id, nakh.receiver_user_id];
     }
@@ -72,7 +73,7 @@ export async function resolveNotificationScope(
       if (pendingId === undefined) return undefined;
       const pending = await database
         .selectFrom('nakh.pending_nakhes as pending')
-        .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+        .innerJoin('nakh.current_flow_lives as flow', 'flow.id', 'pending.nakh_flow_id')
         .select(['flow.sender_user_id', 'flow.receiver_user_id'])
         .where('pending.id', '=', pendingId)
         .where('pending.sender_user_id', '=', notice.user_id)

@@ -10,7 +10,16 @@ in the historical helper. It creates no retained entity or new user data; the
 commit authority, retained transcript access and disabled release are preserved.
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 104: 131 tables, 1,200 columns and 242 foreign keys.
+code-owned M8 catalog inventory for migration 105: 131 tables, 1,202 columns and 242 foreign keys.
+
+Migration 105 adds immutable original sender/receiver lives to Nakh flows without
+changing existing text, deadlines, status, funding or quota facts. Ambiguous
+legacy owners reject migration. Native flow and source admission lock identities
+then Accounts and require those exact current lives; pending funding proof remains
+deferred until commit. A derived current-life view supplies product reads and
+notifications. Command replay and delivery settlement also require original lives.
+No new retained entity, source archival, purge completion, fresh return or retained
+release is authorized by these fences.
 
 Migration 104 binds each Like to both original account lives. Only Likes used by
 a Match or paid unlock receive a minimal reference containing their original ID,

@@ -91,6 +91,17 @@ export class PostgresDirectNakhStore implements DirectNakhStore {
           );
         if (existing.status !== 'completed' || existing.response_json === null)
           throw new ApplicationError('conflict', 'error.command.in_progress', 409);
+        const originalNakhId = existing.response_json.nakhId;
+        if (typeof originalNakhId !== 'string') unavailable();
+        const original = await transaction
+          .selectFrom('nakh.nakhes as delivered')
+          .innerJoin('nakh.current_flow_lives as flow', 'flow.id', 'delivered.nakh_flow_id')
+          .select('delivered.id')
+          .where('delivered.id', '=', originalNakhId)
+          .where('delivered.sender_user_id', '=', senderUserId)
+          .where('delivered.receiver_user_id', '=', receiverUserId)
+          .executeTakeFirst();
+        if (original === undefined) unavailable();
         return replayResult(existing.response_json);
       }
 
@@ -102,6 +113,7 @@ export class PostgresDirectNakhStore implements DirectNakhStore {
         .select([
           'user.id',
           'account.state',
+          'account.product_epoch',
           'settings.visibility_enabled',
           'profile.completion_status',
         ])
@@ -201,6 +213,8 @@ export class PostgresDirectNakhStore implements DirectNakhStore {
           id: write.flowId,
           sender_user_id: senderUserId,
           receiver_user_id: receiverUserId,
+          sender_product_epoch: users.find((user) => user.id === senderUserId)!.product_epoch,
+          receiver_product_epoch: users.find((user) => user.id === receiverUserId)!.product_epoch,
           created_at: sentAt,
         })
         .execute();

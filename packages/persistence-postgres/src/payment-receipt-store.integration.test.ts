@@ -1088,100 +1088,159 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     ]);
   });
 
-  it('creates one correction when the pair becomes terminal after Stars capture', async () => {
-    const payment = await preparePendingNakhPayment();
-    const callbackId = `nakh-invalid:${randomUUID()}`;
-    await receipts.recordSuccessfulPayment({
-      providerEventId: callbackId,
-      telegramUserId: payment.sender.telegramUserId,
-      invoicePayload: payment.payload.cleartext,
-      currency: 'XTR',
-      totalAmount: payment.starsAmount,
-      providerEnvironment: 'test',
-      providerBotIdDigest: botDigest,
-      telegramChargeId: `telegram:${randomUUID()}`,
-      evidence: evidence(callbackId),
-    });
-    const [userLowId, userHighId] = [payment.sender.userId, payment.receiver.userId].sort();
-    await database
-      .insertInto('interaction.user_pair_states')
-      .values({
-        user_low_id: userLowId!,
-        user_high_id: userHighId!,
-        state: 'blocked',
-        reason_code: 'safety_block',
-        changed_at: new Date(),
-      })
-      .execute();
-    const claim = (
-      await receipts.claimFulfillments({ owner: 'nakh-correction', leaseMs: 60_000, limit: 100 })
-    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
-    expect(claim).toBeDefined();
-    expect(claim?.paymentType).toBe('pay_pending_action');
-    const write = {
-      paymentRecordId: payment.paymentRecordId,
-      owner: 'nakh-correction',
-      fenceToken: claim!.fenceToken,
-      nakhId: randomUUID(),
-      historyId: randomUUID(),
-      refundRecordId: randomUUID(),
-      deliveredEventId: randomUUID(),
-      paymentTerminalEventId: randomUUID(),
-    };
-    const results = await Promise.all(
-      Array.from({ length: 20 }, () => receipts.fulfillPendingNakh(write)),
-    );
-    expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
-    expect(results.filter(({ replayed }) => replayed)).toHaveLength(19);
-    expect(new Set(results.map(({ refundRecordId }) => refundRecordId))).toEqual(
-      new Set([write.refundRecordId]),
-    );
-    const [pending, refund, fulfillment, delivered, receiverFacts, counter] = await Promise.all([
-      database
-        .selectFrom('nakh.pending_nakhes')
-        .select(['status', 'closed_at', 'version'])
-        .where('id', '=', payment.pendingNakhId)
-        .executeTakeFirstOrThrow(),
-      database
-        .selectFrom('billing.refund_records')
-        .select(['id', 'status', 'reason_code'])
-        .where('payment_record_id', '=', payment.paymentRecordId)
-        .executeTakeFirstOrThrow(),
-      database
-        .selectFrom('billing.payment_fulfillments')
-        .select('state')
-        .where('payment_record_id', '=', payment.paymentRecordId)
-        .executeTakeFirstOrThrow(),
-      database
-        .selectFrom('nakh.nakhes')
-        .select('id')
-        .where('payment_record_id', '=', payment.paymentRecordId)
-        .execute(),
-      database
-        .selectFrom('notification.notifications')
-        .select('id')
-        .where('notification_type', '=', 'nakh_received')
-        .where('user_id', '=', payment.receiver.userId)
-        .execute(),
-      database
-        .selectFrom('platform.user_counters')
-        .select('pending_nakh_count')
-        .where('user_id', '=', payment.sender.userId)
-        .executeTakeFirstOrThrow(),
-    ]);
-    expect(pending.status).toBe('closed_by_system');
-    expect(pending.closed_at).toBeInstanceOf(Date);
-    expect(pending.version).toBe(2);
-    expect(refund).toEqual({
-      id: write.refundRecordId,
-      status: 'pending',
-      reason_code: 'target_unavailable',
-    });
-    expect(fulfillment.state).toBe('correction_required');
-    expect(delivered).toHaveLength(0);
-    expect(receiverFacts).toHaveLength(0);
-    expect(counter.pending_nakh_count).toBe(0);
-  });
+  it.each(['blocked_pair', 'receiver_life'] as const)(
+    'creates one original-charge correction when scope becomes unavailable after Stars capture (%s)',
+    async (scenario) => {
+      const payment = await preparePendingNakhPayment();
+      const callbackId = `nakh-invalid:${randomUUID()}`;
+      await receipts.recordSuccessfulPayment({
+        providerEventId: callbackId,
+        telegramUserId: payment.sender.telegramUserId,
+        invoicePayload: payment.payload.cleartext,
+        currency: 'XTR',
+        totalAmount: payment.starsAmount,
+        providerEnvironment: 'test',
+        providerBotIdDigest: botDigest,
+        telegramChargeId: `telegram:${randomUUID()}`,
+        evidence: evidence(callbackId),
+      });
+      const originalFinancialFacts = await Promise.all([
+        database
+          .selectFrom('billing.telegram_stars_receipts')
+          .selectAll()
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .execute(),
+        database
+          .selectFrom('billing.credit_accounts')
+          .selectAll()
+          .where('user_id', 'in', [payment.sender.userId, payment.receiver.userId])
+          .orderBy('user_id')
+          .execute(),
+      ]);
+      const setEpoch = async (value: number): Promise<void> => {
+        await database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            await sql`UPDATE identity.accounts SET product_epoch=${value} WHERE user_id=${payment.receiver.userId}::uuid`.execute(
+              connection,
+            );
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      };
+      const [userLowId, userHighId] = [payment.sender.userId, payment.receiver.userId].sort();
+      if (scenario === 'blocked_pair')
+        await database
+          .insertInto('interaction.user_pair_states')
+          .values({
+            user_low_id: userLowId!,
+            user_high_id: userHighId!,
+            state: 'blocked',
+            reason_code: 'safety_block',
+            changed_at: new Date(),
+          })
+          .execute();
+      else {
+        // Negative stale-life probe only, not approved return. Original charge
+        // correction must remain available without granting new product content.
+        await setEpoch(1);
+      }
+      try {
+        const claim = (
+          await receipts.claimFulfillments({
+            owner: 'nakh-correction',
+            leaseMs: 60_000,
+            limit: 100,
+          })
+        ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
+        expect(claim).toBeDefined();
+        expect(claim?.paymentType).toBe('pay_pending_action');
+        const write = {
+          paymentRecordId: payment.paymentRecordId,
+          owner: 'nakh-correction',
+          fenceToken: claim!.fenceToken,
+          nakhId: randomUUID(),
+          historyId: randomUUID(),
+          refundRecordId: randomUUID(),
+          deliveredEventId: randomUUID(),
+          paymentTerminalEventId: randomUUID(),
+        };
+        const results = await Promise.all(
+          Array.from({ length: 20 }, () => receipts.fulfillPendingNakh(write)),
+        );
+        expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
+        expect(results.filter(({ replayed }) => replayed)).toHaveLength(19);
+        expect(new Set(results.map(({ refundRecordId }) => refundRecordId))).toEqual(
+          new Set([write.refundRecordId]),
+        );
+        const [pending, refund, fulfillment, delivered, receiverFacts, counter] = await Promise.all(
+          [
+            database
+              .selectFrom('nakh.pending_nakhes')
+              .select(['status', 'closed_at', 'version'])
+              .where('id', '=', payment.pendingNakhId)
+              .executeTakeFirstOrThrow(),
+            database
+              .selectFrom('billing.refund_records')
+              .select(['id', 'status', 'reason_code'])
+              .where('payment_record_id', '=', payment.paymentRecordId)
+              .executeTakeFirstOrThrow(),
+            database
+              .selectFrom('billing.payment_fulfillments')
+              .select('state')
+              .where('payment_record_id', '=', payment.paymentRecordId)
+              .executeTakeFirstOrThrow(),
+            database
+              .selectFrom('nakh.nakhes')
+              .select('id')
+              .where('payment_record_id', '=', payment.paymentRecordId)
+              .execute(),
+            database
+              .selectFrom('notification.notifications')
+              .select('id')
+              .where('notification_type', '=', 'nakh_received')
+              .where('user_id', '=', payment.receiver.userId)
+              .execute(),
+            database
+              .selectFrom('platform.user_counters')
+              .select('pending_nakh_count')
+              .where('user_id', '=', payment.sender.userId)
+              .executeTakeFirstOrThrow(),
+          ],
+        );
+        expect(pending.status).toBe('closed_by_system');
+        expect(pending.closed_at).toBeInstanceOf(Date);
+        expect(pending.version).toBe(2);
+        expect(refund).toEqual({
+          id: write.refundRecordId,
+          status: 'pending',
+          reason_code: 'target_unavailable',
+        });
+        expect(fulfillment.state).toBe('correction_required');
+        expect(delivered).toHaveLength(0);
+        expect(receiverFacts).toHaveLength(0);
+        expect(counter.pending_nakh_count).toBe(0);
+        expect(
+          await Promise.all([
+            database
+              .selectFrom('billing.telegram_stars_receipts')
+              .selectAll()
+              .where('payment_record_id', '=', payment.paymentRecordId)
+              .execute(),
+            database
+              .selectFrom('billing.credit_accounts')
+              .selectAll()
+              .where('user_id', 'in', [payment.sender.userId, payment.receiver.userId])
+              .orderBy('user_id')
+              .execute(),
+          ]),
+        ).toEqual(originalFinancialFacts);
+      } finally {
+        if (scenario === 'receiver_life') await setEpoch(0);
+      }
+    },
+  );
 
   it('ACC-027 refunds a late capture after cancellation without delivering a Nakh', async () => {
     const payment = await preparePendingNakhPayment();

@@ -415,6 +415,7 @@ describe.skipIf(url === undefined)('M8 original financial epoch preservation and
             '000102_m8_support_epoch_closure.sql',
             '000103_m8_support_closure_proof_view.sql',
             '000104_m8_like_original_lives.sql',
+            '000105_m8_nakh_original_lives.sql',
           ]);
           expect(
             await legacy

@@ -1146,7 +1146,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         .selectFrom('identity.users as user')
         .innerJoin('identity.accounts as account', 'account.user_id', 'user.id')
         .innerJoin('profile.profiles as profile', 'profile.user_id', 'user.id')
-        .select(['user.id', 'account.state', 'profile.completion_status'])
+        .select(['user.id', 'account.state', 'account.product_epoch', 'profile.completion_status'])
         .where('user.id', 'in', [pair.userLowId, pair.userHighId])
         .orderBy('user.id')
         .forUpdate()
@@ -1159,7 +1159,13 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         .executeTakeFirst();
       const flow = await transaction
         .selectFrom('nakh.nakh_flows')
-        .select(['id', 'sender_user_id', 'receiver_user_id'])
+        .select([
+          'id',
+          'sender_user_id',
+          'receiver_user_id',
+          'sender_product_epoch',
+          'receiver_product_epoch',
+        ])
         .where('id', '=', locator.flow_id)
         .where('sender_user_id', '=', locator.user_id)
         .where('receiver_user_id', '=', locator.receiver_user_id)
@@ -1194,6 +1200,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           'intent.target_type',
           'intent.target_id',
           'intent.required_stars',
+          'intent.product_epoch',
           'receipt.stars_amount as receipt_stars_amount',
           'receipt.telegram_charge_id',
         ])
@@ -1227,6 +1234,11 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         counter.pending_nakh_count > 0 &&
         users.length === 2 &&
         users.every((user) => user.state === 'active' && user.completion_status === 'complete') &&
+        users.find((user) => user.id === flow.sender_user_id)?.product_epoch ===
+          flow.sender_product_epoch &&
+        users.find((user) => user.id === flow.receiver_user_id)?.product_epoch ===
+          flow.receiver_product_epoch &&
+        payment.product_epoch === flow.sender_product_epoch &&
         pairState === undefined;
       if (!eligible) {
         if (pending.status === 'pending_payment') {

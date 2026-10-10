@@ -446,6 +446,8 @@ export interface NakhFlowTable {
   sender_user_id: string;
   receiver_user_id: string;
   created_at: Generated<Date>;
+  sender_product_epoch: Generated<number>;
+  receiver_product_epoch: Generated<number>;
 }
 
 export interface PendingNakhTable {
@@ -1338,6 +1340,7 @@ export interface DatabaseSchema {
   'billing.credit_epoch_closures': CreditEpochClosureTable;
   'platform.user_counters': UserCounterTable;
   'nakh.nakh_flows': NakhFlowTable;
+  'nakh.current_flow_lives': NakhFlowTable;
   'nakh.pending_nakhes': PendingNakhTable;
   'nakh.nakhes': NakhTable;
   'nakh.nakh_status_history': NakhStatusHistoryTable;

@@ -1,5 +1,46 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: original Nakh lives and product authority
+
+Repair `dc8cb07` passed the fresh complete check (944 unit tests), 32 focused
+native tests and all six exact-head CI jobs. CI passed 688 native tests in 104
+files, all 27 unchanged query-plan checks, load and backup/restore smoke.
+Support and initial/terminal integrity took 69.005 and 1102.303/1381.985 ms;
+both required terminal indexes remained present. Tracked count was 192,814 lines.
+The first repair check lost a local test worker without an assertion failure.
+Inspection showed worker processes did not inherit the parent runtime flags.
+A task-local worker flag probe passed, and the fresh full run passed every test;
+the precise original process-exit cause remains unconfirmed. Repository settings
+and CI runtime were unchanged.
+
+Migration 105 preserves original Nakh flow fields and adds both owning lives.
+Unprovable legacy ownership rejects migration. Native flow and child admission
+lock sorted identities then Accounts and recheck exact current lives after waits;
+pending funding ownership remains a deferred commit proof. A set-join view gates
+content, receiver commands and notices. Cached creation and edit/view replay must
+still resolve the original current-life source. Credit-triggered and captured-Stars
+delivery require both original participants and funding life, preserving existing
+original-charge correction routes. Pending-to-Like conversion writes both locked
+lives and rejects borrowed Like facts. All original source FKs and immutable
+flow lifecycle remain; no archival, phase completion or return is authorized.
+Deploy migration 105 before these product adapters. Old epoch-zero producers
+remain compatible while return is disabled; all producers require upgrade before
+any separately verified later-life activation.
+
+Focused native and populated concurrent upgrade validation passed 195 checks
+across 17 suites. Captured-Stars stale receiver scope produced one original-charge
+correction under twenty-way replay, no delivery and unchanged receipt/credit facts.
+The first complete check found an unsafe matcher assignment in the new funding
+rollback test; its explicit unknown type passed focused lint. A fresh complete
+check then passed lint but the worker compiler process exited with Windows
+3221225477 without a type diagnostic. The identical worker compiler passed under
+the task-local non-JIT runtime; compiler invocations now use that runtime locally.
+The precise crash cause is unconfirmed; compiler/source and CI settings are unchanged.
+A fresh complete check and six exact-head CI jobs remain required. Privileged
+epoch corruption is negative denial evidence only, never
+verified fresh return. Retained release, deletion ingress and full return stay off;
+no external retention, provider, staging, security or DR approval is invented.
+
 ## Current repair: native moderation reporter lives
 
 Original-Like commit `d929914` passed the full local check (944 unit tests),

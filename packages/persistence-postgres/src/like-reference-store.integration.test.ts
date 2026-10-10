@@ -83,10 +83,11 @@ describe.skipIf(url === undefined)(
         );
         expect(upgraded.flatMap((result) => result.applied)).toEqual([
           '000104_m8_like_original_lives.sql',
+          '000105_m8_nakh_original_lives.sql',
         ]);
-        expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
-          '000104_m8_like_original_lives.sql',
-        );
+        const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
+        expect(verified).toContain('000104_m8_like_original_lives.sql');
+        expect(verified).toContain('000105_m8_nakh_original_lives.sql');
         expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
       } finally {
         await rm(directory, { recursive: true, force: true });

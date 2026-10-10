@@ -88,7 +88,7 @@ export class PostgresPendingNakhStore
 
         const base = transaction
           .selectFrom('nakh.pending_nakhes as pending')
-          .innerJoin('nakh.nakh_flows as flow', 'flow.id', 'pending.nakh_flow_id')
+          .innerJoin('nakh.current_flow_lives as flow', 'flow.id', 'pending.nakh_flow_id')
           .innerJoin('profile.profiles as target', 'target.user_id', 'flow.receiver_user_id')
           .innerJoin(
             'identity.accounts as target_account',
@@ -172,7 +172,12 @@ export class PostgresPendingNakhStore
         .executeTakeFirst();
       if (locator === undefined)
         throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
-      await lockNakhLifecyclePair(transaction, senderUserId, locator.receiver_user_id);
+      await lockNakhLifecyclePair(
+        transaction,
+        senderUserId,
+        locator.receiver_user_id,
+        locator.nakh_flow_id,
+      );
 
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
@@ -309,7 +314,12 @@ export class PostgresPendingNakhStore
         throw new ApplicationError('not_found', 'error.nakh.not_found', 404);
 
       const receiverUserId = locator.receiver_user_id;
-      const pair = await lockNakhLifecyclePair(transaction, senderUserId, receiverUserId);
+      const pair = await lockNakhLifecyclePair(
+        transaction,
+        senderUserId,
+        receiverUserId,
+        locator.nakh_flow_id,
+      );
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -350,7 +360,7 @@ export class PostgresPendingNakhStore
         .selectFrom('identity.users as user')
         .innerJoin('identity.accounts as account', 'account.user_id', 'user.id')
         .innerJoin('profile.profiles as profile', 'profile.user_id', 'user.id')
-        .select(['user.id', 'account.state', 'profile.completion_status'])
+        .select(['user.id', 'account.state', 'account.product_epoch', 'profile.completion_status'])
         .where('user.id', 'in', [pair.userLowId, pair.userHighId])
         .orderBy('user.id')
         .forUpdate()
@@ -436,7 +446,14 @@ export class PostgresPendingNakhStore
         throw new ApplicationError('pair_unavailable', 'error.interaction.pair_unavailable', 409);
       const likes = await transaction
         .selectFrom('interaction.likes')
-        .select(['id', 'sender_user_id', 'status'])
+        .select([
+          'id',
+          'sender_user_id',
+          'receiver_user_id',
+          'sender_product_epoch',
+          'receiver_product_epoch',
+          'status',
+        ])
         .where((expression) =>
           expression.or([
             expression.and([
@@ -452,6 +469,16 @@ export class PostgresPendingNakhStore
         .orderBy('id')
         .forUpdate()
         .execute();
+      if (
+        likes.some(
+          (like) =>
+            like.sender_product_epoch !==
+              users.find((user) => user.id === like.sender_user_id)?.product_epoch ||
+            like.receiver_product_epoch !==
+              users.find((user) => user.id === like.receiver_user_id)?.product_epoch,
+        )
+      )
+        throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
       if (likes.some((like) => like.sender_user_id === senderUserId))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
 
@@ -471,6 +498,8 @@ export class PostgresPendingNakhStore
             id: write.interactionId,
             sender_user_id: senderUserId,
             receiver_user_id: receiverUserId,
+            sender_product_epoch: users.find((user) => user.id === senderUserId)!.product_epoch,
+            receiver_product_epoch: users.find((user) => user.id === receiverUserId)!.product_epoch,
             status: 'active',
             created_at: now,
             closed_at: null,
@@ -834,6 +863,19 @@ export class PostgresPendingNakhStore
           );
         if (existing.status !== 'completed' || existing.response_json === null)
           throw new ApplicationError('conflict', 'error.command.in_progress', 409);
+        const originalPendingId = existing.response_json.pendingNakhId;
+        if (typeof originalPendingId !== 'string')
+          throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
+        const original = await transaction
+          .selectFrom('nakh.pending_nakhes as pending')
+          .innerJoin('nakh.current_flow_lives as flow', 'flow.id', 'pending.nakh_flow_id')
+          .select('pending.id')
+          .where('pending.id', '=', originalPendingId)
+          .where('pending.sender_user_id', '=', senderUserId)
+          .where('flow.receiver_user_id', '=', targetUserId)
+          .executeTakeFirst();
+        if (original === undefined)
+          throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
         return replayResult(existing.response_json);
       }
 
@@ -845,6 +887,7 @@ export class PostgresPendingNakhStore
         .select([
           'user.id',
           'account.state',
+          'account.product_epoch',
           'settings.visibility_enabled',
           'profile.completion_status',
         ])
@@ -930,6 +973,8 @@ export class PostgresPendingNakhStore
           id: write.flowId,
           sender_user_id: senderUserId,
           receiver_user_id: targetUserId,
+          sender_product_epoch: users.find((user) => user.id === senderUserId)!.product_epoch,
+          receiver_product_epoch: users.find((user) => user.id === targetUserId)!.product_epoch,
           created_at: now,
         })
         .execute();

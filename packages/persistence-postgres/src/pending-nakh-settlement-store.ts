@@ -99,7 +99,13 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
         .executeTakeFirst();
       const flow = await transaction
         .selectFrom('nakh.nakh_flows')
-        .select(['id', 'sender_user_id', 'receiver_user_id'])
+        .select([
+          'id',
+          'sender_user_id',
+          'receiver_user_id',
+          'sender_product_epoch',
+          'receiver_product_epoch',
+        ])
         .where('id', '=', locator.nakh_flow_id)
         .where('sender_user_id', '=', write.senderUserId)
         .where('receiver_user_id', '=', locator.receiver_user_id)
@@ -155,6 +161,9 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
         counter.pending_nakh_count > 0 &&
         sender !== undefined &&
         receiver !== undefined &&
+        sender.product_epoch === flow.sender_product_epoch &&
+        receiver.product_epoch === flow.receiver_product_epoch &&
+        intent.product_epoch === flow.sender_product_epoch &&
         isDelayedNakhDeliveryEligible({
           sender: {
             accountState: sender.state,

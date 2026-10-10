@@ -24,6 +24,7 @@ import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
 import { runMigrations } from './migrations.js';
 import { createDeletionFixture } from './testing/deletion-fixture.js';
+import { resolveNotificationScope } from './notification-scope-authority.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const manGenderId = '20000000-0000-4000-8000-000000000001';
@@ -200,6 +201,164 @@ describe.skipIf(databaseUrl === undefined)('M5 direct credit Nakh persistence', 
   afterAll(async () => {
     await database?.destroy();
   });
+
+  it.each(['sender', 'receiver'] as const)(
+    'M8 denies borrowed %s lives in content, creation replay, receiver replay and notices without changing money',
+    async (side) => {
+      const sender = await createActiveUser(database),
+        receiver = await createActiveUser(database);
+      await grantCredits(database, sender, 4n);
+      const creation = command(sender, receiver);
+      const delivered = await store.createDirect(write(creation));
+      const reader = new PostgresDeliveredNakhStore(database);
+      const handler = new ViewNakhProfileHandler(reader, { uuid: randomUUID });
+      const view = viewCommand(receiver, delivered.nakhId);
+      await handler.execute(view);
+      expect((await store.createDirect(write(creation))).replayed).toBe(true);
+      const owner = side === 'sender' ? sender : receiver;
+      const snapshot = async (): Promise<readonly unknown[]> =>
+        Promise.all([
+          database
+            .selectFrom('nakh.nakhes')
+            .selectAll()
+            .where('id', '=', delivered.nakhId)
+            .execute(),
+          database
+            .selectFrom('nakh.nakh_flows')
+            .selectAll()
+            .where('sender_user_id', '=', sender)
+            .execute(),
+          database
+            .selectFrom('billing.credit_accounts')
+            .selectAll()
+            .where('user_id', '=', sender)
+            .execute(),
+          database
+            .selectFrom('billing.credit_transactions')
+            .selectAll()
+            .where('user_id', '=', sender)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('nakh.nakh_receiver_actions')
+            .selectAll()
+            .where('nakh_id', '=', delivered.nakhId)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('platform.idempotency_records')
+            .selectAll()
+            .where('actor_user_id', 'in', [sender, receiver])
+            .orderBy('id')
+            .execute(),
+        ]);
+      const before = await snapshot();
+      await expect(
+        sql`UPDATE identity.accounts SET product_epoch=1 WHERE user_id=${owner}::uuid`.execute(
+          database,
+        ),
+      ).rejects.toMatchObject({ code: '55000' });
+      // Privileged corruption is a negative borrowed-life probe only. It is not
+      // an approved return; the original Account epoch is always restored.
+      const setEpoch = async (value: number): Promise<void> => {
+        await database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            await sql`UPDATE identity.accounts SET product_epoch=${value} WHERE user_id=${owner}::uuid`.execute(
+              connection,
+            );
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      };
+      await setEpoch(1);
+      try {
+        const source = await database
+          .selectFrom('nakh.nakhes')
+          .selectAll()
+          .where('id', '=', delivered.nakhId)
+          .executeTakeFirstOrThrow();
+        const borrowedId = randomUUID();
+        await expect(
+          database
+            .insertInto('nakh.nakhes')
+            .values({ ...source, id: borrowedId })
+            .execute(),
+        ).rejects.toMatchObject({ code: '40001' });
+        expect(
+          await database
+            .selectFrom('nakh.nakhes')
+            .select('id')
+            .where('id', '=', borrowedId)
+            .execute(),
+        ).toEqual([]);
+        await expect(reader.readPage(sender, 'sent', 10)).resolves.toMatchObject({
+          totalCount: 0,
+          rows: [],
+        });
+        await expect(reader.readPage(receiver, 'received', 10)).resolves.toMatchObject({
+          totalCount: 0,
+          rows: [],
+        });
+        await expect(reader.readDetail(receiver, delivered.nakhId)).rejects.toMatchObject({
+          code: 'not_found',
+        });
+        const outcomes = await Promise.allSettled(
+          Array.from({ length: 20 }, () => store.createDirect(write(creation))),
+        );
+        expect(
+          outcomes.every(
+            (result) =>
+              result.status === 'rejected' &&
+              result.reason instanceof ApplicationError &&
+              result.reason.code === 'nakh_unavailable',
+          ),
+        ).toBe(true);
+        await expect(handler.execute(view)).rejects.toMatchObject({ code: 'nakh_unavailable' });
+        expect(
+          await resolveNotificationScope(database, {
+            user_id: receiver,
+            notification_type: 'nakh_received',
+            payload: { nakhId: delivered.nakhId },
+          }),
+        ).toBeUndefined();
+        expect(await snapshot()).toEqual(before);
+      } finally {
+        await setEpoch(0);
+      }
+      expect(await snapshot()).toEqual(before);
+      await expect(reader.readDetail(receiver, delivered.nakhId)).resolves.toMatchObject({
+        nakhId: delivered.nakhId,
+        status: 'seen',
+      });
+    },
+  );
+
+  it.each(['sender', 'receiver'] as const)(
+    'M8 native flow admission rejects forged %s epochs without creating a source',
+    async (side) => {
+      const sender = await createActiveUser(database),
+        receiver = await createActiveUser(database),
+        id = randomUUID();
+      await expect(
+        database
+          .insertInto('nakh.nakh_flows')
+          .values({
+            id,
+            sender_user_id: sender,
+            receiver_user_id: receiver,
+            sender_product_epoch: side === 'sender' ? 1 : 0,
+            receiver_product_epoch: side === 'receiver' ? 1 : 0,
+            created_at: new Date(),
+          })
+          .execute(),
+      ).rejects.toMatchObject({ code: '40001' });
+      expect(
+        await database.selectFrom('nakh.nakh_flows').select('id').where('id', '=', id).execute(),
+      ).toEqual([]);
+    },
+  );
 
   it('creates one funded delivery and notification across twenty command replays', async () => {
     const senderUserId = await createActiveUser(database);

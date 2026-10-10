@@ -89,6 +89,11 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
         const ownerColumn = direction === 'sent' ? 'sender_user_id' : 'receiver_user_id';
         const base = transaction
           .selectFrom('nakh.nakhes as nakh')
+          .innerJoin(
+            'nakh.current_flow_lives as original_flow',
+            'original_flow.id',
+            'nakh.nakh_flow_id',
+          )
           .innerJoin('profile.profiles as counterparty', (join) =>
             join.onRef(
               'counterparty.user_id',
@@ -164,6 +169,11 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
     if (account?.state !== 'active') denied();
     const row = await this.database
       .selectFrom('nakh.nakhes as nakh')
+      .innerJoin(
+        'nakh.current_flow_lives as original_flow',
+        'original_flow.id',
+        'nakh.nakh_flow_id',
+      )
       .innerJoin('profile.profiles as sender', 'sender.user_id', 'nakh.sender_user_id')
       .innerJoin('profile.profiles as receiver', 'receiver.user_id', 'nakh.receiver_user_id')
       .innerJoin(
@@ -225,7 +235,12 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
       throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
 
     return this.database.transaction().execute(async (transaction) => {
-      const pair = await lockNakhLifecyclePair(transaction, locator.sender_user_id, receiverUserId);
+      const pair = await lockNakhLifecyclePair(
+        transaction,
+        locator.sender_user_id,
+        receiverUserId,
+        locator.nakh_flow_id,
+      );
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -379,7 +394,12 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
       throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
 
     return this.database.transaction().execute(async (transaction) => {
-      const pair = await lockNakhLifecyclePair(transaction, locator.sender_user_id, receiverUserId);
+      const pair = await lockNakhLifecyclePair(
+        transaction,
+        locator.sender_user_id,
+        receiverUserId,
+        locator.nakh_flow_id,
+      );
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -734,7 +754,12 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
       throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
 
     return this.database.transaction().execute(async (transaction) => {
-      const pair = await lockNakhLifecyclePair(transaction, locator.sender_user_id, receiverUserId);
+      const pair = await lockNakhLifecyclePair(
+        transaction,
+        locator.sender_user_id,
+        receiverUserId,
+        locator.nakh_flow_id,
+      );
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
