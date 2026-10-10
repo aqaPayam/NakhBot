@@ -2518,6 +2518,9 @@ packages:
   fastify@5.12.5:
     resolution: {integrity: sha512-OB2k1dlxs5/NAABqeKV2FUHkSD2BbENsCak8yULVcymn3fHIPDVa9TI3SDnJSWYSllZmSYuZXy2gTnsT+Sut1A==}
 
+  fastify@5.12.5:
+    resolution: {integrity: sha512-OB2k1dlxs5/NAABqeKV2FUHkSD2BbENsCak8yULVcymn3fHIPDVa9TI3SDnJSWYSllZmSYuZXy2gTnsT+Sut1A==}
+
   fastq@1.20.3:
     resolution: {integrity: sha512-XKv5nnLs6nLF71NgiKJLIZFLkPyIEuOselLG7ujZnGrRfQK8HpvY+WqKhAJUAdLomwVHErVS4LfxFlPq0/FTAw==}
 
@@ -5884,6 +5887,24 @@ snapshots:
   fast-uri@4.1.5: {}
 
   fastify-plugin@6.0.0: {}
+
+  fastify@5.12.5:
+    dependencies:
+      '@fastify/ajv-compiler': 4.0.6
+      '@fastify/error': 4.2.0
+      '@fastify/fast-json-stringify-compiler': 5.1.0
+      '@fastify/proxy-addr': 5.1.0
+      abstract-logging: 2.0.1
+      avvio: 9.3.0
+      fast-json-stringify: 7.0.1
+      find-my-way: 9.9.0
+      light-my-request: 6.6.0
+      pino: 10.3.1
+      process-warning: 5.1.0
+      rfdc: 1.4.1
+      secure-json-parse: 4.1.0
+      semver: 7.8.5
+      toad-cache: 3.7.4
 
   fastify@5.12.5:
     dependencies:
