@@ -79,6 +79,45 @@ GHSA-xw65-4hp5-5hc7. The previously documented Braces high finding still lists n
 patch; the full audit remains nonzero and that release blocker is not suppressed
 or approved. Complete local validation and six exact-head CI jobs remain required.
 
+Security patch `dd6920d` passed the complete local check (929 unit tests), all six
+exact-head CI jobs, 635 integration tests in 98 files and all 27 unchanged M7 plans.
+The terminal snapshot took 1360.399 ms against 1500 ms and used both required
+indexes. Historical load/plan gates, migration verification and backup/restore
+smoke passed. Tracked count was 188,382 lines. The full lockfile audit still reports
+the one unresolved Braces high finding; no clean full-security scan is claimed.
+
+The next financial increment records immutable original product epochs on credit
+transactions and their stable current projection. It serializes generic ledger
+admission with the stable User and Account before the credit projection, preserving
+the existing paired writers' counter/pair/identity ordering. Native guards reject
+projection deletion/rebinding and credits for an inactive or different-epoch owner,
+including mismatched original payment/intent ownership, then check authority again
+at deferred commit. All credit writers carry projection provenance explicitly.
+A late positive credit event can only settle a same-epoch sender and pending intent;
+it cannot close or spend a later product life's action. Original captured Stars
+refunds remain available through their separate original-money route.
+
+Legacy balances, versions, original references and immutable financial fields are
+preserved; initial provenance is zero. This increment does not reset a balance or
+partition the lifetime chain. Those operations require separate verified financial
+epoch partition and fresh-return authority. Whole product purge, provider absence,
+ephemeral invalidation, policy manifests and production acceptance remain required;
+deletion ingress, fresh return and retained-data release remain disabled. The full
+native evidence, complete repository check and six exact-head CI jobs are required
+before this candidate is accepted.
+
+Focused native verification passed all 132 tests in twelve files, including all
+credit writers, original captured-money/refund processing, delayed settlement,
+notification scopes, the full populated migration matrix and both original source
+reference suites. Seven new probes cover twenty-way exact replay, projection and
+ledger rebinding denial, real tombstone preservation and late-write denial, final
+authority rollback at deferred commit, borrowed/missing source denial, an observed
+real committing-tombstone wait, and twenty-way populated migration-98 upgrade with
+exact preservation of every original balance/transaction field plus epoch zero.
+The legacy standalone ledger fixture now creates its actual owning active Account.
+Persistence type checking and focused lint passed after adding the test helper's
+explicit return type; no production guard or preservation assertion was relaxed.
+
 Start from verified M7 implementation `d9ff0e1e681108984369ce82bbae82370541ed59`.
 M7 remains code complete / staging blocked; its provider/operator evidence is not invented here.
 M8 owns `ACC-042..044`. M9 activation is outside this work.

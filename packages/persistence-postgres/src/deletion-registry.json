@@ -860,6 +860,11 @@
           "name": "updated_at",
           "type": "timestamp with time zone",
           "nullable": false
+        },
+        {
+          "name": "product_epoch",
+          "type": "integer",
+          "nullable": false
         }
       ],
       "foreignKeys": [
@@ -1015,6 +1020,11 @@
         {
           "name": "created_at",
           "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "product_epoch",
+          "type": "integer",
           "nullable": false
         }
       ],

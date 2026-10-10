@@ -178,7 +178,7 @@ export class PostgresDirectNakhStore implements DirectNakhStore {
 
       const account = await transaction
         .selectFrom('billing.credit_accounts')
-        .select(['balance', 'version'])
+        .select(['balance', 'version', 'product_epoch'])
         .where('user_id', '=', senderUserId)
         .forUpdate()
         .executeTakeFirst();
@@ -253,6 +253,7 @@ export class PostgresDirectNakhStore implements DirectNakhStore {
         .values({
           id: write.creditTransactionId,
           credit_account_id: senderUserId,
+          product_epoch: account.product_epoch,
           user_id: senderUserId,
           account_version: accountVersion,
           transaction_type: 'spend_nakh',

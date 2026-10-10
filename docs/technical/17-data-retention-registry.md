@@ -5,7 +5,18 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 98: 127 tables, 1,154 columns and 232 foreign keys.
+code-owned M8 catalog inventory for migration 99: 127 tables, 1,156 columns and 232 foreign keys.
+
+Migration 99 adds original product-life provenance to CreditAccount and CreditTransaction.
+Existing financial fields remain unchanged and both new fields are epoch zero. Stable
+financial projections cannot be deleted or rebound, and new credit requires the current
+active owning Account, matching projection epoch and original payment/intent owner and
+epoch where applicable. Authority is checked again at actual commit. Original Stars
+refund obligations remain on their existing separate route. Delayed settlement requires
+its positive credit event, sender and pending intent to belong to the same product life.
+This is a write/provenance fence; epoch-specific balance partition, controlled projection
+reset and verified fresh return remain required. No financial record is purged or retention
+approval inferred, and retained-data release remains disabled.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key

@@ -401,6 +401,7 @@ export interface ProfileChangeReviewTable {
 
 export interface CreditAccountTable {
   user_id: string;
+  product_epoch: Generated<number>;
   balance: Generated<string>;
   version: Generated<number>;
   created_at: Date;
@@ -506,6 +507,7 @@ export interface CreditPackageTable {
 
 export interface CreditTransactionTable {
   id: string;
+  product_epoch: Generated<number>;
   credit_account_id: string;
   user_id: string;
   account_version: number;

@@ -92,14 +92,30 @@ export class PostgresCreditLedgerStore {
 
   public async append(input: AppendCreditTransactionInput): Promise<CreditTransactionResult> {
     return this.database.transaction().execute(async (transaction) => {
+      await transaction
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', input.userId)
+        .forNoKeyUpdate()
+        .execute();
+      const owner = await transaction
+        .selectFrom('identity.accounts')
+        .select(['state', 'product_epoch'])
+        .where('user_id', '=', input.userId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (owner?.state !== 'active')
+        throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
       const account = await transaction
         .selectFrom('billing.credit_accounts')
-        .select(['balance', 'version'])
+        .select(['balance', 'version', 'product_epoch'])
         .where('user_id', '=', input.userId)
         .forUpdate()
         .executeTakeFirst();
       if (account === undefined)
         throw new ApplicationError('not_found', 'error.billing.credit_account_not_found', 404);
+      if (account.product_epoch !== owner.product_epoch)
+        throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
 
       const existing = await transaction
         .selectFrom('billing.credit_transactions')
@@ -109,6 +125,7 @@ export class PostgresCreditLedgerStore {
       if (existing !== undefined) {
         if (
           existing.user_id !== input.userId ||
+          existing.product_epoch !== owner.product_epoch ||
           existing.transaction_type !== input.transactionType ||
           BigInt(existing.amount) !== input.amount ||
           !sameReference(existing, input.reference)
@@ -143,6 +160,7 @@ export class PostgresCreditLedgerStore {
         .values({
           id: input.transactionId,
           credit_account_id: input.userId,
+          product_epoch: owner.product_epoch,
           user_id: input.userId,
           account_version: accountVersion,
           transaction_type: input.transactionType,

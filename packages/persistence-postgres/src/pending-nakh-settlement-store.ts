@@ -52,7 +52,7 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
 
       const trigger = await transaction
         .selectFrom('billing.credit_transactions')
-        .select(['user_id', 'amount'])
+        .select(['user_id', 'amount', 'product_epoch'])
         .where('id', '=', write.triggerCreditTransactionId)
         .where('user_id', '=', write.senderUserId)
         .executeTakeFirst();
@@ -67,6 +67,7 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
         .where('pending.sender_user_id', '=', write.senderUserId)
         .where('pending.status', '=', 'pending_payment')
         .where('intent.status', '=', 'pending')
+        .where('intent.product_epoch', '=', trigger.product_epoch)
         .orderBy('pending.created_at', 'asc')
         .orderBy('pending.id', 'asc')
         .limit(1)
@@ -82,6 +83,7 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
         .select([
           'user.id',
           'account.state',
+          'account.product_epoch',
           'settings.visibility_enabled',
           'profile.completion_status',
         ])
@@ -113,7 +115,16 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
         .executeTakeFirstOrThrow();
       const intent = await transaction
         .selectFrom('billing.pending_payments')
-        .select(['id', 'user_id', 'reason', 'target_type', 'target_id', 'status', 'version'])
+        .select([
+          'id',
+          'user_id',
+          'reason',
+          'target_type',
+          'target_id',
+          'status',
+          'version',
+          'product_epoch',
+        ])
         .where('id', '=', pending.pending_payment_id)
         .forUpdate()
         .executeTakeFirstOrThrow();
@@ -122,7 +133,8 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
         intent.user_id !== write.senderUserId ||
         intent.reason !== 'send_nakh' ||
         intent.target_type !== 'pending_nakh' ||
-        intent.target_id !== pending.id
+        intent.target_id !== pending.id ||
+        intent.product_epoch !== trigger.product_epoch
       )
         throw new ApplicationError('invalid_request', 'error.nakh.settlement_invalid', 409);
       if (intent.status === 'paid')
@@ -133,6 +145,10 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
       const expired = pending.expires_at <= now;
       const sender = users.find((user) => user.id === flow.sender_user_id);
       const receiver = users.find((user) => user.id === flow.receiver_user_id);
+      // A late positive credit event never closes, spends or settles a new-life
+      // pending action, even if it belongs to the same stable sender.
+      if (sender === undefined || sender.product_epoch !== trigger.product_epoch)
+        return { outcome: 'idle' };
       const eligible =
         !expired &&
         intent.status === 'pending' &&
@@ -212,7 +228,7 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
 
       const account = await transaction
         .selectFrom('billing.credit_accounts')
-        .select(['balance', 'version'])
+        .select(['balance', 'version', 'product_epoch'])
         .where('user_id', '=', write.senderUserId)
         .forUpdate()
         .executeTakeFirstOrThrow();
@@ -266,6 +282,7 @@ export class PostgresPendingNakhSettlementStore implements PendingNakhSettlement
         .values({
           id: write.creditTransactionId,
           credit_account_id: write.senderUserId,
+          product_epoch: account.product_epoch,
           user_id: write.senderUserId,
           account_version: accountVersion,
           transaction_type: 'spend_nakh',

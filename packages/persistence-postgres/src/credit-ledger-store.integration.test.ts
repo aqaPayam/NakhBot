@@ -17,6 +17,10 @@ async function createCreditUser(database: NakhDatabase): Promise<string> {
     .values({ id: userId, last_activity_at: now, created_at: now, updated_at: now })
     .execute();
   await database
+    .insertInto('identity.accounts')
+    .values({ user_id: userId, state: 'active', state_reason: null, state_changed_at: now })
+    .execute();
+  await database
     .insertInto('billing.credit_accounts')
     .values({ user_id: userId, created_at: now, updated_at: now })
     .execute();

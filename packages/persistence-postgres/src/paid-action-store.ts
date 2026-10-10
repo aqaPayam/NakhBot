@@ -130,7 +130,7 @@ export class PostgresPaidActionStore implements PaidActionStore {
 
       const account = await transaction
         .selectFrom('billing.credit_accounts')
-        .select(['balance', 'version'])
+        .select(['balance', 'version', 'product_epoch'])
         .where('user_id', '=', write.userId)
         .forUpdate()
         .executeTakeFirst();
@@ -186,6 +186,7 @@ export class PostgresPaidActionStore implements PaidActionStore {
         .values({
           id: write.creditTransactionId,
           credit_account_id: write.userId,
+          product_epoch: account.product_epoch,
           user_id: write.userId,
           account_version: accountVersion,
           transaction_type:

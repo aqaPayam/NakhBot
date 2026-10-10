@@ -695,7 +695,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
 
       const account = await transaction
         .selectFrom('billing.credit_accounts')
-        .select(['balance', 'version'])
+        .select(['balance', 'version', 'product_epoch'])
         .where('user_id', '=', payment.user_id)
         .forUpdate()
         .executeTakeFirstOrThrow();
@@ -716,6 +716,7 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
         .values({
           id: input.creditTransactionId,
           credit_account_id: payment.user_id,
+          product_epoch: account.product_epoch,
           user_id: payment.user_id,
           account_version: accountVersion,
           transaction_type: 'purchase',
