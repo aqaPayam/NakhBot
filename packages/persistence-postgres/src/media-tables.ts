@@ -1,6 +1,25 @@
 import type { Generated } from 'kysely';
 import type { MediaValidationState, PhotoStatus, PhotoVariantType } from '@nakh/domain';
 
+export interface MediaDeliveryGrantTable {
+  id: string;
+  actor_user_id: string;
+  owner_user_id: string;
+  actor_product_epoch: number;
+  owner_product_epoch: number;
+  photo_id: string;
+  asset_id: string;
+  variant_id: string;
+  like_id: string | null;
+  purpose: 'owner_preview' | 'liked_by_blur';
+  variant_type: 'thumbnail' | 'blurred_preview';
+  delivery_path: string;
+  environment: 'development' | 'test' | 'staging' | 'production';
+  ttl_seconds: number;
+  issued_at: Generated<Date>;
+  expires_at: Generated<Date>;
+}
+
 export interface ReportPhotoEvidenceHoldTable {
   report_evidence_id: string;
   photo_id: string;

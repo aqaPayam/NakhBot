@@ -6,6 +6,7 @@ import {
 } from './claims.js';
 
 export { EdgeHmacMediaAudienceAuthenticator } from './audience-edge.js';
+export { EdgeHttpMediaSourceAuthority } from './authority-edge.js';
 
 export type EdgeMediaDeliveryKeyRing = ReadonlyMap<string, Uint8Array>;
 
@@ -102,12 +103,17 @@ export interface PrivateR2Bucket {
   get(key: string): Promise<PrivateR2Object | null>;
 }
 
+export interface EdgeMediaSourceAuthority {
+  isCurrent(request: Request, claims: MediaDeliveryClaims): Promise<boolean>;
+}
+
 export type MediaDeliveryEdgeConfig = Readonly<{
   origin: string;
   environment: 'development' | 'test' | 'staging' | 'production';
   tokens: EdgeHmacMediaDeliveryTokens;
   audience: EdgeAudienceAuthenticator;
   bucket: PrivateR2Bucket;
+  authority: EdgeMediaSourceAuthority;
   now?: () => number;
 }>;
 
@@ -142,6 +148,66 @@ export class CloudflarePrivateMediaWorker {
     this.now = config.now ?? (() => Math.floor(Date.now() / 1000));
   }
 
+  private async current(request: Request, claims: MediaDeliveryClaims): Promise<boolean> {
+    const validTime = (): boolean => {
+      const now = this.now();
+      return Number.isSafeInteger(now) && now >= claims.issuedAt - 5 && now < claims.expiresAt;
+    };
+    if (!validTime() || (await this.config.audience.authenticate(request)) !== claims.audienceId)
+      return false;
+    if (!(await this.config.authority.isCurrent(request, claims))) return false;
+    return validTime() && (await this.config.audience.authenticate(request)) === claims.audienceId;
+  }
+
+  private cancel(object: PrivateR2Object): void {
+    if (object.body instanceof ReadableStream) {
+      // Closing the stream is synchronous; provider cleanup must not delay denial.
+      void object.body.cancel('media_delivery_revoked').catch(() => {});
+    }
+  }
+
+  private guardedBody(
+    object: PrivateR2Object,
+    request: Request,
+    claims: MediaDeliveryClaims,
+  ): ReadableStream<Uint8Array> {
+    const source =
+      object.body instanceof ReadableStream
+        ? object.body
+        : new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(object.body as Uint8Array);
+              controller.close();
+            },
+          });
+    const reader = source.getReader();
+    let received = 0;
+    return new ReadableStream<Uint8Array>(
+      {
+        pull: async (controller) => {
+          try {
+            if (!(await this.current(request, claims))) throw new Error('media_delivery_revoked');
+            const chunk = await reader.read();
+            if (!(await this.current(request, claims))) throw new Error('media_delivery_revoked');
+            if (chunk.done) {
+              if (received !== object.size) throw new Error('media_delivery_revoked');
+              controller.close();
+            } else {
+              received += chunk.value.byteLength;
+              if (received > object.size) throw new Error('media_delivery_revoked');
+              controller.enqueue(chunk.value);
+            }
+          } catch {
+            void reader.cancel('media_delivery_revoked').catch(() => {});
+            controller.error(new Error('media_delivery_revoked'));
+          }
+        },
+        cancel: () => reader.cancel('media_delivery_cancelled'),
+      },
+      { highWaterMark: 0 },
+    );
+  }
+
   public async fetch(request: Request): Promise<Response> {
     try {
       if (request.method !== 'GET') return unavailable();
@@ -164,21 +230,31 @@ export class CloudflarePrivateMediaWorker {
         audienceId,
         now,
       });
+      if (!(await this.current(request, claims))) return unavailable();
       const assetId = claims.path.split('/')[2]!;
       const filename =
         claims.variant === 'thumbnail' ? 'thumbnail-v1.webp' : 'blurred-preview-v1.webp';
       const object = await this.config.bucket.get(
         `variants/${this.config.environment}/${assetId}/${filename}`,
       );
-      if (object === null || !Number.isSafeInteger(object.size) || object.size <= 0)
+      if (object === null) return unavailable();
+      try {
+        if (
+          !Number.isSafeInteger(object.size) ||
+          object.size <= 0 ||
+          !(await this.current(request, claims))
+        ) {
+          this.cancel(object);
+          return unavailable();
+        }
+      } catch {
+        this.cancel(object);
         return unavailable();
-      const noStore =
-        claims.purpose === 'moderation_evidence' || claims.purpose === 'liked_by_blur';
-      const remaining = Math.max(0, claims.expiresAt - now);
-      return new Response(object.body, {
+      }
+      return new Response(this.guardedBody(object, request, claims), {
         status: 200,
         headers: {
-          'cache-control': noStore ? 'no-store' : `private, max-age=${String(remaining)}`,
+          'cache-control': 'no-store',
           'content-length': String(object.size),
           'content-security-policy': "default-src 'none'; sandbox",
           'content-type': 'image/webp',

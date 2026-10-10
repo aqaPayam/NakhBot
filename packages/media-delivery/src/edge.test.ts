@@ -23,6 +23,7 @@ type WorkerFixture = Readonly<{
 
 function signedUrl(overrides: Partial<MediaDeliveryClaims> = {}): string {
   const claims: MediaDeliveryClaims = {
+    authorityId: '30000000-0000-4000-8000-000000000003',
     path,
     audienceId,
     purpose: 'profile_card',
@@ -53,6 +54,7 @@ function worker(
           Promise.resolve(input.audienceId === undefined ? audienceId : input.audienceId),
       },
       bucket: { get },
+      authority: { isCurrent: () => Promise.resolve(true) },
       now: () => now,
     }),
   };
@@ -65,7 +67,7 @@ describe('CloudflarePrivateMediaWorker', () => {
     expect(response.status).toBe(200);
     expect(await response.arrayBuffer()).toEqual(Uint8Array.from([1, 2, 3]).buffer);
     expect(response.headers.get('content-type')).toBe('image/webp');
-    expect(response.headers.get('cache-control')).toBe('private, max-age=60');
+    expect(response.headers.get('cache-control')).toBe('no-store');
     expect(edge.get).toHaveBeenCalledWith(`variants/production/${assetId}/thumbnail-v1.webp`);
   });
 

@@ -14,6 +14,7 @@
     "@nakh/config": "workspace:*",
     "@nakh/contracts": "workspace:*",
     "@nakh/domain": "workspace:*",
+    "@nakh/media-delivery": "workspace:*",
     "@nakh/observability": "workspace:*",
     "@nakh/persistence-postgres": "workspace:*",
     "@nestjs/common": "catalog:",

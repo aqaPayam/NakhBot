@@ -16,6 +16,9 @@ export default defineConfig({
       '@nakh/localization': fileURLToPath(
         new URL('./packages/localization/src/index.ts', import.meta.url),
       ),
+      '@nakh/media-delivery/edge': fileURLToPath(
+        new URL('./packages/media-delivery/src/edge.ts', import.meta.url),
+      ),
       '@nakh/media-delivery': fileURLToPath(
         new URL('./packages/media-delivery/src/index.ts', import.meta.url),
       ),

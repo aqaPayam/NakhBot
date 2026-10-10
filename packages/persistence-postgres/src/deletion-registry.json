@@ -8353,6 +8353,108 @@
           "definition": "FOREIGN KEY (user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
         }
       ]
+    },
+    {
+      "table": "media.delivery_grants",
+      "owner": "media",
+      "classification": "transport",
+      "action": "cancel_then_expire_or_redact",
+      "purpose": "exact_source_media_read_authority",
+      "subjectScope": "row.actor_user_id=:userId OR row.owner_user_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": null,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "owner_user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "actor_product_epoch",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "owner_product_epoch",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "photo_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "asset_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "variant_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "like_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "purpose",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "variant_type",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "delivery_path",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "environment",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "ttl_seconds",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "issued_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (actor_user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (owner_user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        }
+      ]
     }
   ],
   "objectPrefixes": [

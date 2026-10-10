@@ -327,7 +327,7 @@ describe.skipIf(databaseUrl === undefined)('M3 interaction persistence', () => {
     const strangerId = await createActiveUser(database, manGenderId);
     const { photoId, assetId } = await addPrimaryPhoto(database, likerId);
     const interactions = new PostgresInteractionStore(database);
-    const delivery = new PostgresMediaDeliveryAuthorization(database);
+    const delivery = new PostgresMediaDeliveryAuthorization(database, 'test');
     await interactions.sendLike(likeCommand(likerId, receiverId), likeGenerated());
     const request = {
       actor: { kind: 'user' as const, userId: receiverId },
@@ -357,7 +357,16 @@ describe.skipIf(databaseUrl === undefined)('M3 interaction persistence', () => {
         storage_deleted_at: null,
       })
       .execute();
-    await expect(delivery.authorize(request)).resolves.toEqual({
+    const authorized = await delivery.authorize(request);
+    expect(authorized.authorityId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+    );
+    expect(Number.isSafeInteger(authorized.issuedAt)).toBe(true);
+    expect(authorized.expiresAt).toBe(authorized.issuedAt + 60);
+    expect(authorized).toEqual({
+      authorityId: authorized.authorityId,
+      issuedAt: authorized.issuedAt,
+      expiresAt: authorized.issuedAt + 60,
       deliveryPath: `/media/${assetId}/blurred-preview-v1.webp`,
       variantType: 'blurred_preview',
       cachePolicy: 'no-store',

@@ -2,6 +2,7 @@ export type DeliveryPurpose =
   'profile_card' | 'profile_detail' | 'liked_by_blur' | 'owner_preview' | 'moderation_evidence';
 export type DeliveryVariant = 'thumbnail' | 'blurred_preview';
 export type MediaDeliveryClaims = Readonly<{
+  authorityId: string;
   path: string;
   audienceId: string;
   purpose: DeliveryPurpose;
@@ -35,6 +36,7 @@ export function validateMediaDeliveryClaims(claims: MediaDeliveryClaims): void {
   if (
     !pathPattern.test(claims.path) ||
     !audiencePattern.test(claims.audienceId) ||
+    !audiencePattern.test(claims.authorityId) ||
     !purposes.has(claims.purpose) ||
     !variants.has(claims.variant) ||
     !Number.isSafeInteger(claims.issuedAt) ||
@@ -51,7 +53,7 @@ export function mediaDeliveryPayload(keyId: string, claims: MediaDeliveryClaims)
   validateMediaDeliveryKeyId(keyId);
   validateMediaDeliveryClaims(claims);
   return JSON.stringify([
-    1,
+    2,
     keyId,
     claims.path,
     claims.audienceId,
@@ -59,6 +61,7 @@ export function mediaDeliveryPayload(keyId: string, claims: MediaDeliveryClaims)
     claims.variant,
     claims.issuedAt,
     claims.expiresAt,
+    claims.authorityId,
   ]);
 }
 
@@ -68,19 +71,21 @@ export function parseMediaDeliveryPayload(value: unknown): Readonly<{
 }> {
   if (
     !Array.isArray(value) ||
-    value.length !== 8 ||
-    value[0] !== 1 ||
+    value.length !== 9 ||
+    value[0] !== 2 ||
     typeof value[1] !== 'string' ||
     typeof value[2] !== 'string' ||
     typeof value[3] !== 'string' ||
     typeof value[4] !== 'string' ||
     typeof value[5] !== 'string' ||
     typeof value[6] !== 'number' ||
-    typeof value[7] !== 'number'
+    typeof value[7] !== 'number' ||
+    typeof value[8] !== 'string'
   )
     invalidMediaGrant();
   validateMediaDeliveryKeyId(value[1]);
   const claims = {
+    authorityId: value[8],
     path: value[2],
     audienceId: value[3],
     purpose: value[4],

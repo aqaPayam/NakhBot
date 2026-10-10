@@ -13,6 +13,7 @@ import type {
 } from '@nakh/domain';
 import pg from 'pg';
 import type {
+  MediaDeliveryGrantTable,
   MediaAssetTable,
   PhotoVariantTable,
   ProfilePhotoTable,
@@ -1242,6 +1243,7 @@ export interface DatabaseSchema {
   'channel_telegram.liked_by_delivery_requests': TelegramLikedByDeliveryRequestTable;
   'channel_telegram.liked_by_delivery_receipts': TelegramLikedByDeliveryReceiptTable;
   'media.media_assets': MediaAssetTable;
+  'media.delivery_grants': MediaDeliveryGrantTable;
   'media.photo_variants': PhotoVariantTable;
   'media.profile_photos': ProfilePhotoTable;
   'media.report_photo_evidence_holds': ReportPhotoEvidenceHoldTable;

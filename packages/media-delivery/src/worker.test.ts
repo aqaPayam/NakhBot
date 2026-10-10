@@ -24,6 +24,7 @@ function environment(overrides: Partial<MediaEdgeEnvironment> = {}): MediaEdgeEn
     NAKH_MEDIA_ENVIRONMENT: 'staging',
     NAKH_MEDIA_SIGNING_KEYS: JSON.stringify({ 'media-v1': encoded(mediaKey) }),
     NAKH_MEDIA_AUDIENCE_KEYS: JSON.stringify({ 'audience-v1': encoded(audienceKey) }),
+    NAKH_MEDIA_AUTHORITY_URL: 'https://api.example.com/internal/media/source-authority',
     NAKH_MEDIA_BUCKET: {
       get: vi.fn().mockResolvedValue({
         body: new Blob([Uint8Array.from([1, 2, 3])]).stream(),
@@ -59,6 +60,7 @@ describe('deployable private media edge', () => {
         keys: new Map([['media-v1', mediaKey]]),
       }),
     ).sign({
+      authorityId: '40000000-0000-4000-8000-000000000004',
       path: `/media/${asset}/blurred-preview-v1.webp`,
       audienceId: viewer,
       purpose: 'liked_by_blur',
@@ -76,7 +78,14 @@ describe('deployable private media edge', () => {
       size: 3,
     });
     const bindings = environment({ NAKH_MEDIA_BUCKET: { get } });
-    const response = await createMediaEdge(bindings).fetch(
+    const authorityRequest = vi.fn<typeof fetch>().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ allowed: true }), {
+          headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+        }),
+      ),
+    );
+    const response = await createMediaEdge(bindings, authorityRequest).fetch(
       new Request(mediaUrl, { headers: { authorization: `Bearer ${audience}` } }),
     );
     expect(response.status).toBe(200);
@@ -84,6 +93,7 @@ describe('deployable private media edge', () => {
     expect(response.headers.get('content-type')).toBe('image/webp');
     expect(get).toHaveBeenCalledWith(`variants/staging/${asset}/blurred-preview-v1.webp`);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(Uint8Array.from([1, 2, 3]));
+    expect(authorityRequest.mock.calls.length).toBeGreaterThanOrEqual(4);
   });
 
   it('rejects malformed activation, environment, and key rings before serving', () => {
@@ -96,5 +106,13 @@ describe('deployable private media edge', () => {
     expect(() => createMediaEdge(environment({ NAKH_MEDIA_SIGNING_KEYS: '{}' }))).toThrow(
       'key ring',
     );
+    expect(() => createMediaEdge(environment({ NAKH_MEDIA_AUTHORITY_URL: '' }))).toThrow();
+    expect(() =>
+      createMediaEdge(
+        environment({
+          NAKH_MEDIA_AUDIENCE_KEYS: JSON.stringify({ 'audience-v1': encoded(mediaKey) }),
+        }),
+      ),
+    ).toThrow('keys must differ');
   });
 });

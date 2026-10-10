@@ -23,6 +23,7 @@ import type { Logger } from 'pino';
 import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
 import { M7SupportApiModule, type M7SupportApiOptions } from './m7-support-api.js';
 import { M7AppealApiModule, type M7AppealApiOptions } from './m7-appeal-api.js';
+import { createMediaAuthorityApi } from './m8-media-authority-api.js';
 import { M7AdminReportApiModule, type M7AdminReportApiOptions } from './m7-admin-report-api.js';
 import {
   M7AdminModerationApiModule,
@@ -211,6 +212,7 @@ export class ApiModule {
     return {
       module: ApiModule,
       imports: [
+        ...createMediaAuthorityApi(config, database),
         ...(reports === undefined ? [] : [M7ReportApiModule.register(reports)]),
         ...(adminReports === undefined ? [] : [M7AdminReportApiModule.register(adminReports)]),
         ...(adminModeration === undefined

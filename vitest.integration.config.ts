@@ -5,6 +5,12 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
+      '@nakh/media-delivery/edge': fileURLToPath(
+        new URL('./packages/media-delivery/src/edge.ts', import.meta.url),
+      ),
+      '@nakh/media-delivery': fileURLToPath(
+        new URL('./packages/media-delivery/src/index.ts', import.meta.url),
+      ),
       '@nakh/application': fileURLToPath(
         new URL('./packages/application/src/index.ts', import.meta.url),
       ),

@@ -146,6 +146,9 @@ importers:
       '@nakh/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@nakh/media-delivery':
+        specifier: workspace:*
+        version: link:../../packages/media-delivery
       '@nakh/observability':
         specifier: workspace:*
         version: link:../../packages/observability

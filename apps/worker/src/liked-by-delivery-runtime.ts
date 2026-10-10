@@ -70,6 +70,8 @@ export function createTelegramLikedByDeliveryRuntime(
   const actionKey = secretKey(input.config.telegram.actionTokenKeyRef, resolve, 32);
   const signingKey = secretKey(input.config.media.signingKeyRef, resolve);
   const audienceKey = secretKey(input.config.media.audienceKeyRef, resolve);
+  if (Buffer.from(signingKey).equals(Buffer.from(audienceKey)))
+    throw new Error('Media signing and audience keys must differ.');
   const mediaEnvironment =
     input.config.environment === 'local' ? 'development' : input.config.environment;
   const objects = new R2QuarantineObjectStore(
@@ -93,7 +95,7 @@ export function createTelegramLikedByDeliveryRuntime(
       new SharpBlurTransformer(),
     ),
     new ResolveMediaDeliveryGrantHandler(
-      new PostgresMediaDeliveryAuthorization(input.database),
+      new PostgresMediaDeliveryAuthorization(input.database, mediaEnvironment),
       new MediaDeliveryUrlSigner(
         mediaOrigin,
         new HmacMediaDeliveryTokens({

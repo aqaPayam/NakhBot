@@ -55,7 +55,7 @@ describe('Telegram Liked By delivery runtime composition', () => {
       NAKH_TELEGRAM_BOT_TOKEN: `123456789:${'a'.repeat(24)}`,
       NAKH_TELEGRAM_ACTION_TOKEN_KEY: key,
       NAKH_MEDIA_SIGNING_KEY: key,
-      NAKH_MEDIA_AUDIENCE_KEY: key,
+      NAKH_MEDIA_AUDIENCE_KEY: Buffer.alloc(32, 9).toString('base64url'),
       NAKH_R2_ACCESS_KEY: 'access-key',
       NAKH_R2_SECRET_KEY: 'secret-key',
     };
@@ -92,5 +92,17 @@ describe('Telegram Liked By delivery runtime composition', () => {
             : 'not-base64url!',
       }),
     ).toThrow('Invalid delivery secret key');
+  });
+  it('rejects reuse of a media signing key as audience authority before constructing delivery providers', () => {
+    expect(() =>
+      createTelegramLikedByDeliveryRuntime({
+        config: config(true),
+        database,
+        redis,
+        owner: 'worker-one',
+        resolveSecret: (reference) =>
+          reference === 'NAKH_TELEGRAM_BOT_TOKEN' ? `123456789:${'a'.repeat(24)}` : key,
+      }),
+    ).toThrow('keys must differ');
   });
 });

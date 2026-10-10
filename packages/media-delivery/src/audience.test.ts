@@ -32,6 +32,7 @@ function signedMediaUrl(audienceId = viewer): string {
     'https://media.example.com',
     new HmacMediaDeliveryTokens({ currentKeyId: 'm1', keys: new Map([['m1', mediaKey]]) }),
   ).sign({
+    authorityId: '40000000-0000-4000-8000-000000000004',
     path: `/media/${asset}/blurred-preview-v1.webp`,
     audienceId,
     purpose: 'liked_by_blur',
@@ -54,6 +55,7 @@ describe('private media audience credentials', () => {
         () => now,
       ),
       bucket: { get },
+      authority: { isCurrent: () => Promise.resolve(true) },
       now: () => now,
     });
     const credential = await issuer().tokenFor(viewer);

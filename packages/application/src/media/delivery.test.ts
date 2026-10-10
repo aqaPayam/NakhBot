@@ -15,9 +15,12 @@ const query: ResolveMediaDeliveryGrantQuery = {
 describe('ResolveMediaDeliveryGrantHandler', () => {
   it('returns only a short-lived signed URL and public delivery facts', async () => {
     const authorize = vi.fn().mockResolvedValue({
+      authorityId: '50000000-0000-4000-8000-000000000005',
+      issuedAt: Math.floor(new Date('2027-01-15T08:00:00.000Z').getTime() / 1000),
+      expiresAt: Math.floor(new Date('2027-01-15T08:01:00.000Z').getTime() / 1000),
       deliveryPath: '/media/40000000-0000-4000-8000-000000000004/thumbnail-v1.webp',
       variantType: 'thumbnail',
-      cachePolicy: 'private',
+      cachePolicy: 'no-store',
     });
     const sign = vi.fn().mockReturnValue('https://media.example/signed');
     const handler = new ResolveMediaDeliveryGrantHandler(
@@ -29,7 +32,7 @@ describe('ResolveMediaDeliveryGrantHandler', () => {
       deliveryUrl: 'https://media.example/signed',
       expiresAt: '2027-01-15T08:01:00.000Z',
       variantType: 'thumbnail',
-      cachePolicy: 'private',
+      cachePolicy: 'no-store',
     });
     expect(sign).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -58,6 +61,9 @@ describe('ResolveMediaDeliveryGrantHandler', () => {
       {
         authorize: () =>
           Promise.resolve({
+            authorityId: '50000000-0000-4000-8000-000000000005',
+            issuedAt: 1,
+            expiresAt: 61,
             deliveryPath: '/media/x/blurred-preview-v1.webp',
             variantType: 'blurred_preview',
             cachePolicy: 'no-store',

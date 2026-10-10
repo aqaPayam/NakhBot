@@ -9,6 +9,7 @@ import {
 const audienceId = '10000000-0000-4000-8000-000000000001';
 const path = '/media/20000000-0000-4000-8000-000000000002/thumbnail-v1.webp';
 const claims: MediaDeliveryClaims = {
+  authorityId: '30000000-0000-4000-8000-000000000003',
   path,
   audienceId,
   purpose: 'profile_card',

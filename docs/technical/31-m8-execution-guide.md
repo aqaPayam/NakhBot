@@ -12,6 +12,47 @@ Every exclusion case, fixture population, index and timing budget remains unchan
 The complete local check and all six exact-head CI jobs must pass before further M8
 features; the failed payment-epoch head is not an accepted staging candidate.
 
+Repair `a2f8464` passed the full local check (918 unit tests), all six exact-head CI
+jobs, 623 native tests in 96 files and all 27 unchanged M7 plans. The terminal
+integrity snapshot took 1429.154 ms and retained both required indexes. The complete
+M3 matrix still covers all 24 cases at 5,000 rows; its deleted receiver remains deleted.
+Tracked count was 186,499 lines. The Windows full-volume diagnostic also exceeded
+two limits on the preceding green schema with almost identical timings; that
+comparison was diagnostic only. The exact-head Linux run supplies acceptance.
+
+## Current candidate: native signed-media source authority
+
+Migration 98 adds opaque short-lived receipts bound to the original Photo, asset,
+variant, optional original Like, actor/owner product epochs and storage environment.
+Issuance locks original pair and stable identities, then checks all current source
+facts and stamps database time after waits. Unexpired receipts cannot be rebound;
+expired authority may be purged without inventing a retained-data period. The signed
+v2 protocol includes the opaque receipt identifier and fails old signature-only
+URLs closed. Original Like identifiers, participant epochs and private provider keys
+never appear in the URL or API result.
+
+The actual enabled API graph verifies both signed grant and independent audience
+credential before native lookup. The actual edge graph requires its fixed HTTPS
+authority endpoint before/after storage work and before/after streamed reads, returns
+no-store for all delivery and cancels revoked streams. There is no positive authority
+cache or signature-only fallback. Audience and grant expiry are checked again after
+waits. Public administrator-only evidence grants are denied; the separate audited
+M7 retained-byte path remains the owning evidence route. Activation stays disabled
+by default. Full check, native migration/concurrency evidence and all six exact-head
+CI jobs remain required before this candidate is verified. Provider object deletion,
+whole ordinary purge, ledger epochs, ephemeral invalidation, policy manifests,
+verified fresh return and production/restore/security acceptance remain open M8 work.
+
+The resumed focused native run passed all 102 tests in six files, including the
+populated upgrade/replay matrix, registry coverage, twenty-way issuance and real
+API/native/edge delivery with deletion during a provider wait. Unit probes also
+verify that revoked chunks are withheld and unfinished provider cleanup cannot
+delay denial. The first resumed full check found three unsafe asymmetric matchers
+in an existing integration assertion; explicit UUID and exact TTL checks repair
+those types while preserving its complete delivery result comparison. Focused lint
+and the fresh native run then passed. The complete repaired check and six exact-head
+CI jobs are still required; no provider deletion or external approval is claimed.
+
 Start from verified M7 implementation `d9ff0e1e681108984369ce82bbae82370541ed59`.
 M7 remains code complete / staging blocked; its provider/operator evidence is not invented here.
 M8 owns `ACC-042..044`. M9 activation is outside this work.

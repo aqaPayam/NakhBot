@@ -2,6 +2,7 @@ import {
   CloudflarePrivateMediaWorker,
   EdgeHmacMediaAudienceAuthenticator,
   EdgeHmacMediaDeliveryTokens,
+  EdgeHttpMediaSourceAuthority,
   type PrivateR2Bucket,
 } from './edge.js';
 
@@ -22,6 +23,7 @@ export interface MediaEdgeEnvironment {
   NAKH_MEDIA_ENVIRONMENT: string;
   NAKH_MEDIA_SIGNING_KEYS: string;
   NAKH_MEDIA_AUDIENCE_KEYS: string;
+  NAKH_MEDIA_AUTHORITY_URL: string;
   NAKH_MEDIA_BUCKET: CloudflareR2BucketBinding;
 }
 
@@ -71,13 +73,28 @@ function keyRing(value: string): ReadonlyMap<string, Uint8Array> {
 }
 
 /** Composes the edge only after explicit activation; disabled mode never reads key material. */
-export function createMediaEdge(environment: MediaEdgeEnvironment): MediaEdgeRuntime {
+export function createMediaEdge(
+  environment: MediaEdgeEnvironment,
+  request: typeof fetch = fetch,
+): MediaEdgeRuntime {
   const enabled = environment.NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED ?? 'false';
   if (enabled === 'false') return { fetch: () => Promise.resolve(unavailable()) };
   if (enabled !== 'true') throw new Error('Invalid media edge activation flag.');
   if (!environments.has(environment.NAKH_MEDIA_ENVIRONMENT as MediaEnvironment))
     throw new Error('Invalid media edge environment.');
   const mediaEnvironment = environment.NAKH_MEDIA_ENVIRONMENT as MediaEnvironment;
+  const signingKeys = keyRing(environment.NAKH_MEDIA_SIGNING_KEYS);
+  const audienceKeys = keyRing(environment.NAKH_MEDIA_AUDIENCE_KEYS);
+  if (
+    [...signingKeys.values()].some((signing) =>
+      [...audienceKeys.values()].some(
+        (audience) =>
+          signing.byteLength === audience.byteLength &&
+          signing.every((byte, index) => byte === audience[index]),
+      ),
+    )
+  )
+    throw new Error('Media signing and audience keys must differ.');
   const bucket: PrivateR2Bucket = {
     get: async (key) => {
       const object = await environment.NAKH_MEDIA_BUCKET.get(key);
@@ -87,12 +104,10 @@ export function createMediaEdge(environment: MediaEdgeEnvironment): MediaEdgeRun
   return new CloudflarePrivateMediaWorker({
     origin: environment.NAKH_MEDIA_ORIGIN,
     environment: mediaEnvironment,
-    tokens: new EdgeHmacMediaDeliveryTokens(keyRing(environment.NAKH_MEDIA_SIGNING_KEYS)),
-    audience: new EdgeHmacMediaAudienceAuthenticator(
-      environment.NAKH_MEDIA_ORIGIN,
-      keyRing(environment.NAKH_MEDIA_AUDIENCE_KEYS),
-    ),
+    tokens: new EdgeHmacMediaDeliveryTokens(signingKeys),
+    audience: new EdgeHmacMediaAudienceAuthenticator(environment.NAKH_MEDIA_ORIGIN, audienceKeys),
     bucket,
+    authority: new EdgeHttpMediaSourceAuthority(environment.NAKH_MEDIA_AUTHORITY_URL, request),
   });
 }
 

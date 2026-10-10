@@ -68,7 +68,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
     });
     validation = new PostgresMediaValidationStore(database, 'test');
     photoManagement = new PostgresPhotoManagementStore(database);
-    delivery = new PostgresMediaDeliveryAuthorization(database);
+    delivery = new PostgresMediaDeliveryAuthorization(database, 'test');
     blur = new PostgresBlurGenerationStore(database, 'test');
     deliveryPaths = new PostgresMediaDeliveryPathStore(database);
     cleanup = new PostgresMediaCleanupStore(database);
@@ -813,7 +813,7 @@ describe.skipIf(databaseUrl === undefined)('M2 PostgreSQL media persistence', ()
       }),
     ).resolves.toMatchObject({
       deliveryPath: `/media/${assetId}/thumbnail-v1.webp`,
-      cachePolicy: 'private',
+      cachePolicy: 'no-store',
     });
     await expect(
       delivery.authorize({

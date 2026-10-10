@@ -5,7 +5,7 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 97: 126 tables, 1,138 columns and 230 foreign keys.
+code-owned M8 catalog inventory for migration 98: 127 tables, 1,154 columns and 232 foreign keys.
 Every column inherits its table's explicit classification/action, and every foreign-key target and
 delete/defer action is recorded. There is no default classification for a new table or column.
 The native coverage gate rejects new, removed or changed columns, types/nullability and foreign-key
@@ -23,6 +23,15 @@ that every polymorphic reference has been resolved. Public catalogs and workforc
 their own actions and cannot become ordinary product purge by inheritance. The four object-prefix
 descriptors record object obligations; they do not claim provider verification or Redis coverage.
 No policy period is invented and retained-data release remains disabled until approval is supplied.
+
+Migration 98 introduces short-lived opaque media-delivery receipts bound to the original
+actor/owner product epochs, Photo, asset, variant and Like where applicable. Tombstones
+revoke source authority immediately; source identifiers do not prevent ordinary Photo/Like
+archival through live product foreign keys. Immutable unexpired receipts cannot be rebound
+to a newly actionable source. Expired receipts may be purged as operational bearer authority,
+under their existing maximum five-minute grant lifetime; this is not a retained-data period.
+The native/API/edge graph and complete concurrency evidence remain required before this
+candidate is verified. No moderation-evidence or retention-policy bypass is introduced.
 
 Migration 97 adds explicit initial product epochs to Account and payment intent. Existing rows
 remain epoch zero; neither timestamps nor provider transport infer a later product life. Intent
