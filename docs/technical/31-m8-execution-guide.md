@@ -63,6 +63,22 @@ Downstream plan/load and backup gates did not run; the repaired head must pass
 the full check and all six CI jobs before any further M8 feature. Tracked count
 for the media commit was 188,352 lines.
 
+Repair `3f57a8b` passed the complete local check, all six exact-head CI jobs and
+635 native tests in 98 files, including all eight previously blocked preservation
+tests. All 27 unchanged M7 plans passed; the terminal snapshot took 1180.376 ms
+against 1500 ms and used both required indexes. Historical plan/load gates,
+migration verification and backup/restore smoke also passed. Tracked count was
+188,364 lines. This is software evidence, not actual provider/staging/DR acceptance.
+
+The next dependency increment pins transitive Handlebars 4 to published patch
+4.7.10 through the existing scoped-override mechanism. Only the development
+boundary-lint tooling uses it; no runtime dependency or product behavior changes.
+The frozen install succeeds and the full lockfile audit reports zero critical and
+zero moderate findings, removing GHSA-8r5x-fm3f-whwj, GHSA-p8wg-vrv2-v86f and
+GHSA-xw65-4hp5-5hc7. The previously documented Braces high finding still lists no
+patch; the full audit remains nonzero and that release blocker is not suppressed
+or approved. Complete local validation and six exact-head CI jobs remain required.
+
 Start from verified M7 implementation `d9ff0e1e681108984369ce82bbae82370541ed59`.
 M7 remains code complete / staging blocked; its provider/operator evidence is not invented here.
 M8 owns `ACC-042..044`. M9 activation is outside this work.

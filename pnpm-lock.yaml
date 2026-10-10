@@ -87,6 +87,7 @@ overrides:
   source-map-js@1: 1.2.2
   esbuild@0.27: 0.28.2
   fastify@5: 5.12.5
+  handlebars@4: 4.7.10
 
 importers:
 
@@ -2618,8 +2619,8 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
-  handlebars@4.7.9:
-    resolution: {integrity: sha512-4E71E0rpOaQuJR2A3xDZ+GM1HyWYv1clR58tC8emQNeQe3RH7MAzSbat+V0wG78LQBo6m6bzSG/L4pBuCsgnUQ==}
+  handlebars@4.7.10:
+    resolution: {integrity: sha512-P5VJMVM7qgBn6vjXMw8WG9uVI+ncf2pi72j4de4yz5ZULLj2RGqLYaKOYGsgyrViQ0tePOVlN1tDCCXXtFqXKg==}
     engines: {node: '>=0.4.7'}
     hasBin: true
 
@@ -3881,7 +3882,7 @@ snapshots:
     dependencies:
       eslint-import-resolver-node: 0.3.9(supports-color@7.2.0)
       eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.69.0(eslint@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(typescript@6.0.3))(eslint-import-resolver-node@0.3.9(supports-color@7.2.0))(eslint@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)
-      handlebars: 4.7.9
+      handlebars: 4.7.10
       is-core-module: 2.16.1
       micromatch: 4.0.8
     transitivePeerDependencies:
@@ -5764,7 +5765,7 @@ snapshots:
       eslint: 10.9.1(supports-color@7.2.0)
       eslint-import-resolver-node: 0.3.9(supports-color@7.2.0)
       eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.69.0(eslint@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(typescript@6.0.3))(eslint-import-resolver-node@0.3.9(supports-color@7.2.0))(eslint@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)
-      handlebars: 4.7.9
+      handlebars: 4.7.10
       micromatch: 4.0.8
     transitivePeerDependencies:
       - '@typescript-eslint/parser'
@@ -6013,7 +6014,7 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  handlebars@4.7.9:
+  handlebars@4.7.10:
     dependencies:
       minimist: 1.2.8
       neo-async: 2.6.2
