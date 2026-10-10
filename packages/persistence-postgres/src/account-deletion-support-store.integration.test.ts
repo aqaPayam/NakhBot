@@ -468,8 +468,12 @@ describe.skipIf(url === undefined)(
           );
           expect(upgraded.flatMap((row) => row.applied)).toEqual(
             baseline === 101
-              ? [migration, '000103_m8_support_closure_proof_view.sql']
-              : ['000103_m8_support_closure_proof_view.sql'],
+              ? [
+                  migration,
+                  '000103_m8_support_closure_proof_view.sql',
+                  '000104_m8_like_original_lives.sql',
+                ]
+              : ['000103_m8_support_closure_proof_view.sql', '000104_m8_like_original_lives.sql'],
           );
           expect(
             await legacy

@@ -145,6 +145,13 @@ describe.skipIf(databaseUrl === undefined)('M4 credit-funded feature unlocks', (
         closed_at: null,
       })
       .execute();
+    expect(
+      await database
+        .selectFrom('interaction.like_reference_anchors')
+        .select('id')
+        .where('id', '=', likeId)
+        .execute(),
+    ).toEqual([]);
     const first = await store.spendCredits(
       write(receiverUserId, { type: 'like', targetId: likeId }),
     );
@@ -153,6 +160,21 @@ describe.skipIf(databaseUrl === undefined)('M4 credit-funded feature unlocks', (
     );
     expect(first).toMatchObject({ featureType: 'liked_by_profile_unlock', replayed: false });
     expect(replay).toMatchObject({ id: first.id, replayed: true });
+    expect(
+      await database
+        .selectFrom('interaction.like_reference_anchors')
+        .selectAll()
+        .where('id', '=', likeId)
+        .execute(),
+    ).toEqual([
+      {
+        id: likeId,
+        sender_user_id: senderUserId,
+        receiver_user_id: receiverUserId,
+        sender_product_epoch: 0,
+        receiver_product_epoch: 0,
+      },
+    ]);
     expect(await new PostgresCreditLedgerStore(database).getBalance(receiverUserId)).toMatchObject({
       balance: 6n,
     });

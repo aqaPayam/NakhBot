@@ -72,6 +72,7 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
       '000101_m8_credit_epoch_partition.sql',
       '000102_m8_support_epoch_closure.sql',
       '000103_m8_support_closure_proof_view.sql',
+      '000104_m8_like_original_lives.sql',
     ]);
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000092_m8_match_references.sql',

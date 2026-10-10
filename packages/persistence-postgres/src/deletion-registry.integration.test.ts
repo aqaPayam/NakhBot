@@ -39,9 +39,9 @@ describe.skipIf(url === undefined)('M8 native deletion registry', () => {
   });
   it('covers every real table, column and foreign-key action with qualified names', async () => {
     const actual = await readDeletionCatalog(database);
-    expect(actual.tables).toHaveLength(130);
-    expect(actual.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1193);
-    expect(actual.foreignKeys).toHaveLength(240);
+    expect(actual.tables).toHaveLength(131);
+    expect(actual.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1200);
+    expect(actual.foreignKeys).toHaveLength(242);
     expect(() => assertDeletionCatalogCoverage(actual)).not.toThrow();
     await database.transaction().execute(async (tx) => {
       await sql`SET LOCAL search_path=nakh,public`.execute(tx);
@@ -93,47 +93,52 @@ describe.skipIf(url === undefined)('M8 native deletion registry', () => {
       ).rows[0]!.phase,
     ).toBe('shared_closure');
   });
-  it('distinguishes own data and both shared pair directions from unrelated participants', async () => {
-    const peer = await createReportUser(database, true),
-      unrelated = await createReportUser(database, true);
-    await createReportLike(database, peer, unrelated);
-    let relatedLike = '';
-    const item = await createDeletionFixture(database, async (userId) => {
-      relatedLike = await createReportLike(database, userId, peer);
-    });
-    const lease = (
-      await new PostgresAccountDeletionWorkStore(database).claimDue({
-        workerId: randomUUID(),
-        leaseMs: 120000,
-        limit: 1,
-      })
-    )[0]!;
-    const store = new PostgresDeletionRegistryStore(database);
-    const observe = (table: string): Promise<DeletionRegistryObservation> =>
-      store.observe(
-        lease,
-        DELETION_REGISTRY.findIndex((entry) => entry.table === table),
-      );
-    expect((await observe('interaction.likes')).present).toBe(true);
-    expect((await observe('profile.profiles')).present).toBe(false);
-    expect((await observe('identity.user_settings')).present).toBe(true);
-    await database
-      .deleteFrom('identity.user_settings')
-      .where('user_id', '=', item.userId)
-      .execute();
-    expect((await observe('identity.user_settings')).present).toBe(false);
-    await database.deleteFrom('interaction.likes').where('id', '=', relatedLike).execute();
-    expect((await observe('interaction.likes')).present).toBe(false);
-    await createReportLike(database, peer, item.userId);
-    expect((await observe('interaction.likes')).present).toBe(true);
-    expect(
+  it.each(['sender', 'receiver'] as const)(
+    'distinguishes own data and shared %s ownership from unrelated participants',
+    async (direction) => {
+      const peer = await createReportUser(database, true),
+        unrelated = await createReportUser(database, true);
+      await createReportLike(database, peer, unrelated);
+      let relatedLike = '';
+      const item = await createDeletionFixture(database, async (userId) => {
+        relatedLike = await createReportLike(
+          database,
+          direction === 'sender' ? peer : userId,
+          direction === 'sender' ? userId : peer,
+        );
+      });
+      const lease = (
+        await new PostgresAccountDeletionWorkStore(database).claimDue({
+          workerId: randomUUID(),
+          leaseMs: 120000,
+          limit: 1,
+        })
+      )[0]!;
+      const store = new PostgresDeletionRegistryStore(database);
+      const observe = (table: string): Promise<DeletionRegistryObservation> =>
+        store.observe(
+          lease,
+          DELETION_REGISTRY.findIndex((entry) => entry.table === table),
+        );
+      expect((await observe('interaction.likes')).present).toBe(true);
+      expect((await observe('profile.profiles')).present).toBe(false);
+      expect((await observe('identity.user_settings')).present).toBe(true);
       await database
-        .selectFrom('profile.profiles')
-        .select('id')
-        .where('user_id', 'in', [peer, unrelated])
-        .execute(),
-    ).toHaveLength(2);
-  });
+        .deleteFrom('identity.user_settings')
+        .where('user_id', '=', item.userId)
+        .execute();
+      expect((await observe('identity.user_settings')).present).toBe(false);
+      await database.deleteFrom('interaction.likes').where('id', '=', relatedLike).execute();
+      expect((await observe('interaction.likes')).present).toBe(false);
+      expect(
+        await database
+          .selectFrom('profile.profiles')
+          .select('id')
+          .where('user_id', 'in', [peer, unrelated])
+          .execute(),
+      ).toHaveLength(2);
+    },
+  );
   it('rejects unknown resources, forged subjects and stale generations before observing rows', async () => {
     const item = await createDeletionFixture(database),
       work = new PostgresAccountDeletionWorkStore(database);

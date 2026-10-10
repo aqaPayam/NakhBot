@@ -1,6 +1,29 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
-## Current repair: shared support closure proof
+## Current candidate: original Like lives and minimal references
+
+Repair `fa9a240` passed the complete local check (944 unit tests), 110 focused
+native tests and all six exact-head CI jobs. CI passed 678 native tests in 103
+files and all 27 unchanged query-plan checks. Initial/terminal integrity snapshots
+took 1220.242/1456.208 ms with both required terminal indexes; support took
+80.188 ms. Load and backup/restore smoke passed. Tracked count was 191,995 lines.
+
+Migration 104 adds original sender/receiver epochs without updating an original
+Like field or version. Ambiguous legacy owners fail migration. New insertion
+locks sorted stable identities then Accounts and requires exact current lives,
+rechecking after waits; epochs remain immutable. The actual interaction adapter
+writes the locked epochs and refuses Like facts from another life.
+
+Minimal references are created only for Likes used by a Match or funded unlock;
+they contain the original ID, participants and epochs, with native immutable and
+commit proof. Unreferenced Likes are not retained here. The three existing product
+source FKs remain unchanged: references grant no access or archival authority.
+Required-reference loss must roll back the actual reciprocal command and permit
+its original retry. Native migration, concurrency, corruption, deletion-race and
+actual paid-unlock evidence, full check and six CI jobs remain required. Retained
+release, whole-product completion and fresh return stay disabled.
+
+## Previous repair: shared support closure proof
 
 Storage verification commit `ddec00a` passed the full local check and 676 native
 tests, but its database CI job failed the unchanged 1500 ms integrity snapshot

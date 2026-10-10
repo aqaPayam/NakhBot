@@ -10,7 +10,15 @@ in the historical helper. It creates no retained entity or new user data; the
 commit authority, retained transcript access and disabled release are preserved.
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 102: 130 tables, 1,193 columns and 240 foreign keys.
+code-owned M8 catalog inventory for migration 104: 131 tables, 1,200 columns and 242 foreign keys.
+
+Migration 104 binds each Like to both original account lives. Only Likes used by
+a Match or paid unlock receive a minimal reference containing their original ID,
+participants and epochs. Unreferenced Likes have no retained reference. Native
+checks require the exact referenced source when the reference commits; reference
+changes/deletion and source-ID reuse are denied. Existing live-source foreign
+keys remain unchanged, so this preparation cannot authorize product archival or
+grant access. Reference release needs approved policy and remains disabled.
 
 Migration 102 binds support threads to their immutable original product epoch.
 Its phase-3 executor closes at most one original open thread per transaction and

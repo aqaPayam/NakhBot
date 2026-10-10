@@ -16,6 +16,7 @@ type InteractionCommand = SendLikeCommand | MarkNotInterestedCommand;
 type UserFacts = Readonly<{
   userId: string;
   accountState: 'guest' | 'incomplete' | 'active' | 'restricted' | 'banned' | 'deleted';
+  productEpoch: number;
   profileCompletion: 'incomplete' | 'complete' | 'invalid' | null;
   visibilityEnabled: boolean;
 }>;
@@ -98,6 +99,7 @@ async function lockAndLoadUsers(
     .select([
       'user.id as userId',
       'account.state as accountState',
+      'account.product_epoch as productEpoch',
       'profile.completion_status as profileCompletion',
       'settings.visibility_enabled as visibilityEnabled',
     ])
@@ -142,6 +144,27 @@ async function assertPairAvailable(
     .executeTakeFirst();
   if (pair !== undefined)
     throw new ApplicationError('pair_unavailable', 'error.interaction.pair_unavailable', 409);
+}
+
+function assertCurrentLikeLives(
+  likes: readonly Readonly<{
+    sender_user_id: string;
+    receiver_user_id: string;
+    sender_product_epoch: number;
+    receiver_product_epoch: number;
+  }>[],
+  users: readonly UserFacts[],
+): void {
+  if (
+    likes.some(
+      (like) =>
+        like.sender_product_epoch !==
+          users.find((user) => user.userId === like.sender_user_id)?.productEpoch ||
+        like.receiver_product_epoch !==
+          users.find((user) => user.userId === like.receiver_user_id)?.productEpoch,
+    )
+  )
+    throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
 }
 
 async function insertConsumption(
@@ -253,6 +276,7 @@ export class PostgresInteractionStore implements InteractionStore {
         .forUpdate()
         .execute();
       const existing = likes.find((like) => like.sender_user_id === command.actor.userId);
+      assertCurrentLikeLives(likes, users);
       if (existing !== undefined)
         throw new ApplicationError(
           'like_already_exists',
@@ -276,6 +300,10 @@ export class PostgresInteractionStore implements InteractionStore {
           id: generated.likeId,
           sender_user_id: command.actor.userId,
           receiver_user_id: command.data.targetUserId,
+          sender_product_epoch: users.find((user) => user.userId === command.actor.userId)!
+            .productEpoch,
+          receiver_product_epoch: users.find((user) => user.userId === command.data.targetUserId)!
+            .productEpoch,
           status: 'active',
           created_at: generated.occurredAt,
           closed_at: null,
@@ -509,7 +537,14 @@ export class PostgresInteractionStore implements InteractionStore {
         throw new ApplicationError('pair_unavailable', 'error.interaction.pair_unavailable', 409);
       const likes = await transaction
         .selectFrom('interaction.likes')
-        .select(['id', 'sender_user_id', 'status'])
+        .select([
+          'id',
+          'sender_user_id',
+          'receiver_user_id',
+          'sender_product_epoch',
+          'receiver_product_epoch',
+          'status',
+        ])
         .where((expression) =>
           expression.or([
             expression.and([
@@ -525,6 +560,7 @@ export class PostgresInteractionStore implements InteractionStore {
         .orderBy('id')
         .forUpdate()
         .execute();
+      assertCurrentLikeLives(likes, users);
       if (likes.some((like) => like.sender_user_id === command.actor.userId))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
       const receivedLike = likes.find((like) => like.sender_user_id === command.data.targetUserId);

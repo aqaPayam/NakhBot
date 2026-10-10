@@ -893,6 +893,8 @@ export interface LikeTable {
   created_at: Date;
   closed_at: Date | null;
   version: Generated<number>;
+  sender_product_epoch: Generated<number>;
+  receiver_product_epoch: Generated<number>;
 }
 
 export interface NotInterestedTable {
@@ -901,6 +903,14 @@ export interface NotInterestedTable {
   receiver_user_id: string;
   source: 'explore' | 'liked_by' | 'cancelled_pending_nakh';
   created_at: Date;
+}
+
+export interface LikeReferenceAnchorTable {
+  id: string;
+  sender_user_id: string;
+  receiver_user_id: string;
+  sender_product_epoch: number;
+  receiver_product_epoch: number;
 }
 
 export interface UserPairStateTable {
@@ -1365,6 +1375,7 @@ export interface DatabaseSchema {
   'discovery.explore_consumptions': ExploreConsumptionTable;
   'discovery.candidate_deliveries': CandidateDeliveryTable;
   'interaction.likes': LikeTable;
+  'interaction.like_reference_anchors': LikeReferenceAnchorTable;
   'interaction.not_interested': NotInterestedTable;
   'interaction.feature_unlocks': FeatureUnlockTable;
   'interaction.user_pair_states': UserPairStateTable;
