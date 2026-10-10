@@ -1,5 +1,28 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: strict storage absence verification
+
+Support lifecycle commit `8dd6b1f` passed the complete local check (930 unit tests),
+all six exact-head CI jobs and 676 native tests in 103 files. All 27 unchanged
+query-plan checks passed; the terminal snapshot took 1397.105 ms with both required
+indexes. Load gates and backup/restore smoke passed. Tracked source count was
+191,690 lines. External provider, staging and DR acceptance remain separate.
+
+The actual worker already uses R2 delete-and-HEAD verification. Its generic
+not-found classifier also accepted arbitrary HTTP 404 errors and a `NotFound`
+name without a 404 status. The candidate accepts only exact object-not-found
+names with HTTP 404, then requires a fresh HTTP 200 HEAD of the same configured
+bucket before returning absence. Both calls share the original deadline signal.
+Bucket errors, unknown failures and malformed responses propagate without
+authorizing cleanup completion; no positive bucket result is cached.
+
+The focused run passed 34 tests across the actual R2 adapter and application
+cleanup suites, including composed failed verification, partial deletion and
+idempotent retry. These use an injected SDK sender, not a real provider. They do
+not prove an existing but incorrectly configured bucket is the intended deployment
+bucket, fence future writes, authorize held-thumbnail cleanup or complete an M8
+phase. Those obligations remain open. Full check and six CI jobs are required.
+
 ## Current candidate: original-life retained support closure
 
 Redis composition repair `e107df3` passed the full local check (930 unit tests),

@@ -86,6 +86,20 @@ The CDN/Cloudflare Worker validates the signature at the edge and fetches from p
 - Account deletion enumerates all owned assets plus report-evidence exceptions in a signed/checksummed deletion manifest.
 - R2 lifecycle rules clean abandoned quarantine uploads, but database jobs remain authoritative for product deletion.
 
+The cleanup adapter accepts object absence only for an exact `NotFound` or
+`NoSuchKey` response with HTTP 404 followed by a fresh HTTP 200 `HeadBucket` for
+the same configured bucket, under the same request deadline. Missing buckets,
+permission failures, unknown errors and incomplete metadata remain retryable
+failures; they never set `storage_deleted_at`. Bucket verification is not cached.
+This uses R2's supported bucket HEAD operation and requires its availability to
+the existing server-side storage credentials; it grants no public listing access.
+See the [S3 HEAD error semantics](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html),
+[bucket verification semantics](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadBucket.html)
+and [R2 compatibility table](https://developers.cloudflare.com/r2/api/s3/api/).
+Real deployment acceptance must still verify the intended endpoint/bucket binding,
+evidence exceptions and in-flight write fencing; checking an existing bucket alone
+cannot prove it is the intended deployment bucket.
+
 ## 8. Caching
 
 - Variant URLs are content/version-addressed and may use CDN caching.

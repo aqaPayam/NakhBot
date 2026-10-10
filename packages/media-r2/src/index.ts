@@ -9,6 +9,7 @@ import { Readable, Transform } from 'node:stream';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -69,6 +70,7 @@ interface S3CommandSender {
   send(
     command:
       | PutObjectCommand
+      | HeadBucketCommand
       | HeadObjectCommand
       | DeleteObjectCommand
       | GetObjectCommand
@@ -97,13 +99,16 @@ function requestOptions(signal: AbortSignal | undefined): { abortSignal: AbortSi
   return signal === undefined ? undefined : { abortSignal: signal };
 }
 
-function isNotFound(error: unknown): boolean {
+function isObjectNotFound(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const candidate = error as Readonly<{
     name?: unknown;
     $metadata?: Readonly<{ httpStatusCode?: unknown }>;
   }>;
-  return candidate.name === 'NotFound' || candidate.$metadata?.httpStatusCode === 404;
+  return (
+    (candidate.name === 'NotFound' || candidate.name === 'NoSuchKey') &&
+    candidate.$metadata?.httpStatusCode === 404
+  );
 }
 
 /** Real Cloudflare R2 transport. Incoming media is spooled to bounded worker temporary
@@ -228,7 +233,26 @@ export class AwsR2ObjectClient implements R2ObjectClient {
         throw new Error('media_storage_metadata_invalid');
       return { bytes: output.ContentLength, sha256 };
     } catch (error) {
-      if (isNotFound(error)) return undefined;
+      if (isObjectNotFound(error)) {
+        // HEAD errors have no response body. Verify the configured bucket is
+        // accessible before treating the object response as absence. Never
+        // cache this authority across retries or an environment change.
+        const bucket = await this.client.send(
+          new HeadBucketCommand({ Bucket: this.bucket }),
+          requestOptions(signal),
+        );
+        if (
+          typeof bucket !== 'object' ||
+          bucket === null ||
+          !('$metadata' in bucket) ||
+          typeof bucket.$metadata !== 'object' ||
+          bucket.$metadata === null ||
+          !('httpStatusCode' in bucket.$metadata) ||
+          bucket.$metadata.httpStatusCode !== 200
+        )
+          throw new Error('media_storage_bucket_verification_failed', { cause: error });
+        return undefined;
+      }
       throw error;
     }
   }
