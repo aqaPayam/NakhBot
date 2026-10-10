@@ -91,6 +91,18 @@ support, media and polymorphic operational dependencies still require their owni
 proofs before whole-product completion. Neither a finished sweep nor `hasMore=false` grants a phase
 advance, product-purged milestone, completion, retention release or fresh return.
 
+The Redis rows below name logical server-owned keys. The production adapter preserves
+short public actions at `{queuePrefix}:action:{opaqueId}` and stores the reviewed
+internal UI formats at `{queuePrefix}:action:internal:{sha256(logicalKey)}`. Internal
+logical references are never physical keys and cannot alias public actions. Existing
+support/ban/report UI receipts and delivered rejection acknowledgements expire within
+24 hours; administrator queues, encrypted drafts and decisions expire within five
+minutes (pending rejection claims within 30 seconds). First allocation never refreshes
+TTL. Native permissions, source ownership and explicit encrypted expiry remain
+authoritative. UTF-8 limits match the existing envelope budgets; unknown logical
+formats and oversized cache state fail closed. Deletion-time product token invalidation
+remains a separate required M8 executor; these expiry rules are not its completion proof.
+
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|
 | `administration.admin_sessions` | restricted bearer hashes, factor-proof identifiers and verification/expiry/revocation times | revoke current grants immediately when operator authority ends; retain security history under the approved audit policy; M8 must implement controlled release before deletion | Administration/Security; never retain bearer, factor assertion, OTP or factor secret; ordinary deletion/extension/revival is forbidden |

@@ -1,5 +1,35 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: actual Redis reference composition
+
+Financial partition commit `7d9be94` passed the full local check, all six exact-head
+CI jobs, 659 native tests in 101 files and all 27 unchanged query-plan checks. The
+terminal snapshot took 1348.747 ms with both required indexes; load gates and
+backup/restore smoke passed. Tracked source count was 190,343 lines.
+
+Review of the actual Redis graph found its generic adapter rejected existing
+24-hour support/ban/report receipt lifetimes and server-owned administrator UI
+keys. A diagnostic reproduced both failures before any Redis connection. The repair
+accepts only the existing exact logical key formats, preserves the original public
+action namespace and hashes internal receipts into a separate namespace. Limits
+remain bounded by each producer's existing lifetime and encrypted-envelope budget;
+administrator UI state remains five minutes, and replay never renews Redis TTL.
+Values are bounded in UTF-8 bytes and oversized external cache state fails closed.
+
+Native Redis integration evidence must exercise actual user-bound support/ban/report
+references, encrypted administrator read/reply state, concurrent Confirm/Cancel,
+withdrawal, isolation, expiry and invalid keys. UI storage does not grant native
+administrator permission or extend the underlying report intent. The complete check
+and six exact-head jobs remain required. This transport repair does not finish
+ephemeral deletion invalidation or the other remaining M8 phases; no approval,
+production activation or retained-data release is inferred.
+
+The focused local run passed 22 tests across five files, including rejection before
+opening a Redis connection and the existing support/appeal/read/reply validators.
+Redis and gateway type checks and focused lint passed. This Windows workspace has
+no running Redis service; no local native Redis success is claimed. The seven new
+integration probes require the actual Linux CI Redis service before acceptance.
+
 ## Current candidate: financial lifecycle partition
 
 Commit `4913be9` passed the complete local check (929 unit tests), all six exact-head

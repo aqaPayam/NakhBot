@@ -107,24 +107,79 @@ export class RedisRateLimiter implements RateLimiterPort {
   }
 }
 
+type OpaqueStatePolicy = Readonly<{ maxBytes: number; maxLifetime: number; internal: boolean }>;
+const MUTATION_PURPOSE =
+  '(?:support|appeal-review|appeal-unban|report-assignment|report-decision|report-account|report-photo|report-evidence|report-block)';
+const MUTATION_KEY = new RegExp(
+  `^telegram-admin-${MUTATION_PURPOSE}-mutation:[A-Za-z0-9_-]{22}$`,
+  'u',
+);
+const MUTATION_DECISION_KEY = new RegExp(
+  `^telegram-admin-${MUTATION_PURPOSE}-mutation-decision:[A-Za-z0-9_-]{22}$`,
+  'u',
+);
+
+/** Logical keys are allocated by existing server-owned token/receipt producers.
+ * Public token parsers still own their strict opaque reference formats. */
+function opaqueStatePolicy(id: string): OpaqueStatePolicy | undefined {
+  if (id.length > 128) return undefined;
+  if (/^[A-Za-z0-9_-]{16}$/u.test(id))
+    return { maxBytes: 4096, maxLifetime: 86400, internal: false };
+  if (
+    /^telegram-report:[A-Za-z0-9_-]{22}$/u.test(id) ||
+    /^telegram-admin-rejection:delivered:[A-Za-z0-9_-]{43}$/u.test(id)
+  )
+    return { maxBytes: 4096, maxLifetime: 86400, internal: true };
+  if (/^telegram-admin-safety-read:[A-Za-z0-9_-]{22}$/u.test(id))
+    return { maxBytes: 16384, maxLifetime: 300, internal: true };
+  if (MUTATION_KEY.test(id)) return { maxBytes: 32768, maxLifetime: 300, internal: true };
+  if (
+    MUTATION_DECISION_KEY.test(id) ||
+    /^telegram-admin-safety-read-withdrawn:[A-Za-z0-9_-]{22}$/u.test(id) ||
+    /^telegram-admin-queue:(?:choice|page|prompt):[A-Za-z0-9_-]{22}$/u.test(id) ||
+    /^telegram-admin-report-queue:(?:choice|page|prompt|evidence|photo-prompt|evidence-prompt|block-prompt):[A-Za-z0-9_-]{22}$/u.test(
+      id,
+    ) ||
+    /^telegram-admin-target-selection:[A-Za-z0-9_-]{43}$/u.test(id) ||
+    /^telegram-admin-rejection:pending:[A-Za-z0-9_-]{43}$/u.test(id)
+  )
+    return { maxBytes: 4096, maxLifetime: 300, internal: true };
+  return undefined;
+}
+
 export class RedisOpaqueTokenStore implements OpaqueTokenStore {
   public constructor(
     private readonly redis: Redis,
     private readonly prefix: string,
   ) {}
 
+  private key(id: string, policy: OpaqueStatePolicy): string {
+    // Existing short action keys retain their physical namespace. Internal UI
+    // receipts use a separate hashed namespace and cannot alias public actions.
+    return policy.internal
+      ? `${this.prefix}:action:internal:${createHash('sha256').update(id).digest('hex')}`
+      : `${this.prefix}:action:${id}`;
+  }
+
   public async putIfAbsent(id: string, value: string, ttlSeconds: number): Promise<boolean> {
-    if (!/^[A-Za-z0-9_-]{16}$/u.test(id) || value.length < 1 || value.length > 4096)
+    const policy = opaqueStatePolicy(id);
+    if (
+      policy === undefined ||
+      value.length < 1 ||
+      Buffer.byteLength(value, 'utf8') > policy.maxBytes
+    )
       throw new Error('Opaque token state is invalid.');
-    if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > 3600)
+    if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > policy.maxLifetime)
       throw new Error('Opaque token lifetime is invalid.');
-    return (
-      (await this.redis.set(`${this.prefix}:action:${id}`, value, 'EX', ttlSeconds, 'NX')) === 'OK'
-    );
+    return (await this.redis.set(this.key(id, policy), value, 'EX', ttlSeconds, 'NX')) === 'OK';
   }
 
   public async get(id: string): Promise<string | undefined> {
-    if (!/^[A-Za-z0-9_-]{16}$/u.test(id)) return undefined;
-    return (await this.redis.get(`${this.prefix}:action:${id}`)) ?? undefined;
+    const policy = opaqueStatePolicy(id);
+    if (policy === undefined) return undefined;
+    const value = await this.redis.get(this.key(id, policy));
+    return value === null || value.length < 1 || Buffer.byteLength(value, 'utf8') > policy.maxBytes
+      ? undefined
+      : value;
   }
 }
