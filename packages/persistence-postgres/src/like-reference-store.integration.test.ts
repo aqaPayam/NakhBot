@@ -84,6 +84,7 @@ describe.skipIf(url === undefined)(
         expect(upgraded.flatMap((result) => result.applied)).toEqual([
           '000104_m8_like_original_lives.sql',
           '000105_m8_nakh_original_lives.sql',
+          '000106_m8_nakh_references.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');

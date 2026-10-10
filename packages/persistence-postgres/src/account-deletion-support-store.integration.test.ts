@@ -473,11 +473,13 @@ describe.skipIf(url === undefined)(
                   '000103_m8_support_closure_proof_view.sql',
                   '000104_m8_like_original_lives.sql',
                   '000105_m8_nakh_original_lives.sql',
+                  '000106_m8_nakh_references.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
                   '000104_m8_like_original_lives.sql',
                   '000105_m8_nakh_original_lives.sql',
+                  '000106_m8_nakh_references.sql',
                 ],
           );
           expect(

@@ -1,5 +1,24 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: minimal original funded Nakh references
+
+Commit `a74d6f5` passed the complete local check (944 tests in 218 files), 195
+focused native checks and all six exact-head CI jobs. CI passed 699 integration
+tests in 105 files, all 27 unchanged query plans, load and backup/restore smoke.
+Support took 57.330 ms; initial/terminal integrity took 945.350/1146.370 ms with
+both required terminal indexes. Tracked count was 193,771 lines. Local lint and
+runtime failures were repaired and revalidated before this commit was pushed.
+
+Migration 106 adds exact minimal delivered-Nakh identity, original flow and
+participant lives. Native insertion creates the reference and requires it at
+commit; mismatched/orphan references, reassignment, release and retired source-ID
+reuse fail closed. No ordinary text, lifecycle or funding projection is copied.
+Existing financial and product foreign keys remain unchanged. This is dependency
+preparation, not source archival, phase completion, return or retained release.
+Populated upgrade, concurrent actual creation, mandatory-write rollback/retry,
+financial preservation, native integration, full check and six CI jobs are required.
+External periods and retained release remain unset/off.
+
 ## Current candidate: original Nakh lives and product authority
 
 Repair `dc8cb07` passed the fresh complete check (944 unit tests), 32 focused

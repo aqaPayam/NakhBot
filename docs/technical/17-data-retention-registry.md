@@ -10,7 +10,15 @@ in the historical helper. It creates no retained entity or new user data; the
 commit authority, retained transcript access and disabled release are preserved.
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 105: 131 tables, 1,202 columns and 242 foreign keys.
+code-owned M8 catalog inventory for migration 106: 132 tables, 1,208 columns and 244 foreign keys.
+
+Migration 106 adds minimal original funded Nakh references: source ID, flow ID,
+both original participants and their owning lives. Native source creation requires
+the exact reference at commit; references cannot be reassigned or released, and
+retired source IDs cannot be reused. No prose, status, deadline or funding amount
+is copied. All live-source foreign keys, ledger proof and product read authority
+remain unchanged. This prepares archival dependencies without enabling archival,
+purge completion, return or retained-data release; approval is still required.
 
 Migration 105 adds immutable original sender/receiver lives to Nakh flows without
 changing existing text, deadlines, status, funding or quota facts. Ambiguous

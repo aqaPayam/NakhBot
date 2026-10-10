@@ -450,6 +450,15 @@ export interface NakhFlowTable {
   receiver_product_epoch: Generated<number>;
 }
 
+export interface NakhReferenceAnchorTable {
+  id: string;
+  nakh_flow_id: string;
+  sender_user_id: string;
+  receiver_user_id: string;
+  sender_product_epoch: number;
+  receiver_product_epoch: number;
+}
+
 export interface PendingNakhTable {
   id: string;
   nakh_flow_id: string;
@@ -1341,6 +1350,7 @@ export interface DatabaseSchema {
   'platform.user_counters': UserCounterTable;
   'nakh.nakh_flows': NakhFlowTable;
   'nakh.current_flow_lives': NakhFlowTable;
+  'nakh.nakh_reference_anchors': NakhReferenceAnchorTable;
   'nakh.pending_nakhes': PendingNakhTable;
   'nakh.nakhes': NakhTable;
   'nakh.nakh_status_history': NakhStatusHistoryTable;
