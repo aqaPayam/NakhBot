@@ -36,10 +36,19 @@ describe('architecture boundaries', () => {
       ...(await typescriptFiles(join(process.cwd(), 'apps'))),
     ];
     const violations: string[] = [];
-    for (const file of files) {
-      const source = await readFile(file, 'utf8');
-      if (/from ['"]@nakh\/[^'"]+\/(?:src\/)?[^'"]+['"]/u.test(source)) {
-        violations.push(relative(process.cwd(), file));
+    // Bound I/O while scanning every source, including integration tests. Keep
+    // the same assertion and deadline without serial disk waits per file.
+    for (let offset = 0; offset < files.length; offset += 32) {
+      const batch = await Promise.all(
+        files.slice(offset, offset + 32).map(async (file) => {
+          const source = await readFile(file, 'utf8');
+          return /from ['"]@nakh\/[^'"]+\/(?:src\/)?[^'"]+['"]/u.test(source)
+            ? relative(process.cwd(), file)
+            : undefined;
+        }),
+      );
+      for (const violation of batch) {
+        if (violation !== undefined) violations.push(violation);
       }
     }
     expect(violations).toEqual([]);

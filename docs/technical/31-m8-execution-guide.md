@@ -118,6 +118,45 @@ The legacy standalone ledger fixture now creates its actual owning active Accoun
 Persistence type checking and focused lint passed after adding the test helper's
 explicit return type; no production guard or preservation assertion was relaxed.
 
+Financial fence `7512c24` passed the complete local check (929 unit tests), all six
+exact-head CI jobs and 643 native tests in 99 files. All 27 unchanged M7 plans
+passed; the terminal snapshot took 1416.855 ms against 1500 ms and retained both
+required indexes. Historical load/plan gates, migration verification and
+backup/restore smoke passed. Tracked count was 188,922 lines. Lifetime financial
+history is preserved; this evidence does not establish balance partition or return.
+
+The next increment binds the deletion root itself to its original product epoch.
+Native admission stamps the epoch from the locked owning Account; callers cannot
+forge another owner, epoch or version. The binding is immutable and unique per
+user/product life. Deferred checks cover both deletion records and Account changes,
+so a pending owner cannot change version and invalidate its work at commit. Legacy
+roots retain every field and gain zero; unexplained provenance fails migration
+without inventing a life or partially applying the schema. Verified-return lookup
+uses the exact original epoch while preserving every existing completion, approval
+and safety gate. Return, later-phase completion and retained-data release remain
+disabled. Native concurrency, populated upgrade/replay, full repository validation
+and all six exact-head jobs are required before this candidate is accepted.
+
+Focused native verification passed 140 tests in eleven files, including six new
+deletion-life probes, twenty-way work acquisition and populated migration-99
+upgrade replay. Forged owner/epoch/version admission, immutable-root mutation,
+actual-commit owner divergence and unverified return fail closed. An isolated
+unexplained legacy epoch rejects upgrade with no applied migration or new column;
+valid legacy roots, owning Accounts and pending work preserve every original field.
+The complete populated migration matrix, both Match/Photo original-reference
+upgrades, credit provenance, deletion admission, shared/evidence checkpoints,
+bounded purge and registry coverage also pass. Persistence types and focused lint
+pass. Full repository validation and all six exact-head CI jobs remain required.
+
+The first complete check passed formatting, full lint and all workspace types,
+then the cross-package architecture scan exceeded its unchanged 5-second deadline
+while reading source files serially; the other 928 unit tests passed. The repair
+reads bounded batches of 32 files with every original file, import predicate,
+assertion and deadline retained. Lint discovery also excludes the already ignored,
+untracked `artifacts/` directory, which contains local test databases and outputs;
+every tracked source and test remains covered. Native lifecycle code is unchanged.
+A fresh complete check and all six exact-head jobs are required before committing.
+
 Start from verified M7 implementation `d9ff0e1e681108984369ce82bbae82370541ed59`.
 M7 remains code complete / staging blocked; its provider/operator evidence is not invented here.
 M8 owns `ACC-042..044`. M9 activation is outside this work.

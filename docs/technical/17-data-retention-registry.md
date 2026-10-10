@@ -5,7 +5,16 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 99: 127 tables, 1,156 columns and 232 foreign keys.
+code-owned M8 catalog inventory for migration 100: 127 tables, 1,157 columns and 232 foreign keys.
+
+Migration 100 binds each deletion record to the original product epoch stamped from its
+locked owning deleted Account. Legacy records keep every original field and gain epoch
+zero; unexplained prior return or mismatched pending owner authority rejects upgrade.
+The epoch is immutable and one deletion root owns each user/product life. Pending
+deletion and Account authority must still agree at actual commit. The existing return
+guard selects that exact original epoch and keeps its completion, explicit approval and
+safety requirements. No balance reset, later-phase completion, return or retained release
+is enabled by this binding; financial epochs and the complete registry verifier remain required.
 
 Migration 99 adds original product-life provenance to CreditAccount and CreditTransaction.
 Existing financial fields remain unchanged and both new fields are epoch zero. Stable

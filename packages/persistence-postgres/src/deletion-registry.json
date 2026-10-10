@@ -4068,6 +4068,11 @@
           "name": "last_error_code",
           "type": "text",
           "nullable": true
+        },
+        {
+          "name": "product_epoch",
+          "type": "integer",
+          "nullable": false
         }
       ],
       "foreignKeys": [

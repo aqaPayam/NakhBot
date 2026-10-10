@@ -8,6 +8,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/coverage/**',
       '**/node_modules/**',
+      'artifacts/**',
       'deploy/terraform/**/.terraform/**',
       'eslint.config.mjs',
     ],
