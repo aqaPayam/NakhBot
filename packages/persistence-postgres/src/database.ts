@@ -408,6 +408,32 @@ export interface CreditAccountTable {
   updated_at: Date;
 }
 
+export interface CreditEpochAccountTable {
+  user_id: string;
+  product_epoch: number;
+  balance: string;
+  version: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreditEpochClosureTable {
+  deletion_record_id: string;
+  user_id: string;
+  product_epoch: number;
+  next_product_epoch: number;
+  balance: string;
+  account_version: number;
+  projection_created_at: Date;
+  projection_updated_at: Date;
+  lease_owner: string;
+  lease_generation: number;
+  lease_expires_at: Date;
+  prepared_at: Date;
+  audit_id: string;
+  event_id: string;
+}
+
 export interface UserCounterTable {
   user_id: string;
   pending_nakh_count: Generated<number>;
@@ -1279,6 +1305,8 @@ export interface DatabaseSchema {
   'identity.signup_progress': SignupProgressTable;
   'identity.signup_drafts': SignupDraftTable;
   'billing.credit_accounts': CreditAccountTable;
+  'billing.credit_epoch_accounts': CreditEpochAccountTable;
+  'billing.credit_epoch_closures': CreditEpochClosureTable;
   'platform.user_counters': UserCounterTable;
   'nakh.nakh_flows': NakhFlowTable;
   'nakh.pending_nakhes': PendingNakhTable;

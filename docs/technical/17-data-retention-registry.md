@@ -5,7 +5,15 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 100: 127 tables, 1,157 columns and 232 foreign keys.
+code-owned M8 catalog inventory for migration 101: 129 tables, 1,177 columns and 237 foreign keys.
+
+Migration 101 preserves each original credit projection in its product-epoch namespace,
+with every original ledger row and financial timestamp unchanged. Only a live phase-3
+deletion worker may prepare the next zero-balance projection through an immutable,
+audited closure. Its original Account remains deleted in the original epoch; preparing
+credits does not complete deletion or authorize return. Deferred checks bind the closure
+to actual commit authority and its audit/event. Financial history is never purged by
+this cutover; retained-data release remains disabled pending approved policy.
 
 Migration 100 binds each deletion record to the original product epoch stamped from its
 locked owning deleted Account. Legacy records keep every original field and gain epoch

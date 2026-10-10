@@ -215,7 +215,10 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
           const upgrades = await Promise.all(
             Array.from({ length: 20 }, () => runMigrations(old.url, resolve('migrations'))),
           );
-          expect(upgrades.flatMap((result) => result.applied)).toEqual([migration]);
+          expect(upgrades.flatMap((result) => result.applied)).toEqual([
+            migration,
+            '000101_m8_credit_epoch_partition.sql',
+          ]);
           expect(await original(item.recordId, legacy)).toEqual({ ...before, product_epoch: 0 });
           expect(
             await legacy

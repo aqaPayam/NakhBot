@@ -209,6 +209,7 @@ export * from './admin-totp-enrollment-store.js';
 export * from './admin-totp-operator-store.js';
 export * from './account-deletion-store.js';
 export * from './account-deletion-work-store.js';
+export * from './account-deletion-financial-store.js';
 export * from './account-deletion-shared-store.js';
 export * from './account-deletion-checkpoint-store.js';
 export * from './account-deletion-evidence-store.js';

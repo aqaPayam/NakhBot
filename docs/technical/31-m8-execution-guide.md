@@ -1,5 +1,30 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: financial lifecycle partition
+
+Commit `4913be9` passed the complete local check (929 unit tests), all six exact-head
+CI jobs and 650 native tests in 100 files. All 27 performance plans passed; the terminal
+snapshot took 931.204 ms with both required indexes. Backup/restore smoke passed.
+Tracked source count was 189,343 lines. This is CI evidence, not external DR acceptance.
+
+Migration 101 preserves original credit balances, versions, timestamps and all ledger
+rows in a per-product-life namespace. A live original phase-3 deletion lease can prepare
+one audited next-epoch zero projection; concurrent retries replay its immutable receipt.
+The owning Account remains deleted, and neither purge completion nor return permission
+is granted. Commit-time authority, audit/event rollback, expired leases, historical
+preservation and unexplained legacy chain rejection require native evidence before
+acceptance. Whole ordinary purge, provider absence, ephemeral invalidation, approved
+retention manifests, verified fresh return and production/security/restore acceptance
+remain open. Retention periods remain unapproved and release remains disabled.
+
+The focused run passed 173 of 174 native tests across sixteen files. Its one failure
+was an exact error-code assertion: the absent audit correctly failed its deferred
+foreign key with `23503`, before the custom closure check could report `23514`.
+The repaired financial suite passed all eight probes with the complete rollback
+comparison preserved; the other fifteen suites passed unchanged. Persistence type
+checking and focused lint passed. The complete repository check and all six CI jobs
+are still required before this financial candidate is accepted.
+
 ## Current repair: irreversible deleted-account plan fixture
 
 Payment-epoch commit `a16b53d` passed quality, all four container jobs and 623 native

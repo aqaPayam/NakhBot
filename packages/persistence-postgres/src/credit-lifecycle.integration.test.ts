@@ -325,6 +325,7 @@ describe.skipIf(url === undefined)('M8 original credit lifecycle provenance', ()
       expect(upgrades.flatMap((result) => result.applied)).toEqual([
         '000099_m8_credit_lifecycle_provenance.sql',
         '000100_m8_deletion_lifecycle_binding.sql',
+        '000101_m8_credit_epoch_partition.sql',
       ]);
       expect(
         await legacy
