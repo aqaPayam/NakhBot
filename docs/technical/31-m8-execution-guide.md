@@ -1,5 +1,21 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: native moderation reporter lives
+
+Original-Like commit `d929914` passed the full local check (944 unit tests),
+123 focused native tests and five exact-head CI jobs. The database job passed
+686 native tests but failed two moderation threshold races: their fixture created
+stable reporter Users without Accounts, then inserted native report-source Likes.
+Migration 104 correctly rejected those missing owning lives. Performance, load
+and backup gates did not run; this head is not an accepted staging candidate.
+Tracked count was 192,798 lines.
+
+The repair gives every fixture reporter its real live epoch-zero Account while
+keeping optional target Profiles separate. It leaves the production Like guard,
+moderation threshold logic, concurrent race assertions, timestamp boundary probes
+and safety proofs unchanged. Fresh focused native validation, the complete local
+check and all six exact-head CI jobs remain required before another feature.
+
 ## Current candidate: original Like lives and minimal references
 
 Repair `fa9a240` passed the complete local check (944 unit tests), 110 focused

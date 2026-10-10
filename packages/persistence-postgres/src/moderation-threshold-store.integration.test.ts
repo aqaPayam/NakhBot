@@ -52,19 +52,19 @@ type SeededReport = Readonly<{
   status?: 'submitted' | 'pending_review' | 'dismissed' | 'actioned' | 'closed';
 }>;
 
-async function createUser(database: NakhDatabase, withAccount = false): Promise<string> {
+async function createUser(database: NakhDatabase, withProfile = false): Promise<string> {
   const id = randomUUID();
   const now = new Date();
   await database
     .insertInto('identity.users')
     .values({ id, last_activity_at: now, created_at: now, updated_at: now })
     .execute();
-  if (withAccount)
-    await database
-      .insertInto('identity.accounts')
-      .values({ user_id: id, state: 'active', state_reason: null, state_changed_at: now })
-      .execute();
-  if (withAccount)
+  // Native report-source Likes belong to real Account lives on both sides.
+  await database
+    .insertInto('identity.accounts')
+    .values({ user_id: id, state: 'active', state_reason: null, state_changed_at: now })
+    .execute();
+  if (withProfile)
     await database
       .insertInto('profile.profiles')
       .values({
