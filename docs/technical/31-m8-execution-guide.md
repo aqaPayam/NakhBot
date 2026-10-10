@@ -1,5 +1,31 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: original-life retained support closure
+
+Redis composition repair `e107df3` passed the full local check (930 unit tests),
+all six exact-head CI jobs and 666 native tests in 102 files, including seven probes
+against the actual Redis service. All 27 query-plan checks passed; the terminal
+snapshot took 1419.586 ms with both required indexes. Load gates and backup/restore
+smoke passed. Tracked source count was 190,748 lines.
+
+Migration 102 preserves original support content while binding ordinary thread
+access to its product epoch. A phase-3 worker closes one original open thread per
+transaction with an immutable audited receipt; concurrent retries rely on committed
+scope closure and never require the old transport event. Native authority is checked
+at actual commit. The M7 integrity scanner recognizes the complete deletion closure
+proof alongside existing administrator close proof. User requests and replay,
+unanswered counts and administrator mutations stay in their original product life;
+audited retained-content reads remain available through the existing M7 capability.
+No message is purged, period approved, phase advanced, return granted or retained
+release enabled. Focused native evidence, the full check and six CI jobs are required.
+
+The repaired support and catalog run passed all 16 tests. The wider native run
+passed 132 of 133 tests across eleven files; its only remaining failure expected
+101 existing migrations after migration 102. The corrected bootstrap/replay probe
+passed in a fresh isolated database. The other 48 migration cases and ten suites
+passed unchanged. No database authority, rollback assertion or test limit was relaxed.
+The full repository check and six exact-head CI jobs remain required.
+
 ## Current repair: actual Redis reference composition
 
 Financial partition commit `7d9be94` passed the full local check, all six exact-head

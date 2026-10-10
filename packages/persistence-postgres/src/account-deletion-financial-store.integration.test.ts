@@ -410,7 +410,10 @@ describe.skipIf(url === undefined)('M8 original financial epoch preservation and
           const upgrades = await Promise.all(
             Array.from({ length: 20 }, () => runMigrations(old.url, resolve('migrations'))),
           );
-          expect(upgrades.flatMap((row) => row.applied)).toEqual([migration]);
+          expect(upgrades.flatMap((row) => row.applied)).toEqual([
+            migration,
+            '000102_m8_support_epoch_closure.sql',
+          ]);
           expect(
             await legacy
               .selectFrom('billing.credit_epoch_accounts')

@@ -5,7 +5,16 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 ## Executable catalog inventory
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 101: 129 tables, 1,177 columns and 237 foreign keys.
+code-owned M8 catalog inventory for migration 102: 130 tables, 1,193 columns and 240 foreign keys.
+
+Migration 102 binds support threads to their immutable original product epoch.
+Its phase-3 executor closes at most one original open thread per transaction and
+preserves every retained message. Immutable closure receipts require the exact live
+deletion lease, source version/metadata and content-free audit/event at actual commit.
+Historical integrity accepts only a fully bound worker closure or the existing
+administrator close proof; required access auditing remains unchanged. User replay,
+message admission and administrator mutations cannot borrow another product life.
+Ordinary deletion never releases retained transcripts or completes the whole purge.
 
 Migration 101 preserves each original credit projection in its product-epoch namespace,
 with every original ledger row and financial timestamp unchanged. Only a live phase-3

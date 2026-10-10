@@ -287,18 +287,18 @@ SELECT review.id, COALESCE(report.id IS NOT NULL AND (
 WITH latest_reply AS MATERIALIZED (
     -- The owning admission path uses this same lexicographic latest-message boundary.
     -- Replies from closed threads still answer earlier messages across the User's threads.
-    SELECT DISTINCT ON (owned.user_id) owned.user_id, message.created_at, message.id
+    SELECT DISTINCT ON (owned.user_id,owned.product_epoch) owned.user_id, owned.product_epoch, message.created_at, message.id
     FROM support.support_messages message
     JOIN support.support_threads owned ON owned.id = message.support_thread_id
     WHERE message.sender_type = 'admin'
-    ORDER BY owned.user_id, message.created_at DESC, message.id DESC
+    ORDER BY owned.user_id, owned.product_epoch, message.created_at DESC, message.id DESC
 ), unanswered AS MATERIALIZED (
-    SELECT owned.user_id, count(*) AS count FROM support.support_messages message
+    SELECT owned.user_id, owned.product_epoch, count(*) AS count FROM support.support_messages message
     JOIN support.support_threads owned ON owned.id = message.support_thread_id
-    LEFT JOIN latest_reply reply ON reply.user_id = owned.user_id
+    LEFT JOIN latest_reply reply ON reply.user_id = owned.user_id AND reply.product_epoch = owned.product_epoch
     WHERE owned.status = 'open' AND message.sender_type = 'user'
       AND (reply.id IS NULL OR (message.created_at,message.id) > (reply.created_at,reply.id))
-    GROUP BY owned.user_id
+    GROUP BY owned.user_id, owned.product_epoch
 ), reply_attempts AS MATERIALIZED (
     SELECT message.support_thread_id, bool_and(COALESCE(attempt.id IS NOT NULL
       AND attempt.request_id = message.request_id AND attempt.request_digest = message.request_digest
@@ -316,9 +316,9 @@ SELECT thread.id, thread.status <> 'open' OR COALESCE(unanswered.count,0) <= 2 A
         SELECT attempt.target_id,attempt.expected_target_version FROM administration.admin_action_logs attempt
         WHERE attempt.command_code = 'support.close-thread' AND attempt.target_type = 'support_thread'
           AND attempt.result = 'succeeded'
-      ),false)) AS "hasAttempts"
+      ),false) OR support.deletion_thread_has_bound_closure(thread.id,thread.version - 1)) AS "hasAttempts"
     FROM support.support_threads thread
-    LEFT JOIN unanswered ON unanswered.user_id = thread.user_id
+    LEFT JOIN unanswered ON unanswered.user_id = thread.user_id AND unanswered.product_epoch = thread.product_epoch
     LEFT JOIN reply_attempts ON reply_attempts.support_thread_id = thread.id
 `,
   appeals: sql`

@@ -1196,9 +1196,28 @@ export interface ModerationActionTable {
   occurred_at: Generated<Date>;
 }
 
+export interface DeletionSupportClosureTable {
+  support_thread_id: string;
+  deletion_record_id: string;
+  user_id: string;
+  product_epoch: number;
+  source_version: number;
+  source_last_message_at: Date;
+  source_created_at: Date;
+  source_open_command_id: string;
+  source_open_request_digest: string;
+  lease_owner: string;
+  lease_generation: number;
+  lease_expires_at: Date;
+  closed_at: Date;
+  audit_id: string;
+  event_id: string;
+}
+
 export interface SupportThreadTable {
   id: string;
   user_id: string;
+  product_epoch: Generated<number>;
   status: Generated<'open' | 'closed'>;
   open_command_id: string;
   open_idempotency_key: string;
@@ -1371,6 +1390,7 @@ export interface DatabaseSchema {
   'moderation.moderation_reviews': ModerationReviewTable;
   'moderation.moderation_actions': ModerationActionTable;
   'support.support_threads': SupportThreadTable;
+  'support.deletion_thread_closures': DeletionSupportClosureTable;
   'support.support_messages': SupportMessageTable;
   'moderation.user_appeals': UserAppealTable;
 }

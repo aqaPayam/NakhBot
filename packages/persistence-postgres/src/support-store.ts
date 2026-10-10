@@ -34,6 +34,12 @@ async function lockSupportUser(database: NakhDatabase, userId: string): Promise<
   await sql`SELECT pg_advisory_xact_lock(
     hashtextextended(${'support-user:'} || ${userId}::text, 0)
   )`.execute(database);
+  await database
+    .selectFrom('identity.users')
+    .select('id')
+    .where('id', '=', userId)
+    .forNoKeyUpdate()
+    .execute();
 }
 
 export function supportUnansweredStatement(userId: string): RawBuilder<{ count: number }> {
@@ -43,12 +49,14 @@ export function supportUnansweredStatement(userId: string): RawBuilder<{ count: 
       FROM support.support_messages AS message
       JOIN support.support_threads AS thread ON thread.id = message.support_thread_id
       WHERE thread.user_id = ${userId}::uuid
+        AND thread.product_epoch = (SELECT product_epoch FROM identity.accounts WHERE user_id = ${userId}::uuid)
         AND thread.status = 'open' AND message.sender_type = 'user'
     ), latest_admin AS (
       SELECT message.created_at, message.id
       FROM support.support_messages AS message
       JOIN support.support_threads AS thread ON thread.id = message.support_thread_id
       WHERE thread.user_id = ${userId}::uuid AND message.sender_type = 'admin'
+        AND thread.product_epoch = (SELECT product_epoch FROM identity.accounts WHERE user_id = ${userId}::uuid)
       ORDER BY message.created_at DESC, message.id DESC LIMIT 1
     )
     SELECT count(*)::integer AS count
@@ -65,19 +73,21 @@ async function countUnanswered(database: NakhDatabase, userId: string): Promise<
   return result.rows[0]?.count ?? 0;
 }
 
-async function assertSupportAccount(database: NakhDatabase, userId: string): Promise<void> {
+async function assertSupportAccount(database: NakhDatabase, userId: string): Promise<number> {
   const account = await database
     .selectFrom('identity.accounts')
-    .select('state')
+    .select(['state', 'product_epoch'])
     .where('user_id', '=', userId)
     .forUpdate()
     .executeTakeFirst();
   if (account === undefined || !canUseSupport(account.state)) throw unavailable();
+  return account.product_epoch;
 }
 
 async function replayUserMessage(
   database: NakhDatabase,
   write: UserSupportWrite,
+  productEpoch: number,
 ): Promise<StoredSupportResult | undefined> {
   const existing = await database
     .selectFrom('support.support_messages as message')
@@ -89,6 +99,7 @@ async function replayUserMessage(
       'message.unanswered_user_messages_after as unansweredUserMessages',
       'message.created_at as changedAt',
       'thread.id as supportThreadId',
+      'thread.product_epoch as productEpoch',
     ])
     .where('message.sender_type', '=', 'user')
     .where('message.sender_user_id', '=', write.userId)
@@ -100,7 +111,8 @@ async function replayUserMessage(
     )
     .executeTakeFirst();
   if (existing === undefined) return undefined;
-  if (existing.requestDigest !== write.requestDigest) throw idempotencyConflict();
+  if (existing.productEpoch !== productEpoch || existing.requestDigest !== write.requestDigest)
+    throw idempotencyConflict();
   return {
     supportThreadId: existing.supportThreadId,
     status: 'open',
@@ -165,9 +177,9 @@ export class PostgresSupportStore implements SupportStore<NakhDatabase> {
   public open(write: UserSupportWrite): Promise<StoredSupportResult> {
     return this.database.transaction().execute(async (transaction) => {
       await lockSupportUser(transaction, write.userId);
-      const replay = await replayUserMessage(transaction, write);
+      const productEpoch = await assertSupportAccount(transaction, write.userId);
+      const replay = await replayUserMessage(transaction, write, productEpoch);
       if (replay !== undefined) return replay;
-      await assertSupportAccount(transaction, write.userId);
       const unanswered = assertAdmission(await countUnanswered(transaction, write.userId));
       const occurredAt = await databaseTime(transaction);
       await transaction
@@ -175,6 +187,7 @@ export class PostgresSupportStore implements SupportStore<NakhDatabase> {
         .values({
           id: write.supportThreadId,
           user_id: write.userId,
+          product_epoch: productEpoch,
           status: 'open',
           open_command_id: write.commandId,
           open_idempotency_key: write.idempotencyKey,
@@ -228,16 +241,21 @@ export class PostgresSupportStore implements SupportStore<NakhDatabase> {
   public send(write: UserSupportWrite): Promise<StoredSupportResult> {
     return this.database.transaction().execute(async (transaction) => {
       await lockSupportUser(transaction, write.userId);
-      const replay = await replayUserMessage(transaction, write);
+      const productEpoch = await assertSupportAccount(transaction, write.userId);
+      const replay = await replayUserMessage(transaction, write, productEpoch);
       if (replay !== undefined) return replay;
-      await assertSupportAccount(transaction, write.userId);
       const thread = await transaction
         .selectFrom('support.support_threads')
-        .select(['user_id', 'status', 'version'])
+        .select(['user_id', 'status', 'version', 'product_epoch'])
         .where('id', '=', write.supportThreadId)
         .forUpdate()
         .executeTakeFirst();
-      if (thread === undefined || thread.user_id !== write.userId || thread.status !== 'open')
+      if (
+        thread === undefined ||
+        thread.user_id !== write.userId ||
+        thread.status !== 'open' ||
+        thread.product_epoch !== productEpoch
+      )
         throw unavailable();
       if (thread.version !== write.expectedVersion) throw versionConflict();
       const unanswered = assertAdmission(await countUnanswered(transaction, write.userId));
@@ -315,13 +333,25 @@ export class PostgresSupportStore implements SupportStore<NakhDatabase> {
       .executeTakeFirst();
     if (initial === undefined) throw unavailable();
     await lockSupportUser(database, initial.user_id);
+    const owner = await database
+      .selectFrom('identity.accounts')
+      .select('product_epoch')
+      .where('user_id', '=', initial.user_id)
+      .forUpdate()
+      .executeTakeFirst();
     const thread = await database
       .selectFrom('support.support_threads')
-      .select(['user_id', 'status', 'version'])
+      .select(['user_id', 'status', 'version', 'product_epoch'])
       .where('id', '=', write.supportThreadId)
       .forUpdate()
       .executeTakeFirst();
-    if (thread === undefined || thread.status !== 'open') throw unavailable();
+    if (
+      thread === undefined ||
+      thread.status !== 'open' ||
+      owner === undefined ||
+      thread.product_epoch !== owner.product_epoch
+    )
+      throw unavailable();
     if (thread.version !== write.expectedVersion) throw versionConflict();
     if (action === 'reply' && (write.messageId === undefined || write.normalizedText === undefined))
       throw new ApplicationError('invalid_request', 'error.support.admin_request_invalid', 400);

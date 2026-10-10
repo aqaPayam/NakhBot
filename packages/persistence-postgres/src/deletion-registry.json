@@ -8461,6 +8461,107 @@
       ]
     },
     {
+      "table": "support.deletion_thread_closures",
+      "owner": "support",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "original_retained_support_scope_closure",
+      "subjectScope": "row.user_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "support_thread_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "product_epoch",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "source_version",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "source_last_message_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "source_created_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "source_open_command_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "source_open_request_digest",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id, user_id) REFERENCES identity.account_deletion_records(id, user_id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "support.support_threads",
+          "definition": "FOREIGN KEY (support_thread_id, user_id, product_epoch) REFERENCES support.support_threads(id, user_id, product_epoch) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
       "table": "support.support_messages",
       "owner": "support",
       "classification": "retained_compliance",
@@ -8608,6 +8709,11 @@
         },
         {
           "name": "version",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "product_epoch",
           "type": "integer",
           "nullable": false
         }
