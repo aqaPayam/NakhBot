@@ -53,6 +53,16 @@ those types while preserving its complete delivery result comparison. Focused li
 and the fresh native run then passed. The complete repaired check and six exact-head
 CI jobs are still required; no provider deletion or external approval is claimed.
 
+Media commit `575be94` passed the full local check (929 unit tests in 218 files),
+102 focused native tests and five GitHub CI jobs. The full CI native run passed
+627 tests, but the Match and Photo populated-upgrade suites still expected their
+migration lists to end at 97. Their setup failed when migration 98 was correctly
+applied, leaving eight preservation tests skipped. The repair adds migration 98
+to both exact lists without changing production code or preservation assertions.
+Downstream plan/load and backup gates did not run; the repaired head must pass
+the full check and all six CI jobs before any further M8 feature. Tracked count
+for the media commit was 188,352 lines.
+
 Start from verified M7 implementation `d9ff0e1e681108984369ce82bbae82370541ed59`.
 M7 remains code complete / staging blocked; its provider/operator evidence is not invented here.
 M8 owns `ACC-042..044`. M9 activation is outside this work.
