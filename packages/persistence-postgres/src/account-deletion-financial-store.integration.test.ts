@@ -413,6 +413,7 @@ describe.skipIf(url === undefined)('M8 original financial epoch preservation and
           expect(upgrades.flatMap((row) => row.applied)).toEqual([
             migration,
             '000102_m8_support_epoch_closure.sql',
+            '000103_m8_support_closure_proof_view.sql',
           ]);
           expect(
             await legacy

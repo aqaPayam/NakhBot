@@ -397,95 +397,104 @@ describe.skipIf(url === undefined)(
           .execute(),
       ).toEqual([{ outcome: 'revealed', item_count: 1 }]);
     });
-    it('upgrades a populated original support life twenty ways without rewriting any prior field or message', async () => {
-      const old = await createIsolatedTestDatabase(url!, 'm8_support_upgrade'),
-        directory = await mkdtemp(join(tmpdir(), 'm8-support101-'));
-      const legacy = createDatabase({
-        url: old.url,
-        poolMax: 24,
-        statementTimeoutMs: 20000,
-        lockTimeoutMs: 10000,
-      });
-      try {
-        for (const file of await readdir(resolve('migrations')))
-          if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(file) && Number(file.slice(0, 6)) <= 101)
-            await copyFile(join(resolve('migrations'), file), join(directory, file));
-        await runMigrations(old.url, directory);
-        const user = await createReportUser(legacy),
-          item = write(user);
-        // Write the original migration-101 shape; the current adapter deliberately
-        // requires the new epoch column and cannot run before that upgrade.
-        await legacy.transaction().execute(async (tx) => {
-          const at = new Date();
-          await tx
-            .insertInto('support.support_threads')
-            .values({
-              id: item.supportThreadId,
-              user_id: user,
-              status: 'open',
-              open_command_id: item.commandId,
-              open_idempotency_key: item.idempotencyKey,
-              open_request_digest: item.requestDigest,
-              last_message_at: at,
-              created_at: at,
-              closed_at: null,
-              version: 1,
-            })
-            .execute();
-          await tx
-            .insertInto('support.support_messages')
-            .values({
-              id: item.messageId,
-              support_thread_id: item.supportThreadId,
-              sender_type: 'user',
-              sender_user_id: user,
-              sender_admin_id: null,
-              message_text: item.normalizedText,
-              command_id: item.commandId,
-              request_id: item.requestId,
-              request_digest: item.requestDigest,
-              idempotency_key: item.idempotencyKey,
-              thread_version_after: 1,
-              unanswered_user_messages_after: 1,
-              created_at: at,
-            })
-            .execute();
+    it.each([101, 102])(
+      'upgrades a populated original support life from %i twenty ways without rewriting any prior field or message',
+      async (baseline) => {
+        const old = await createIsolatedTestDatabase(url!, 'm8_support_upgrade'),
+          directory = await mkdtemp(join(tmpdir(), 'm8-support101-'));
+        const legacy = createDatabase({
+          url: old.url,
+          poolMax: 24,
+          statementTimeoutMs: 20000,
+          lockTimeoutMs: 10000,
         });
-        const source = await legacy
-          .selectFrom('support.support_threads')
-          .selectAll()
-          .where('id', '=', item.supportThreadId)
-          .executeTakeFirstOrThrow();
-        const messages = await legacy
-          .selectFrom('support.support_messages')
-          .selectAll()
-          .where('support_thread_id', '=', item.supportThreadId)
-          .execute();
-        const upgraded = await Promise.all(
-          Array.from({ length: 20 }, () => runMigrations(old.url, resolve('migrations'))),
-        );
-        expect(upgraded.flatMap((row) => row.applied)).toEqual([migration]);
-        expect(
-          await legacy
+        try {
+          for (const file of await readdir(resolve('migrations')))
+            if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(file) && Number(file.slice(0, 6)) <= baseline)
+              await copyFile(join(resolve('migrations'), file), join(directory, file));
+          await runMigrations(old.url, directory);
+          const user = await createReportUser(legacy),
+            item = write(user);
+          // Write the original migration-101 shape; the current adapter deliberately
+          // requires the new epoch column and cannot run before that upgrade.
+          await legacy.transaction().execute(async (tx) => {
+            const at = new Date();
+            await tx
+              .insertInto('support.support_threads')
+              .values({
+                id: item.supportThreadId,
+                user_id: user,
+                status: 'open',
+                open_command_id: item.commandId,
+                open_idempotency_key: item.idempotencyKey,
+                open_request_digest: item.requestDigest,
+                last_message_at: at,
+                created_at: at,
+                closed_at: null,
+                version: 1,
+              })
+              .execute();
+            await tx
+              .insertInto('support.support_messages')
+              .values({
+                id: item.messageId,
+                support_thread_id: item.supportThreadId,
+                sender_type: 'user',
+                sender_user_id: user,
+                sender_admin_id: null,
+                message_text: item.normalizedText,
+                command_id: item.commandId,
+                request_id: item.requestId,
+                request_digest: item.requestDigest,
+                idempotency_key: item.idempotencyKey,
+                thread_version_after: 1,
+                unanswered_user_messages_after: 1,
+                created_at: at,
+              })
+              .execute();
+          });
+          const source = await legacy
             .selectFrom('support.support_threads')
             .selectAll()
             .where('id', '=', item.supportThreadId)
-            .executeTakeFirstOrThrow(),
-        ).toEqual({ ...source, product_epoch: 0 });
-        expect(
-          await legacy
+            .executeTakeFirstOrThrow();
+          const messages = await legacy
             .selectFrom('support.support_messages')
             .selectAll()
             .where('support_thread_id', '=', item.supportThreadId)
-            .execute(),
-        ).toEqual(messages);
-        expect(await verifyMigrations(old.url, resolve('migrations/verify'))).toContain(migration);
-        expect((await runMigrations(old.url, resolve('migrations'))).applied).toEqual([]);
-      } finally {
-        await legacy.destroy();
-        await old.destroy();
-        await rm(directory, { recursive: true, force: true });
-      }
-    });
+            .execute();
+          const upgraded = await Promise.all(
+            Array.from({ length: 20 }, () => runMigrations(old.url, resolve('migrations'))),
+          );
+          expect(upgraded.flatMap((row) => row.applied)).toEqual(
+            baseline === 101
+              ? [migration, '000103_m8_support_closure_proof_view.sql']
+              : ['000103_m8_support_closure_proof_view.sql'],
+          );
+          expect(
+            await legacy
+              .selectFrom('support.support_threads')
+              .selectAll()
+              .where('id', '=', item.supportThreadId)
+              .executeTakeFirstOrThrow(),
+          ).toEqual({ ...source, product_epoch: 0 });
+          expect(
+            await legacy
+              .selectFrom('support.support_messages')
+              .selectAll()
+              .where('support_thread_id', '=', item.supportThreadId)
+              .execute(),
+          ).toEqual(messages);
+          expect(await verifyMigrations(old.url, resolve('migrations/verify'))).toContain(
+            migration,
+          );
+          expect((await runMigrations(old.url, resolve('migrations'))).applied).toEqual([]);
+        } finally {
+          await legacy.destroy();
+          await old.destroy();
+          await rm(directory, { recursive: true, force: true });
+        }
+      },
+    );
   },
 );

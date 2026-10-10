@@ -219,6 +219,7 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
             migration,
             '000101_m8_credit_epoch_partition.sql',
             '000102_m8_support_epoch_closure.sql',
+            '000103_m8_support_closure_proof_view.sql',
           ]);
           expect(await original(item.recordId, legacy)).toEqual({ ...before, product_epoch: 0 });
           expect(

@@ -4,6 +4,11 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migration 103 adds a derived read-only support closure proof view and reuses it
+in the historical helper. It creates no retained entity or new user data; the
+130-table inventory and deletion policies remain unchanged. Live lease and
+commit authority, retained transcript access and disabled release are preserved.
+
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
 code-owned M8 catalog inventory for migration 102: 130 tables, 1,193 columns and 240 foreign keys.
 

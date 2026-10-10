@@ -327,6 +327,7 @@ describe.skipIf(url === undefined)('M8 original credit lifecycle provenance', ()
         '000100_m8_deletion_lifecycle_binding.sql',
         '000101_m8_credit_epoch_partition.sql',
         '000102_m8_support_epoch_closure.sql',
+        '000103_m8_support_closure_proof_view.sql',
       ]);
       expect(
         await legacy

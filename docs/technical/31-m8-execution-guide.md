@@ -1,6 +1,35 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
-## Current candidate: strict storage absence verification
+## Current repair: shared support closure proof
+
+Storage verification commit `ddec00a` passed the full local check and 676 native
+tests, but its database CI job failed the unchanged 1500 ms integrity snapshot
+budget: initial 1550.291 ms and terminal 1867.425 ms. Five other jobs passed.
+It is not an accepted staging candidate; the subsequent load and backup gates
+did not run.
+
+The support closure scalar check introduced in migration 102 repeated proof
+lookups for every closed thread and disabled parallel snapshot execution.
+Migration 103 exposes the identical historical proof as a shared read-only view;
+the scanner evaluates actual receipts once and joins by original thread/version.
+The historical helper is stable and parallel safe. Actual lease authority remains
+volatile and parallel unsafe, with every native commit guard unchanged. No
+transcript, audit, receipt, policy period or lifecycle phase changes.
+
+A paired diagnostic on 20,000 closed threads returned identical flags, including
+denial of all missing proofs, and reduced the support component from about
+709 ms to 29 ms. This isolated Windows component measurement does not replace
+the unchanged Linux full-plan gate. Native corruption, concurrency, migration
+replay, full check and all six exact-head CI jobs must pass before acceptance.
+
+The repaired focused run passed 24 native tests in four suites. A wider fresh
+run passed 86 tests in seven suites, including all 50 populated migration and
+bootstrap cases, original credits, deletion catalog and Match/Photo references.
+The new migration-102 support upgrade initially expected migration 102 to apply
+again; correcting only that expected list restored both twenty-way upgrades.
+Actual historical proof, lease guards and performance budgets were unchanged.
+
+## Previous candidate: strict storage absence verification
 
 Support lifecycle commit `8dd6b1f` passed the complete local check (930 unit tests),
 all six exact-head CI jobs and 676 native tests in 103 files. All 27 unchanged

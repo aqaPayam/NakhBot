@@ -299,6 +299,11 @@ WITH latest_reply AS MATERIALIZED (
     WHERE owned.status = 'open' AND message.sender_type = 'user'
       AND (reply.id IS NULL OR (message.created_at,message.id) > (reply.created_at,reply.id))
     GROUP BY owned.user_id, owned.product_epoch
+), deletion_closures AS MATERIALIZED (
+    -- Only actual retained closures need native proof verification. Evaluating
+    -- the scalar proof for every ordinarily closed thread repeats empty lookups.
+    SELECT proof.support_thread_id, proof.source_version, true AS valid
+    FROM support.verified_deletion_thread_closures proof
 ), reply_attempts AS MATERIALIZED (
     SELECT message.support_thread_id, bool_and(COALESCE(attempt.id IS NOT NULL
       AND attempt.request_id = message.request_id AND attempt.request_digest = message.request_digest
@@ -316,10 +321,12 @@ SELECT thread.id, thread.status <> 'open' OR COALESCE(unanswered.count,0) <= 2 A
         SELECT attempt.target_id,attempt.expected_target_version FROM administration.admin_action_logs attempt
         WHERE attempt.command_code = 'support.close-thread' AND attempt.target_type = 'support_thread'
           AND attempt.result = 'succeeded'
-      ),false) OR support.deletion_thread_has_bound_closure(thread.id,thread.version - 1)) AS "hasAttempts"
+      ),false) OR COALESCE(deletion_closures.valid,false)) AS "hasAttempts"
     FROM support.support_threads thread
     LEFT JOIN unanswered ON unanswered.user_id = thread.user_id AND unanswered.product_epoch = thread.product_epoch
     LEFT JOIN reply_attempts ON reply_attempts.support_thread_id = thread.id
+    LEFT JOIN deletion_closures ON deletion_closures.support_thread_id = thread.id
+      AND deletion_closures.source_version = thread.version - 1
 `,
   appeals: sql`
 WITH unban_facts AS MATERIALIZED (
