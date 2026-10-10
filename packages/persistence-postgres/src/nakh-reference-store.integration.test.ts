@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { CreateDirectNakhCommand } from '@nakh/contracts';
-import type { CreateDirectNakhWrite } from '@nakh/application';
+import { ViewNakhProfileHandler, type CreateDirectNakhWrite } from '@nakh/application';
 import { createDatabase, type NakhDatabase, type NakhReferenceAnchorTable } from './database.js';
 import { runMigrations, verifyMigrations } from './migrations.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
@@ -22,10 +22,10 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
   let survivor: string, owner: string, historicalId: string, originalFacts: unknown;
   beforeAll(async () => {
     isolated = await createIsolatedTestDatabase(url!, 'm8_nakh_reference');
-    const directory = await mkdtemp(join(tmpdir(), 'm8-nakh105-'));
+    const directory = await mkdtemp(join(tmpdir(), 'm8-nakh106-'));
     try {
       for (const file of await readdir(resolve('migrations')))
-        if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(file) && Number(file.slice(0, 6)) <= 105)
+        if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(file) && Number(file.slice(0, 6)) <= 106)
           await copyFile(join(resolve('migrations'), file), join(directory, file));
       await runMigrations(isolated.url, directory);
     } finally {
@@ -86,6 +86,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       database.selectFrom('nakh.nakhes').selectAll().orderBy('id').execute(),
       database.selectFrom('nakh.nakh_flows').selectAll().orderBy('id').execute(),
       database.selectFrom('nakh.nakh_status_history').selectAll().orderBy('id').execute(),
+      database.selectFrom('nakh.nakh_receiver_actions').selectAll().orderBy('id').execute(),
       database.selectFrom('billing.credit_transactions').selectAll().orderBy('id').execute(),
       database.selectFrom('billing.credit_accounts').selectAll().orderBy('user_id').execute(),
       database.selectFrom('platform.idempotency_records').selectAll().orderBy('id').execute(),
@@ -155,10 +156,47 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     return { sender, receiver, write, store: new PostgresDirectNakhStore(database) };
   }
   it('upgrades once under twenty retries without changing deleted-owner sources or financial facts', async () => {
+    const historical = await database
+      .selectFrom('nakh.nakhes')
+      .select('credit_transaction_id')
+      .where('id', '=', historicalId)
+      .executeTakeFirstOrThrow();
+    const setEpoch = async (value: number): Promise<void> => {
+      await database.connection().execute(async (connection) => {
+        await sql`SET session_replication_role=replica`.execute(connection);
+        try {
+          await sql`UPDATE billing.credit_transactions SET product_epoch=${value} WHERE id=${historical.credit_transaction_id}::uuid`.execute(
+            connection,
+          );
+        } finally {
+          await sql`SET session_replication_role=origin`.execute(connection);
+        }
+      });
+    };
+    // Isolated negative provenance corruption, not a fresh return or reset.
+    await setEpoch(1);
+    try {
+      await expect(runMigrations(isolated.url, resolve('migrations'))).rejects.toThrow(
+        'legacy Nakh original funding life is unproven',
+      );
+      expect(
+        (
+          await sql<{
+            present: boolean;
+          }>`SELECT to_regprocedure('nakh.original_funding_life_valid(nakh.nakhes)') IS NOT NULL AS present`.execute(
+            database,
+          )
+        ).rows[0]!.present,
+      ).toBe(false);
+    } finally {
+      await setEpoch(0);
+    }
     const results = await Promise.all(
       Array.from({ length: 20 }, () => runMigrations(isolated.url, resolve('migrations'))),
     );
-    expect(results.flatMap((result) => result.applied)).toEqual(['000106_m8_nakh_references.sql']);
+    expect(results.flatMap((result) => result.applied)).toEqual([
+      '000107_m8_nakh_funding_lives.sql',
+    ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database
       .selectFrom('nakh.nakhes')
@@ -186,6 +224,9 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     ).rejects.toMatchObject({ code: 'not_found' });
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000106_m8_nakh_references.sql',
+    );
+    expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
+      '000107_m8_nakh_funding_lives.sql',
     );
     expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
     const catalog = await readDeletionCatalog(database);
@@ -320,5 +361,87 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     expect((await scene.store.createDirect(scene.write)).replayed).toBe(false);
     expect((await scene.store.createDirect(scene.write)).replayed).toBe(true);
     expect((await anchor(scene.write.nakhId)).sender_user_id).toBe(scene.sender);
+  });
+  it('denies twenty additional spends against one original Nakh without changing its financial or command facts', async () => {
+    const scene = await prepared();
+    await scene.store.createDirect(scene.write);
+    const original = await facts();
+    const ledger = new PostgresCreditLedgerStore(database);
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 20 }, () =>
+        ledger.append({
+          transactionId: randomUUID(),
+          userId: scene.sender,
+          transactionType: 'spend_nakh',
+          amount: -2n,
+          idempotencyKey: randomUUID(),
+          correlationId: randomUUID(),
+          reference: { nakhId: scene.write.nakhId },
+        }),
+      ),
+    );
+    for (const outcome of outcomes) {
+      expect(outcome.status).toBe('rejected');
+      if (outcome.status === 'rejected')
+        expect(outcome.reason as unknown).toMatchObject({
+          code: '23505',
+          constraint: 'credit_transactions_nakh_idx',
+        });
+    }
+    expect(await facts()).toEqual(original);
+    expect((await scene.store.createDirect(scene.write)).replayed).toBe(true);
+  });
+  it('denies borrowed funding life at the actual receiver-command commit and permits its original retry', async () => {
+    const scene = await prepared();
+    await scene.store.createDirect(scene.write);
+    const original = await facts();
+    const setEpoch = async (value: number): Promise<void> => {
+      await database.connection().execute(async (connection) => {
+        await sql`SET session_replication_role=replica`.execute(connection);
+        try {
+          await sql`UPDATE billing.credit_transactions SET product_epoch=${value} WHERE id=${scene.write.creditTransactionId}::uuid`.execute(
+            connection,
+          );
+        } finally {
+          await sql`SET session_replication_role=origin`.execute(connection);
+        }
+      });
+    };
+    const command = {
+      commandType: 'nakh.view-profile' as const,
+      schemaVersion: 1 as const,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      actor: { kind: 'user' as const, userId: scene.receiver },
+      occurredAt: new Date().toISOString(),
+      locale: 'en' as const,
+      data: { nakhId: scene.write.nakhId, expectedVersion: 1 },
+    };
+    const handler = new ViewNakhProfileHandler(new PostgresDeliveredNakhStore(database), {
+      uuid: randomUUID,
+    });
+    // Negative corruption only: no return or payment transfer is authorized.
+    await setEpoch(1);
+    try {
+      const corrupted = await facts();
+      const outcomes = await Promise.allSettled(
+        Array.from({ length: 20 }, () => handler.execute(command)),
+      );
+      for (const outcome of outcomes) {
+        expect(outcome.status).toBe('rejected');
+        if (outcome.status === 'rejected')
+          expect(outcome.reason as unknown).toMatchObject({
+            code: '23514',
+            where: expect.stringContaining('require_original_funding_life()') as unknown,
+          });
+      }
+      expect(await facts()).toEqual(corrupted);
+    } finally {
+      await setEpoch(0);
+    }
+    expect(await facts()).toEqual(original);
+    expect((await handler.execute(command)).replayed).toBe(false);
+    expect((await handler.execute(command)).replayed).toBe(true);
   });
 });

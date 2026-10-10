@@ -11,6 +11,7 @@ import type {
   ProtectedInvoicePayload,
   TelegramSuccessfulPaymentWrite,
 } from '@nakh/application';
+import { ViewNakhProfileHandler } from '@nakh/application';
 import type { CancelPendingNakhCommand, CreatePendingNakhCommand } from '@nakh/contracts';
 
 import { PostgresBillingReconciliationStore } from './billing-reconciliation-store.js';
@@ -21,6 +22,7 @@ import { runMigrations } from './migrations.js';
 import { PostgresTelegramStarsReceiptStore } from './payment-receipt-store.js';
 import { PostgresPendingNakhStore } from './pending-nakh-store.js';
 import { PostgresRefundStore } from './refund-store.js';
+import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const botDigest = 'b'.repeat(64);
@@ -1087,6 +1089,156 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
       { notification_type: 'nakh_received', user_id: payment.receiver.userId },
     ]);
   });
+
+  it.each(['payer', 'intent'] as const)(
+    'M8 rejects borrowed original Stars funding scope at receiver commit (%s)',
+    async (scope) => {
+      const payment = await preparePendingNakhPayment();
+      const callbackId = `nakh-life:${randomUUID()}`;
+      await receipts.recordSuccessfulPayment({
+        providerEventId: callbackId,
+        telegramUserId: payment.sender.telegramUserId,
+        invoicePayload: payment.payload.cleartext,
+        currency: 'XTR',
+        totalAmount: payment.starsAmount,
+        providerEnvironment: 'test',
+        providerBotIdDigest: botDigest,
+        telegramChargeId: `telegram:${randomUUID()}`,
+        evidence: evidence(callbackId),
+      });
+      const owner = `nakh-life:${scope}`;
+      const claim = (await receipts.claimFulfillments({ owner, leaseMs: 60_000, limit: 100 })).find(
+        (value) => value.paymentRecordId === payment.paymentRecordId,
+      )!;
+      expect(claim).toBeDefined();
+      const write = {
+        paymentRecordId: payment.paymentRecordId,
+        owner,
+        fenceToken: claim.fenceToken,
+        nakhId: randomUUID(),
+        historyId: randomUUID(),
+        refundRecordId: randomUUID(),
+        deliveredEventId: randomUUID(),
+        paymentTerminalEventId: randomUUID(),
+      };
+      const deliveries = await Promise.all(
+        Array.from({ length: 20 }, () => receipts.fulfillPendingNakh(write)),
+      );
+      expect(deliveries.filter((value) => !value.replayed)).toHaveLength(1);
+      expect(deliveries.filter((value) => value.replayed)).toHaveLength(19);
+      const snapshot = (): Promise<unknown[]> =>
+        Promise.all([
+          database
+            .selectFrom('billing.payment_records')
+            .selectAll()
+            .where('id', '=', payment.paymentRecordId)
+            .execute(),
+          database
+            .selectFrom('billing.pending_payments')
+            .selectAll()
+            .where('id', '=', payment.fundingIntentId)
+            .execute(),
+          database
+            .selectFrom('billing.telegram_stars_receipts')
+            .selectAll()
+            .where('payment_record_id', '=', payment.paymentRecordId)
+            .execute(),
+          database
+            .selectFrom('billing.payment_fulfillments')
+            .selectAll()
+            .where('payment_record_id', '=', payment.paymentRecordId)
+            .execute(),
+          database.selectFrom('nakh.nakhes').selectAll().where('id', '=', write.nakhId).execute(),
+          database
+            .selectFrom('nakh.nakh_status_history')
+            .selectAll()
+            .where('nakh_id', '=', write.nakhId)
+            .execute(),
+          database
+            .selectFrom('nakh.nakh_receiver_actions')
+            .selectAll()
+            .where('nakh_id', '=', write.nakhId)
+            .execute(),
+          database
+            .selectFrom('platform.idempotency_records')
+            .selectAll()
+            .where('actor_user_id', '=', payment.receiver.userId)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('platform.outbox_events')
+            .selectAll()
+            .where('aggregate_id', '=', write.nakhId)
+            .orderBy('id')
+            .execute(),
+          database
+            .selectFrom('billing.credit_accounts')
+            .selectAll()
+            .where('user_id', 'in', [payment.sender.userId, payment.receiver.userId])
+            .orderBy('user_id')
+            .execute(),
+        ]);
+      const original = await snapshot();
+      const setEpoch = async (value: number): Promise<void> => {
+        await database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            if (scope === 'payer')
+              await sql`UPDATE billing.payment_records SET user_id=${value === 1 ? payment.receiver.userId : payment.sender.userId}::uuid WHERE id=${payment.paymentRecordId}::uuid`.execute(
+                connection,
+              );
+            else
+              await sql`UPDATE billing.pending_payments SET product_epoch=${value} WHERE id=${payment.fundingIntentId}::uuid`.execute(
+                connection,
+              );
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      };
+      const command = {
+        commandType: 'nakh.view-profile' as const,
+        schemaVersion: 1 as const,
+        commandId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        actor: { kind: 'user' as const, userId: payment.receiver.userId },
+        occurredAt: new Date().toISOString(),
+        locale: 'en' as const,
+        data: { nakhId: write.nakhId, expectedVersion: 1 },
+      };
+      const handler = new ViewNakhProfileHandler(new PostgresDeliveredNakhStore(database), ids);
+      // Negative isolated corruption only; no return, transfer or reset.
+      await setEpoch(1);
+      try {
+        const corrupted = await snapshot();
+        const attempts = await Promise.allSettled(
+          Array.from({ length: 20 }, () => handler.execute(command)),
+        );
+        for (const attempt of attempts) {
+          expect(attempt.status).toBe('rejected');
+          if (attempt.status === 'rejected')
+            expect(attempt.reason as unknown).toMatchObject({
+              code: '23514',
+              where: expect.stringContaining('require_original_funding_life()') as unknown,
+            });
+        }
+        expect(await snapshot()).toEqual(corrupted);
+      } finally {
+        await setEpoch(0);
+      }
+      expect(await snapshot()).toEqual(original);
+      expect((await handler.execute(command)).replayed).toBe(false);
+      expect((await handler.execute(command)).replayed).toBe(true);
+      expect(
+        await database
+          .selectFrom('billing.telegram_stars_receipts')
+          .selectAll()
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .execute(),
+      ).toEqual(original[2]);
+    },
+  );
 
   it.each(['blocked_pair', 'receiver_life'] as const)(
     'creates one original-charge correction when scope becomes unavailable after Stars capture (%s)',

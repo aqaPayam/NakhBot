@@ -1,5 +1,27 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: original Nakh funding life at commit
+
+Commit `13794b9` passed the complete check (944 tests), 169 focused native checks
+and all six exact-head CI jobs. CI passed 704 native tests in 106 files, all 27
+unchanged plans, load and backup/restore smoke. Support took 70.990 ms;
+initial/terminal integrity took 1016.360/1284.680 ms with both required terminal
+indexes. Tracked count was 194,281 lines.
+
+The isolated additional-spend probe confirmed the existing unique Nakh spend
+index already denies reuse. A separate negative credit-life corruption probe
+showed receiver commands could commit without checking original funding epoch.
+Migration 107 rejects inconsistent legacy provenance without rewriting money,
+and requires exact original sender life for credit or payment plus intent at
+deferred source commit. All complete funding/receipt/ledger/unique guards remain.
+The first draft referenced a nonexistent payment epoch column; it was corrected
+to the existing immutable original-intent binding. Fresh focused native validation
+passed 47 checks across four suites, including populated rejection/rollback,
+credit life, Stars payer identity and intent life, actual twenty-way command
+concurrency and original retry. Wider migration and full checks remain required.
+Corruption is isolated negative evidence only. Source archival, phase
+completion, return and retained release remain disabled; no approval is invented.
+
 ## Current candidate: minimal original funded Nakh references
 
 Commit `a74d6f5` passed the complete local check (944 tests in 218 files), 195

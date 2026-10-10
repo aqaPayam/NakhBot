@@ -157,6 +157,7 @@ describe.skipIf(url === undefined)('M8 populated original Nakh-life upgrade', ()
     expect(outcomes.flatMap((result) => result.applied)).toEqual([
       '000105_m8_nakh_original_lives.sql',
       '000106_m8_nakh_references.sql',
+      '000107_m8_nakh_funding_lives.sql',
     ]);
     expect(await snapshot()).toEqual(original);
     expect(
