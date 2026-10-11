@@ -1,5 +1,37 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: bounded unreferenced Like purge
+
+Commit `40144f5` passed the complete check (944 unit tests), 174 focused native
+checks and all six exact-head CI jobs. CI passed 709 native tests in 106 files,
+all 27 unchanged plans, load and backup/restore smoke. Support took 80.143 ms;
+initial/terminal integrity took 1171.109/1424.740 ms with both required terminal
+indexes. Tracked count was 194,635 lines. Original Nakh funding-life verification
+is accepted as dependency evidence, not source archival or fresh return.
+
+Migration 108 and the internal Like executor remove only closed, unreferenced
+original-life Likes. Each transaction handles one canonically locked pair and at
+most two rows. Pair/counter/identity/Account/root/work lock order follows existing
+writers. Native admission rechecks original owning life, authentic capture and
+phase receipts, and the live deletion generation after lock waits. Actual removal,
+required content-free audit/event and deferred commit authority remain atomic.
+All referenced Likes and their three original Match/unlock FKs remain unchanged;
+blocked references report remaining work instead of false purge completion.
+Concurrency, required-write rollback, original retry, migration and integration
+evidence, the complete check and six exact-head CI jobs are required. Product
+completion, ingress, return and retained-data release remain disabled.
+
+Final focused validation passed 44 native tests across four suites. Wider
+validation passed 134 across thirteen suites: 170 distinct checks in sixteen
+suites after the shared reference suite is counted once. Evidence includes actual
+twenty-way deletion, authentic archived-Match reference preservation, exact-count
+and late event corruption rollback, original retry, expiry during removal, actual
+deferred commit and Account lock waits, plus populated upgrades through 107.
+The first native fixture omitted the survivor's notification preferences; creating
+that required fixture state repaired closure without changing production policy.
+The final runs passed independently; the complete check and exact-head CI remain
+required before the next feature.
+
 ## Current candidate: original Nakh funding life at commit
 
 Commit `13794b9` passed the complete check (944 tests), 169 focused native checks

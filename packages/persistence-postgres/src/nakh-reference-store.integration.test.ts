@@ -196,6 +196,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     );
     expect(results.flatMap((result) => result.applied)).toEqual([
       '000107_m8_nakh_funding_lives.sql',
+      '000108_m8_unreferenced_like_purge.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database

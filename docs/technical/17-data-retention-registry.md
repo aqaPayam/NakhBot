@@ -10,7 +10,14 @@ in the historical helper. It creates no retained entity or new user data; the
 commit authority, retained transcript access and disabled release are preserved.
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 107: 132 tables, 1,208 columns and 244 foreign keys.
+code-owned M8 catalog inventory for migration 108: 132 tables, 1,208 columns and 244 foreign keys.
+
+Migration 108 removes at most the two closed, unreferenced Likes of one canonically
+locked pair under the original phase-3 deletion life and an unexpired lease. The
+required content-free audit/event commits with removal; captures are rechecked at
+commit. Any minimal reference, Match or paid-unlock source blocks removal. Original
+foreign keys, financial facts, safety captures and pair state stay intact. No new
+retained entity is created, and this does not complete product purge or enable return.
 
 Migration 107 rejects legacy Nakh funding from a different original sender life
 and requires that credit/payment/intent ownership proof at native deferred commit.

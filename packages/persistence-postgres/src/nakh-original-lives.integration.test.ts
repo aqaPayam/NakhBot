@@ -158,6 +158,7 @@ describe.skipIf(url === undefined)('M8 populated original Nakh-life upgrade', ()
       '000105_m8_nakh_original_lives.sql',
       '000106_m8_nakh_references.sql',
       '000107_m8_nakh_funding_lives.sql',
+      '000108_m8_unreferenced_like_purge.sql',
     ]);
     expect(await snapshot()).toEqual(original);
     expect(
