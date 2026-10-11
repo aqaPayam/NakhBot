@@ -9,7 +9,7 @@ import type { NakhDatabase } from './database.js';
 /** Shared actionable predicate for the inbox and its media-grant authorization. */
 export function actionableLikedByFrom(receiverUserId: string): RawBuilder<unknown> {
   return sql`
-    FROM interaction.likes incoming
+    FROM interaction.current_like_lives incoming
     JOIN identity.accounts liker_account ON liker_account.user_id = incoming.sender_user_id
     JOIN profile.profiles liker_profile ON liker_profile.user_id = incoming.sender_user_id
     JOIN media.profile_photos primary_photo ON primary_photo.profile_id = liker_profile.id

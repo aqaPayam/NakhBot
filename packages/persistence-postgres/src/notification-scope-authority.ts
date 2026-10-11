@@ -31,6 +31,13 @@ export async function resolveNotificationScope(
       if (messageId === undefined || chatSessionId === undefined) return undefined;
       const message = await database
         .selectFrom('chat.chat_messages as message')
+        .innerJoin('chat.chat_sessions as session', 'session.id', 'message.chat_session_id')
+        .innerJoin('matching.current_match_lives as match', 'match.id', 'session.match_id')
+        .innerJoin('interaction.user_pair_states as pair', (join) =>
+          join
+            .onRef('pair.user_low_id', '=', 'match.user_low_id')
+            .onRef('pair.user_high_id', '=', 'match.user_high_id'),
+        )
         .innerJoin('chat.chat_participants as participant', (join) =>
           join
             .onRef('participant.chat_session_id', '=', 'message.chat_session_id')
@@ -39,6 +46,14 @@ export async function resolveNotificationScope(
         .select('message.sender_user_id')
         .where('message.id', '=', messageId)
         .where('message.chat_session_id', '=', chatSessionId)
+        .where('session.status', '=', 'active')
+        .where('match.status', '=', 'active')
+        .where('pair.state', '=', 'matched')
+        .where(
+          sql<boolean>`LEAST(message.sender_user_id,${notice.user_id}::uuid)=match.user_low_id
+          AND GREATEST(message.sender_user_id,${notice.user_id}::uuid)=match.user_high_id
+          AND message.sender_user_id<>${notice.user_id}::uuid`,
+        )
         .executeTakeFirst();
       return message?.sender_user_id == null ? undefined : [notice.user_id, message.sender_user_id];
     }

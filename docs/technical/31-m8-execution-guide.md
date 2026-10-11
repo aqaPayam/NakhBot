@@ -1,6 +1,45 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
-## Current repair: private hashes and the original indexed resolution lookup
+## Current candidate: original chat access and paid source authority
+
+Commit `57db28a` passed the full check (944 unit tests), nineteen focused native
+checks and all six exact-head CI jobs. CI passed 738 native tests in 108 suites,
+all 27 unchanged plans, load and backup/restore smoke. Support took 72.699 ms;
+initial/terminal integrity took 1101.058/1428.542 ms, with both required terminal
+indexes, one worker and no disk spill. Tracked count was 196,062 lines.
+
+A native negative probe first reproduced chat capability access after an original
+participant epoch changed. Chat capabilities, actual history reads and chat writes
+now use current Match lives. Cached predefined and private-text replies require
+current chat permission before replay. Paid Like/Match grants and actionable
+LikedBy pages require their original current sources; shared paid fulfillment
+routes an unavailable source to its original refund instead of granting access.
+New chat-message rendering/admission also requires the original active Match,
+matched pair, sender and recipient. Historical closure and already-admitted
+provider settlement retain their separate existing authority.
+
+Chat and paid writes lock sorted identities before Accounts and recheck sources
+after waiting. A native blocking probe proves a queued chat writer does not hold
+an Account while waiting for an identity lock, then denies the changed life without
+claiming a command. Seventy focused native checks pass, including twenty-way
+cached/new access denial, unchanged financial/message snapshots, actual Unmatch,
+original-source restoration, competing paid retries and exactly one original refund.
+Negative epoch mutations are restored; they do not prove genuine fresh return.
+The refund probe settles native provider progress and does not call Telegram.
+
+The first complete native run passed 732 tests but failed three notification
+checks: two older fixtures lacked the real matched pair, and a global delivery
+claim could be crowded out by unrelated earlier suites. The fixtures now include
+the matched pair and the notification suite owns a migrated disposable database.
+All nine notification tests pass independently; no production predicate or claim
+limit was weakened. Static analysis also required explicit new-test return types
+and a typed error handler, which were repaired before final validation.
+
+This candidate adds no migration and depends on migration 109's current-life
+views. Full native regression, the complete check and all six exact-head CI jobs
+remain required. Return and retained-data release remain disabled; retention periods
+are still unset. Whole deletion/return, archive and external acceptance work remains.
+## Previous repair: private hashes and the original indexed resolution lookup
 
 Commit `4a9ace6` passed the complete local check (944 unit tests), nineteen focused
 native checks, all 738 CI integration tests in 108 suites, quality and four images.

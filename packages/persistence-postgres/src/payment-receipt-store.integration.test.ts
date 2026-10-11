@@ -1611,132 +1611,164 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     ).toEqual([{ user_id: payer.userId, notification_type: 'payment_success' }]);
   });
 
-  it('ACC-037 creates one correction when a paid Match closes before fulfillment', async () => {
-    const payer = await createUser(database);
-    const other = await createUser(database);
-    const matchId = await createActiveMatch(payer.userId, other.userId);
-    const payment = await preparePaymentFor(payer, { type: 'match', targetId: matchId });
-    const telegramChargeId = `telegram:${randomUUID()}`;
-    const eventId = `closed-target:${randomUUID()}`;
-    await receipts.recordSuccessfulPayment({
-      providerEventId: eventId,
-      telegramUserId: payer.telegramUserId,
-      invoicePayload: payment.payload.cleartext,
-      currency: 'XTR',
-      totalAmount: payment.starsAmount,
-      providerEnvironment: 'test',
-      providerBotIdDigest: botDigest,
-      telegramChargeId,
-      evidence: evidence(eventId),
-    });
-    await database
-      .updateTable('matching.matches')
-      .set((expression) => ({
-        status: 'closed',
-        closed_at: new Date(),
-        version: expression('version', '+', 1),
-      }))
-      .where('id', '=', matchId)
-      .executeTakeFirstOrThrow();
-    const claim = (
-      await receipts.claimFulfillments({ owner: 'correction-worker', leaseMs: 60_000, limit: 100 })
-    ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
-    expect(claim).toBeDefined();
-    const write = {
-      paymentRecordId: payment.paymentRecordId,
-      owner: 'correction-worker',
-      fenceToken: claim!.fenceToken,
-      featureUnlockId: randomUUID(),
-      refundRecordId: randomUUID(),
-      featureUnlockedEventId: randomUUID(),
-      paymentTerminalEventId: randomUUID(),
-    };
-    const results = await Promise.all(
-      Array.from({ length: 20 }, () => receipts.fulfillDirectPaidAction(write)),
-    );
-    expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
-    expect(results.filter(({ replayed }) => replayed)).toHaveLength(19);
-    expect(new Set(results.map(({ refundRecordId }) => refundRecordId))).toEqual(
-      new Set([write.refundRecordId]),
-    );
-    expect(
-      await database
-        .selectFrom('billing.refund_records')
-        .select(['user_id', 'payment_record_id', 'telegram_charge_id', 'stars_amount', 'status'])
-        .where('payment_record_id', '=', payment.paymentRecordId)
-        .executeTakeFirstOrThrow(),
-    ).toEqual({
-      user_id: payer.userId,
-      payment_record_id: payment.paymentRecordId,
-      telegram_charge_id: telegramChargeId,
-      stars_amount: payment.starsAmount.toString(),
-      status: 'pending',
-    });
-    expect(
-      await database
-        .selectFrom('interaction.feature_unlocks')
-        .select(({ fn }) => fn.countAll<string>().as('count'))
-        .where('payment_record_id', '=', payment.paymentRecordId)
-        .executeTakeFirstOrThrow(),
-    ).toEqual({ count: '0' });
+  it.each(['closed', 'counterpart-life'] as const)(
+    'ACC-037 creates one correction for an unavailable original paid Match: %s',
+    async (drift) => {
+      const payer = await createUser(database);
+      const other = await createUser(database);
+      const matchId = await createActiveMatch(payer.userId, other.userId);
+      const payment = await preparePaymentFor(payer, { type: 'match', targetId: matchId });
+      const telegramChargeId = `telegram:${randomUUID()}`;
+      const eventId = `closed-target:${randomUUID()}`;
+      await receipts.recordSuccessfulPayment({
+        providerEventId: eventId,
+        telegramUserId: payer.telegramUserId,
+        invoicePayload: payment.payload.cleartext,
+        currency: 'XTR',
+        totalAmount: payment.starsAmount,
+        providerEnvironment: 'test',
+        providerBotIdDigest: botDigest,
+        telegramChargeId,
+        evidence: evidence(eventId),
+      });
+      const setCounterpartEpoch = async (epoch: number): Promise<void> =>
+        database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            await connection
+              .updateTable('identity.accounts')
+              .set({ product_epoch: epoch })
+              .where('user_id', '=', other.userId)
+              .execute();
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      if (drift === 'closed')
+        await database
+          .updateTable('matching.matches')
+          .set((expression) => ({
+            status: 'closed',
+            closed_at: new Date(),
+            version: expression('version', '+', 1),
+          }))
+          .where('id', '=', matchId)
+          .executeTakeFirstOrThrow();
+      else await setCounterpartEpoch(1);
+      try {
+        const claim = (
+          await receipts.claimFulfillments({
+            owner: 'correction-worker',
+            leaseMs: 60_000,
+            limit: 100,
+          })
+        ).find(({ paymentRecordId }) => paymentRecordId === payment.paymentRecordId);
+        expect(claim).toBeDefined();
+        const write = {
+          paymentRecordId: payment.paymentRecordId,
+          owner: 'correction-worker',
+          fenceToken: claim!.fenceToken,
+          featureUnlockId: randomUUID(),
+          refundRecordId: randomUUID(),
+          featureUnlockedEventId: randomUUID(),
+          paymentTerminalEventId: randomUUID(),
+        };
+        const results = await Promise.all(
+          Array.from({ length: 20 }, () => receipts.fulfillDirectPaidAction(write)),
+        );
+        expect(results.filter(({ replayed }) => !replayed)).toHaveLength(1);
+        expect(results.filter(({ replayed }) => replayed)).toHaveLength(19);
+        expect(new Set(results.map(({ refundRecordId }) => refundRecordId))).toEqual(
+          new Set([write.refundRecordId]),
+        );
+        expect(
+          await database
+            .selectFrom('billing.refund_records')
+            .select([
+              'user_id',
+              'payment_record_id',
+              'telegram_charge_id',
+              'stars_amount',
+              'status',
+            ])
+            .where('payment_record_id', '=', payment.paymentRecordId)
+            .executeTakeFirstOrThrow(),
+        ).toEqual({
+          user_id: payer.userId,
+          payment_record_id: payment.paymentRecordId,
+          telegram_charge_id: telegramChargeId,
+          stars_amount: payment.starsAmount.toString(),
+          status: 'pending',
+        });
+        expect(
+          await database
+            .selectFrom('interaction.feature_unlocks')
+            .select(({ fn }) => fn.countAll<string>().as('count'))
+            .where('payment_record_id', '=', payment.paymentRecordId)
+            .executeTakeFirstOrThrow(),
+        ).toEqual({ count: '0' });
 
-    const refundClaim = (
-      await refunds.claimStarsRefunds({ owner: 'refund-worker', leaseMs: 60_000, limit: 100 })
-    ).find(({ refundRecordId }) => refundRecordId === write.refundRecordId);
-    expect(refundClaim).toBeDefined();
-    await expect(refunds.beginProviderCall(refundClaim!)).resolves.toBe(true);
-    const completions = await Promise.all(
-      Array.from({ length: 20 }, () => refunds.completeStarsRefund(refundClaim!)),
-    );
-    expect(completions.filter((outcome) => outcome === 'processed')).toHaveLength(1);
-    expect(completions.filter((outcome) => outcome === 'replayed')).toHaveLength(19);
-    const processedRefund = await database
-      .selectFrom('billing.refund_records')
-      .select(['status', 'provider_progress', 'attempt_count', 'processed_at'])
-      .where('id', '=', write.refundRecordId)
-      .executeTakeFirstOrThrow();
-    expect(processedRefund.status).toBe('processed');
-    expect(processedRefund.provider_progress).toBe('refund_confirmed');
-    expect(processedRefund.attempt_count).toBe(1);
-    expect(processedRefund.processed_at).toBeInstanceOf(Date);
-    const refundedPayment = await database
-      .selectFrom('billing.payment_records')
-      .select(['status', 'refunded_at'])
-      .where('id', '=', payment.paymentRecordId)
-      .executeTakeFirstOrThrow();
-    expect(refundedPayment.status).toBe('refunded');
-    expect(refundedPayment.refunded_at).toBeInstanceOf(Date);
-    const correctedFulfillment = await database
-      .selectFrom('billing.payment_fulfillments')
-      .select(['state', 'corrected_at'])
-      .where('payment_record_id', '=', payment.paymentRecordId)
-      .executeTakeFirstOrThrow();
-    expect(correctedFulfillment.state).toBe('corrected');
-    expect(correctedFulfillment.corrected_at).toBeInstanceOf(Date);
-    expect(
-      await database
-        .selectFrom('notification.notifications')
-        .select(['notification_type', 'title_key'])
-        .where(
-          'deduplication_key',
-          '=',
-          `payment:${payment.paymentRecordId}:${payer.userId}:corrected`,
-        )
-        .executeTakeFirstOrThrow(),
-    ).toEqual({
-      notification_type: 'payment_failure',
-      title_key: 'notification.payment_corrected.title',
-    });
-    expect(
-      (
-        await refunds.claimStarsRefunds({
-          owner: 'second-refund-worker',
-          leaseMs: 60_000,
-          limit: 100,
-        })
-      ).find(({ refundRecordId }) => refundRecordId === write.refundRecordId),
-    ).toBeUndefined();
-  });
+        const refundClaim = (
+          await refunds.claimStarsRefunds({ owner: 'refund-worker', leaseMs: 60_000, limit: 100 })
+        ).find(({ refundRecordId }) => refundRecordId === write.refundRecordId);
+        expect(refundClaim).toBeDefined();
+        await expect(refunds.beginProviderCall(refundClaim!)).resolves.toBe(true);
+        const completions = await Promise.all(
+          Array.from({ length: 20 }, () => refunds.completeStarsRefund(refundClaim!)),
+        );
+        expect(completions.filter((outcome) => outcome === 'processed')).toHaveLength(1);
+        expect(completions.filter((outcome) => outcome === 'replayed')).toHaveLength(19);
+        const processedRefund = await database
+          .selectFrom('billing.refund_records')
+          .select(['status', 'provider_progress', 'attempt_count', 'processed_at'])
+          .where('id', '=', write.refundRecordId)
+          .executeTakeFirstOrThrow();
+        expect(processedRefund.status).toBe('processed');
+        expect(processedRefund.provider_progress).toBe('refund_confirmed');
+        expect(processedRefund.attempt_count).toBe(1);
+        expect(processedRefund.processed_at).toBeInstanceOf(Date);
+        const refundedPayment = await database
+          .selectFrom('billing.payment_records')
+          .select(['status', 'refunded_at'])
+          .where('id', '=', payment.paymentRecordId)
+          .executeTakeFirstOrThrow();
+        expect(refundedPayment.status).toBe('refunded');
+        expect(refundedPayment.refunded_at).toBeInstanceOf(Date);
+        const correctedFulfillment = await database
+          .selectFrom('billing.payment_fulfillments')
+          .select(['state', 'corrected_at'])
+          .where('payment_record_id', '=', payment.paymentRecordId)
+          .executeTakeFirstOrThrow();
+        expect(correctedFulfillment.state).toBe('corrected');
+        expect(correctedFulfillment.corrected_at).toBeInstanceOf(Date);
+        expect(
+          await database
+            .selectFrom('notification.notifications')
+            .select(['notification_type', 'title_key'])
+            .where(
+              'deduplication_key',
+              '=',
+              `payment:${payment.paymentRecordId}:${payer.userId}:corrected`,
+            )
+            .executeTakeFirstOrThrow(),
+        ).toEqual({
+          notification_type: 'payment_failure',
+          title_key: 'notification.payment_corrected.title',
+        });
+        expect(
+          (
+            await refunds.claimStarsRefunds({
+              owner: 'second-refund-worker',
+              leaseMs: 60_000,
+              limit: 100,
+            })
+          ).find(({ refundRecordId }) => refundRecordId === write.refundRecordId),
+        ).toBeUndefined();
+      } finally {
+        if (drift === 'counterpart-life') await setCounterpartEpoch(0);
+      }
+    },
+  );
 
   it('quarantines an ambiguous provider outcome from normal refund retry', async () => {
     const payer = await createUser(database);

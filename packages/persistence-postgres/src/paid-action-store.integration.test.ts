@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql, type Selectable } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { SpendCreditsForPaidActionWrite } from '@nakh/application';
+import type { ActionableLikedByPage, SpendCreditsForPaidActionWrite } from '@nakh/application';
 
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
-import { createDatabase, type NakhDatabase } from './database.js';
+import { createDatabase, type DatabaseSchema, type NakhDatabase } from './database.js';
 import { seedValidMedia } from './media-fixtures.js';
 import { runMigrations } from './migrations.js';
 import { PostgresPaidActionStore } from './paid-action-store.js';
+import { PostgresLikedByStore } from './liked-by-store.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
 const manGenderId = '20000000-0000-4000-8000-000000000001';
@@ -129,6 +131,120 @@ describe.skipIf(databaseUrl === undefined)('M4 credit-funded feature unlocks', (
     await database?.destroy();
   });
 
+  it('denies new and cached Like grants and pages after either original life changes', async () => {
+    for (const cached of [false, true]) {
+      const sender = await createActiveUser(database),
+        receiver = await createActiveUser(database);
+      await fund(database, receiver);
+      const likeId = randomUUID();
+      await database
+        .insertInto('interaction.likes')
+        .values({
+          id: likeId,
+          sender_user_id: sender,
+          receiver_user_id: receiver,
+          status: 'active',
+          created_at: new Date(),
+          closed_at: null,
+        })
+        .execute();
+      const attempt = write(receiver, { type: 'like', targetId: likeId });
+      const original = cached ? await store.spendCredits(attempt) : undefined;
+      const inbox = new PostgresLikedByStore(database);
+      const page = (): Promise<ActionableLikedByPage> =>
+        inbox.readActionablePage({
+          actor: { kind: 'user', userId: receiver },
+          requestId: randomUUID(),
+          limit: 20,
+        });
+      expect((await page()).rows.map((row) => row.likeId)).toEqual([likeId]);
+      const snapshot = async (): Promise<{
+        account: Selectable<DatabaseSchema['billing.credit_accounts']>;
+        ledger: Selectable<DatabaseSchema['billing.credit_transactions']>[];
+        grants: Selectable<DatabaseSchema['interaction.feature_unlocks']>[];
+        notices: Selectable<DatabaseSchema['notification.notifications']>[];
+      }> => ({
+        account: await database
+          .selectFrom('billing.credit_accounts')
+          .selectAll()
+          .where('user_id', '=', receiver)
+          .executeTakeFirstOrThrow(),
+        ledger: await database
+          .selectFrom('billing.credit_transactions')
+          .selectAll()
+          .where('user_id', '=', receiver)
+          .orderBy('id')
+          .execute(),
+        grants: await database
+          .selectFrom('interaction.feature_unlocks')
+          .selectAll()
+          .where('like_id', '=', likeId)
+          .orderBy('id')
+          .execute(),
+        notices: await database
+          .selectFrom('notification.notifications')
+          .selectAll()
+          .where('user_id', '=', receiver)
+          .orderBy('id')
+          .execute(),
+      });
+      const before = await snapshot();
+      const setEpoch = async (userId: string, epoch: number): Promise<void> =>
+        database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            await connection
+              .updateTable('identity.accounts')
+              .set({ product_epoch: epoch })
+              .where('user_id', '=', userId)
+              .execute();
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      for (const changed of [sender, receiver]) {
+        // Negative corruption only; each original epoch is restored.
+        await setEpoch(changed, 1);
+        try {
+          const pages = await Promise.all(Array.from({ length: 20 }, page));
+          for (const row of pages) expect(row).toEqual({ totalCount: 0, rows: [], hasMore: false });
+          await Promise.all(
+            Array.from({ length: 20 }, () =>
+              expect(
+                store.spendCredits({
+                  ...attempt,
+                  featureUnlockId: randomUUID(),
+                  creditTransactionId: randomUUID(),
+                  outboxEventId: randomUUID(),
+                }),
+              ).rejects.toMatchObject({ code: 'unlock_unavailable' }),
+            ),
+          );
+          expect(await snapshot()).toEqual(before);
+        } finally {
+          await setEpoch(changed, 0);
+        }
+        expect((await page()).rows.map((row) => row.likeId)).toEqual([likeId]);
+        expect(await snapshot()).toEqual(before);
+      }
+      const recovered = await Promise.all(
+        Array.from({ length: 20 }, () =>
+          store.spendCredits({
+            ...attempt,
+            featureUnlockId: randomUUID(),
+            creditTransactionId: randomUUID(),
+            outboxEventId: randomUUID(),
+          }),
+        ),
+      );
+      expect(new Set(recovered.map((row) => row.id)).size).toBe(1);
+      expect(recovered.filter((row) => !row.replayed)).toHaveLength(cached ? 0 : 1);
+      if (original !== undefined)
+        expect(recovered.every((row) => row.id === original.id)).toBe(true);
+      expect((await snapshot()).account.balance).toBe('6');
+      expect((await snapshot()).grants).toHaveLength(1);
+    }
+  });
   it('atomically spends four credits for one actionable received Like', async () => {
     const senderUserId = await createActiveUser(database);
     const receiverUserId = await createActiveUser(database);
@@ -322,5 +438,76 @@ describe.skipIf(databaseUrl === undefined)('M4 credit-funded feature unlocks', (
         .where('notification_type', 'in', ['chat_unlocked', 'safety_notice'])
         .execute(),
     ).toHaveLength(4);
+    const snapshot = async (): Promise<{
+      accounts: Selectable<DatabaseSchema['billing.credit_accounts']>[];
+      ledger: Selectable<DatabaseSchema['billing.credit_transactions']>[];
+      grants: Selectable<DatabaseSchema['interaction.feature_unlocks']>[];
+      notices: Selectable<DatabaseSchema['notification.notifications']>[];
+    }> => ({
+      accounts: await database
+        .selectFrom('billing.credit_accounts')
+        .selectAll()
+        .where('user_id', 'in', [firstUserId, secondUserId])
+        .orderBy('user_id')
+        .execute(),
+      ledger: await database
+        .selectFrom('billing.credit_transactions')
+        .selectAll()
+        .where('user_id', 'in', [firstUserId, secondUserId])
+        .orderBy('id')
+        .execute(),
+      grants: await database
+        .selectFrom('interaction.feature_unlocks')
+        .selectAll()
+        .where('match_id', '=', matchId)
+        .orderBy('id')
+        .execute(),
+      notices: await database
+        .selectFrom('notification.notifications')
+        .selectAll()
+        .where('user_id', 'in', [firstUserId, secondUserId])
+        .orderBy('id')
+        .execute(),
+    });
+    const original = await snapshot();
+    const setEpoch = async (userId: string, epoch: number): Promise<void> =>
+      database.connection().execute(async (connection) => {
+        await sql`SET session_replication_role=replica`.execute(connection);
+        try {
+          await connection
+            .updateTable('identity.accounts')
+            .set({ product_epoch: epoch })
+            .where('user_id', '=', userId)
+            .execute();
+        } finally {
+          await sql`SET session_replication_role=origin`.execute(connection);
+        }
+      });
+    for (const changed of [firstUserId, secondUserId]) {
+      await setEpoch(changed, 1);
+      try {
+        await Promise.all(
+          Array.from({ length: 20 }, (_, index) =>
+            expect(
+              store.spendCredits(
+                write(index % 2 ? firstUserId : secondUserId, { type: 'match', targetId: matchId }),
+              ),
+            ).rejects.toMatchObject({ code: 'unlock_unavailable' }),
+          ),
+        );
+        expect(await snapshot()).toEqual(original);
+      } finally {
+        await setEpoch(changed, 0);
+      }
+      const replays = await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          store.spendCredits(
+            write(index % 2 ? firstUserId : secondUserId, { type: 'match', targetId: matchId }),
+          ),
+        ),
+      );
+      expect(replays.every((row) => row.replayed && row.id === results[0].id)).toBe(true);
+      expect(await snapshot()).toEqual(original);
+    }
   });
 });

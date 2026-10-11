@@ -11,6 +11,7 @@ import { runMigrations } from './migrations.js';
 import { PostgresNotificationStore, type NotificationWrite } from './notification-store.js';
 import { PostgresNotificationDeliveryStore } from './notification-delivery-store.js';
 import { createDeletionFixture } from './testing/deletion-fixture.js';
+import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createReportChat, createReportMessage } from './testing/report-fixture.js';
 
 const databaseUrl = process.env.NAKH_TEST_DATABASE_URL;
@@ -83,11 +84,13 @@ function notice(userId: string, type: NotificationType, cause = randomUUID()): N
 describe.skipIf(databaseUrl === undefined)('M4 durable notification classification', () => {
   let database: NakhDatabase;
   let store: PostgresNotificationStore;
+  let isolated: Awaited<ReturnType<typeof createIsolatedTestDatabase>>;
 
   beforeAll(async () => {
-    await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
+    isolated = await createIsolatedTestDatabase(databaseUrl!, 'm8_notice_delivery');
+    await runMigrations(isolated.url, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
-      url: databaseUrl!,
+      url: isolated.url,
       poolMax: 12,
       statementTimeoutMs: 10_000,
       lockTimeoutMs: 5_000,
@@ -97,6 +100,7 @@ describe.skipIf(databaseUrl === undefined)('M4 durable notification classificati
 
   afterAll(async () => {
     await database?.destroy();
+    await isolated?.destroy();
   });
 
   it('ACC-038 retains muted history while critical notices always request Telegram delivery', async () => {
@@ -367,6 +371,17 @@ describe.skipIf(databaseUrl === undefined)('M4 durable notification classificati
           .where('user_id', '=', recipient)
           .execute();
         const chat = await createReportChat(database, sender, recipient);
+        const [low, high] = [sender, recipient].sort();
+        await database
+          .insertInto('interaction.user_pair_states')
+          .values({
+            user_low_id: low!,
+            user_high_id: high!,
+            state: 'matched',
+            reason_code: 'match',
+            changed_at: new Date(),
+          })
+          .execute();
         messageId = await createReportMessage(database, chat.chatSessionId, sender);
         const recorded = await store.record({
           ...notice(recipient, 'new_chat_message'),

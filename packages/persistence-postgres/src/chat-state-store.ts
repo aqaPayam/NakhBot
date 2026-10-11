@@ -185,7 +185,11 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
         'scope_session.id',
         'message.chat_session_id',
       )
-      .innerJoin('matching.matches as scope_match', 'scope_match.id', 'scope_session.match_id')
+      .innerJoin(
+        'matching.current_match_lives as scope_match',
+        'scope_match.id',
+        'scope_session.match_id',
+      )
       .innerJoin('identity.accounts as scope_actor', (join) =>
         join.on('scope_actor.user_id', '=', input.userId),
       )

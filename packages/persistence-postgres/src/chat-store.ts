@@ -16,7 +16,7 @@ import { ApplicationError, evaluateChatCapabilities } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
 import { insertNotification } from './notification-store.js';
-import { lockUserPair } from './pair-lock.js';
+import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 
 function unavailable(): never {
   throw new ApplicationError('chat_unavailable', 'error.chat.unavailable', 409);
@@ -114,7 +114,7 @@ export async function loadChatCapability(
 ): Promise<StoredChatCapability> {
   let query = database
     .selectFrom('chat.chat_sessions as session')
-    .innerJoin('matching.matches as match', 'match.id', 'session.match_id')
+    .innerJoin('matching.current_match_lives as match', 'match.id', 'session.match_id')
     .innerJoin('interaction.user_pair_states as pair', (join) =>
       join
         .onRef('pair.user_low_id', '=', 'match.user_low_id')
@@ -213,14 +213,11 @@ export async function lockAuthorizedChat(
   )
     unavailable();
 
-  await lockUserPair(database, identity.user_low_id, identity.user_high_id);
-  const accounts = await database
-    .selectFrom('identity.accounts')
-    .select(['user_id', 'state'])
-    .where('user_id', 'in', [identity.user_low_id, identity.user_high_id])
-    .orderBy('user_id')
-    .forUpdate()
-    .execute();
+  const pair = await lockUserPair(database, identity.user_low_id, identity.user_high_id);
+  const accounts = (await lockUserPairAccounts(database, pair)).map((row) => ({
+    user_id: row.userId,
+    state: row.state,
+  }));
   const actor = accounts.find((account) => account.user_id === actorUserId);
   const recipient = accounts.find((account) => account.user_id !== actorUserId);
   if (
@@ -233,7 +230,7 @@ export async function lockAuthorizedChat(
     unavailable();
 
   const match = await database
-    .selectFrom('matching.matches as match')
+    .selectFrom('matching.current_match_lives as match')
     .innerJoin('interaction.user_pair_states as pair', (join) =>
       join
         .onRef('pair.user_low_id', '=', 'match.user_low_id')
@@ -340,6 +337,7 @@ export class PostgresChatStore
     expectedVersion: number;
   }): Promise<StoredChatCapability> {
     return this.database.transaction().execute(async (transaction) => {
+      await lockAuthorizedChat(transaction, input.chatSessionId, input.userId, 'read');
       const participant = await transaction
         .selectFrom('chat.chat_participants')
         .select(['version', 'unlock_safety_warning_shown_at'])
@@ -376,13 +374,13 @@ export class PostgresChatStore
       );
     return this.database.transaction().execute(async (transaction) => {
       const occurredAt = await databaseTime(transaction);
-      const replay = await claimCommand(transaction, write, occurredAt);
-      if (replay !== undefined) return replay;
       const locked = await lockAuthorizedChat(
         transaction,
         write.chatSessionId,
         write.command.actor.userId,
       );
+      const replay = await claimCommand(transaction, write, occurredAt);
+      if (replay !== undefined) return replay;
       const prompt = await loadPrompt(transaction, write.command);
       const sequenceNumber = locked.nextSequenceNumber;
       await transaction
@@ -479,13 +477,13 @@ export class PostgresChatStore
       );
     return this.database.transaction().execute(async (transaction) => {
       const occurredAt = await databaseTime(transaction);
-      const replay = await claimCommand(transaction, write, occurredAt);
-      if (replay !== undefined) return replay;
       const locked = await lockAuthorizedChat(
         transaction,
         write.chatSessionId,
         write.command.actor.userId,
       );
+      const replay = await claimCommand(transaction, write, occurredAt);
+      if (replay !== undefined) return replay;
       const unlock = await transaction
         .selectFrom('interaction.feature_unlocks')
         .select('id')

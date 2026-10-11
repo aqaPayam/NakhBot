@@ -12,6 +12,7 @@ import { createDeletionFixture } from './testing/deletion-fixture.js';
 import {
   createReportChat,
   createReportLike,
+  createReportMessage,
   createReportNakh,
   createReportPhoto,
   createReportUnmatch,
@@ -26,6 +27,7 @@ import { PostgresUnmatchStore } from './unmatch-store.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 const productTypes = [
+  'new_chat_message',
   'like_received',
   'nakh_received',
   'pending_nakh_payment_reminder',
@@ -169,6 +171,24 @@ describe.skipIf(url === undefined)('M8 exact notification product scopes', () =>
     other: string,
   ): Promise<Readonly<Record<string, unknown>>> {
     switch (type) {
+      case 'new_chat_message': {
+        const chat = await createReportChat(database, recipient, other);
+        const [low, high] = [recipient, other].sort() as [string, string];
+        await database
+          .insertInto('interaction.user_pair_states')
+          .values({
+            user_low_id: low,
+            user_high_id: high,
+            state: 'matched',
+            reason_code: 'match',
+            changed_at: new Date(),
+          })
+          .execute();
+        return {
+          chatSessionId: chat.chatSessionId,
+          messageId: await createReportMessage(database, chat.chatSessionId, other),
+        };
+      }
       case 'like_received':
         return { likeId: await createReportLike(database, recipient, other) };
       case 'nakh_received':
@@ -328,6 +348,7 @@ describe.skipIf(url === undefined)('M8 exact notification product scopes', () =>
     });
   }
   it.each([
+    'new_chat_message',
     'like_received',
     'match_created',
     'liked_by_profile_unlocked',

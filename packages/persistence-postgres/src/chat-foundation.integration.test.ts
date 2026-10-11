@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { sql, type Selectable } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -18,7 +20,7 @@ import { PostgresChatRetentionStore } from './chat-retention-store.js';
 import { PostgresChatStore } from './chat-store.js';
 import { PostgresChatStateStore } from './chat-state-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
-import { createDatabase, type NakhDatabase } from './database.js';
+import { createDatabase, type DatabaseSchema, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
 import { PostgresPaidActionStore } from './paid-action-store.js';
 import { PostgresUnmatchStore } from './unmatch-store.js';
@@ -52,6 +54,25 @@ async function createUser(database: NakhDatabase): Promise<string> {
     .values({ user_id: userId, created_at: now, updated_at: now })
     .execute();
   return userId;
+}
+
+async function corruptChatEpoch(
+  database: NakhDatabase,
+  userId: string,
+  epoch: number,
+): Promise<void> {
+  await database.connection().execute(async (connection) => {
+    await sql`SET session_replication_role=replica`.execute(connection);
+    try {
+      await connection
+        .updateTable('identity.accounts')
+        .set({ product_epoch: epoch })
+        .where('user_id', '=', userId)
+        .execute();
+    } finally {
+      await sql`SET session_replication_role=origin`.execute(connection);
+    }
+  });
 }
 
 function questionCommand(
@@ -410,6 +431,341 @@ describe.skipIf(databaseUrl === undefined)('M6 chat catalog and message foundati
     await database?.destroy();
   });
 
+  it('denies original chat access and cached replies after either original life changes', async () => {
+    const fixture = await createChatFixture(database);
+    const question = await database
+      .selectFrom('chat.predefined_questions')
+      .select('id')
+      .orderBy('id')
+      .executeTakeFirstOrThrow();
+    const store = new PostgresChatStore(database),
+      state = new PostgresChatStateStore(database);
+    const originalWrite = {
+      command: questionCommand(fixture.firstUserId, question.id),
+      chatSessionId: fixture.chatSessionId,
+      messageId: randomUUID(),
+      eventId: randomUUID(),
+    };
+    const original = await store.sendPredefined(originalWrite);
+    const snapshot = async (): Promise<{
+      session: Selectable<DatabaseSchema['chat.chat_sessions']>;
+      messages: Selectable<DatabaseSchema['chat.chat_messages']>[];
+      participants: Selectable<DatabaseSchema['chat.chat_participants']>[];
+    }> => ({
+      session: await database
+        .selectFrom('chat.chat_sessions')
+        .selectAll()
+        .where('id', '=', fixture.chatSessionId)
+        .executeTakeFirstOrThrow(),
+      messages: await database
+        .selectFrom('chat.chat_messages')
+        .selectAll()
+        .where('chat_session_id', '=', fixture.chatSessionId)
+        .orderBy('id')
+        .execute(),
+      participants: await database
+        .selectFrom('chat.chat_participants')
+        .selectAll()
+        .where('chat_session_id', '=', fixture.chatSessionId)
+        .orderBy('user_id')
+        .execute(),
+    });
+    const before = await snapshot();
+    const participantVersion = before.participants.find(
+      (row) => row.user_id === fixture.firstUserId,
+    )!.version;
+    const setNegativeEpoch = (userId: string, epoch: number): Promise<void> =>
+      corruptChatEpoch(database, userId, epoch);
+    for (const changedUser of [fixture.firstUserId, fixture.secondUserId]) {
+      // Isolated corruption, restored below; this is not genuine fresh return.
+      await setNegativeEpoch(changedUser, 1);
+      try {
+        const denied = async (work: () => Promise<unknown>): Promise<void> => {
+          await Promise.all(
+            Array.from({ length: 20 }, () =>
+              expect(work()).rejects.toMatchObject({ code: 'chat_unavailable' }),
+            ),
+          );
+        };
+        await denied(() => store.loadForMatch(fixture.firstUserId, fixture.matchId));
+        await denied(() => store.loadForSession(fixture.firstUserId, fixture.chatSessionId));
+        await denied(() =>
+          state.readPage({
+            userId: fixture.firstUserId,
+            chatSessionId: fixture.chatSessionId,
+            limit: 20,
+          }),
+        );
+        await denied(() =>
+          store.sendPredefined({
+            ...originalWrite,
+            messageId: randomUUID(),
+            eventId: randomUUID(),
+          }),
+        );
+        await denied(() =>
+          store.sendPredefined({
+            ...originalWrite,
+            command: questionCommand(fixture.firstUserId, question.id),
+            messageId: randomUUID(),
+            eventId: randomUUID(),
+          }),
+        );
+        await denied(() =>
+          state.markRead({
+            command: markReadCommand(fixture.firstUserId, '1'),
+            chatSessionId: fixture.chatSessionId,
+            eventId: randomUUID(),
+          }),
+        );
+        await denied(() =>
+          state.changeMute({
+            command: muteCommand(fixture.firstUserId, true, participantVersion),
+            chatSessionId: fixture.chatSessionId,
+            eventId: randomUUID(),
+          }),
+        );
+        await denied(() =>
+          store.markSafetyWarningShown({
+            userId: fixture.firstUserId,
+            chatSessionId: fixture.chatSessionId,
+            expectedVersion: participantVersion,
+          }),
+        );
+        expect(await snapshot()).toEqual(before);
+      } finally {
+        await setNegativeEpoch(changedUser, 0);
+      }
+      const replays = await Promise.all(
+        Array.from({ length: 20 }, () =>
+          store.sendPredefined({
+            ...originalWrite,
+            messageId: randomUUID(),
+            eventId: randomUUID(),
+          }),
+        ),
+      );
+      expect(
+        replays.every(
+          (row) => row.replayed && row.message.messageId === original.message.messageId,
+        ),
+      ).toBe(true);
+      expect(
+        (
+          await state.readPage({
+            userId: fixture.firstUserId,
+            chatSessionId: fixture.chatSessionId,
+            limit: 20,
+          })
+        ).items,
+      ).toHaveLength(1);
+      expect(await snapshot()).toEqual(before);
+    }
+  });
+  it('requires current permission for cached private text after life changes and actual Unmatch', async () => {
+    const fixture = await createChatFixture(database),
+      store = new PostgresChatStore(database);
+    await new PostgresCreditLedgerStore(database).append({
+      transactionId: randomUUID(),
+      userId: fixture.firstUserId,
+      transactionType: 'admin_adjustment',
+      amount: 10n,
+      idempotencyKey: randomUUID(),
+      correlationId: randomUUID(),
+    });
+    await new PostgresPaidActionStore(database).spendCredits({
+      featureUnlockId: randomUUID(),
+      creditTransactionId: randomUUID(),
+      outboxEventId: randomUUID(),
+      userId: fixture.firstUserId,
+      target: { type: 'match', targetId: fixture.matchId },
+      idempotencyKey: randomUUID(),
+      correlationId: randomUUID(),
+    });
+    await store.markSafetyWarningShown({
+      userId: fixture.firstUserId,
+      chatSessionId: fixture.chatSessionId,
+      expectedVersion: 1,
+    });
+    const write = {
+      command: textCommand(fixture.firstUserId),
+      chatSessionId: fixture.chatSessionId,
+      normalizedText: 'Original private chat text',
+      messageId: randomUUID(),
+      eventId: randomUUID(),
+    };
+    const sent = await store.sendText(write);
+    const users = [fixture.firstUserId, fixture.secondUserId];
+    const snapshot = async (): Promise<{
+      accounts: Selectable<DatabaseSchema['billing.credit_accounts']>[];
+      ledger: Selectable<DatabaseSchema['billing.credit_transactions']>[];
+      grants: Selectable<DatabaseSchema['interaction.feature_unlocks']>[];
+      messages: Selectable<DatabaseSchema['chat.chat_messages']>[];
+      notices: Selectable<DatabaseSchema['notification.notifications']>[];
+    }> => ({
+      accounts: await database
+        .selectFrom('billing.credit_accounts')
+        .selectAll()
+        .where('user_id', 'in', users)
+        .orderBy('user_id')
+        .execute(),
+      ledger: await database
+        .selectFrom('billing.credit_transactions')
+        .selectAll()
+        .where('user_id', 'in', users)
+        .orderBy('id')
+        .execute(),
+      grants: await database
+        .selectFrom('interaction.feature_unlocks')
+        .selectAll()
+        .where('match_id', '=', fixture.matchId)
+        .orderBy('id')
+        .execute(),
+      messages: await database
+        .selectFrom('chat.chat_messages')
+        .selectAll()
+        .where('chat_session_id', '=', fixture.chatSessionId)
+        .orderBy('id')
+        .execute(),
+      notices: await database
+        .selectFrom('notification.notifications')
+        .selectAll()
+        .where('user_id', 'in', users)
+        .orderBy('id')
+        .execute(),
+    });
+    const before = await snapshot();
+    const denyCache = (): Promise<void[]> =>
+      Promise.all(
+        Array.from({ length: 20 }, () =>
+          expect(
+            store.sendText({ ...write, messageId: randomUUID(), eventId: randomUUID() }),
+          ).rejects.toMatchObject({ code: 'chat_unavailable' }),
+        ),
+      );
+    for (const changed of users) {
+      await corruptChatEpoch(database, changed, 1);
+      try {
+        await denyCache();
+        expect(await snapshot()).toEqual(before);
+      } finally {
+        await corruptChatEpoch(database, changed, 0);
+      }
+      const replay = await store.sendText({
+        ...write,
+        messageId: randomUUID(),
+        eventId: randomUUID(),
+      });
+      expect(replay).toMatchObject({
+        replayed: true,
+        message: { messageId: sent.message.messageId, content: { text: write.normalizedText } },
+      });
+      expect(await snapshot()).toEqual(before);
+    }
+    await new PostgresUnmatchStore(database).unmatch({
+      command: unmatchCommand(fixture.firstUserId),
+      matchId: fixture.matchId,
+      eventId: randomUUID(),
+    });
+    const closed = await snapshot();
+    await denyCache();
+    expect(await snapshot()).toEqual(closed);
+  });
+  it('locks original identities before Accounts and rechecks a life changed while waiting', async () => {
+    const fixture = await createChatFixture(database);
+    const question = await database
+      .selectFrom('chat.predefined_questions')
+      .select('id')
+      .orderBy('id')
+      .executeTakeFirstOrThrow();
+    const store = new PostgresChatStore(database);
+    for (const changedUser of [fixture.firstUserId, fixture.secondUserId]) {
+      const write = {
+        command: questionCommand(fixture.firstUserId, question.id),
+        chatSessionId: fixture.chatSessionId,
+        messageId: randomUUID(),
+        eventId: randomUUID(),
+      };
+      const before = await database
+        .selectFrom('chat.chat_sessions')
+        .selectAll()
+        .where('id', '=', fixture.chatSessionId)
+        .executeTakeFirstOrThrow();
+      let queued: Promise<unknown> | undefined;
+      try {
+        await database.transaction().execute(async (tx) => {
+          const blocker = (await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`.execute(tx))
+            .rows[0]!.pid;
+          await tx
+            .selectFrom('identity.users')
+            .select('id')
+            .where('id', '=', changedUser)
+            .forUpdate()
+            .execute();
+          queued = store.sendPredefined(write).then(
+            () => 'unexpected_success',
+            (error: unknown) => error,
+          );
+          let blocked = false;
+          for (let retry = 0; retry < 150; retry++) {
+            blocked = (
+              await sql<{ blocked: boolean }>`SELECT EXISTS (
+              SELECT 1 FROM pg_stat_activity WHERE ${blocker}=ANY(pg_blocking_pids(pid))
+            ) AS blocked`.execute(tx)
+            ).rows[0]!.blocked;
+            if (blocked) break;
+            await delay(20);
+          }
+          expect(blocked).toBe(true);
+          // A queued sender must not hold the Account while waiting for its
+          // original User, which would invert deletion's lock order.
+          await sql`SELECT user_id FROM identity.accounts
+            WHERE user_id=${changedUser}::uuid FOR UPDATE NOWAIT`.execute(tx);
+          await sql`SET LOCAL session_replication_role=replica`.execute(tx);
+          await tx
+            .updateTable('identity.accounts')
+            .set({ product_epoch: 1 })
+            .where('user_id', '=', changedUser)
+            .execute();
+        });
+        expect(await queued).toMatchObject({ code: 'chat_unavailable' });
+        expect(
+          await database
+            .selectFrom('chat.chat_sessions')
+            .selectAll()
+            .where('id', '=', fixture.chatSessionId)
+            .executeTakeFirstOrThrow(),
+        ).toEqual(before);
+        expect(
+          await database
+            .selectFrom('platform.idempotency_records')
+            .select('id')
+            .where('id', '=', write.command.commandId)
+            .execute(),
+        ).toEqual([]);
+      } finally {
+        await database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            await connection
+              .updateTable('identity.accounts')
+              .set({ product_epoch: 0 })
+              .where('user_id', '=', changedUser)
+              .execute();
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+        await queued;
+      }
+      const sent = await store.sendPredefined(write);
+      expect(sent.replayed).toBe(false);
+      expect(
+        (await store.sendPredefined({ ...write, messageId: randomUUID(), eventId: randomUUID() }))
+          .message.messageId,
+      ).toBe(sent.message.messageId);
+    }
+  });
   it('installs the ten canonical prompt sets with one question and 4–5 owned answers', async () => {
     const rows = await database
       .selectFrom('chat.predefined_question_sets as question_set')

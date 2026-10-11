@@ -12,7 +12,7 @@ import { ApplicationError, calculateCreditBalance, getPaidActionPrice } from '@n
 
 import { actionableLikedByFrom } from './liked-by-store.js';
 import { insertFeatureUnlockNotifications } from './notification-store.js';
-import { lockUserPair } from './pair-lock.js';
+import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 import type { NakhDatabase } from './database.js';
 
 function ledgerKey(write: SpendCreditsForPaidActionWrite): string {
@@ -54,9 +54,10 @@ export async function lockAndValidatePaidActionTarget(
       .where('id', '=', target.targetId)
       .executeTakeFirst();
     if (identity === undefined || identity.receiver_user_id !== userId) unavailable();
-    await lockUserPair(database, identity.sender_user_id, identity.receiver_user_id);
+    const pair = await lockUserPair(database, identity.sender_user_id, identity.receiver_user_id);
+    if ((await lockUserPairAccounts(database, pair)).length !== 2) unavailable();
     const like = await database
-      .selectFrom('interaction.likes')
+      .selectFrom('interaction.current_like_lives')
       .select('status')
       .where('id', '=', target.targetId)
       .where('receiver_user_id', '=', userId)
@@ -90,9 +91,10 @@ export async function lockAndValidatePaidActionTarget(
     .where('id', '=', target.targetId)
     .executeTakeFirst();
   if (identity === undefined) unavailable();
-  await lockUserPair(database, identity.user_low_id, identity.user_high_id);
+  const pair = await lockUserPair(database, identity.user_low_id, identity.user_high_id);
+  if ((await lockUserPairAccounts(database, pair)).length !== 2) unavailable();
   const match = await database
-    .selectFrom('matching.matches as match')
+    .selectFrom('matching.current_match_lives as match')
     .innerJoin('matching.match_participants as participant', 'participant.match_id', 'match.id')
     .innerJoin('chat.chat_sessions as chat', 'chat.match_id', 'match.id')
     .innerJoin('interaction.user_pair_states as pair', (join) =>
