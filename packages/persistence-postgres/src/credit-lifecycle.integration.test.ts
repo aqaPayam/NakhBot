@@ -334,6 +334,7 @@ describe.skipIf(url === undefined)('M8 original credit lifecycle provenance', ()
         '000107_m8_nakh_funding_lives.sql',
         '000108_m8_unreferenced_like_purge.sql',
         '000109_m8_notification_original_lives.sql',
+        '000110_m8_nakh_retained_links.sql',
       ]);
       expect(
         await legacy

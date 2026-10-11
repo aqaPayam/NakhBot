@@ -1,5 +1,36 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: complete migration-110 upgrade expectations
+
+Commit `1c303df` passed the complete local check (947 unit tests) and 75 native
+tests across eight dependency suites. Its quality and four container jobs passed;
+the database job failed with 62 failed, 674 passed and 16 skipped tests in 108
+suites. All nine failing suites concern stale upgrade expectations. Performance,
+load and backup/restore were skipped; artifact upload failures follow missing
+downstream evidence. This is a failed head, not complete green CI evidence.
+The broader upgrade suites still expected migration names/totals ending at 109.
+A native notification upgrade reproduced the extra correctly applied migration
+110; the broad migration sweep also reproduced the obsolete `109 - baseline`
+and replay totals. These are failed expectations, not failed source backfills.
+
+The repair appends migration 110 to ten exact expected lists in nine suites,
+updates both exact numeric totals and explicitly verifies its migration script.
+It preserves concurrent upgrade/replay, immutable original-fact comparisons,
+native catalog coverage and all migration verification. No test, rollback,
+source/funding guard or production behavior is skipped or weakened.
+The fresh native rerun passed all 127 tests across twelve suites, including
+populated legacy upgrades, concurrency, rollback and original-fact preservation.
+The first full repair check crashed during lint with Windows access violation
+3221225477 (signed -1073741819), without a lint finding or available Node fault
+event. The precise native cause is unconfirmed. Preserve the failure evidence
+and rerun the complete unchanged check after native integration work finishes;
+no successful partial check substitutes for a complete pass.
+The repair requires a fresh complete native dependency run, full local check and
+all six exact-head CI jobs before any new feature work. Performance, load and
+backup/restore acceptance cannot be claimed for a head whose native job fails.
+Verified funded source/history/action archival and later M8 phases remain pending;
+fresh return and retained release remain disabled.
+
 ## Current candidate: retained original Nakh reference routing
 
 Commit `4dc9160` passed the complete check (947 unit tests), 63 focused native
