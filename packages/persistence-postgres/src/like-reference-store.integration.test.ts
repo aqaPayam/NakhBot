@@ -90,6 +90,7 @@ describe.skipIf(url === undefined)(
           '000109_m8_notification_original_lives.sql',
           '000110_m8_nakh_retained_links.sql',
           '000111_m8_funded_nakh_archival.sql',
+          '000112_m8_pending_nakh_references.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');

@@ -335,7 +335,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         };
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        111 - baseline,
+        112 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (previousPayment !== undefined) {
@@ -649,6 +649,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000109_m8_notification_original_lives.sql',
         '000110_m8_nakh_retained_links.sql',
         '000111_m8_funded_nakh_archival.sql',
+        '000112_m8_pending_nakh_references.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -753,9 +754,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000109_m8_notification_original_lives.sql');
       expect(verified).toContain('000110_m8_nakh_retained_links.sql');
       expect(verified).toContain('000111_m8_funded_nakh_archival.sql');
+      expect(verified).toContain('000112_m8_pending_nakh_references.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(111);
+      expect(replay.existing).toHaveLength(112);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

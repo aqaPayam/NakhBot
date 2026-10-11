@@ -302,6 +302,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
       paymentExpiresAt: Date;
       paymentStatus: string;
       boundClosure: boolean;
+      originalReferenceValid: boolean;
     }>`
       SELECT pending.id,
         pending.status AS "pendingStatus",
@@ -313,6 +314,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         payment.reason AS "paymentReason",
         payment.expires_at AS "paymentExpiresAt",
         payment.status AS "paymentStatus",
+        nakh.original_pending_reference_valid(pending.id) AS "originalReferenceValid",
         CASE WHEN pending.status='closed_by_system' THEN billing.pending_nakh_has_bound_closure(pending.id)
           ELSE false END AS "boundClosure"
       FROM nakh.pending_nakhes pending
@@ -331,6 +333,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
     const findings: Finding[] = [];
     for (const row of rows.rows) {
       if (
+        !row.originalReferenceValid ||
         row.senderUserId !== row.paymentUserId ||
         row.paymentTargetType !== 'pending_nakh' ||
         row.paymentTargetId !== row.id ||

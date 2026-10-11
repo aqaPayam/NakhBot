@@ -33,7 +33,7 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
     isolated = await createIsolatedTestDatabase(url!, 'm8_nakh_archive');
     await runMigrations(isolated.url, resolve('migrations'));
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
-      '000111_m8_funded_nakh_archival.sql',
+      '000112_m8_pending_nakh_references.sql',
     );
     database = createDatabase({
       url: isolated.url,

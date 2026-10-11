@@ -1,5 +1,57 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: original pending Nakh references before body archival
+
+Migration 112 adds seven-field original pending references: pending ID, flow ID,
+sender/receiver IDs and original epochs, and payment-intent ID. It copies no body,
+request hash, action key or lifecycle grant. Backfill requires the original flow
+and exact intent owner/life, target, reason and expiry; existing delivered reference
+identities must also agree. It does not infer a new life from current Account state.
+New source creation automatically saves one reference and checks the complete
+intent/source binding at deferred commit, allowing the intent to be written later
+in that same transaction. References are immutable and cannot authorize source
+reuse after source loss. Reconciliation checks the live pending entity's original
+reference so a missing or altered reference remains visible as a binding fault.
+Deploy migration 112 before the updated reconciliation reader.
+
+Native evidence passed 40 tests across four suites, including all 12 new reference
+cases: populated migration-111 unpaid and credit-paid sources with genuinely
+deleted owners, twenty concurrent migration/replay attempts, twenty real creation
+retries, seven borrowed reference fields, suppressed-reference rollback, identity
+reuse after isolated source-loss corruption and repeated missing/wrong-life/intent
+scans. Unsupported legacy target/life bindings fail without rewriting facts,
+creating the new table or marking migration progress. Negative corruption uses
+isolated replica-mode fixtures; it is not positive archival or fresh Return proof.
+Ordinary pending-source deletion remains denied. The catalog has 134 tables,
+1,232 columns and 250 classified foreign keys.
+
+The first corruption probes used the wrong reconciliation call shape; fix them
+to pass the actual run ID and batch limit as separate arguments. The targeted
+linter rejected a cleanup-path throw inside `finally`; check the immutable
+temporary path before operations instead, keeping recursive cleanup within that
+validated temporary root. Broader regressions, the full project check and all six
+exact-head CI jobs remain required for this candidate. The broader native run
+passed 286 tests across 23 suites, including the populated upgrade matrix, ledger,
+Stars fulfillment/correction, pending settlement, reference preservation, registry
+coverage and deletion/evidence checkpoints. Targeted type and lint checks passed.
+The first full check terminated in the Windows Node runtime during the linter's
+unused-variable traversal (native breakpoint exit `0x80000003`), without a reported
+lint-rule failure. Preserve its diagnostic separately and require a fresh complete
+check before committing. The cause is not established; do not label it a code,
+memory or antivirus defect without evidence.
+
+Pending body removal, late captured-charge correction from archived identities and
+flow archival remain separate required work. This reference increment grants no
+deletion, delivery, credit or refund authority and completes no checkpoint. Fresh
+Return and retained-data release remain disabled without their required proofs.
+
+The preceding archival commit `9543c07` passed the full local check (947 unit tests),
+260 focused native tests and all six jobs in CI run `38157525467`: 766 native tests
+across 109 suites, all 27 plans, load, collector and backup/restore. Terminal
+integrity took 1,456.408 ms against 1,500 ms, with both required indexes, one worker
+and zero spill. Its tracked line count was 198,904. This is evidence for that head,
+not complete M8 acceptance or external operator/staging approval.
+
 ## Current increment: bounded original funded Nakh archival
 
 Migration 111 adds one-source archival batches with at most 100 ordinary rows
