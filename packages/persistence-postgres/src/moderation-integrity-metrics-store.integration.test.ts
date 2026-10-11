@@ -394,6 +394,44 @@ describe.skipIf(url === undefined)(
         }
         expect((await store.measure()).counts).toEqual(baseline);
       }
+      // One action can have several findings. Aggregate samples must preserve
+      // each scanner finding while counting that entity exactly once.
+      await corrupt(async (tx) => {
+        await sql`UPDATE administration.admin_action_logs SET request_id=${randomUUID()}::uuid WHERE id=${attempt.id}::uuid`.execute(
+          tx,
+        );
+        await sql`UPDATE platform.audit_logs SET request_id=${randomUUID()}::uuid WHERE id=${audit.id}::uuid`.execute(
+          tx,
+        );
+        await sql`UPDATE notification.notifications SET payload='{"unexpected":true}'::jsonb WHERE id=${notice.id}::uuid`.execute(
+          tx,
+        );
+      });
+      try {
+        const scan = await scanModerationActions(database, { phase: 'actions' }, 500);
+        expect(
+          scan.findings.filter((row) => row.entityId === action.id).map((row) => row.anomalyType),
+        ).toEqual([
+          'moderation_action_audit_missing',
+          'moderation_action_attempt_missing',
+          'moderation_action_notice_invalid',
+        ]);
+        for (const sample of await Promise.all(Array.from({ length: 20 }, () => store.measure())))
+          expect(sample.counts.actions).toBe(baseline.actions + 1);
+      } finally {
+        await corrupt(async (tx) => {
+          await sql`UPDATE administration.admin_action_logs SET request_id=${attempt.request_id}::uuid WHERE id=${attempt.id}::uuid`.execute(
+            tx,
+          );
+          await sql`UPDATE platform.audit_logs SET request_id=${audit.request_id}::uuid WHERE id=${audit.id}::uuid`.execute(
+            tx,
+          );
+          await sql`UPDATE notification.notifications SET payload=${JSON.stringify(notice.payload)}::jsonb WHERE id=${notice.id}::uuid`.execute(
+            tx,
+          );
+        });
+      }
+      expect((await store.measure()).counts).toEqual(baseline);
     });
     it('accepts actual Report-bound block creation/removal and dismissal without false action quarantines', async () => {
       const photo = await createRetainedReportPhoto(database),

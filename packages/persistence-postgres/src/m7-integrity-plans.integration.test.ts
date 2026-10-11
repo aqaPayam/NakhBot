@@ -9,6 +9,7 @@ import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { analyzeM7QueryTables, measureM7SyntheticPlans } from './m7-query-plans.js';
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import { seedM7AppealIntegrityPlans } from './m7-appeal-integrity-plan-fixture.js';
+import { seedM7UnrestrictionPlans } from './m7-unrestriction-plan-fixture.js';
 import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
 import { withM6SyntheticPlanSession } from './m6-query-plans.js';
 import {
@@ -267,6 +268,82 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     });
     await assertClean();
   });
+  it('counts each episode once across valid, missing and rejected duplicate resolution candidates', async () => {
+    await withM6SyntheticPlanSession(database, async (connection) => {
+      try {
+        await connection.transaction().execute(async (tx) => {
+          const prefix = randomUUID(),
+            at = new Date();
+          // The witness fixture needs the same original report owners and
+          // admission timestamps as the complete production-shaped workload.
+          await sql`INSERT INTO moderation.reports
+            (id,reporter_user_id,target_user_id,reason_id,status,command_id,request_id,
+              idempotency_key,request_digest,submitted_at)
+            SELECT md5(${prefix} || 'report' || n)::uuid,
+              md5(${prefix} || 'user' || (n % 257))::uuid,
+              md5(${prefix} || 'target' || (n % 64))::uuid,
+              md5(${prefix} || 'reason')::uuid,'pending_review',
+              md5(${prefix} || 'report-command' || n)::uuid,
+              md5(${prefix} || 'report-request' || n)::uuid,
+              md5(${prefix} || 'report-key' || n),repeat('c',64),
+              ${at}::timestamptz - interval '1 hour' + n * interval '1 millisecond'
+            FROM generate_series(1,1000) n`.execute(tx);
+          await seedM7IntegrityPlans(tx, prefix, 1000, at);
+          await seedM7UnrestrictionPlans(tx, prefix, 1000, at);
+          const store = new PostgresModerationIntegrityMetricsStore(tx);
+          const baseline = (await store.measure()).counts.episodes;
+          const action = await tx
+            .selectFrom('moderation.moderation_actions')
+            .selectAll()
+            .where('id', '=', sql<string>`md5(${prefix} || 'unrestrict-action2')::uuid`)
+            .executeTakeFirstOrThrow();
+          const attempt = await tx
+            .selectFrom('administration.admin_action_logs')
+            .selectAll()
+            .where('id', '=', sql<string>`md5(${prefix} || 'unrestrict-attempt2')::uuid`)
+            .executeTakeFirstOrThrow();
+          const duplicateCommand = randomUUID(),
+            duplicateAttempt = randomUUID();
+          await tx
+            .insertInto('moderation.moderation_actions')
+            .values({
+              ...action,
+              id: randomUUID(),
+              command_id: duplicateCommand,
+              audit_log_id: randomUUID(),
+              notification_id: randomUUID(),
+            })
+            .execute();
+          expect((await store.measure()).counts.episodes).toBe(baseline);
+          await tx
+            .insertInto('administration.admin_action_logs')
+            .values({
+              ...attempt,
+              id: duplicateAttempt,
+              command_id: duplicateCommand,
+            })
+            .execute();
+          expect((await store.measure()).counts.episodes).toBe(baseline);
+          await tx
+            .updateTable('administration.admin_action_logs')
+            .set({ result: 'rejected' })
+            .where('id', 'in', [attempt.id, duplicateAttempt])
+            .execute();
+          expect((await store.measure()).counts.episodes).toBe(baseline + 1);
+          await tx
+            .updateTable('administration.admin_action_logs')
+            .set({ result: 'succeeded' })
+            .where('id', '=', duplicateAttempt)
+            .execute();
+          expect((await store.measure()).counts.episodes).toBe(baseline);
+          throw new FixtureRollback();
+        });
+      } catch (error) {
+        if (!(error instanceof FixtureRollback)) throw error;
+      }
+    });
+    await assertClean();
+  });
   it('rolls back earlier fixture writes and restores owning triggers when a later seed fails', async () => {
     // Collide with a fixture's verified identity after the earlier support/report writes.
     await sql`INSERT INTO identity.users (id,last_activity_at,created_at,updated_at)
@@ -367,8 +444,8 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           (await sql<{ work_mem: string }>`SHOW work_mem`.execute(transaction)).rows[0]!.work_mem,
         ).toBe('16MB');
         for (const [name, expected] of [
-          ['parallel_setup_cost', '1000'],
-          ['parallel_tuple_cost', '0.03'],
+          ['parallel_setup_cost', '250'],
+          ['parallel_tuple_cost', '0.01'],
         ])
           expect(
             (
@@ -393,8 +470,8 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           );
           await withModerationIntegrityRead(connection, async (read) => {
             for (const [name, expected] of [
-              ['parallel_setup_cost', '1000'],
-              ['parallel_tuple_cost', '0.03'],
+              ['parallel_setup_cost', '250'],
+              ['parallel_tuple_cost', '0.01'],
             ])
               expect(
                 (

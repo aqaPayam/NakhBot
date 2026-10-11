@@ -1,5 +1,40 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: batch resolution and witness metadata joins
+
+Commit `a080a4b` passed the complete local check (944 unit tests), 726 local native
+tests and five CI jobs. CI passed all 737 integration tests in 108 suites, including
+the eleven Redis tests skipped locally. Its terminal integrity snapshot took
+1618.338 ms against the unchanged 1500 ms limit; initial integrity took 1322.458 ms
+and support took 87.490 ms. An actual worker launched, both required terminal
+indexes were present, and there were no disk sorts, spills or multi-batch hashes.
+Load and recovery steps were not reached. This failed head cannot authorize the
+next feature. Tracked count was 195,863 lines.
+
+The repair batches original resolution candidates with episode and administrator
+attempt evidence. Candidate projection remains narrow and is materialized once;
+the grouped resolution fact still preserves invalid candidates and `bool_or`
+existence across duplicates. Materialized episode status contains only fields
+needed by the remaining metadata checks. Witness binding reads the original owner
+relation directly, preserving its exact report, reporter, target and time-window
+checks while allowing PostgreSQL to plan the batch independently.
+
+Local planner costs are 250 for setup and 0.01 per tuple. The existing two-worker
+cap still respects lower/disabled operator settings, the 16 MiB per-node budget
+remains unchanged, and every setting expires at transaction completion. Native
+probes require valid/missing/rejected duplicate resolution candidates to count
+one episode, and overlapping action attempt/audit/notice corruption to count one
+action while the scanner retains all three findings. Repairs must clear the counts.
+No fixture volume, sample, required index, worker check or timing limit is relaxed.
+The unchanged 27-plan local workload is comparative diagnostic evidence only.
+The retained local candidate reduced initial snapshot time from 1940.424 to
+1820.701 ms and terminal time from 2400.460 to 2345.913 ms. Both required terminal
+indexes remained present; two workers launched without spills. Further candidate
+inlining regressed terminal time to 2694.786 ms and was discarded. These Windows
+measurements do not establish the unchanged CI timing limit has passed.
+Native regressions, the full check and six exact-head CI jobs must pass before M8
+feature work resumes. No migration or release/return change is added.
+
 ## Current candidate: original notification recipient and source lives
 
 Commit `d408090` passed the complete check (944 unit tests), 170 distinct focused

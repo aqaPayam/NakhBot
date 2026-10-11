@@ -126,28 +126,27 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
 }
 
 export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_candidates AS MATERIALIZED (
-    -- Bind the narrow episode index before joining dense attempt evidence. This
-    -- boundary gives the batch its actual candidate cardinality, without probing
-    -- the same administrator log once for every owner during dense samples.
-    SELECT owner.id AS restriction_episode_id, owner.resolved_by_admin_id,
-      owner.target_user_id AS owner_target_user_id, owner.resolution_reason_code,
-      owner.resolved_at, resolution.*
+    -- Batch narrow candidates before joining dense attempt evidence. Retain
+    -- invalid candidates through grouping so duplicate evidence never suppresses
+    -- a valid binding or multiplies its owning episode.
+    SELECT owner.id AS restriction_episode_id,
+      owner.target_user_id AS owner_target_user_id,
+      (resolution.actor_admin_id = owner.resolved_by_admin_id
+        AND resolution.target_user_id = owner.target_user_id
+        AND resolution.reason_code = owner.resolution_reason_code
+        AND resolution.occurred_at = owner.resolved_at) AS owner_binding_valid,
+      resolution.actor_admin_id, resolution.command_id, resolution.request_id,
+      resolution.request_digest
     FROM moderation.restriction_episodes owner
-    JOIN LATERAL (
-      SELECT actor_admin_id, target_user_id, reason_code, occurred_at,
-        command_id, request_id, request_digest
-      FROM moderation.moderation_actions
-      WHERE restriction_episode_id = owner.id AND restriction_episode_id IS NOT NULL
-        AND actor_type = 'admin' AND action_type = 'unrestrict_user' OFFSET 0
-    ) resolution ON true
+    JOIN moderation.moderation_actions resolution
+      ON resolution.restriction_episode_id = owner.id
+        AND resolution.restriction_episode_id IS NOT NULL
+        AND resolution.actor_type = 'admin' AND resolution.action_type = 'unrestrict_user'
     WHERE owner.status = 'resolved'
 ), resolution_facts AS MATERIALIZED (
     SELECT resolution.restriction_episode_id,
       bool_or(COALESCE(attempt.id IS NOT NULL
-        AND resolution.actor_admin_id = resolution.resolved_by_admin_id
-        AND resolution.target_user_id = resolution.owner_target_user_id
-        AND resolution.reason_code = resolution.resolution_reason_code
-        AND resolution.occurred_at = resolution.resolved_at
+        AND resolution.owner_binding_valid
         AND attempt.request_id = resolution.request_id
         AND attempt.request_digest = resolution.request_digest
         AND attempt.target_id = resolution.owner_target_user_id,false)) AS valid
@@ -201,7 +200,7 @@ export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilde
           AND roster.submitted_at > owner.started_at - interval '30 days'
           AND roster.submitted_at <= owner.started_at) IS TRUE) AS "bindingsValid"
       FROM moderation.threshold_admission_witnesses roster
-      JOIN ${eligibleOnly ? sql`eligible_episodes` : sql`moderation.restriction_episodes`} owner
+      JOIN moderation.restriction_episodes owner
         ON owner.id = roster.restriction_episode_id
       LEFT JOIN moderation.reports report ON report.id = roster.report_id
       GROUP BY roster.restriction_episode_id

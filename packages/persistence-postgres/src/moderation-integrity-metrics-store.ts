@@ -32,8 +32,8 @@ export async function withModerationIntegrityRead<T>(
   const read = async (transaction: NakhDatabase): Promise<T> => {
     await sql`SET LOCAL jit = off`.execute(transaction);
     await sql`SET LOCAL work_mem = '16MB'`.execute(transaction);
-    await sql`SET LOCAL parallel_setup_cost = 1000`.execute(transaction);
-    await sql`SET LOCAL parallel_tuple_cost = 0.03`.execute(transaction);
+    await sql`SET LOCAL parallel_setup_cost = 250`.execute(transaction);
+    await sql`SET LOCAL parallel_tuple_cost = 0.01`.execute(transaction);
     await sql`SELECT set_config('max_parallel_workers_per_gather',
       LEAST(current_setting('max_parallel_workers_per_gather')::integer,2)::text,true)`.execute(
       transaction,
@@ -53,7 +53,9 @@ export function moderationIntegrityPhaseStatement(
     const remaining = flags.filter((flag) => flag !== 'hasResolutionAttempt');
     return sql<IntegrityRow>`
       ${MODERATION_EPISODE_RESOLUTION_FACTS}, episode_resolution_status AS MATERIALIZED (
-        SELECT episode.*, (episode.status <> 'resolved' OR COALESCE(binding.valid,false)) AS resolution_valid
+        SELECT episode.id, episode.target_user_id, episode.source_report_id,
+          episode.witness_required, episode.distinct_reporter_count, episode.started_at,
+          (episode.status <> 'resolved' OR COALESCE(binding.valid,false)) AS resolution_valid
         FROM moderation.restriction_episodes episode
         LEFT JOIN resolution_facts binding ON binding.restriction_episode_id=episode.id
       ), eligible_episodes AS MATERIALIZED (
