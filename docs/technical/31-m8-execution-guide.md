@@ -1,5 +1,38 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: durable reconciliation observations
+
+Commit `a105427` passed the complete check (947 unit tests) and all six exact-head
+CI jobs, including actual pinned collector conversion. CI passed 750 native tests
+in 108 suites, all 27 unchanged plans, load and backup/restore smoke. Support took
+76.671 ms; initial/terminal integrity took 1162.765/1484.613 ms with both required
+indexes, one planned/launched worker and no spill. Tracked count was 197,080.
+The original image-pull error on `8eae999` remains unknown; the repaired head is green.
+
+Four native negative probes reproduced a later scan reporting zero funding
+mismatches while the same invalid source remained present. Canonical findings
+correctly deduplicate across runs, but their original run binding cannot represent
+current observations. Each bounded scan now accumulates content-free quota/funding
+observation counts in its locked run cursor, including deduplicated findings.
+Anomaly insertion, canonical idempotency and repair authority remain unchanged.
+
+Health reads combine the latest scan with the last completed scan until a new
+scan completes. A completed clean scan clears the previous observation; an
+unfinished scan cannot erase it. These are bounded scan observations, not an
+instantaneous snapshot or permission to repair money, release data or return.
+Legacy cursors remain readable and completed legacy runs use their existing anomaly
+counts until a fresh complete scan seeds observations. No historical observations
+are invented and no migration is required.
+
+Native evidence covers twenty competing workers, repeated invalid scans with one
+canonical finding, incomplete scans preserving the last known alert, restored
+original sources clearing the alert, and malformed persisted counters failing
+without progress or source mutation. Counts require exact nonnegative safe integers;
+an older completed result cannot mask an invalid latest cursor. Full check and all
+six exact-head CI jobs remain required for this candidate. Funded source archival,
+later deletion phases and genuine fresh return remain pending; retention periods
+are unset and retained release/return remain disabled.
+
 ## Current repair: private-safe collector startup diagnostics
 
 Commit `8eae999` passed the complete local check (944 unit tests) and 62 focused

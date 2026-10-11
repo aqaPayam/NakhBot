@@ -8,7 +8,8 @@ import { ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
 
 type Phase = 'flows' | 'counters' | 'pending' | 'delivered';
-type Cursor = Readonly<{ phase: Phase; lastId?: string }>;
+type Observations = Readonly<{ quotaDriftCount: number; fundingInvariantMismatchCount: number }>;
+type Cursor = Readonly<{ phase: Phase; lastId?: string; observations?: Observations }>;
 type EntityType = 'nakh_flow' | 'user_counter' | 'pending_nakh' | 'nakh';
 type Finding = Readonly<{
   anomalyType: string;
@@ -29,6 +30,26 @@ function invalidRequest(): never {
   throw new ApplicationError('invalid_request', 'error.nakh.reconciliation_invalid', 400);
 }
 
+function observationsFrom(value: unknown): Observations {
+  if (value === undefined) return { quotaDriftCount: 0, fundingInvariantMismatchCount: 0 };
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw new ApplicationError('conflict', 'error.nakh.reconciliation_cursor_invalid', 409);
+  const stored = value as Readonly<Record<string, unknown>>;
+  const quota = stored.quotaDriftCount,
+    funding = stored.fundingInvariantMismatchCount;
+  if (
+    Object.keys(stored).length !== 2 ||
+    typeof quota !== 'number' ||
+    typeof funding !== 'number' ||
+    !Number.isSafeInteger(quota) ||
+    !Number.isSafeInteger(funding) ||
+    quota < 0 ||
+    funding < 0
+  )
+    throw new ApplicationError('conflict', 'error.nakh.reconciliation_cursor_invalid', 409);
+  return { quotaDriftCount: quota, fundingInvariantMismatchCount: funding };
+}
+
 function cursorFrom(value: Readonly<Record<string, unknown>>): Cursor {
   const phase = value.phase;
   const lastId = value.lastId;
@@ -37,7 +58,11 @@ function cursorFrom(value: Readonly<Record<string, unknown>>): Cursor {
     (lastId !== undefined && (typeof lastId !== 'string' || !UUID.test(lastId)))
   )
     throw new ApplicationError('conflict', 'error.nakh.reconciliation_cursor_invalid', 409);
-  return { phase, ...(lastId === undefined ? {} : { lastId }) };
+  return {
+    phase,
+    ...(lastId === undefined ? {} : { lastId }),
+    observations: observationsFrom(value.observations),
+  };
 }
 
 function nextPage(
@@ -73,7 +98,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
           id: proposedRunId,
           run_type: 'nakh',
           status: 'started',
-          cursor: { phase: 'flows' },
+          cursor: { phase: 'flows', observations: observationsFrom(undefined) },
           failure_code: null,
           finished_at: null,
         })
@@ -98,6 +123,18 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         throw new ApplicationError('conflict', 'error.nakh.reconciliation_complete', 409);
       const cursor = cursorFrom(run.cursor);
       const batch = await this.scanPhase(transaction, cursor, limit);
+      const previous = cursor.observations ?? observationsFrom(undefined);
+      const observations = observationsFrom({
+        quotaDriftCount:
+          previous.quotaDriftCount +
+          batch.findings.filter((finding) => finding.anomalyType === 'pending_nakh_counter_drift')
+            .length,
+        fundingInvariantMismatchCount:
+          previous.fundingInvariantMismatchCount +
+          batch.findings.filter(
+            (finding) => finding.anomalyType === 'delivered_nakh_funding_proof_invalid',
+          ).length,
+      });
 
       let anomalyCount = 0;
       for (const finding of batch.findings) {
@@ -124,7 +161,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         .updateTable('billing.reconciliation_runs')
         .set({
           status: completed ? 'succeeded' : 'started',
-          cursor: batch.nextCursor ?? { phase: 'delivered', complete: true },
+          cursor: { ...(batch.nextCursor ?? { phase: 'delivered', complete: true }), observations },
           scanned_count: sql<string>`scanned_count + ${batch.scannedCount}`,
           anomaly_count: sql<string>`anomaly_count + ${anomalyCount}`,
           finished_at: completed ? sql<Date>`clock_timestamp()` : null,

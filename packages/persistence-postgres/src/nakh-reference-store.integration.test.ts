@@ -162,13 +162,19 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     };
     return { sender, receiver, write, store: new PostgresDirectNakhStore(database) };
   }
-  async function reconcileOriginalFunding(): Promise<string> {
+  async function reconcileOriginalFunding(previousFundingCount?: number): Promise<string> {
     const store = new PostgresNakhReconciliationStore(database);
     const runs = await Promise.all(
       Array.from({ length: 20 }, () => store.resumeOrStart(randomUUID())),
     );
     expect(new Set(runs).size).toBe(1);
     const runId = runs[0]!;
+    if (previousFundingCount !== undefined) {
+      const metrics = new PostgresNakhOperationalMetricsStore(database);
+      expect((await metrics.measure()).fundingInvariantMismatchCount).toBe(previousFundingCount);
+      expect((await store.scanNextBatch(runId, 500)).completed).toBe(false);
+      expect((await metrics.measure()).fundingInvariantMismatchCount).toBe(previousFundingCount);
+    }
     const outcomes = await Promise.allSettled(
       Array.from({ length: 20 }, () => store.scanNextBatch(runId, 500)),
     );
@@ -551,7 +557,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
             .fundingInvariantMismatchCount,
         ).toBe(1);
         expect(await facts()).toEqual(corrupted);
-        const retryRunId = await reconcileOriginalFunding();
+        const retryRunId = await reconcileOriginalFunding(1);
         expect(
           await database
             .selectFrom('billing.reconciliation_anomalies')
@@ -561,12 +567,16 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
             .execute(),
         ).toHaveLength(1);
         expect(retryRunId).not.toBe(runId);
+        expect(
+          (await new PostgresNakhOperationalMetricsStore(database).measure())
+            .fundingInvariantMismatchCount,
+        ).toBe(1);
         expect(await facts()).toEqual(corrupted);
       } finally {
         await setEpoch(0);
       }
       expect(await anchor(delivered.nakhId)).toEqual(originalAnchor);
-      const cleanRunId = await reconcileOriginalFunding();
+      const cleanRunId = await reconcileOriginalFunding(1);
       expect(
         await database
           .selectFrom('billing.reconciliation_anomalies')
@@ -575,7 +585,72 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
           .where('anomaly_type', '=', 'delivered_nakh_funding_proof_invalid')
           .execute(),
       ).toEqual([]);
+      expect(
+        (await new PostgresNakhOperationalMetricsStore(database).measure())
+          .fundingInvariantMismatchCount,
+      ).toBe(0);
       expect(await facts()).toEqual(original);
     },
   );
+
+  it('rejects malformed persisted observations without advancing or masking them with a completed run', async () => {
+    await runMigrations(isolated.url, resolve('migrations'));
+    await reconcileOriginalFunding();
+    const store = new PostgresNakhReconciliationStore(database);
+    const runId = await store.resumeOrStart(randomUUID());
+    const original = await database
+      .selectFrom('billing.reconciliation_runs')
+      .selectAll()
+      .where('id', '=', runId)
+      .executeTakeFirstOrThrow();
+    const sourceFacts = await facts();
+    const malformed: readonly unknown[] = [
+      null,
+      [],
+      {},
+      { quotaDriftCount: '0', fundingInvariantMismatchCount: 0 },
+      { quotaDriftCount: -1, fundingInvariantMismatchCount: 0 },
+      { quotaDriftCount: 0.5, fundingInvariantMismatchCount: 0 },
+      { quotaDriftCount: 9007199254740992, fundingInvariantMismatchCount: 0 },
+      { quotaDriftCount: 0, fundingInvariantMismatchCount: -1 },
+      { quotaDriftCount: 0, fundingInvariantMismatchCount: 0, privateText: 'never a metric' },
+    ];
+    try {
+      for (const observations of malformed) {
+        const cursor = { ...original.cursor, observations };
+        await database
+          .updateTable('billing.reconciliation_runs')
+          .set({ cursor })
+          .where('id', '=', runId)
+          .execute();
+        await expect(store.scanNextBatch(runId, 500)).rejects.toMatchObject({
+          code: 'conflict',
+          message: 'error.nakh.reconciliation_cursor_invalid',
+        });
+        await expect(new PostgresNakhOperationalMetricsStore(database).measure()).rejects.toThrow();
+        expect(
+          await database
+            .selectFrom('billing.reconciliation_runs')
+            .selectAll()
+            .where('id', '=', runId)
+            .executeTakeFirstOrThrow(),
+        ).toEqual({ ...original, cursor });
+        expect(
+          await database
+            .selectFrom('billing.reconciliation_anomalies')
+            .select('id')
+            .where('run_id', '=', runId)
+            .execute(),
+        ).toEqual([]);
+      }
+    } finally {
+      await database
+        .updateTable('billing.reconciliation_runs')
+        .set({ cursor: original.cursor })
+        .where('id', '=', runId)
+        .execute();
+      await reconcileOriginalFunding();
+    }
+    expect(await facts()).toEqual(sourceFacts);
+  });
 });
