@@ -1,20 +1,17 @@
 import { sql, type RawBuilder } from 'kysely';
 import type { ModerationReconciliationPhase } from '@nakh/application';
-/** Split null and exact administrator bindings so PostgreSQL can use the actor/history index. */
-function accountHistoryMatches(
-  adminMatches: RawBuilder<unknown>,
-  restoredState: RawBuilder<unknown>,
-): RawBuilder<boolean> {
-  return sql<boolean>`EXISTS (
-      SELECT 1 FROM identity.account_state_history history WHERE history.user_id = action.target_user_id
-        AND history.actor_type = action.actor_type AND ${adminMatches}
-        AND history.reason_code = action.reason_code AND history.changed_at = action.occurred_at
-        AND ((action.action_type = 'restrict_user' AND history.next_state = 'restricted')
-          OR (action.action_type = 'ban_user' AND history.next_state = 'banned')
-          OR (action.action_type IN ('unrestrict_user','unban_user')
-            AND history.previous_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
-            AND history.next_state = ${restoredState}))
-    )`;
+/** System restoration has no administrator prior-state authority. Exact admission
+ * tuples form one membership set instead of repeated correlated history probes.
+ * Unsupported account actions and null tuple fields still fail closed. */
+function systemAccountHistoryMatches(): RawBuilder<boolean> {
+  return sql<boolean>`COALESCE((action.target_user_id, action.reason_code, action.occurred_at,
+      CASE action.action_type WHEN 'restrict_user' THEN 'restricted'
+        WHEN 'ban_user' THEN 'banned' ELSE NULL::text END) IN (
+    SELECT history.user_id, history.reason_code, history.changed_at, history.next_state
+    FROM identity.account_state_history history
+    WHERE history.actor_type = 'system' AND history.actor_admin_id IS NULL
+      AND history.next_state IN ('restricted','banned')
+  ),false)`;
 }
 
 /** Uncorrelated exact tuples permit one hashable membership set rather than one
@@ -74,7 +71,8 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
     } AS "hasAttempt",
     ${
       isSystem
-        ? sql`history_binding."hasAccountHistory"`
+        ? sql`action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
+          ${systemAccountHistoryMatches()}`
         : sql`
       action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
       ${adminAccountHistoryMatches()}
@@ -97,11 +95,7 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
     LEFT JOIN moderation.reports source_report ON source_report.id = action.source_report_id
     ${
       isSystem
-        ? sql`LEFT JOIN LATERAL (
-          SELECT action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-            ${accountHistoryMatches(sql`history.actor_admin_id IS NULL`, sql`NULL::text`)} AS "hasAccountHistory"
-          OFFSET 0
-        ) history_binding ON true`
+        ? sql``
         : sql`    LEFT JOIN administration.admin_action_logs attempt
       ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
     -- One latest prior-state lookup per restoration binding; OFFSET 0 preserves the

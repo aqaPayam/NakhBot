@@ -1,5 +1,50 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: exact system history membership for moderation actions
+
+Commit `b1955d9` passed the complete local check (947 unit tests), 127 focused
+native tests and all 752 native CI tests across 108 suites. Quality and all four
+container jobs passed. Its database job failed at the unchanged M7 terminal
+integrity budget: 1,503.526 ms against 1,500 ms. Both required indexes were used,
+one worker launched, and there were no temporary blocks, multi-batch hashes or
+disk sorts. Load and backup/restore were skipped after this performance failure;
+this head is not complete green CI evidence.
+
+The action history predicate uses one uncorrelated system-history membership set,
+matching the exact target, reason, timestamp and expected admission state. It still
+requires the system actor and null administrator. Unsupported system restoration
+has no prior-state authority and fails closed; null tuple fields also fail.
+The detailed scanner and aggregate share this predicate and retain every flag.
+Administrator history and latest-prior restoration matching remain unchanged.
+No source authority, repair permission, financial effect or deletion rule changes.
+
+Native evidence covers simultaneous audit, attempt, history and notice faults,
+twenty concurrent samples, and partial repair that must still report the remaining
+history fault. System-history mismatches cover user, reason, timestamp, actor and
+state, with valid/invalid duplicates and twenty concurrent reads. Existing
+administrator restoration duplicates, wrong targets, original histories,
+episode resolution, reconciliation and pooled-setting restoration remain required.
+Two discarded aggregate prototypes added redundant scans or lost parameterized
+history memoization, without establishing a clear action-query benefit. Preserve
+their diagnostics; neither prototype is part of the accepted repair.
+The first added system-history probe correctly exposed that its synthetic seed
+omitted the owning Report: the action was already invalid before history damage.
+Bind that Report explicitly, retaining the exact one-additional-violation assertion.
+The full-size Windows comparison retained all 27 plans, both required indexes,
+one worker and zero spill. Initial/terminal action times changed from
+693.718/892.595 ms to 684.243/865.207 ms: a modest diagnostic improvement, not
+CI acceptance or a guaranteed timing margin. Combined terminal timing changed
+from 2,955.765 to 2,728.578 ms; Windows results do not meet the CI acceptance budget.
+All twenty focused native tests passed across five suites. The first full check
+passed formatting and lint but rejected two widened string literals in the new
+test's actor/state mutation data. Preserve that failure, retain the literal types
+and rerun the complete check; passing native tests do not replace type checking.
+Windows full-size timing is comparative evidence only. The 20,000-row populations,
+27 plans, 1,500 ms CI budget, required indexes and worker checks remain unchanged.
+A full local check and all six exact-head CI jobs are required before new features.
+Funded source archival and later M8 phases remain pending; fresh return and retained
+release remain disabled.
+
 ## Current repair: complete migration-110 upgrade expectations
 
 Commit `1c303df` passed the complete local check (947 unit tests) and 75 native

@@ -396,7 +396,17 @@ describe.skipIf(url === undefined)(
       }
       // One action can have several findings. Aggregate samples must preserve
       // each scanner finding while counting that entity exactly once.
+      const history = await database
+        .selectFrom('identity.account_state_history')
+        .selectAll()
+        .where('user_id', '=', action.target_user_id!)
+        .where('actor_admin_id', '=', adminId)
+        .where('changed_at', '=', action.occurred_at)
+        .where('reason_code', '=', action.reason_code)
+        .executeTakeFirstOrThrow();
       await corrupt(async (tx) => {
+        await sql`UPDATE identity.account_state_history SET reason_code='missing_action_binding'
+          WHERE id=${history.id}::uuid`.execute(tx);
         await sql`UPDATE administration.admin_action_logs SET request_id=${randomUUID()}::uuid WHERE id=${attempt.id}::uuid`.execute(
           tx,
         );
@@ -414,12 +424,33 @@ describe.skipIf(url === undefined)(
         ).toEqual([
           'moderation_action_audit_missing',
           'moderation_action_attempt_missing',
+          'moderation_action_history_missing',
           'moderation_action_notice_invalid',
         ]);
         for (const sample of await Promise.all(Array.from({ length: 20 }, () => store.measure())))
           expect(sample.counts.actions).toBe(baseline.actions + 1);
+        await corrupt(async (tx) => {
+          await sql`UPDATE administration.admin_action_logs SET request_id=${attempt.request_id}::uuid WHERE id=${attempt.id}::uuid`.execute(
+            tx,
+          );
+          await sql`UPDATE platform.audit_logs SET request_id=${audit.request_id}::uuid WHERE id=${audit.id}::uuid`.execute(
+            tx,
+          );
+          await sql`UPDATE notification.notifications SET payload=${JSON.stringify(notice.payload)}::jsonb WHERE id=${notice.id}::uuid`.execute(
+            tx,
+          );
+        });
+        expect(
+          (await scanModerationActions(database, { phase: 'actions' }, 500)).findings
+            .filter((row) => row.entityId === action.id)
+            .map((row) => row.anomalyType),
+        ).toEqual(['moderation_action_history_missing']);
+        for (const sample of await Promise.all(Array.from({ length: 20 }, () => store.measure())))
+          expect(sample.counts.actions).toBe(baseline.actions + 1);
       } finally {
         await corrupt(async (tx) => {
+          await sql`UPDATE identity.account_state_history SET reason_code=${history.reason_code}
+            WHERE id=${history.id}::uuid`.execute(tx);
           await sql`UPDATE administration.admin_action_logs SET request_id=${attempt.request_id}::uuid WHERE id=${attempt.id}::uuid`.execute(
             tx,
           );

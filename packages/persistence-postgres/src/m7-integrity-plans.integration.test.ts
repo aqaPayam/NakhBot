@@ -155,6 +155,97 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       expect(plans[name]).toBeDefined();
     await assertClean();
   });
+  it('preserves exact system history membership, actor/state bindings and duplicate existence', async () => {
+    await withM6SyntheticPlanSession(database, async (connection) => {
+      try {
+        await connection.transaction().execute(async (tx) => {
+          const prefix = randomUUID(),
+            at = new Date();
+          await seedM7IntegrityPlans(tx, prefix, 1000, at);
+          const action = await tx
+            .selectFrom('moderation.moderation_actions')
+            .selectAll()
+            .where('id', '=', sql<string>`md5(${prefix} || 'threshold-action1')::uuid`)
+            .executeTakeFirstOrThrow();
+          const original = await tx
+            .selectFrom('identity.account_state_history')
+            .selectAll()
+            .where('id', '=', sql<string>`md5(${prefix} || 'threshold-history1')::uuid`)
+            .executeTakeFirstOrThrow();
+          // This seed deliberately omits Reports. Bind this action's owning
+          // Report so a history fault is its only aggregate violation.
+          await sql`INSERT INTO moderation.reports
+            (id,reporter_user_id,target_user_id,reason_id,status,command_id,request_id,
+              idempotency_key,request_digest,submitted_at,reviewed_at)
+            VALUES (${action.source_report_id}::uuid,${randomUUID()}::uuid,
+              ${action.target_user_id}::uuid,${randomUUID()}::uuid,'actioned',
+              ${randomUUID()}::uuid,${randomUUID()}::uuid,${randomUUID()},repeat('a',64),${at},${at})`.execute(
+            tx,
+          );
+          const reason = `system_membership_${randomUUID().replaceAll('-', '')}`,
+            history = { ...original, id: randomUUID(), reason_code: reason };
+          await tx
+            .updateTable('moderation.moderation_actions')
+            .set({ reason_code: reason })
+            .where('id', '=', action.id)
+            .execute();
+          await tx.insertInto('identity.account_state_history').values(history).execute();
+          const matches = async (): Promise<boolean> =>
+            (
+              await sql<{ matches: boolean }>`SELECT probe."hasAccountHistory" AS matches
+              FROM (${MODERATION_INTEGRITY_SOURCES.actions}) probe WHERE probe.id=${action.id}::uuid`.execute(
+                tx,
+              )
+            ).rows[0]!.matches;
+          const count = async (): Promise<number> =>
+            withModerationIntegrityRead(tx, async (read) =>
+              Number(
+                (await moderationIntegrityPhaseStatement('actions').execute(read)).rows[0]!.count,
+              ),
+            );
+          expect(await matches()).toBe(true);
+          const baseline = await count();
+          for (const changed of [
+            { user_id: randomUUID() },
+            { reason_code: randomUUID() },
+            { changed_at: new Date(history.changed_at.getTime() + 1) },
+            { actor_type: 'admin', actor_admin_id: randomUUID() },
+            { actor_type: 'user', actor_user_id: randomUUID() },
+            { next_state: 'banned' },
+          ] as const) {
+            await tx
+              .updateTable('identity.account_state_history')
+              .set(changed)
+              .where('id', '=', history.id)
+              .execute();
+            expect(await matches()).toBe(false);
+            expect(await count()).toBe(baseline + 1);
+            await tx
+              .updateTable('identity.account_state_history')
+              .set(history)
+              .where('id', '=', history.id)
+              .execute();
+            expect(await matches()).toBe(true);
+          }
+          const duplicate = { ...history, id: randomUUID(), next_state: 'banned' as const };
+          await tx.insertInto('identity.account_state_history').values(duplicate).execute();
+          expect(await matches()).toBe(true);
+          expect(await count()).toBe(baseline);
+          await tx
+            .updateTable('identity.account_state_history')
+            .set({ next_state: 'restricted' })
+            .where('id', '=', duplicate.id)
+            .execute();
+          for (const result of await Promise.all(Array.from({ length: 20 }, count)))
+            expect(result).toBe(baseline);
+          throw new FixtureRollback();
+        });
+      } catch (error) {
+        if (!(error instanceof FixtureRollback)) throw error;
+      }
+    });
+    await assertClean();
+  });
   it('keeps acceptance separate from unban and detects missing review, wrong command target and wrong restoration', async () => {
     await withM6SyntheticPlanSession(database, async (connection) => {
       try {
