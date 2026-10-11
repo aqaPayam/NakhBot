@@ -1186,8 +1186,8 @@
           "definition": "FOREIGN KEY (feature_unlock_id) REFERENCES interaction.feature_unlocks(id) DEFERRABLE INITIALLY DEFERRED"
         },
         {
-          "target": "nakh.nakhes",
-          "definition": "FOREIGN KEY (nakh_id) REFERENCES nakh.nakhes(id) DEFERRABLE INITIALLY DEFERRED"
+          "target": "nakh.nakh_reference_anchors",
+          "definition": "FOREIGN KEY (nakh_id) REFERENCES nakh.nakh_reference_anchors(id) DEFERRABLE INITIALLY DEFERRED"
         },
         {
           "target": "billing.payment_records",
@@ -5194,8 +5194,8 @@
           "definition": "FOREIGN KEY (source_like_b_id) REFERENCES interaction.likes(id) ON DELETE RESTRICT"
         },
         {
-          "target": "nakh.nakhes",
-          "definition": "FOREIGN KEY (source_nakh_id) REFERENCES nakh.nakhes(id) DEFERRABLE INITIALLY DEFERRED"
+          "target": "nakh.nakh_reference_anchors",
+          "definition": "FOREIGN KEY (source_nakh_id) REFERENCES nakh.nakh_reference_anchors(id) DEFERRABLE INITIALLY DEFERRED"
         },
         {
           "target": "identity.users",

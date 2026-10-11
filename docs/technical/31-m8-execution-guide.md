@@ -1,5 +1,35 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: retained original Nakh reference routing
+
+Commit `4dc9160` passed the complete check (947 unit tests), 63 focused native
+tests and all six exact-head CI jobs. CI passed 751 tests in 108 suites, all 27
+unchanged plans, load, backup/restore smoke and pinned collector conversion.
+Support took 47.143 ms; initial/terminal integrity took 728.011/929.437 ms with
+both required indexes, one worker and no spill. Tracked count was 197,258.
+Durable observation counts now preserve repeated unresolved findings independently
+of canonical anomaly deduplication.
+
+Migration 110 routes retained ledger and Nakh-origin Match identifiers through
+the existing six-field original Nakh anchors. Its preflight requires the exact
+source, flow, participants, both original lives and original funding life. New
+spends and Matches still require their exact live funded/accepted source under
+deferred commit checks; a historical anchor cannot authorize a new effect.
+The existing source, history and receiver-action removal guards remain unchanged.
+No source, ordinary text, financial fact, provider outcome or retained identity
+is removed or rewritten by this migration. Schema counts remain 132 tables,
+1,209 columns and 244 foreign keys, with two targets changed in the registry.
+
+A native baseline verified both old links still pointed to the private source.
+The first dependency run found stale registry targets and an omitted migration
+in an upgrade expectation; both are corrected without weakening catalog checks.
+Evidence includes borrowed-life migration rejection with unchanged old links,
+twenty concurrent upgrade retries, exact preservation of original financial and
+source facts, and twenty denied source removals. Full check and all six exact-head
+CI jobs remain required for this candidate. Verified source/history/action archival,
+pending/flow removal and later deletion phases remain pending. Return and retained
+release stay disabled; retention periods and external acceptance remain unset.
+
 ## Current candidate: durable reconciliation observations
 
 Commit `a105427` passed the complete check (947 unit tests) and all six exact-head

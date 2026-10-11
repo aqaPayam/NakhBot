@@ -224,13 +224,58 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     } finally {
       await setEpoch(0);
     }
+    const directory = await mkdtemp(join(tmpdir(), 'm8-nakh109-'));
+    try {
+      for (const file of await readdir(resolve('migrations')))
+        if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(file) && Number(file.slice(0, 6)) <= 109)
+          await copyFile(join(resolve('migrations'), file), join(directory, file));
+      expect((await runMigrations(isolated.url, directory)).applied).toEqual([
+        '000107_m8_nakh_funding_lives.sql',
+        '000108_m8_unreferenced_like_purge.sql',
+        '000109_m8_notification_original_lives.sql',
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+    const setReferenceEpoch = async (epoch: number): Promise<void> =>
+      database.connection().execute(async (connection) => {
+        await sql`SET session_replication_role=replica`.execute(connection);
+        try {
+          await connection
+            .updateTable('nakh.nakh_reference_anchors')
+            .set({ receiver_product_epoch: epoch })
+            .where('id', '=', historicalId)
+            .execute();
+        } finally {
+          await sql`SET session_replication_role=origin`.execute(connection);
+        }
+      });
+    await setReferenceEpoch(1);
+    try {
+      await expect(runMigrations(isolated.url, resolve('migrations'))).rejects.toThrow(
+        'retained Nakh routing lacks original source proof',
+      );
+      const unchanged = await sql<{
+        original: boolean;
+      }>`SELECT confrelid='nakh.nakhes'::regclass AS original
+        FROM pg_constraint WHERE conname IN ('credit_transactions_nakh_fk','matches_source_nakh_fk')`.execute(
+        database,
+      );
+      expect(unchanged.rows).toEqual([{ original: true }, { original: true }]);
+      expect(
+        (
+          await sql<{ absent: boolean }>`SELECT
+        to_regprocedure('nakh.require_live_funded_reference()') IS NULL AS absent`.execute(database)
+        ).rows[0]!.absent,
+      ).toBe(true);
+    } finally {
+      await setReferenceEpoch(0);
+    }
     const results = await Promise.all(
       Array.from({ length: 20 }, () => runMigrations(isolated.url, resolve('migrations'))),
     );
     expect(results.flatMap((result) => result.applied)).toEqual([
-      '000107_m8_nakh_funding_lives.sql',
-      '000108_m8_unreferenced_like_purge.sql',
-      '000109_m8_notification_original_lives.sql',
+      '000110_m8_nakh_retained_links.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database
@@ -652,5 +697,37 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       await reconcileOriginalFunding();
     }
     expect(await facts()).toEqual(sourceFacts);
+  });
+
+  it('routes retained funding links through exact original anchors while requiring live sources', async () => {
+    await runMigrations(isolated.url, resolve('migrations'));
+    const links = await sql<{ name: string; target: string; deferred: boolean }>`
+      SELECT conname AS name,target_schema.nspname||'.'||target.relname AS target,
+        condeferrable AND condeferred AS deferred
+      FROM pg_constraint JOIN pg_class target ON target.oid=confrelid
+      JOIN pg_namespace target_schema ON target_schema.oid=target.relnamespace
+      WHERE conname IN ('credit_transactions_nakh_fk','matches_source_nakh_fk')
+      ORDER BY conname`.execute(database);
+    expect(links.rows).toEqual([
+      {
+        name: 'credit_transactions_nakh_fk',
+        target: 'nakh.nakh_reference_anchors',
+        deferred: true,
+      },
+      { name: 'matches_source_nakh_fk', target: 'nakh.nakh_reference_anchors', deferred: true },
+    ]);
+    const original = await facts();
+    const originalAnchor = await anchor(historicalId);
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 20 }, () =>
+        database.deleteFrom('nakh.nakhes').where('id', '=', historicalId).execute(),
+      ),
+    );
+    expect(outcomes.every((row) => row.status === 'rejected')).toBe(true);
+    for (const outcome of outcomes)
+      if (outcome.status === 'rejected')
+        expect(outcome.reason as unknown).toMatchObject({ code: '55000' });
+    expect(await facts()).toEqual(original);
+    expect(await anchor(historicalId)).toEqual(originalAnchor);
   });
 });
