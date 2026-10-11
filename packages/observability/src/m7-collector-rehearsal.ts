@@ -9,7 +9,7 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import policy from '../../../deploy/telemetry/m7-collector.json' with { type: 'json' };
-import { classifyCollectorStartupFailure, pullCollectorImage } from './m7-collector-startup.js';
+import { collectorStartupDiagnostic, pullCollectorImage } from './m7-collector-startup.js';
 
 const execute = promisify(execFile);
 let stage = 'configuration';
@@ -304,7 +304,7 @@ await main().catch((error: unknown) => {
   console.error(`M7 collector conversion failed at ${stage}; no metric payload was printed.`);
   if (stage === 'image-pull' || stage === 'startup')
     console.error(
-      `Collector startup classification: ${classifyCollectorStartupFailure(error).code}.`,
+      `Collector startup diagnostic: ${JSON.stringify(collectorStartupDiagnostic(error))}.`,
     );
   process.exitCode = 1;
 });

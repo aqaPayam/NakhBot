@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { classifyCollectorStartupFailure, pullCollectorImage } from './m7-collector-startup.js';
+import {
+  classifyCollectorStartupFailure,
+  collectorStartupDiagnostic,
+  pullCollectorImage,
+} from './m7-collector-startup.js';
 
 describe('privacy-safe bounded collector image startup', () => {
   it.each([
@@ -34,6 +38,64 @@ describe('privacy-safe bounded collector image startup', () => {
       code: 'collector_startup_unknown',
       retryable: false,
     });
+  });
+  it('classifies stdout-only pull failures while preserving denial precedence', () => {
+    expect(
+      classifyCollectorStartupFailure({
+        stdout: '503 Service Unavailable; Authorization=private-marker',
+        stderr: '',
+      }),
+    ).toEqual({ code: 'collector_registry_transient', retryable: true });
+    expect(
+      classifyCollectorStartupFailure({
+        stdout: 'connection reset',
+        stderr: '403 access denied; private-marker',
+      }),
+    ).toEqual({ code: 'collector_registry_denied', retryable: false });
+    expect(
+      classifyCollectorStartupFailure({
+        stdout: 'manifest unknown; private-marker',
+        stderr: '503 Service Unavailable',
+      }),
+    ).toEqual({ code: 'collector_image_missing', retryable: false });
+  });
+  it('reports only bounded exit metadata and channel presence for unknown failures', () => {
+    const diagnostic = collectorStartupDiagnostic({
+      code: 1,
+      killed: false,
+      stdout: 'private-payload',
+      stderr: 'private-bearer',
+      message: 'private-stack',
+      cmd: 'private-command',
+      endpoint: 'private-endpoint',
+    });
+    expect(diagnostic).toEqual({
+      classification: 'collector_startup_unknown',
+      retryable: false,
+      exitCode: 1,
+      killed: false,
+      stdoutPresent: true,
+      stderrPresent: true,
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain('private');
+    for (const code of [-1, 256, 1.5, Infinity, 'private-code', undefined])
+      expect(collectorStartupDiagnostic({ code }).exitCode).toBeNull();
+    expect(collectorStartupDiagnostic('private-error')).toEqual({
+      classification: 'collector_startup_unknown',
+      retryable: false,
+      exitCode: null,
+      killed: false,
+      stdoutPresent: false,
+      stderrPresent: false,
+    });
+  });
+  it('preserves a denial anywhere in buffered process output before retryable transport text', () => {
+    expect(
+      classifyCollectorStartupFailure({
+        stderr: `403 access denied ${'private-marker '.repeat(2000)}`,
+        stdout: '503 Service Unavailable',
+      }),
+    ).toEqual({ code: 'collector_registry_denied', retryable: false });
   });
   it('recovers a recognized transient pull with at most three attempts', async () => {
     let attempts = 0;

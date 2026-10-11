@@ -1,6 +1,41 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
-## Current candidate: original funded-Nakh reconciliation proof
+## Current repair: private-safe collector startup diagnostics
+
+Commit `8eae999` passed the complete local check (944 unit tests) and 62 focused
+native tests across six suites. Its four CI images passed, and CI's complete check
+and security audit passed. Quality failed before metric export while pulling the
+unchanged pinned public collector image, classified only as startup unknown.
+Collector evidence and later quality steps were not reached. The database job
+passed all 750 tests in 108 suites, all 27 plans, load and backup/restore. Support
+took 70.781 ms; initial/terminal integrity took 1164.559/1474.666 ms with both required
+indexes, one worker and no spill. This is still a failed head; tracked count was 196,953.
+
+The exact public image manifest was independently available with HTTP 200 after
+the failure. The GitHub job-rerun API returned HTTP 403 with the configured
+credential. The precise original Docker error remains unavailable; current registry
+availability alone does not establish its cause. No image, conversion, privacy,
+retry limit or assertion is replaced or weakened.
+
+The diagnostic repair classifies both buffered Docker output channels, retaining
+runtime/denial/missing-image precedence over transient transport messages. Startup
+failure reporting emits only the fixed classification, retryability, a validated
+0–255 exit code or null, killed status and two output-presence booleans. No command,
+endpoint, raw process output, stack, configuration, credential or metric payload is
+printed. Unknown failures still fail immediately; only recognized transient image
+pulls retain the existing three-attempt/1–2-second retry policy. Native Docker is
+unavailable on this host, so actual pinned collector conversion remains a CI gate.
+
+Seventeen focused startup tests pass, including stdout-only failures, mixed-channel
+denial/missing precedence, long-buffer denial and private diagnostic suppression.
+The first full local repair check exited during lint with Windows access violation
+3221225477, without a lint finding or available fault-module evidence. A task-local
+single-process lint invocation removes worker threads; repository checks and CI
+configuration remain unchanged. This does not establish the precise native crash cause.
+The complete check and all six exact-head CI jobs must pass before feature work
+resumes. This is startup diagnostics repair, not funded source archival, telemetry
+observation completion, fresh return, retained release or external acceptance.
+## Previous candidate: original funded-Nakh reconciliation proof
 
 Commit `48a3998` passed the complete check (944 unit tests), 79 distinct focused
 native checks and all six exact-head CI jobs. The final local native run passed

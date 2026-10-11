@@ -14,7 +14,9 @@ export type CollectorStartupFailure = Readonly<{
 export function classifyCollectorStartupFailure(error: unknown): CollectorStartupFailure {
   const failure =
     typeof error === 'object' && error !== null ? (error as Readonly<Record<string, unknown>>) : {};
-  const diagnostic = typeof failure.stderr === 'string' ? failure.stderr : '';
+  const diagnostic = [failure.stderr, failure.stdout]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n');
   if (
     failure.code === 'ENOENT' ||
     failure.code === 'EACCES' ||
@@ -35,6 +37,34 @@ export function classifyCollectorStartupFailure(error: unknown): CollectorStartu
   )
     return { code: 'collector_registry_transient', retryable: true };
   return { code: 'collector_startup_unknown', retryable: false };
+}
+
+/** Only fixed fields from process metadata leave the pre-export startup path. */
+export function collectorStartupDiagnostic(error: unknown): Readonly<{
+  classification: CollectorStartupFailure['code'];
+  retryable: boolean;
+  exitCode: number | null;
+  killed: boolean;
+  stdoutPresent: boolean;
+  stderrPresent: boolean;
+}> {
+  const failure =
+    typeof error === 'object' && error !== null ? (error as Readonly<Record<string, unknown>>) : {};
+  const classified = classifyCollectorStartupFailure(error);
+  return {
+    classification: classified.code,
+    retryable: classified.retryable,
+    exitCode:
+      typeof failure.code === 'number' &&
+      Number.isInteger(failure.code) &&
+      failure.code >= 0 &&
+      failure.code <= 255
+        ? failure.code
+        : null,
+    killed: failure.killed === true,
+    stdoutPresent: typeof failure.stdout === 'string' && failure.stdout.length > 0,
+    stderrPresent: typeof failure.stderr === 'string' && failure.stderr.length > 0,
+  };
 }
 
 /** Retry only recognized transient public-image pulls. Container startup and
