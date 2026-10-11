@@ -1,5 +1,37 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: missing pending payment records remain visible
+
+Pending reconciliation now starts from each ordinary pending source and left joins
+its payment intent. A physically missing intent cannot remove the entity from the
+scan. Nullable payment fields fail the original binding and lifecycle status
+checks; the existing quarantine findings record only pending status and the fixed
+`missing` payment-status marker. No payment, refund, delivery or closure proof is
+inferred from that marker. Closed-by-system sources still require their bound
+closure, and now independently fail when the intent is absent.
+
+Two isolated corruption cases remove the original intent from real unpaid and
+credit-paid sources with deleted owners, complete two durable one-row scans each,
+and require one canonical binding and status finding per source. Restoring the
+intent restores original-reference validity; ordinary, financial, audit, counter
+and preview facts remain identical. Replica-mode removal is a corruption probe,
+not production deletion or retention-release authority. All 42 tests across four
+focused native suites pass. Full project checks and all six exact-head CI jobs
+remain required for this candidate.
+
+The preceding reference commit `e949051` passed a fresh full check (947 unit tests)
+and all six jobs in CI run `38162515614`: 778 native tests across 110 suites,
+all 27 plans, load, collector and backup/restore. Initial integrity took 824.060 ms
+and terminal integrity 1,067.263 ms against the unchanged 1,500 ms limit, with
+both required indexes, one worker and zero spill. Its tracked line count was
+199,618. The earlier local runtime failure remains diagnosed only as a native
+breakpoint; the successful fresh check and CI do not establish its root cause.
+
+Pending-backed credit funding must still require the exact original pending
+reference before pending-body archival is introduced. Pending/Flow archival,
+archived-charge correction and later deletion checkpoints remain outstanding.
+Fresh Return and retained-data release remain disabled.
+
 ## Current increment: original pending Nakh references before body archival
 
 Migration 112 adds seven-field original pending references: pending ID, flow ID,

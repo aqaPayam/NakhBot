@@ -295,12 +295,12 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
       pendingStatus: string;
       senderUserId: string;
       pendingExpiresAt: Date;
-      paymentUserId: string;
-      paymentTargetType: string;
-      paymentTargetId: string;
-      paymentReason: string;
-      paymentExpiresAt: Date;
-      paymentStatus: string;
+      paymentUserId: string | null;
+      paymentTargetType: string | null;
+      paymentTargetId: string | null;
+      paymentReason: string | null;
+      paymentExpiresAt: Date | null;
+      paymentStatus: string | null;
       boundClosure: boolean;
       originalReferenceValid: boolean;
     }>`
@@ -318,7 +318,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         CASE WHEN pending.status='closed_by_system' THEN billing.pending_nakh_has_bound_closure(pending.id)
           ELSE false END AS "boundClosure"
       FROM nakh.pending_nakhes pending
-      JOIN billing.pending_payments payment ON payment.id = pending.pending_payment_id
+      LEFT JOIN billing.pending_payments payment ON payment.id = pending.pending_payment_id
       WHERE (${cursor.lastId ?? null}::uuid IS NULL OR pending.id > ${cursor.lastId ?? null}::uuid)
       ORDER BY pending.id
       LIMIT ${limit}
@@ -338,26 +338,33 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         row.paymentTargetType !== 'pending_nakh' ||
         row.paymentTargetId !== row.id ||
         row.paymentReason !== 'send_nakh' ||
-        row.pendingExpiresAt.getTime() !== row.paymentExpiresAt.getTime()
+        row.pendingExpiresAt.getTime() !== row.paymentExpiresAt?.getTime()
       )
         findings.push({
           anomalyType: 'pending_nakh_payment_binding_invalid',
           entityType: 'pending_nakh',
           entityId: row.id,
           disposition: 'quarantined',
-          safeDetail: { pendingStatus: row.pendingStatus, paymentStatus: row.paymentStatus },
+          safeDetail: {
+            pendingStatus: row.pendingStatus,
+            paymentStatus: row.paymentStatus ?? 'missing',
+          },
         });
       if (
-        row.pendingStatus === 'closed_by_system'
+        row.paymentStatus === null ||
+        (row.pendingStatus === 'closed_by_system'
           ? !row.boundClosure
-          : expectedPaymentStatus[row.pendingStatus] !== row.paymentStatus
+          : expectedPaymentStatus[row.pendingStatus] !== row.paymentStatus)
       )
         findings.push({
           anomalyType: 'pending_nakh_payment_status_drift',
           entityType: 'pending_nakh',
           entityId: row.id,
           disposition: 'quarantined',
-          safeDetail: { pendingStatus: row.pendingStatus, paymentStatus: row.paymentStatus },
+          safeDetail: {
+            pendingStatus: row.pendingStatus,
+            paymentStatus: row.paymentStatus ?? 'missing',
+          },
         });
     }
     return {

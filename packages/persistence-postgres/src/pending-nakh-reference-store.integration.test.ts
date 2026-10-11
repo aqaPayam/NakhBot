@@ -380,6 +380,72 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
     expect(await facts()).toEqual(before);
     expect(await valid(id)).toBe(true);
   });
+  it.each([0, 1] as const)(
+    'quarantines source %s with a missing original intent across repeated one-row scans',
+    async (index) => {
+      const id = historicalIds[index]!,
+        source = await database
+          .selectFrom('nakh.pending_nakhes')
+          .selectAll()
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow(),
+        intent = await database
+          .selectFrom('billing.pending_payments')
+          .selectAll()
+          .where('id', '=', source.pending_payment_id)
+          .executeTakeFirstOrThrow(),
+        before = await facts();
+      await database.connection().execute(async (connection) => {
+        await sql`SET session_replication_role=replica`.execute(connection);
+        try {
+          await connection
+            .deleteFrom('billing.pending_payments')
+            .where('id', '=', intent.id)
+            .execute();
+        } finally {
+          await sql`SET session_replication_role=origin`.execute(connection);
+        }
+      });
+      try {
+        expect(await valid(id)).toBe(false);
+        const reconciliation = new PostgresNakhReconciliationStore(database);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const runId = await reconciliation.resumeOrStart(randomUUID());
+          while (!(await reconciliation.scanNextBatch(runId, 1)).completed) {
+            /* exercise durable pagination through the orphan source */
+          }
+        }
+        for (const anomalyType of [
+          'pending_nakh_payment_binding_invalid',
+          'pending_nakh_payment_status_drift',
+        ]) {
+          const anomalies = await database
+            .selectFrom('billing.reconciliation_anomalies')
+            .select(['safe_detail', 'disposition'])
+            .where('entity_id', '=', id)
+            .where('anomaly_type', '=', anomalyType)
+            .execute();
+          expect(anomalies).toEqual([
+            {
+              disposition: 'quarantined',
+              safe_detail: { pendingStatus: source.status, paymentStatus: 'missing' },
+            },
+          ]);
+        }
+      } finally {
+        await database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            await connection.insertInto('billing.pending_payments').values(intent).execute();
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      }
+      expect(await valid(id)).toBe(true);
+      expect(await facts()).toEqual(before);
+    },
+  );
   it.each(['sender-life', 'receiver-life', 'intent', 'missing'] as const)(
     'keeps a damaged %s original reference visible to repeated reconciliation',
     async (fault) => {
