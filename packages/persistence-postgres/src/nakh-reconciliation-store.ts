@@ -339,6 +339,8 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
       version: number;
       creditProofCount: number;
       paymentProofCount: number;
+      originalFundingLifeValid: boolean;
+      originalReferenceValid: boolean;
       historyCount: number;
       historyMinVersion: number | null;
       historyMaxVersion: number | null;
@@ -350,6 +352,15 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         delivered.funding_type AS "fundingType",
         delivered.status,
         delivered.version,
+        nakh.original_funding_life_valid(delivered) AS "originalFundingLifeValid",
+        EXISTS(SELECT 1 FROM nakh.nakh_reference_anchors anchor
+          JOIN nakh.nakh_flows original_flow ON original_flow.id=delivered.nakh_flow_id
+          WHERE anchor.id=delivered.id AND anchor.nakh_flow_id=delivered.nakh_flow_id
+            AND anchor.sender_user_id=delivered.sender_user_id
+            AND anchor.receiver_user_id=delivered.receiver_user_id
+            AND anchor.sender_product_epoch=original_flow.sender_product_epoch
+            AND anchor.receiver_product_epoch=original_flow.receiver_product_epoch)
+          AS "originalReferenceValid",
         (SELECT count(*)::integer FROM billing.credit_transactions credit
           WHERE credit.id = delivered.credit_transaction_id
             AND credit.nakh_id = delivered.id
@@ -387,9 +398,11 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
     const findings: Finding[] = [];
     for (const row of rows.rows) {
       const fundingValid =
-        row.fundingType === 'credits'
+        row.originalFundingLifeValid &&
+        row.originalReferenceValid &&
+        (row.fundingType === 'credits'
           ? row.creditProofCount === 1 && row.paymentProofCount === 0
-          : row.creditProofCount === 0 && row.paymentProofCount === 1;
+          : row.creditProofCount === 0 && row.paymentProofCount === 1);
       if (!fundingValid)
         findings.push({
           anomalyType: 'delivered_nakh_funding_proof_invalid',
@@ -400,6 +413,8 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
             fundingType: row.fundingType,
             creditProofCount: String(row.creditProofCount),
             paymentProofCount: String(row.paymentProofCount),
+            originalFundingLifeValid: String(row.originalFundingLifeValid),
+            originalReferenceValid: String(row.originalReferenceValid),
           },
         });
       if (

@@ -1,6 +1,39 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
-## Current candidate: original chat access and paid source authority
+## Current candidate: original funded-Nakh reconciliation proof
+
+Commit `48a3998` passed the complete check (944 unit tests), 79 distinct focused
+native checks and all six exact-head CI jobs. The final local native run passed
+735 tests in 106 suites, with eleven Redis tests skipped locally; CI passed all
+746 tests in 108 suites. All 27 unchanged plans, load and backup/restore smoke
+passed. Support took 78.038 ms; initial/terminal integrity took
+1225.462/1473.100 ms with both required indexes, one planned/launched worker,
+no temporary blocks, no disk sort and one hash batch. Tracked count was 196,731.
+
+Two isolated negative probes reproduced a reconciliation gap: the scanner counted
+the original spend while missing a borrowed funding life or reference life.
+The first probe used a nonexistent scanner method; fixing that test call produced
+the actual missing-finding failures before production changes. Delivered-Nakh
+reconciliation now also uses migration 107's original funding-life proof and the
+exact six-field retained reference bound to its original flow. Existing complete
+spend/charge, history, notification and accepted-Match checks remain.
+
+The existing funding anomaly category and per-source idempotency remain; diagnostic
+fields expose only booleans and bounded counts, never epochs or ordinary text.
+Native tests cover both reference participants, a missing reference, original ledger
+life, twenty competing workers, one canonical finding across repeated runs, restored
+original facts and real native Stars capture/fulfillment with borrowed payer/intent
+scope. Every negative corruption is restored and is not evidence of fresh return.
+No money, source, retained reference, provider outcome or ordinary content is repaired
+by reconciliation. No migration, archival, return or retained release is authorized.
+
+Full native dependency tests, the complete check and all six exact-head CI jobs
+remain required. Repeated canonical anomalies retain their original run binding;
+the existing latest-run operational metric can therefore omit a still-present
+finding on a later deduplicated run. Persistent current-observation telemetry is
+still an M8 obligation. Funded source/pending/flow archival and deletion completion
+remain pending; retained periods are unset and release/return remain disabled.
+## Previous candidate: original chat access and paid source authority
 
 Commit `57db28a` passed the full check (944 unit tests), nineteen focused native
 checks and all six exact-head CI jobs. CI passed 738 native tests in 108 suites,

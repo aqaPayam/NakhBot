@@ -15,6 +15,7 @@ import { ViewNakhProfileHandler } from '@nakh/application';
 import type { CancelPendingNakhCommand, CreatePendingNakhCommand } from '@nakh/contracts';
 
 import { PostgresBillingReconciliationStore } from './billing-reconciliation-store.js';
+import { PostgresNakhReconciliationStore } from './nakh-reconciliation-store.js';
 import { PostgresAccountDeletionStore } from './account-deletion-store.js';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { PostgresFundingStore } from './funding-store.js';
@@ -1208,6 +1209,22 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
         data: { nakhId: write.nakhId, expectedVersion: 1 },
       };
       const handler = new ViewNakhProfileHandler(new PostgresDeliveredNakhStore(database), ids);
+      const reconcileFunding = async (): Promise<string> => {
+        const scanner = new PostgresNakhReconciliationStore(database);
+        const runId = await scanner.resumeOrStart(randomUUID());
+        for (let batch = 0; batch < 100; batch++)
+          if ((await scanner.scanNextBatch(runId, 500)).completed) return runId;
+        throw new Error('Original Stars funding reconciliation did not complete.');
+      };
+      const cleanBefore = await reconcileFunding();
+      expect(
+        await database
+          .selectFrom('billing.reconciliation_anomalies')
+          .select('id')
+          .where('run_id', '=', cleanBefore)
+          .where('entity_id', '=', write.nakhId)
+          .execute(),
+      ).toEqual([]);
       // Negative isolated corruption only; no return, transfer or reset.
       await setEpoch(1);
       try {
@@ -1223,11 +1240,41 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
               where: expect.stringContaining('require_original_funding_life()') as unknown,
             });
         }
+        const corruptRun = await reconcileFunding();
+        expect(
+          await database
+            .selectFrom('billing.reconciliation_anomalies')
+            .select(['anomaly_type', 'disposition', 'safe_detail'])
+            .where('run_id', '=', corruptRun)
+            .where('entity_id', '=', write.nakhId)
+            .execute(),
+        ).toEqual([
+          {
+            anomaly_type: 'delivered_nakh_funding_proof_invalid',
+            disposition: 'quarantined',
+            safe_detail: {
+              fundingType: 'telegram_stars',
+              creditProofCount: '0',
+              paymentProofCount: scope === 'payer' ? '0' : '1',
+              originalFundingLifeValid: 'false',
+              originalReferenceValid: 'true',
+            },
+          },
+        ]);
         expect(await snapshot()).toEqual(corrupted);
       } finally {
         await setEpoch(0);
       }
       expect(await snapshot()).toEqual(original);
+      const cleanAfter = await reconcileFunding();
+      expect(
+        await database
+          .selectFrom('billing.reconciliation_anomalies')
+          .select('id')
+          .where('run_id', '=', cleanAfter)
+          .where('entity_id', '=', write.nakhId)
+          .execute(),
+      ).toEqual([]);
       expect((await handler.execute(command)).replayed).toBe(false);
       expect((await handler.execute(command)).replayed).toBe(true);
       expect(

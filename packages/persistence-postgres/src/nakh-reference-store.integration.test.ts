@@ -11,6 +11,8 @@ import { runMigrations, verifyMigrations } from './migrations.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
 import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
+import { PostgresNakhReconciliationStore } from './nakh-reconciliation-store.js';
+import { PostgresNakhOperationalMetricsStore } from './nakh-operational-metrics-store.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { PostgresAccountDeletionStore } from './account-deletion-store.js';
 import { createReportUser } from './testing/report-fixture.js';
@@ -160,6 +162,26 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     };
     return { sender, receiver, write, store: new PostgresDirectNakhStore(database) };
   }
+  async function reconcileOriginalFunding(): Promise<string> {
+    const store = new PostgresNakhReconciliationStore(database);
+    const runs = await Promise.all(
+      Array.from({ length: 20 }, () => store.resumeOrStart(randomUUID())),
+    );
+    expect(new Set(runs).size).toBe(1);
+    const runId = runs[0]!;
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 20 }, () => store.scanNextBatch(runId, 500)),
+    );
+    expect(outcomes.some((row) => row.status === 'fulfilled' && row.value.completed)).toBe(true);
+    for (const outcome of outcomes)
+      if (outcome.status === 'rejected')
+        expect(outcome.reason as unknown).toMatchObject({
+          code: 'conflict',
+          message: 'error.nakh.reconciliation_complete',
+        });
+    return runId;
+  }
+
   it('upgrades once under twenty retries without changing deleted-owner sources or financial facts', async () => {
     const historical = await database
       .selectFrom('nakh.nakhes')
@@ -451,4 +473,109 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     expect((await handler.execute(command)).replayed).toBe(false);
     expect((await handler.execute(command)).replayed).toBe(true);
   });
+  it.each([
+    'credit-life',
+    'reference-life',
+    'receiver-reference-life',
+    'missing-reference',
+  ] as const)(
+    'reconciles original Nakh funding and reference lives under competing workers: %s',
+    async (fault) => {
+      await runMigrations(isolated.url, resolve('migrations'));
+      const scene = await prepared();
+      const delivered = await scene.store.createDirect(scene.write);
+      const original = await facts();
+      const originalAnchor = await anchor(delivered.nakhId);
+      const setEpoch = async (epoch: number): Promise<void> =>
+        database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            if (fault === 'credit-life')
+              await connection
+                .updateTable('billing.credit_transactions')
+                .set({ product_epoch: epoch })
+                .where('id', '=', scene.write.creditTransactionId)
+                .execute();
+            else if (fault === 'missing-reference') {
+              if (epoch === 1)
+                await connection
+                  .deleteFrom('nakh.nakh_reference_anchors')
+                  .where('id', '=', delivered.nakhId)
+                  .execute();
+              else
+                await connection
+                  .insertInto('nakh.nakh_reference_anchors')
+                  .values(originalAnchor)
+                  .execute();
+            } else
+              await connection
+                .updateTable('nakh.nakh_reference_anchors')
+                .set(
+                  fault === 'receiver-reference-life'
+                    ? { receiver_product_epoch: epoch }
+                    : { sender_product_epoch: epoch },
+                )
+                .where('id', '=', delivered.nakhId)
+                .execute();
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      await setEpoch(1);
+      try {
+        const corrupted = await facts();
+        const runId = await reconcileOriginalFunding();
+        const findings = await database
+          .selectFrom('billing.reconciliation_anomalies')
+          .select(['anomaly_type', 'entity_type', 'entity_id', 'disposition', 'safe_detail'])
+          .where('run_id', '=', runId)
+          .where('entity_id', '=', delivered.nakhId)
+          .execute();
+        expect(findings).toEqual([
+          {
+            anomaly_type: 'delivered_nakh_funding_proof_invalid',
+            entity_type: 'nakh',
+            entity_id: delivered.nakhId,
+            disposition: 'quarantined',
+            safe_detail: {
+              fundingType: 'credits',
+              creditProofCount: '1',
+              paymentProofCount: '0',
+              originalFundingLifeValid: String(fault !== 'credit-life'),
+              originalReferenceValid: String(fault === 'credit-life'),
+            },
+          },
+        ]);
+        expect(
+          (await new PostgresNakhOperationalMetricsStore(database).measure())
+            .fundingInvariantMismatchCount,
+        ).toBe(1);
+        expect(await facts()).toEqual(corrupted);
+        const retryRunId = await reconcileOriginalFunding();
+        expect(
+          await database
+            .selectFrom('billing.reconciliation_anomalies')
+            .select('id')
+            .where('entity_id', '=', delivered.nakhId)
+            .where('anomaly_type', '=', 'delivered_nakh_funding_proof_invalid')
+            .execute(),
+        ).toHaveLength(1);
+        expect(retryRunId).not.toBe(runId);
+        expect(await facts()).toEqual(corrupted);
+      } finally {
+        await setEpoch(0);
+      }
+      expect(await anchor(delivered.nakhId)).toEqual(originalAnchor);
+      const cleanRunId = await reconcileOriginalFunding();
+      expect(
+        await database
+          .selectFrom('billing.reconciliation_anomalies')
+          .select('id')
+          .where('run_id', '=', cleanRunId)
+          .where('anomaly_type', '=', 'delivered_nakh_funding_proof_invalid')
+          .execute(),
+      ).toEqual([]);
+      expect(await facts()).toEqual(original);
+    },
+  );
 });
