@@ -19,10 +19,11 @@ type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; cou
 /** Periodic metadata reads are short, not analytical workloads. Avoid compiling the many
  * correlated safety branches on every sample. A fixed 16 MiB per-node work budget avoids
  * spilling ordinary metadata joins; it is not a total connection/process memory bound.
- * Dense metadata joins can benefit from parallel workers without reducing the
- * minimum relation sizes. Keep setup cost substantial so smaller joins do not
- * retain many shared hash arenas; cap each gather at two workers, respecting a
- * lower operator limit (including disabled parallelism).
+ * Dense metadata joins can benefit from parallel reads without reducing minimum
+ * relation sizes. Shared parallel hashes can exhaust a container's dynamic shared
+ * memory across the combined phases. Use private hash tables within the same
+ * per-node work budget. Cap each gather at one worker plus its leader, respecting
+ * lower operator limits (including disabled parallelism).
  * LOCAL settings expire at commit/rollback,
  * including failed reads, and never change the pooled session or database configuration. */
 export async function withModerationIntegrityRead<T>(
@@ -32,10 +33,11 @@ export async function withModerationIntegrityRead<T>(
   const read = async (transaction: NakhDatabase): Promise<T> => {
     await sql`SET LOCAL jit = off`.execute(transaction);
     await sql`SET LOCAL work_mem = '16MB'`.execute(transaction);
+    await sql`SET LOCAL enable_parallel_hash = off`.execute(transaction);
     await sql`SET LOCAL parallel_setup_cost = 250`.execute(transaction);
     await sql`SET LOCAL parallel_tuple_cost = 0.01`.execute(transaction);
     await sql`SELECT set_config('max_parallel_workers_per_gather',
-      LEAST(current_setting('max_parallel_workers_per_gather')::integer,2)::text,true)`.execute(
+      LEAST(current_setting('max_parallel_workers_per_gather')::integer,1)::text,true)`.execute(
       transaction,
     );
     return work(transaction);

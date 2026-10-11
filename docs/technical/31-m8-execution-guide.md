@@ -1,39 +1,48 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
-## Current repair: batch resolution and witness metadata joins
+## Current repair: private hashes and the original indexed resolution lookup
 
-Commit `a080a4b` passed the complete local check (944 unit tests), 726 local native
-tests and five CI jobs. CI passed all 737 integration tests in 108 suites, including
-the eleven Redis tests skipped locally. Its terminal integrity snapshot took
-1618.338 ms against the unchanged 1500 ms limit; initial integrity took 1322.458 ms
-and support took 87.490 ms. An actual worker launched, both required terminal
-indexes were present, and there were no disk sorts, spills or multi-batch hashes.
-Load and recovery steps were not reached. This failed head cannot authorize the
-next feature. Tracked count was 195,863 lines.
+Commit `4a9ace6` passed the complete local check (944 unit tests), nineteen focused
+native checks, all 738 CI integration tests in 108 suites, quality and four images.
+Its performance gate aborted when PostgreSQL could not allocate a further 4 MiB
+shared-memory segment. The repair admitted more parallel joins whose shared hash arenas exceeded
+the container budget. No M7 performance artifact was produced, so the
+required evidence upload also failed; load and recovery were not reached. Tracked
+count was 196,014 lines. This failed head cannot authorize another feature.
 
-The repair batches original resolution candidates with episode and administrator
-attempt evidence. Candidate projection remains narrow and is materialized once;
-the grouped resolution fact still preserves invalid candidates and `bool_or`
-existence across duplicates. Materialized episode status contains only fields
-needed by the remaining metadata checks. Witness binding reads the original owner
-relation directly, preserving its exact report, reporter, target and time-window
-checks while allowing PostgreSQL to plan the batch independently.
+The preceding `a080a4b` passed functional validation but its terminal snapshot took
+1618.338 ms against the unchanged 1500 ms limit. Repair `4a9ace6` retained all
+metadata predicates but its direct resolution join also lost a required terminal
+index, which the comparative diagnostic had not explicitly checked. Its local
+terminal improvement was modest and was not CI acceptance. Candidate inlining
+made the local terminal sample slower and was discarded before that commit.
 
-Local planner costs are 250 for setup and 0.01 per tuple. The existing two-worker
-cap still respects lower/disabled operator settings, the 16 MiB per-node budget
-remains unchanged, and every setting expires at transaction completion. Native
-probes require valid/missing/rejected duplicate resolution candidates to count
-one episode, and overlapping action attempt/audit/notice corruption to count one
-action while the scanner retains all three findings. Repairs must clear the counts.
-No fixture volume, sample, required index, worker check or timing limit is relaxed.
-The unchanged 27-plan local workload is comparative diagnostic evidence only.
-The retained local candidate reduced initial snapshot time from 1940.424 to
-1820.701 ms and terminal time from 2400.460 to 2345.913 ms. Both required terminal
-indexes remained present; two workers launched without spills. Further candidate
-inlining regressed terminal time to 2694.786 ms and was discarded. These Windows
-measurements do not establish the unchanged CI timing limit has passed.
-Native regressions, the full check and six exact-head CI jobs must pass before M8
-feature work resumes. No migration or release/return change is added.
+The current repair restores the original indexed resolution lookup and disables
+shared parallel-hash tables only inside integrity reads (`SET LOCAL`). Bounded
+parallel scans/joins still use setup/tuple costs 250/0.01 and
+16 MiB per-node work memory. The cap is reduced to one worker plus its leader,
+still respecting disabled parallelism. Witness checks use only resolution-valid
+owners in aggregate samples; scanners retain every original owner. Private hashes
+avoid the failing shared arena
+allocation; this does not establish a total process/connection memory bound.
+Native checks require the hash setting and every other local setting to restore
+after successful/failed reads, including lower/disabled worker limits.
+
+The grouped resolution fact retains valid and invalid candidates with `bool_or`;
+narrow projections and original witness-owner bindings remain. The source Report
+keeps its exact indexed existence predicate. Extra probes deny a wrongly owned or
+missing source Report, then restore the original binding and require the source
+flag and current episode count to clear. A conservative-cost/batch-Report-join
+candidate completed all 27 semantic plans and required indexes locally but did
+not improve complete timing, so it was discarded.
+
+No CI/shared-memory resource is increased and no fixture volume, repeated sample,
+required index, worker check or timing limit is relaxed. The full 27-plan local
+diagnostic now explicitly requires both `moderation_actions_episode_resolution_idx`
+and `account_history_restoration_state_idx` in the terminal snapshot. Windows
+latency is comparative evidence only. Native regressions, the full check and all
+six exact-head CI jobs must pass before more M8 features. No migration or
+release/return change is added.
 
 ## Current candidate: original notification recipient and source lives
 

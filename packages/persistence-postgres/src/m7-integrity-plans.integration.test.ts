@@ -25,6 +25,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
   let initialJit: string;
   let initialWorkMem: string;
   const parallelSettings = [
+    'enable_parallel_hash',
     'parallel_setup_cost',
     'parallel_tuple_cost',
     'max_parallel_workers_per_gather',
@@ -302,6 +303,37 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             .selectAll()
             .where('id', '=', sql<string>`md5(${prefix} || 'unrestrict-attempt2')::uuid`)
             .executeTakeFirstOrThrow();
+          const sourceMatches = async (): Promise<boolean> =>
+            (
+              await sql<{ matches: boolean }>`SELECT probe."sourceMatches" AS matches
+              FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
+              WHERE probe.id=${action.restriction_episode_id}::uuid`.execute(tx)
+            ).rows[0]!.matches;
+          expect(await sourceMatches()).toBe(true);
+          await tx
+            .updateTable('moderation.reports')
+            .set({ target_user_id: randomUUID() })
+            .where('id', '=', sql<string>`md5(${prefix} || 'report2')::uuid`)
+            .execute();
+          expect(await sourceMatches()).toBe(false);
+          await tx
+            .updateTable('moderation.reports')
+            .set({ target_user_id: action.target_user_id! })
+            .where('id', '=', sql<string>`md5(${prefix} || 'report2')::uuid`)
+            .execute();
+          await tx
+            .updateTable('moderation.restriction_episodes')
+            .set({ source_report_id: randomUUID() })
+            .where('id', '=', action.restriction_episode_id!)
+            .execute();
+          expect(await sourceMatches()).toBe(false);
+          await tx
+            .updateTable('moderation.restriction_episodes')
+            .set({ source_report_id: sql<string>`md5(${prefix} || 'report2')::uuid` })
+            .where('id', '=', action.restriction_episode_id!)
+            .execute();
+          expect(await sourceMatches()).toBe(true);
+          expect((await store.measure()).counts.episodes).toBe(baseline);
           const duplicateCommand = randomUUID(),
             duplicateAttempt = randomUUID();
           await tx
@@ -444,6 +476,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           (await sql<{ work_mem: string }>`SHOW work_mem`.execute(transaction)).rows[0]!.work_mem,
         ).toBe('16MB');
         for (const [name, expected] of [
+          ['enable_parallel_hash', 'off'],
           ['parallel_setup_cost', '250'],
           ['parallel_tuple_cost', '0.01'],
         ])
@@ -470,6 +503,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           );
           await withModerationIntegrityRead(connection, async (read) => {
             for (const [name, expected] of [
+              ['enable_parallel_hash', 'off'],
               ['parallel_setup_cost', '250'],
               ['parallel_tuple_cost', '0.01'],
             ])
@@ -486,7 +520,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
                   value: string;
                 }>`SELECT current_setting('max_parallel_workers_per_gather') AS value`.execute(read)
               ).rows[0]!.value,
-            ).toBe(String(Math.min(limit, 2)));
+            ).toBe(String(Math.min(limit, 1)));
           });
           expect(
             (

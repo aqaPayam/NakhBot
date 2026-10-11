@@ -138,10 +138,13 @@ export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_candidate
       resolution.actor_admin_id, resolution.command_id, resolution.request_id,
       resolution.request_digest
     FROM moderation.restriction_episodes owner
-    JOIN moderation.moderation_actions resolution
-      ON resolution.restriction_episode_id = owner.id
-        AND resolution.restriction_episode_id IS NOT NULL
-        AND resolution.actor_type = 'admin' AND resolution.action_type = 'unrestrict_user'
+    JOIN LATERAL (
+      SELECT actor_admin_id, target_user_id, reason_code, occurred_at,
+        command_id, request_id, request_digest
+      FROM moderation.moderation_actions
+      WHERE restriction_episode_id = owner.id AND restriction_episode_id IS NOT NULL
+        AND actor_type = 'admin' AND action_type = 'unrestrict_user' OFFSET 0
+    ) resolution ON true
     WHERE owner.status = 'resolved'
 ), resolution_facts AS MATERIALIZED (
     SELECT resolution.restriction_episode_id,
@@ -200,7 +203,7 @@ export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilde
           AND roster.submitted_at > owner.started_at - interval '30 days'
           AND roster.submitted_at <= owner.started_at) IS TRUE) AS "bindingsValid"
       FROM moderation.threshold_admission_witnesses roster
-      JOIN moderation.restriction_episodes owner
+      JOIN ${eligibleOnly ? sql`eligible_episodes` : sql`moderation.restriction_episodes`} owner
         ON owner.id = roster.restriction_episode_id
       LEFT JOIN moderation.reports report ON report.id = roster.report_id
       GROUP BY roster.restriction_episode_id
