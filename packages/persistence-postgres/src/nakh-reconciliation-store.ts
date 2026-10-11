@@ -210,7 +210,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         count(DISTINCT delivered.id)::integer AS "deliveredCount"
       FROM nakh.nakh_flows flow
       LEFT JOIN nakh.pending_nakhes pending ON pending.nakh_flow_id = flow.id
-      LEFT JOIN nakh.nakhes delivered ON delivered.nakh_flow_id = flow.id
+      LEFT JOIN nakh.nakh_lifecycle_facts delivered ON delivered.nakh_flow_id = flow.id
       WHERE (${cursor.lastId ?? null}::uuid IS NULL OR flow.id > ${cursor.lastId ?? null}::uuid)
       GROUP BY flow.id
       ORDER BY flow.id
@@ -389,14 +389,18 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         delivered.funding_type AS "fundingType",
         delivered.status,
         delivered.version,
-        nakh.original_funding_life_valid(delivered) AS "originalFundingLifeValid",
+        nakh.original_funding_scope_life_valid(delivered.id,delivered.nakh_flow_id,
+          delivered.sender_user_id,delivered.receiver_user_id,delivered.funding_type,
+          delivered.credit_transaction_id,delivered.payment_record_id) AS "originalFundingLifeValid",
         EXISTS(SELECT 1 FROM nakh.nakh_reference_anchors anchor
           JOIN nakh.nakh_flows original_flow ON original_flow.id=delivered.nakh_flow_id
           WHERE anchor.id=delivered.id AND anchor.nakh_flow_id=delivered.nakh_flow_id
             AND anchor.sender_user_id=delivered.sender_user_id
             AND anchor.receiver_user_id=delivered.receiver_user_id
-            AND anchor.sender_product_epoch=original_flow.sender_product_epoch
-            AND anchor.receiver_product_epoch=original_flow.receiver_product_epoch)
+            AND anchor.sender_product_epoch=delivered.sender_product_epoch
+            AND anchor.receiver_product_epoch=delivered.receiver_product_epoch
+            AND original_flow.sender_product_epoch=delivered.sender_product_epoch
+            AND original_flow.receiver_product_epoch=delivered.receiver_product_epoch)
           AS "originalReferenceValid",
         (SELECT count(*)::integer FROM billing.credit_transactions credit
           WHERE credit.id = delivered.credit_transaction_id
@@ -411,23 +415,15 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
             AND payment.paid_action_reason = 'send_nakh'
             AND payment.status = 'paid'
             AND payment.stars_amount = 2) AS "paymentProofCount",
-        (SELECT count(*)::integer FROM nakh.nakh_status_history history
-          WHERE history.nakh_id = delivered.id) AS "historyCount",
-        (SELECT min(history.nakh_version)::integer FROM nakh.nakh_status_history history
-          WHERE history.nakh_id = delivered.id) AS "historyMinVersion",
-        (SELECT max(history.nakh_version)::integer FROM nakh.nakh_status_history history
-          WHERE history.nakh_id = delivered.id) AS "historyMaxVersion",
-        (SELECT history.to_status FROM nakh.nakh_status_history history
-          WHERE history.nakh_id = delivered.id
-          ORDER BY history.nakh_version DESC LIMIT 1) AS "historyLastStatus",
-        (SELECT count(*)::integer FROM notification.notifications notification
-          WHERE notification.user_id = delivered.receiver_user_id
-            AND notification.notification_type = 'nakh_received'
-            AND notification.payload ->> 'nakhId' = delivered.id::text) AS "notificationCount",
+        delivered.history_count AS "historyCount",
+        delivered.history_min_version AS "historyMinVersion",
+        delivered.history_max_version AS "historyMaxVersion",
+        delivered.history_last_status AS "historyLastStatus",
+        delivered.notification_count AS "notificationCount",
         (SELECT count(*)::integer FROM matching.match_lifecycle_facts match
           WHERE match.source = 'nakh_accept'
             AND match.source_nakh_id = delivered.id) AS "acceptedMatchCount"
-      FROM nakh.nakhes delivered
+      FROM nakh.nakh_lifecycle_facts delivered
       WHERE (${cursor.lastId ?? null}::uuid IS NULL OR delivered.id > ${cursor.lastId ?? null}::uuid)
       ORDER BY delivered.id
       LIMIT ${limit}

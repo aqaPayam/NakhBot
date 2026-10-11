@@ -212,6 +212,7 @@ export * from './account-deletion-work-store.js';
 export * from './account-deletion-financial-store.js';
 export * from './account-deletion-support-store.js';
 export * from './account-deletion-like-store.js';
+export * from './account-deletion-nakh-store.js';
 export * from './account-deletion-shared-store.js';
 export * from './account-deletion-checkpoint-store.js';
 export * from './account-deletion-evidence-store.js';

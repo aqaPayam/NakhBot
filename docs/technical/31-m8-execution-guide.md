@@ -1,5 +1,57 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: bounded original funded Nakh archival
+
+Migration 111 adds one-source archival batches with at most 100 ordinary rows
+across receiver actions, history and the delivered source. A final immutable
+receipt preserves original identities, funding references and lifecycle counts,
+without Nakh body text, history request text or action idempotency keys. Partial
+batches retain the live source and history. Each batch requires the original
+phase-3 root, current account life, checkpoint and worker lease, completed evidence
+capture, mandatory audit/outbox records and the native full transaction ID.
+Deferred checks revalidate actual removal and the lease at commit. A previous
+receipt or a still-valid lease cannot authorize another transaction's deletion.
+
+Reconciliation reads live sources or verified final lifecycle facts. Financial
+proof and original reference checks remain separate, so a damaged or missing
+anchor cannot make an archived entity disappear from the scanner. Known fulfilled
+Stars retries return the original delivered identity after validating retained
+funding evidence. They create no new delivery. Historical flow, credit and payment
+identities cannot be reused for a new source; deleted accounts cannot spend again.
+
+Native evidence covers 205 structurally valid receiver-action rows (one actual
+profile-view command plus synthetic report rows), twenty concurrent batches,
+competing participant deletion roots, partial receipt reuse rejection, real credit
+and Stars funding, archived acceptance, twenty fulfilled payment retries, forged
+lease/root/life/phase fields, suppressed mandatory audit/outbox inserts, missing
+deferred events, actual deferred lease expiry and repeated archived funding or
+reference fault scans. All 13 cases pass with retained financial facts unchanged.
+Early fixture failures exposed an invalid repeated profile-view action, omitted
+profile evidence capture and an incorrect provider-receipt ordering column; fix
+the fixtures rather than relaxing authority. The missing-source assertion uses the
+store's actual `not_found` code. New spending denial uses the real ledger command
+and its `capability_denied` result, rather than an incomplete SQL insert.
+The broader native run passed 260 tests across 21 suites, including populated
+upgrades, migration replay, exact catalog coverage, reconciliation, credit/Stars
+funding, retained references, shared closure and evidence checkpoints. A test-only
+unknown-result property access was replaced with a whole-object assertion; the
+targeted type check then passed. Full project checks and all six exact-head CI jobs
+remain required before this candidate is accepted.
+The first full check rejected an unsafe generic Array matcher in the partial-batch
+test. Replace it with an exact native three-history-row assertion and rerun the
+complete check; this does not change production code or weaken the test.
+
+This increment does not finish product-data deletion. Pending/Flow bodies, other
+remaining product resources, provider cleanup and later checkpoints still require
+separate implementation. Fresh Return and retained-data release remain disabled.
+
+Commit `8fee9bd` is the preceding green repair: 947 unit tests and all six jobs in
+CI run `38151537357` passed, including 753 native tests across 108 suites, all 27
+plans, load, backup/restore and the pinned collector. Terminal integrity took
+1,466.611 ms against the unchanged 1,500 ms limit; both required indexes and one
+worker were used with zero spill. This proves the preceding repair, not acceptance
+of the new archival head or external staging/operator sign-off.
+
 ## Current repair: exact system history membership for moderation actions
 
 Commit `b1955d9` passed the complete local check (947 unit tests), 127 focused

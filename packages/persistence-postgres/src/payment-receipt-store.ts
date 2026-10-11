@@ -1081,15 +1081,19 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
       if (fulfillment === undefined)
         throw new ApplicationError('not_found', 'error.billing.fulfillment_not_found', 404);
       if (fulfillment.state === 'fulfilled') {
-        const delivered = await transaction
-          .selectFrom('nakh.nakhes')
-          .select('id')
-          .where('payment_record_id', '=', input.paymentRecordId)
-          .executeTakeFirstOrThrow();
+        const delivered = (
+          await sql<{ id: string }>`SELECT source.id FROM nakh.nakh_lifecycle_facts source
+            WHERE source.payment_record_id=${input.paymentRecordId}::uuid
+              AND nakh.original_funded_scope_valid(source.id,source.nakh_flow_id,
+                source.sender_user_id,source.receiver_user_id,source.funding_type,
+                source.credit_transaction_id,source.payment_record_id)`.execute(transaction)
+        ).rows;
+        if (delivered.length !== 1)
+          throw new ApplicationError('conflict', 'error.billing.fulfillment_not_found', 409);
         return {
           paymentRecordId: input.paymentRecordId,
           outcome: 'fulfilled',
-          nakhId: delivered.id,
+          nakhId: delivered[0]!.id,
           replayed: true,
         };
       }

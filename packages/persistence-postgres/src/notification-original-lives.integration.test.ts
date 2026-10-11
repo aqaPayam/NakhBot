@@ -115,6 +115,7 @@ describe.skipIf(url === undefined)('M8 populated original notification-life upgr
     expect(results.flatMap((result) => result.applied)).toEqual([
       '000109_m8_notification_original_lives.sql',
       '000110_m8_nakh_retained_links.sql',
+      '000111_m8_funded_nakh_archival.sql',
     ]);
     expect(await snapshot()).toEqual(original);
     expect(
