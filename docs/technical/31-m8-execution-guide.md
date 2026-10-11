@@ -1,5 +1,42 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current candidate: original notification recipient and source lives
+
+Commit `d408090` passed the complete check (944 unit tests), 170 distinct focused
+native checks and all six exact-head CI jobs. CI passed 724 native tests in 107
+files, all 27 unchanged plans, load and backup/restore smoke. Support took 73.114 ms;
+initial/terminal integrity took 1158.558/1389.584 ms with both required terminal
+indexes. Tracked count was 195,305 lines. Bounded unreferenced Like purge is verified
+as one phase-3 executor, not whole product completion.
+
+Six isolated negative probes reproduced original product-source and recipient-life
+borrowing in notification rendering. Migration 109 binds original recipient history,
+rejects ambiguous legacy provenance and derives current Like/Match source authority.
+Rendering and actual provider admission recheck those lives under sorted identity
+locks. Cached deduplication cannot grant old history to a later recipient life.
+Terminal closure remains deliverable to its original survivor; an already admitted
+provider outcome can settle once under its original lease and attempt fence.
+Negative epoch corruption is restored and is never evidence of genuine fresh return.
+Populated concurrent upgrades, native mutation/replay/concurrency, the complete
+check and six exact-head CI jobs remain required. Return and retained release stay off.
+
+The first broader run exposed a lock-order inversion during concurrent ordinary
+unmatches: notification birth tried to acquire a User after a writer already held
+its Account. Birth now locks only the governing Account and rereads its epoch;
+render/admission retain their sorted User/Account order. The focused fixtures now
+create the required Account, and populated Nakh-reference expectations preserve
+all original notification fields while explicitly requiring the new epoch zero.
+Test assertion/fence/snapshot type errors were diagnosed before any commit.
+Diagnostic runs are not acceptance evidence; fresh final runs are required.
+
+Fresh final native validation passed 726 tests in 106 suites; eleven actual Redis
+checks in two suites were skipped locally and remain required in CI. The entire
+PostgreSQL regression run includes the repaired concurrent unmatch, full populated
+migration matrix through 108, original notification history and twenty-way upgrade,
+source/recipient life denial, lock-wait admission, immutable epoch, cached replay
+and once-only original provider settlement. The persistence compiler passed after
+the fixture type repairs. Full check and all six exact-head CI jobs remain required.
+
 ## Current candidate: bounded unreferenced Like purge
 
 Commit `40144f5` passed the complete check (944 unit tests), 174 focused native

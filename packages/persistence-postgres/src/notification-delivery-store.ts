@@ -47,7 +47,12 @@ async function lockNotificationAuthority(
       'notification.id',
       'delivery.notification_id',
     )
-    .select(['notification.user_id', 'notification.notification_type', 'notification.payload'])
+    .select([
+      'notification.user_id',
+      'notification.notification_type',
+      'notification.payload',
+      'notification.product_epoch',
+    ])
     .where('delivery.id', '=', lease.deliveryId)
     .where('delivery.channel', '=', 'telegram')
     .where('delivery.status', 'in', ['pending', 'failed_retryable'])
@@ -69,12 +74,17 @@ async function lockNotificationAuthority(
     .execute();
   const accounts = await transaction
     .selectFrom('identity.accounts')
-    .select(['user_id', 'state'])
+    .select(['user_id', 'state', 'product_epoch'])
     .where('user_id', 'in', ordered)
     .orderBy('user_id')
     .forUpdate()
     .execute();
   if (accounts.length !== ordered.length || accounts.some((account) => account.state === 'deleted'))
+    return false;
+  if (
+    accounts.find((account) => account.user_id === notice.user_id)?.product_epoch !==
+    notice.product_epoch
+  )
     return false;
   const current = await resolveNotificationScope(transaction, notice);
   if (current === undefined) return false;

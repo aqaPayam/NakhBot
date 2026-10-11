@@ -23,6 +23,10 @@ async function createMutedUser(database: NakhDatabase): Promise<string> {
     .values({ id: userId, last_activity_at: now, created_at: now, updated_at: now })
     .execute();
   await database
+    .insertInto('identity.accounts')
+    .values({ user_id: userId, state: 'active', state_reason: null, state_changed_at: now })
+    .execute();
+  await database
     .insertInto('notification.notification_preferences')
     .values({
       user_id: userId,
@@ -40,15 +44,6 @@ async function createMutedUser(database: NakhDatabase): Promise<string> {
 async function createDeliverableUser(database: NakhDatabase): Promise<string> {
   const userId = await createMutedUser(database);
   const now = new Date();
-  await database
-    .insertInto('identity.accounts')
-    .values({
-      user_id: userId,
-      state: 'active',
-      state_reason: null,
-      state_changed_at: now,
-    })
-    .execute();
   await database
     .insertInto('identity.telegram_identities')
     .values({

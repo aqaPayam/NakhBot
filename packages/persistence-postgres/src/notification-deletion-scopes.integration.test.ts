@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NotificationType } from '@nakh/domain';
@@ -314,6 +315,275 @@ describe.skipIf(url === undefined)('M8 exact notification product scopes', () =>
     },
   );
 
+  async function corruptEpoch(userId: string, epoch: number): Promise<void> {
+    await database.connection().execute(async (connection) => {
+      await sql`SET session_replication_role=replica`.execute(connection);
+      try {
+        await sql`UPDATE identity.accounts SET product_epoch=${epoch} WHERE user_id=${userId}::uuid`.execute(
+          connection,
+        );
+      } finally {
+        await sql`SET session_replication_role=origin`.execute(connection);
+      }
+    });
+  }
+  it.each([
+    'like_received',
+    'match_created',
+    'liked_by_profile_unlocked',
+    'chat_unlocked',
+    'safety_notice',
+  ] as const)(
+    'denies original %s authority borrowed from a later counterpart life',
+    async (type) => {
+      const recipient = await createReportUser(database, true),
+        other = await createReportUser(database, true);
+      await prepare(recipient);
+      await prepare(other);
+      const payload = await source(type, recipient, other);
+      const lease = await record(recipient, type, payload);
+      expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+      const original = await snapshot([recipient, other], lease);
+      await corruptEpoch(other, 1);
+      try {
+        const attempts = await Promise.all(
+          Array.from({ length: 20 }, async () => ({
+            projection: await deliveries.loadTelegramProjection(lease),
+          })),
+        );
+        for (const attempt of attempts) expect(attempt.projection).toBeUndefined();
+        expect(await deliveries.markProviderCallStarted(lease)).toBe(false);
+      } finally {
+        await corruptEpoch(other, 0);
+      }
+      expect(await snapshot([recipient, other], lease)).toEqual(original);
+      expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+    },
+  );
+  it('denies an original generic critical notice after its recipient life changes', async () => {
+    const recipient = await createReportUser(database, true);
+    await prepare(recipient);
+    const lease = await record(recipient, 'safety_notice', { cause: randomUUID() });
+    expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+    const original = await snapshot([recipient], lease);
+    await corruptEpoch(recipient, 1);
+    try {
+      const attempts = await Promise.all(
+        Array.from({ length: 20 }, () => deliveries.loadTelegramProjection(lease)),
+      );
+      for (const projection of attempts) expect(projection).toBeUndefined();
+      expect(await deliveries.markProviderCallStarted(lease)).toBe(false);
+    } finally {
+      await corruptEpoch(recipient, 0);
+    }
+    expect(await snapshot([recipient], lease)).toEqual(original);
+    expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+  });
+
+  it('rechecks original source lives after waiting for the counterpart Account lock', async () => {
+    const first = await createPreparedUser(),
+      second = await createPreparedUser();
+    const lease = await record(
+      first,
+      'match_created',
+      await source('match_created', first, second),
+    );
+    expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+    let release!: () => void, acquired!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const writer = database.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('identity.accounts')
+        .select('user_id')
+        .where('user_id', '=', second)
+        .forUpdate()
+        .execute();
+      acquired();
+      await barrier;
+      await sql`SET LOCAL session_replication_role=replica`.execute(tx);
+      await sql`UPDATE identity.accounts SET product_epoch=1 WHERE user_id=${second}::uuid`.execute(
+        tx,
+      );
+    });
+    await ready;
+    const admission = deliveries.markProviderCallStarted(lease);
+    try {
+      let waiting = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        waiting = (
+          await sql<{
+            waiting: boolean;
+          }>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%identity%accounts%') AS waiting`.execute(
+            database,
+          )
+        ).rows[0]!.waiting;
+        if (waiting) break;
+        await delay(20);
+      }
+      expect(waiting).toBe(true);
+    } finally {
+      release();
+      await writer;
+    }
+    try {
+      expect(await admission).toBe(false);
+    } finally {
+      await corruptEpoch(second, 0);
+    }
+    expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+    expect(await deliveries.markProviderCallStarted(lease)).toBe(true);
+  });
+
+  it('preserves original replay but denies cached history borrowing a later recipient life', async () => {
+    const userId = await createPreparedUser();
+    const cause = randomUUID();
+    const write = {
+      userId,
+      type: 'safety_notice' as const,
+      titleKey: 'notification.safety_notice.title',
+      bodyKey: 'notification.safety_notice.body',
+      payload: { cause },
+      deduplicationKey: `life-replay:${cause}`,
+      correlationId: cause,
+      causationId: cause,
+    };
+    const first = await notices.record(write);
+    const original = await snapshot([userId], {
+      deliveryId: first.telegramDeliveryId!,
+      leaseOwner: 'unused',
+      fenceToken: '1',
+    });
+    await corruptEpoch(userId, 1);
+    try {
+      const results = await Promise.allSettled(
+        Array.from({ length: 20 }, () => notices.record(write)),
+      );
+      for (const result of results) {
+        expect(result.status).toBe('rejected');
+        if (result.status === 'rejected')
+          expect(result.reason).toMatchObject({ code: 'idempotency_conflict' });
+      }
+    } finally {
+      await corruptEpoch(userId, 0);
+    }
+    expect(await notices.record(write)).toEqual({ ...first, replayed: true });
+    expect(
+      await snapshot([userId], {
+        deliveryId: first.telegramDeliveryId!,
+        leaseOwner: 'unused',
+        fenceToken: '1',
+      }),
+    ).toEqual(original);
+    expect(
+      await database
+        .selectFrom('notification.notifications')
+        .selectAll()
+        .where('deduplication_key', '=', write.deduplicationKey)
+        .execute(),
+    ).toHaveLength(1);
+  });
+
+  it('denies recipient-life mutation while allowing the original read transition', async () => {
+    const userId = await createPreparedUser();
+    const lease = await record(userId, 'safety_notice', { cause: randomUUID() });
+    const delivery = await database
+      .selectFrom('notification.notification_deliveries')
+      .select('notification_id')
+      .where('id', '=', lease.deliveryId)
+      .executeTakeFirstOrThrow();
+    await expect(
+      database
+        .updateTable('notification.notifications')
+        .set({ status: 'read', read_at: new Date(), version: 2, product_epoch: 1 })
+        .where('id', '=', delivery.notification_id)
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    await database
+      .updateTable('notification.notifications')
+      .set({ status: 'read', read_at: new Date(), version: 2 })
+      .where('id', '=', delivery.notification_id)
+      .execute();
+    expect(
+      await database
+        .selectFrom('notification.notifications')
+        .select(['status', 'product_epoch', 'version'])
+        .where('id', '=', delivery.notification_id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'read', product_epoch: 0, version: 2 });
+  });
+
+  it('stamps new births under the current recipient lock and rejects a forged life', async () => {
+    const userId = await createPreparedUser();
+    const values = {
+      id: randomUUID(),
+      user_id: userId,
+      notification_type: 'safety_notice' as const,
+      category: 'safety' as const,
+      title_key: 'notification.safety_notice.title',
+      body_key: 'notification.safety_notice.body',
+      payload: {},
+      deduplication_key: null,
+      read_at: null,
+    };
+    await expect(
+      database
+        .insertInto('notification.notifications')
+        .values({ ...values, product_epoch: 2 })
+        .execute(),
+    ).rejects.toMatchObject({ code: '40001' });
+    // Isolated corruption evidence only; this is not a verified return.
+    await corruptEpoch(userId, 1);
+    try {
+      await database.insertInto('notification.notifications').values(values).execute();
+      expect(
+        await database
+          .selectFrom('notification.notifications')
+          .select('product_epoch')
+          .where('id', '=', values.id)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ product_epoch: 1 });
+    } finally {
+      await corruptEpoch(userId, 0);
+    }
+  });
+
+  it('settles an already admitted original provider outcome once after recipient-life change', async () => {
+    const userId = await createPreparedUser();
+    const lease = await record(userId, 'safety_notice', { cause: randomUUID() });
+    const original = await database
+      .selectFrom('notification.notification_deliveries')
+      .selectAll()
+      .where('id', '=', lease.deliveryId)
+      .executeTakeFirstOrThrow();
+    expect(await deliveries.markProviderCallStarted(lease)).toBe(true);
+    await corruptEpoch(userId, 1);
+    try {
+      expect(await deliveries.loadTelegramProjection(lease)).toBeUndefined();
+      expect(await deliveries.markProviderCallStarted(lease)).toBe(false);
+      const write = {
+        ...lease,
+        attemptNumber: original.attempt_number,
+        outcome: 'sent' as const,
+        providerMessageKey: `telegram:${randomUUID()}`,
+      };
+      expect(await deliveries.settle(write)).toBe(true);
+      expect(await deliveries.settle(write)).toBe(false);
+      const notice = await database
+        .selectFrom('notification.notifications')
+        .select('product_epoch')
+        .where('id', '=', original.notification_id)
+        .executeTakeFirstOrThrow();
+      expect(notice.product_epoch).toBe(0);
+    } finally {
+      await corruptEpoch(userId, 0);
+    }
+  });
+
   it('preserves an exact terminal closure notice to the survivor after counterpart deletion', async () => {
     const recipient = await createReportUser(database, true);
     await prepare(recipient);
@@ -324,6 +594,14 @@ describe.skipIf(url === undefined)('M8 exact notification product scopes', () =>
       lease = await record(recipient, 'chat_closed', { matchId: chat.matchId });
       expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
     });
+    expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
+    await corruptEpoch(recipient, 1);
+    try {
+      expect(await deliveries.loadTelegramProjection(lease)).toBeUndefined();
+      expect(await deliveries.markProviderCallStarted(lease)).toBe(false);
+    } finally {
+      await corruptEpoch(recipient, 0);
+    }
     expect(await deliveries.loadTelegramProjection(lease)).toBeDefined();
     expect(await deliveries.markProviderCallStarted(lease)).toBe(true);
     expect(await deliveries.markProviderCallStarted(lease)).toBe(false);

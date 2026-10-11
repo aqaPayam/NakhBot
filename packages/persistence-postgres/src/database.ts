@@ -710,6 +710,7 @@ export interface NotificationPreferenceTable {
 export interface NotificationTable {
   id: string;
   user_id: string;
+  product_epoch: Generated<number>;
   notification_type:
     | 'like_received'
     | 'nakh_received'
@@ -1350,6 +1351,8 @@ export interface DatabaseSchema {
   'platform.user_counters': UserCounterTable;
   'nakh.nakh_flows': NakhFlowTable;
   'nakh.current_flow_lives': NakhFlowTable;
+  'interaction.current_like_lives': LikeTable;
+  'matching.current_match_lives': MatchTable;
   'nakh.nakh_reference_anchors': NakhReferenceAnchorTable;
   'nakh.pending_nakhes': PendingNakhTable;
   'nakh.nakhes': NakhTable;

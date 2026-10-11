@@ -76,6 +76,7 @@ export async function insertNotification(
       .select([
         'id',
         'user_id',
+        'product_epoch',
         'notification_type',
         'title_key',
         'body_key',
@@ -84,8 +85,14 @@ export async function insertNotification(
       ])
       .where('deduplication_key', '=', write.deduplicationKey)
       .executeTakeFirstOrThrow();
+    const owner = await database
+      .selectFrom('identity.accounts')
+      .select('product_epoch')
+      .where('user_id', '=', write.userId)
+      .executeTakeFirstOrThrow();
     if (
       prior.user_id !== write.userId ||
+      prior.product_epoch !== owner.product_epoch ||
       prior.notification_type !== write.type ||
       prior.title_key !== write.titleKey ||
       prior.body_key !== write.bodyKey ||

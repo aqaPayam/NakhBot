@@ -46,7 +46,7 @@ export async function resolveNotificationScope(
       const likeId = identifier(payload?.likeId);
       if (likeId === undefined) return undefined;
       const like = await database
-        .selectFrom('interaction.likes')
+        .selectFrom('interaction.current_like_lives')
         .select(['sender_user_id', 'receiver_user_id'])
         .where('id', '=', likeId)
         .where('receiver_user_id', '=', notice.user_id)
@@ -87,7 +87,7 @@ export async function resolveNotificationScope(
       const matchId = identifier(payload?.matchId);
       if (matchId === undefined) return undefined;
       const match = await database
-        .selectFrom('matching.matches')
+        .selectFrom('matching.current_match_lives')
         .select(['user_low_id', 'user_high_id'])
         .where('id', '=', matchId)
         .where('status', '=', 'active')
@@ -102,7 +102,7 @@ export async function resolveNotificationScope(
       if (unlockId === undefined) return undefined;
       const grant = await database
         .selectFrom('interaction.feature_unlocks as grant')
-        .innerJoin('interaction.likes as like', 'like.id', 'grant.like_id')
+        .innerJoin('interaction.current_like_lives as like', 'like.id', 'grant.like_id')
         .select(['like.sender_user_id', 'like.receiver_user_id'])
         .where('grant.id', '=', unlockId)
         .where('grant.feature_type', '=', 'liked_by_profile_unlock')
@@ -128,7 +128,7 @@ export async function resolveNotificationScope(
       if (unlockId === undefined) return undefined;
       const grant = await database
         .selectFrom('interaction.feature_unlocks as grant')
-        .innerJoin('matching.matches as match', 'match.id', 'grant.match_id')
+        .innerJoin('matching.current_match_lives as match', 'match.id', 'grant.match_id')
         .select(['match.user_low_id', 'match.user_high_id'])
         .where('grant.id', '=', unlockId)
         .where('grant.feature_type', '=', 'chat_unlock')

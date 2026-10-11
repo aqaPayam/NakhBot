@@ -19,7 +19,7 @@ import { assertDeletionCatalogCoverage, readDeletionCatalog } from './deletion-r
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
   let database: NakhDatabase, isolated: Awaited<ReturnType<typeof createIsolatedTestDatabase>>;
-  let survivor: string, owner: string, historicalId: string, originalFacts: unknown;
+  let survivor: string, owner: string, historicalId: string, originalFacts: unknown[];
   beforeAll(async () => {
     isolated = await createIsolatedTestDatabase(url!, 'm8_nakh_reference');
     const directory = await mkdtemp(join(tmpdir(), 'm8-nakh106-'));
@@ -76,6 +76,11 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       key.fill(0);
     }
     originalFacts = await facts();
+    // Migration 109 adds the provable original recipient epoch to existing
+    // history. Compare every old field and require the new value to be zero.
+    originalFacts[9] = (
+      await database.selectFrom('notification.notifications').selectAll().orderBy('id').execute()
+    ).map((row) => ({ ...row, product_epoch: 0 }));
   });
   afterAll(async () => {
     await database?.destroy();
@@ -197,6 +202,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     expect(results.flatMap((result) => result.applied)).toEqual([
       '000107_m8_nakh_funding_lives.sql',
       '000108_m8_unreferenced_like_purge.sql',
+      '000109_m8_notification_original_lives.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database
@@ -232,7 +238,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
     const catalog = await readDeletionCatalog(database);
     expect(catalog.tables).toHaveLength(132);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1208);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1209);
     expect(catalog.foreignKeys).toHaveLength(244);
     assertDeletionCatalogCoverage(catalog);
   });

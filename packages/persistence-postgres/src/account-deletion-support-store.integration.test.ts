@@ -476,6 +476,7 @@ describe.skipIf(url === undefined)(
                   '000106_m8_nakh_references.sql',
                   '000107_m8_nakh_funding_lives.sql',
                   '000108_m8_unreferenced_like_purge.sql',
+                  '000109_m8_notification_original_lives.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -484,6 +485,7 @@ describe.skipIf(url === undefined)(
                   '000106_m8_nakh_references.sql',
                   '000107_m8_nakh_funding_lives.sql',
                   '000108_m8_unreferenced_like_purge.sql',
+                  '000109_m8_notification_original_lives.sql',
                 ],
           );
           expect(

@@ -10,7 +10,16 @@ in the historical helper. It creates no retained entity or new user data; the
 commit authority, retained transcript access and disabled release are preserved.
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 108: 132 tables, 1,208 columns and 244 foreign keys.
+code-owned M8 catalog inventory for migration 109: 132 tables, 1,209 columns and 244 foreign keys.
+
+Migration 109 binds notification history to an immutable original recipient epoch.
+Legacy history is accepted only with provable original epoch zero; ambiguous
+ownership fails the upgrade atomically. New notices are stamped under the recipient
+lock, including durable financial corrections while deleted. Read-only Like/Match
+views require current original participant lives before product delivery. Terminal
+closure notices retain their survivor exception, while cached history cannot borrow
+a later recipient life. Already admitted provider outcomes keep their original
+settlement fence. No retained entity, release policy or return path is enabled.
 
 Migration 108 removes at most the two closed, unreferenced Likes of one canonically
 locked pair under the original phase-3 deletion life and an unexpired lease. The
