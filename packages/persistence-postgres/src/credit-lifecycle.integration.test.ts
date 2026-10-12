@@ -350,6 +350,8 @@ describe.skipIf(url === undefined)('M8 original credit lifecycle provenance', ()
         '000123_m8_notification_references.sql',
         '000124_m8_notification_archival.sql',
         '000125_m8_owned_transport_batches.sql',
+        '000126_m8_operational_outbox_cancellation.sql',
+        '000127_m8_product_checkpoint.sql',
       ]);
       expect(
         await legacy

@@ -493,6 +493,8 @@ describe.skipIf(url === undefined)(
                   '000123_m8_notification_references.sql',
                   '000124_m8_notification_archival.sql',
                   '000125_m8_owned_transport_batches.sql',
+                  '000126_m8_operational_outbox_cancellation.sql',
+                  '000127_m8_product_checkpoint.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -518,6 +520,8 @@ describe.skipIf(url === undefined)(
                   '000123_m8_notification_references.sql',
                   '000124_m8_notification_archival.sql',
                   '000125_m8_owned_transport_batches.sql',
+                  '000126_m8_operational_outbox_cancellation.sql',
+                  '000127_m8_product_checkpoint.sql',
                 ],
           );
           expect(

@@ -98,7 +98,14 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       database.selectFrom('billing.credit_accounts').selectAll().orderBy('user_id').execute(),
       database.selectFrom('platform.idempotency_records').selectAll().orderBy('id').execute(),
       database.selectFrom('platform.audit_logs').selectAll().orderBy('id').execute(),
-      database.selectFrom('platform.outbox_events').selectAll().orderBy('id').execute(),
+      database
+        .selectFrom('platform.outbox_events')
+        .selectAll()
+        .orderBy('id')
+        .execute()
+        .then((rows) =>
+          rows.map((row) => Object.assign({ deletion_cancellation_audit_id: null }, row)),
+        ),
       database.selectFrom('notification.notifications').selectAll().orderBy('id').execute(),
     ]);
   }
@@ -291,6 +298,8 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       '000123_m8_notification_references.sql',
       '000124_m8_notification_archival.sql',
       '000125_m8_owned_transport_batches.sql',
+      '000126_m8_operational_outbox_cancellation.sql',
+      '000127_m8_product_checkpoint.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database
@@ -326,8 +335,8 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
     const catalog = await readDeletionCatalog(database);
     expect(catalog.tables).toHaveLength(144);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1332);
-    expect(catalog.foreignKeys).toHaveLength(281);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1333);
+    expect(catalog.foreignKeys).toHaveLength(282);
     assertDeletionCatalogCoverage(catalog);
   });
   it('rejects orphan, reassigned and borrowed-life anchors and denies retained identity mutation', async () => {

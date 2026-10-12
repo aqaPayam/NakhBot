@@ -155,6 +155,7 @@ export class PostgresOutboxStore {
         .selectFrom('platform.outbox_events')
         .select('id')
         .where('published_at', 'is', null)
+        .where('deletion_cancellation_audit_id', 'is', null)
         .where('available_at', '<=', input.now)
         .where((expression) =>
           expression.or([
@@ -204,6 +205,7 @@ export class PostgresOutboxStore {
       .where('id', '=', id)
       .where('lease_owner', '=', owner)
       .where('published_at', 'is', null)
+      .where('deletion_cancellation_audit_id', 'is', null)
       .executeTakeFirst();
     if (result.numUpdatedRows !== 1n)
       throw new Error('Outbox lease was lost before publish marking.');
@@ -225,6 +227,7 @@ export class PostgresOutboxStore {
       })
       .where('id', '=', id)
       .where('lease_owner', '=', owner)
+      .where('deletion_cancellation_audit_id', 'is', null)
       .execute();
   }
 }

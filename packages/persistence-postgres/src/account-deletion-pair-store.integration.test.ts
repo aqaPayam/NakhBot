@@ -76,6 +76,8 @@ describe.skipIf(url === undefined)('M8 original pair removal and Match lifetimes
       '000123_m8_notification_references.sql',
       '000124_m8_notification_archival.sql',
       '000125_m8_owned_transport_batches.sql',
+      '000126_m8_operational_outbox_cancellation.sql',
+      '000127_m8_product_checkpoint.sql',
     ]);
     expect(
       (
@@ -278,6 +280,13 @@ describe.skipIf(url === undefined)('M8 original pair removal and Match lifetimes
   it('denies empty replay after physically losing the removal receipt, using the original Match witness', async () => {
     const item = await scene();
     await store.purgeNext(item.lease);
+    expect(
+      (
+        await sql`SELECT identity.deletion_pair_proofs_valid(${item.lease.deletionRecordId}::uuid,${item.lease.userId}::uuid) AS valid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ valid: true }]);
     const before = await facts(item);
     await database.transaction().execute(async (tx) => {
       await sql`SET LOCAL session_replication_role=replica`.execute(tx);
@@ -285,6 +294,13 @@ describe.skipIf(url === undefined)('M8 original pair removal and Match lifetimes
         tx,
       );
     });
+    expect(
+      (
+        await sql`SELECT identity.deletion_pair_proofs_valid(${item.lease.deletionRecordId}::uuid,${item.lease.userId}::uuid) AS valid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ valid: false }]);
     await expect(store.purgeNext(item.lease)).rejects.toMatchObject({ status: 409 });
     expect(await facts(item)).toEqual(before);
   });

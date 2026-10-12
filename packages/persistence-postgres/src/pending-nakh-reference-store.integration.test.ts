@@ -142,7 +142,7 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
       'preview',(SELECT jsonb_agg(to_jsonb(row) ORDER BY user_id) FROM identity.guest_preview_counters row),
       'counters',(SELECT jsonb_agg(to_jsonb(row) ORDER BY user_id) FROM platform.user_counters row),
       'audit',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM platform.audit_logs row),
-      'events',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM platform.outbox_events row)
+      'events',(SELECT jsonb_agg(jsonb_build_object('deletion_cancellation_audit_id',NULL)||to_jsonb(row) ORDER BY id) FROM platform.outbox_events row)
     ) AS facts`.execute(target)
     ).rows[0]!.facts;
   }
@@ -172,6 +172,8 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
       '000123_m8_notification_references.sql',
       '000124_m8_notification_archival.sql',
       '000125_m8_owned_transport_batches.sql',
+      '000126_m8_operational_outbox_cancellation.sql',
+      '000127_m8_product_checkpoint.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);
@@ -181,8 +183,8 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
     );
     const catalog = await readDeletionCatalog(database);
     expect(catalog.tables).toHaveLength(144);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1332);
-    expect(catalog.foreignKeys).toHaveLength(281);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1333);
+    expect(catalog.foreignKeys).toHaveLength(282);
     assertDeletionCatalogCoverage(catalog);
   });
   it.each(['target', 'payer-life'] as const)(

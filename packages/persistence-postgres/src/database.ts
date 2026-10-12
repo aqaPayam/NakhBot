@@ -48,6 +48,7 @@ export interface SampleEffectTable {
 
 export interface OutboxEventTable {
   id: string;
+  deletion_cancellation_audit_id: Generated<string | null>;
   aggregate_type: string;
   aggregate_id: string;
   event_type: string;

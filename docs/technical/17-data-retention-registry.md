@@ -4,6 +4,17 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migrations 126–127 cover 144 tables, 1,333 columns and 282 foreign keys.
+The sole new column links minimum ordinary outbox transport to an immutable
+cancellation audit; it defaults to NULL for every existing event. Code-owned
+shape policy rejects unknown/prose-bearing payloads, preserves financial,
+safety and lifecycle channels, and cancels bounded ordinary publication under
+an authenticated current deletion lease. The product checkpoint verifies actual
+absence, original source proofs, zero-credit cutover and minimum operations.
+Original references scope children after parent body removal. It advances only
+to media verification; provider/ephemeral cleanup, policy manifests, completion
+and fresh Return remain required. Retained-data release stays disabled.
+
 Migrations 123–125 bring the inventory to 144 tables, 1,332 columns and 281
 foreign keys. Six-field notification references preserve only original recipient
 life, type, empty-payload qualification and an optional exact threshold episode;

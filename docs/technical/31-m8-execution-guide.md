@@ -1,5 +1,50 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: operational cancellation and verified product checkpoint
+
+Commit `78ae245` passed all six exact-head CI jobs in run `38241459117`,
+905 native tests in 115 suites, all 27 unchanged M7 plans, load gates,
+collector privacy and backup/restore. The terminal snapshot took 1,463.044 ms
+against 1,500 ms with both required indexes. Tracked source count was 209,870.
+
+Migrations 126–127 classify reviewed minimum event shapes, preserve original
+financial/safety/lifecycle channels and cancel ordinary publication under the
+exact owning deletion lease. Cancellation keeps only already minimum transport
+facts and requires source hashes, audit and event atomically. Active publisher
+leases delay cancellation; canceled events cannot be claimed or acknowledged.
+Unknown or prose-bearing shapes block verification rather than silently acquiring
+retention authority. Immutable owning audits detect even complete loss of source
+cancellation links. Historical proof survives expiry without granting new authority.
+
+The product checkpoint verifies actual ordinary absence, original-life source
+proof, authenticated zero-credit cutover, closed support scope and minimum
+operational metadata before advancing from product_data/3 to media_objects/4.
+Original references scope child checks even after parent body removal. Required
+audit, event, receipt and both checkpoint writes roll back together. Late ordinary
+writes lock the Account and recheck after waits; limited Return routing remains
+available. Product completion and Return authorization are not set by phase 4.
+Demo content currently blocks this checkpoint and still needs its bounded cleanup.
+
+Provider deletion/absence, ephemeral invalidation, policy manifests, completion,
+fresh safe Return, production composition and M8 acceptance remain required.
+Retained-data release and deletion ingress remain disabled; no retention period,
+external review, staging provider or operator approval is invented.
+
+Final native verification passed 76 cases in six affected suites, followed by
+30 final operational/checkpoint/catalog cases after strengthening active Account
+locking. Twenty checkpoint retries advance exactly once. Real lease expiry at
+deferred commit rolls back all progress; a new generation resumes. Every required
+checkpoint write has a suppression/rollback probe. Original Match witnesses deny
+lost pair receipts, and canceled source witnesses deny loss of every link.
+The broad regression passed 157 of 158 cases: its one historical Flow snapshot
+lacked the newly nullable outbox column. Corrected Flow, pending and Nakh snapshots
+preserve every old field and require the new value to be NULL; all their affected
+suites then passed. A SQL delimiter defect in the added proof helper failed before
+commit and was repaired; all final bootstraps and verification passed. Full local
+check passed 997 unit tests in 219 files, all types and the complete build. Final
+fixture types and formatting/lint passed; all six exact-head
+CI jobs remain required before acceptance. No assertion or gate was relaxed.
+
 ## Current increment: ordinary notifications and owned transport cleanup
 
 Commit `8df6bdf` passed all six exact-head jobs in run `38223704037`,
