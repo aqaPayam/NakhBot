@@ -245,8 +245,8 @@ try {
         .values(
           batch.map((fixture, batchIndex) => ({
             id: fixture.likeId,
-            sender_user_id: fixture.userId,
-            receiver_user_id: batch[(batchIndex + 1) % batch.length]!.userId,
+            sender_user_id: batch[(batchIndex + 1) % batch.length]!.userId,
+            receiver_user_id: fixture.userId,
             status: 'active' as const,
             created_at: old,
             closed_at: null,

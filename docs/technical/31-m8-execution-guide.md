@@ -1,5 +1,28 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: receiver-owned Like query-plan fixtures
+
+Commit `2544d5c` passed local checks and five exact-head CI jobs in run
+`38208211154`. GitHub PostgreSQL passed all 861 native tests in 112 suites,
+then the M4 plan fixture was rejected by the new live Like ownership guard.
+The fixture incorrectly made its unlock payer the Like sender; business rules
+require the payer to be the Like receiver. The repair reverses the synthetic
+Like direction while preserving the payer, invoice/refund ownership, 5,000-row
+population, six exact indexed queries and unchanged 1,000 ms limit. No production
+guard is changed. Downstream M5–M7 gates and backup/restore were skipped and
+must pass on the repaired head before any next M8 feature begins.
+
+The corrected local M4 gate passed against a fresh native PostgreSQL database
+at the unchanged 5,000-row population and 100 due rows. All six queries used
+their required indexes within the unchanged 1,000 ms limit. Its privacy-safe
+plan artifact and completed log are retained. The full project check and all
+six exact-head GitHub jobs remain required before accepting this repair.
+
+The repaired full project check passed formatting, lint, all seventeen workspace
+type checks, all 966 unit tests in 218 suites and every build. Only the synthetic
+fixture direction and this diagnostic record changed; production ownership,
+archival, lease and financial guards remain intact.
+
 ## Current increment: audited referenced Like removal
 
 Commit `d452718` passed all six exact-head CI jobs in run `38204205601`,
