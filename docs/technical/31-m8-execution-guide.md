@@ -1,5 +1,57 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: audited paid pending body archival
+
+Repair commit `d830409` passed the full project check (966 unit tests), 50 focused
+native tests and all six exact-head jobs in CI run `38174316840`. The PostgreSQL
+job passed 782 native tests in 110 suites, all 27 plans, load and backup/restore.
+Initial integrity took 1,190.699 ms and terminal integrity 1,490.731 ms against
+the unchanged 1,500 ms limit, with both required indexes, one worker and no spill.
+The pinned collector conversion/privacy gate passed. This establishes the repair;
+it does not establish the original failed public-image pull's underlying cause.
+The tracked line count was 200,179.
+
+Migration 114 permits one paid pending body per phase-3 transaction, only after
+verified final delivered archival and complete original funding. Immutable
+content-free receipts bind the original source version, expiry and paid time to
+the full transaction ID, current lease, deletion root and mandatory audit/event.
+Version 6 sources are supported; delivered-Nakh version limits are not reused.
+The receipt digest uses canonical epoch microseconds so timezone changes cannot
+invalidate historical proof. Old receipts, expired leases and client flags grant
+no new removal authority. Reconciliation reads verified archived lifecycle facts;
+a reference with neither a body nor receipt remains visible as an invalid sentinel.
+Deploy this migration before the lifecycle reader. Catalog coverage becomes 135
+tables, 1,246 columns and 254 foreign keys; retained-data release remains disabled.
+
+New native deferred capture guards require the original payer/amount receipt,
+provider event, fulfillment and exact event. A correction additionally requires
+the original charge refund. They validate new pending-Nakh capture transactions,
+without requiring deleted Profiles or ordinary message bodies. A second genuine
+invoice prepared before settlement can therefore record captured money after
+archival and create one original refund, without new delivery or credit effects.
+Known fulfilled Stars retries still resolve to their original archived delivery.
+
+Native evidence covers twenty archival races and twenty genuine late callback
+retries per funding type, exact preserved money/reference/Flow/root/preview facts,
+mandatory write suppression, forged fences, actual deferred event loss and lease
+expiry, immutable proof and denied ordinary deletion. Altered audit/receipt and
+physically missing receipt probes remain visible across repeated full scans and
+deny funding replay, then restore clean health. The first lease-loss probe tried
+an illegal owner mutation and was rejected immediately; the corrected probe uses
+actual expiry to exercise commit-time validation. The populated 113-to-114 upgrade
+and migration replay preserve all original facts, then archive the version 6 body.
+Twenty requests split between both participant deletion roots archive once.
+The broader run passed 250 tests; its remaining failures were outdated migration
+totals and the exact rejecting guard expectation. The complete repaired four-suite
+rerun passed 100 tests, including all historical migration baselines, original-life
+rollback, archival and registry coverage. Full checks and all six exact-head jobs
+remain required before acceptance.
+
+This removes paid pending text only. Unpaid terminal pending sources, Flow/product
+purge, remaining checkpoints, media/provider proofs and fresh Return still require
+implementation and evidence. No financial row, retained identity or lifetime
+preview allowance is removed; no retention period or external sign-off is invented.
+
 ## Current repair: collector diagnostics and narrow action integrity bindings
 
 Commit `0b5fd5f` passed the complete local check (947 unit tests), targeted type/lint

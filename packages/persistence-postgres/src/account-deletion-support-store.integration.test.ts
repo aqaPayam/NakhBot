@@ -481,6 +481,7 @@ describe.skipIf(url === undefined)(
                   '000111_m8_funded_nakh_archival.sql',
                   '000112_m8_pending_nakh_references.sql',
                   '000113_m8_pending_funding_binding.sql',
+                  '000114_m8_paid_pending_archival.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -494,6 +495,7 @@ describe.skipIf(url === undefined)(
                   '000111_m8_funded_nakh_archival.sql',
                   '000112_m8_pending_nakh_references.sql',
                   '000113_m8_pending_funding_binding.sql',
+                  '000114_m8_paid_pending_archival.sql',
                 ],
           );
           expect(

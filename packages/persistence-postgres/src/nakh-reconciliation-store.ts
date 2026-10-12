@@ -293,8 +293,8 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
     const rows = await sql<{
       id: string;
       pendingStatus: string;
-      senderUserId: string;
-      pendingExpiresAt: Date;
+      senderUserId: string | null;
+      pendingExpiresAt: Date | null;
       paymentUserId: string | null;
       paymentTargetType: string | null;
       paymentTargetId: string | null;
@@ -317,7 +317,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         nakh.original_pending_reference_valid(pending.id) AS "originalReferenceValid",
         CASE WHEN pending.status='closed_by_system' THEN billing.pending_nakh_has_bound_closure(pending.id)
           ELSE false END AS "boundClosure"
-      FROM nakh.pending_nakhes pending
+      FROM nakh.pending_nakh_lifecycle_facts pending
       LEFT JOIN billing.pending_payments payment ON payment.id = pending.pending_payment_id
       WHERE (${cursor.lastId ?? null}::uuid IS NULL OR pending.id > ${cursor.lastId ?? null}::uuid)
       ORDER BY pending.id
@@ -338,7 +338,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         row.paymentTargetType !== 'pending_nakh' ||
         row.paymentTargetId !== row.id ||
         row.paymentReason !== 'send_nakh' ||
-        row.pendingExpiresAt.getTime() !== row.paymentExpiresAt?.getTime()
+        row.pendingExpiresAt?.getTime() !== row.paymentExpiresAt?.getTime()
       )
         findings.push({
           anomalyType: 'pending_nakh_payment_binding_invalid',

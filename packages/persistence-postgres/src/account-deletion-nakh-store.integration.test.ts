@@ -1,5 +1,7 @@
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SettlePendingNakhesHandler, type AccountDeletionLease } from '@nakh/application';
@@ -16,6 +18,7 @@ import { PostgresAccountDeletionChatStore } from './account-deletion-chat-store.
 import { PostgresAccountDeletionMatchStore } from './account-deletion-match-store.js';
 import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-store.js';
 import { PostgresAccountDeletionNakhStore } from './account-deletion-nakh-store.js';
+import { PostgresAccountDeletionPaidPendingStore } from './account-deletion-paid-pending-store.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
 import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
@@ -32,10 +35,18 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
   let work: PostgresAccountDeletionWorkStore, store: PostgresAccountDeletionNakhStore;
   beforeAll(async () => {
     isolated = await createIsolatedTestDatabase(url!, 'm8_nakh_archive');
-    await runMigrations(isolated.url, resolve('migrations'));
-    expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
-      '000113_m8_pending_funding_binding.sql',
-    );
+    const temporaryRoot = resolve(tmpdir());
+    const directory = resolve(await mkdtemp(join(temporaryRoot, 'm8-paid114-')));
+    if (!directory.startsWith(`${temporaryRoot}${sep}`))
+      throw new Error('Unsafe migration temporary path');
+    try {
+      for (const file of await readdir(resolve('migrations')))
+        if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(file) && Number(file.slice(0, 6)) <= 113)
+          await copyFile(join(resolve('migrations'), file), join(directory, file));
+      await runMigrations(isolated.url, directory);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
     database = createDatabase({
       url: isolated.url,
       poolMax: 24,
@@ -44,6 +55,43 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
     });
     work = new PostgresAccountDeletionWorkStore(database);
     store = new PostgresAccountDeletionNakhStore(database);
+    const historical = await scene(0, 'pending_credits', false, 120000, false, 4, async (item) => {
+      const subject = { userId: item.userId, deletionRecordId: item.recordId },
+        before = await facts(subject);
+      await runMigrations(isolated.url, resolve('migrations'));
+      await runMigrations(isolated.url, resolve('migrations'));
+      expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
+        '000114_m8_paid_pending_archival.sql',
+      );
+      expect(await facts(subject)).toEqual(before);
+      expect(
+        (
+          await sql`SELECT id FROM identity.account_deletion_paid_pending_receipts`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([]);
+    });
+    await store.purgeNext(historical.lease);
+    const before = await facts(historical.lease);
+    delete before.pending;
+    expect(
+      await new PostgresAccountDeletionPaidPendingStore(database).purgeNext(historical.lease),
+    ).toEqual({ purgedRows: 1, hasMore: false });
+    const after = await facts(historical.lease);
+    delete after.pending;
+    expect(after).toEqual(before);
+    expect(
+      (
+        await sql<{
+          valid: boolean;
+          version: number;
+        }>`SELECT nakh.original_pending_reference_valid(id) AS valid,version
+      FROM nakh.pending_nakh_lifecycle_facts WHERE id=${historical.pendingNakhId}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ valid: true, version: 6 }]);
   });
   afterAll(async () => {
     await database?.destroy();
@@ -63,11 +111,23 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
     funding: 'credits' | 'pending_credits' | 'telegram_stars' = 'credits',
     accepted = false,
     leaseMs = 120000,
+    prepareLateCapture = false,
+    pendingEdits = 0,
+    beforeShared?: (item: { userId: string; recordId: string }) => Promise<void>,
   ): Promise<{
     lease: AccountDeletionLease;
     nakhId: string;
     receiver: string;
     replayFunding: (() => Promise<unknown>) | undefined;
+    pendingNakhId: string | undefined;
+    lateCapture:
+      | Readonly<{
+          paymentRecordId: string;
+          telegramChargeId: string;
+          starsAmount: bigint;
+          submit: () => ReturnType<PostgresTelegramStarsReceiptStore['recordSuccessfulPayment']>;
+        }>
+      | undefined;
   }> {
     const receiver = await createReportUser(database, true),
       at = new Date();
@@ -81,7 +141,21 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
         .values({ user_id: receiver, created_at: at, updated_at: at })
         .execute();
     let nakhId!: string, replayFunding: (() => Promise<unknown>) | undefined;
+    let pendingNakhId: string | undefined;
+    let lateCapture:
+      | Readonly<{
+          paymentRecordId: string;
+          telegramChargeId: string;
+          starsAmount: bigint;
+          submit: () => ReturnType<PostgresTelegramStarsReceiptStore['recordSuccessfulPayment']>;
+        }>
+      | undefined;
     const item = await createDeletionFixture(database, async (sender) => {
+      if (prepareLateCapture)
+        await sql`UPDATE identity.guest_preview_counters SET preview_count=LEAST(limit_count,3),
+          first_preview_at=${at},last_preview_at=${at} WHERE user_id=${sender}::uuid`.execute(
+          database,
+        );
       const profile = await database
         .selectFrom('profile.profiles')
         .selectAll()
@@ -145,6 +219,64 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
           flowEventId: randomUUID(),
           pendingEventId: randomUUID(),
         });
+        pendingNakhId = pending.pendingNakhId;
+        if (prepareLateCapture) {
+          const cleartext = randomBytes(24).toString('base64url'),
+            digest = (value: string): string => createHash('sha256').update(value).digest('hex');
+          const attempt = await new PostgresFundingStore(database).prepareStarsAttempt({
+            paymentRecordId: randomUUID(),
+            fundingIntentId: pending.fundingIntentId,
+            expectedVersion: 1,
+            userId: sender,
+            idempotencyKey: randomUUID(),
+            providerEnvironment: 'test',
+            providerBotIdDigest: 'b'.repeat(64),
+            payload: {
+              cleartext,
+              digest: digest(cleartext),
+              ciphertext: randomBytes(64),
+              keyId: 'm8-late-test',
+            },
+          });
+          const receipts = new PostgresTelegramStarsReceiptStore(
+            database,
+            { uuid: randomUUID },
+            { digest },
+          );
+          const identity = await database
+            .selectFrom('identity.telegram_identities')
+            .select('telegram_user_id')
+            .where('user_id', '=', sender)
+            .executeTakeFirstOrThrow();
+          const providerEventId = randomUUID(),
+            telegramChargeId = `synthetic:${randomUUID()}`;
+          const evidence = {
+            digest: digest(providerEventId),
+            ciphertext: randomBytes(64),
+            keyId: 'm8-late-test',
+            schemaVersion: 1,
+          };
+          lateCapture = {
+            paymentRecordId: attempt.paymentRecordId,
+            telegramChargeId,
+            starsAmount: attempt.starsAmount,
+            submit: () =>
+              receipts.recordSuccessfulPayment({
+                providerEventId,
+                telegramUserId: identity.telegram_user_id,
+                invoicePayload: cleartext,
+                currency: 'XTR',
+                totalAmount: attempt.starsAmount,
+                providerEnvironment: 'test',
+                providerBotIdDigest: 'b'.repeat(64),
+                telegramChargeId,
+                evidence,
+              }),
+          };
+        }
+        for (let edit = 0; edit < pendingEdits; edit++)
+          await sql`UPDATE nakh.pending_nakhes SET text=text || 'x',version=version+1
+            WHERE id=${pending.pendingNakhId}::uuid`.execute(database);
         if (funding === 'pending_credits') {
           const credit = await new PostgresCreditLedgerStore(database).append({
             transactionId: randomUUID(),
@@ -308,6 +440,7 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
         });
       }
     });
+    await beforeShared?.(item);
     const shared = await claim(),
       closure = new PostgresAccountDeletionSharedStore(database);
     while ((await closure.closeNext(shared)).hasMore) {
@@ -335,9 +468,11 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
     });
     const lease = await claim(leaseMs);
     expect(lease.deletionRecordId).toBe(item.recordId);
-    return { lease, nakhId, receiver, replayFunding };
+    return { lease, nakhId, receiver, replayFunding, pendingNakhId, lateCapture };
   }
-  async function facts(lease: AccountDeletionLease): Promise<Record<string, unknown>> {
+  async function facts(
+    lease: Pick<AccountDeletionLease, 'userId' | 'deletionRecordId'>,
+  ): Promise<Record<string, unknown>> {
     return (
       await sql<{ facts: Record<string, unknown> }>`SELECT jsonb_build_object(
       'credits',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM billing.credit_transactions row),
@@ -373,6 +508,418 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
     }
     return run;
   }
+  it.each(['pending_credits', 'telegram_stars'] as const)(
+    'archives paid %s bodies with original proof and twenty genuine late capture retries',
+    async (funding) => {
+      const item = await scene(0, funding, false, 120000, true, 4),
+        paid = new PostgresAccountDeletionPaidPendingStore(database),
+        pendingId = item.pendingNakhId!,
+        late = item.lateCapture!;
+      const source = await database
+        .selectFrom('nakh.pending_nakhes')
+        .selectAll()
+        .where('id', '=', pendingId)
+        .executeTakeFirstOrThrow();
+      expect(source.version).toBe(6);
+      expect(source.status).toBe('paid_and_sent');
+      const beforeFinal = await facts(item.lease);
+      await expect(paid.purgeNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+      expect(await facts(item.lease)).toEqual(beforeFinal);
+      while ((await store.purgeNext(item.lease)).hasMore) {
+        /* bounded delivered archival */
+      }
+      const original = { ...(await facts(item.lease)) };
+      delete original.pending;
+      expect((original.preview as { preview_count: number }).preview_count).toBeGreaterThan(0);
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => paid.purgeNext(item.lease)),
+      );
+      expect(results.map((row) => row.purgedRows).reduce((sum, count) => sum + count, 0)).toBe(1);
+      expect(results.every((row) => !row.hasMore)).toBe(true);
+      expect(
+        await database
+          .selectFrom('nakh.pending_nakhes')
+          .select('id')
+          .where('id', '=', pendingId)
+          .execute(),
+      ).toEqual([]);
+      const preserved = { ...(await facts(item.lease)) };
+      delete preserved.pending;
+      expect(preserved).toEqual(original);
+      const proof = (
+        await sql<{
+          valid: boolean;
+          funded: boolean;
+          version: number;
+          proof: boolean;
+          receipts: number;
+        }>`
+        SELECT nakh.original_pending_reference_valid(${pendingId}::uuid) AS valid,
+          nakh.original_funded_scope_valid(delivered.id,delivered.nakh_flow_id,delivered.sender_user_id,
+            delivered.receiver_user_id,delivered.funding_type,delivered.credit_transaction_id,delivered.payment_record_id) AS funded,
+          pending.version, pending.shape_valid AS proof,
+          (SELECT count(*)::integer FROM identity.account_deletion_paid_pending_receipts WHERE pending_nakh_id=pending.id) AS receipts
+        FROM nakh.pending_nakh_lifecycle_facts pending JOIN nakh.nakh_lifecycle_facts delivered
+          ON delivered.nakh_flow_id=pending.nakh_flow_id
+        WHERE pending.id=${pendingId}::uuid`.execute(database)
+      ).rows[0]!;
+      expect(proof).toEqual({ valid: true, funded: true, version: 6, proof: true, receipts: 1 });
+      const audits = (
+        await sql<{ metadata: unknown }>`SELECT audit.metadata FROM platform.audit_logs audit
+        JOIN identity.account_deletion_paid_pending_receipts receipt ON receipt.audit_id=audit.id
+        WHERE receipt.pending_nakh_id=${pendingId}::uuid`.execute(database)
+      ).rows;
+      expect(audits).toHaveLength(1);
+      expect(audits[0]!.metadata).toMatchObject({
+        kind: 'paid_pending_source',
+        rows: 1,
+        receiptDigest: expect.stringMatching(/^[a-f0-9]{64}$/u) as unknown,
+      });
+      expect(JSON.stringify(audits)).not.toContain(source.text);
+      expect(JSON.stringify(audits)).not.toContain(source.request_hash);
+      const statusEvents = async (): Promise<number> =>
+        Number(
+          (
+            await sql<{ count: string }>`
+        SELECT count(*)::text AS count FROM platform.outbox_events WHERE aggregate_id=${pendingId}::uuid`.execute(
+              database,
+            )
+          ).rows[0]!.count,
+        );
+      const priorStatusEvents = await statusEvents();
+      if (item.replayFunding)
+        for (const replay of await Promise.all(
+          Array.from({ length: 20 }, () => item.replayFunding!()),
+        ))
+          expect(replay).toMatchObject({
+            replayed: true,
+            nakhId: item.nakhId,
+            outcome: 'fulfilled',
+          });
+      expect(
+        await database
+          .selectFrom('profile.profiles')
+          .select('id')
+          .where('user_id', '=', item.lease.userId)
+          .execute(),
+      ).toEqual([]);
+      const captures = await Promise.all(Array.from({ length: 20 }, () => late.submit()));
+      expect(captures.filter((row) => row.outcome === 'receipt_recorded')).toHaveLength(1);
+      expect(captures.filter((row) => row.outcome === 'replayed')).toHaveLength(19);
+      const refunds = await database
+        .selectFrom('billing.refund_records')
+        .selectAll()
+        .where('payment_record_id', '=', late.paymentRecordId)
+        .execute();
+      expect(refunds).toHaveLength(1);
+      expect(refunds[0]).toMatchObject({
+        user_id: item.lease.userId,
+        funding_type: 'telegram_stars',
+        payment_record_id: late.paymentRecordId,
+        telegram_charge_id: late.telegramChargeId,
+        stars_amount: late.starsAmount.toString(),
+        status: 'pending',
+        reason_code: 'target_unavailable',
+      });
+      expect(
+        await database
+          .selectFrom('billing.payment_fulfillments')
+          .select(['state', 'last_error_code'])
+          .where('payment_record_id', '=', late.paymentRecordId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ state: 'correction_required', last_error_code: 'payment_state_conflict' });
+      expect(
+        await database
+          .selectFrom('platform.outbox_events')
+          .select('id')
+          .where('aggregate_id', '=', late.paymentRecordId)
+          .where('event_type', '=', 'billing.payment-correction-required.v1')
+          .execute(),
+      ).toHaveLength(1);
+      expect(await statusEvents()).toBe(priorStatusEvents);
+      expect(
+        await database
+          .selectFrom('nakh.nakhes')
+          .select('id')
+          .where('id', '=', item.nakhId)
+          .execute(),
+      ).toEqual([]);
+      expect(
+        await database
+          .selectFrom('nakh.pending_nakhes')
+          .select('id')
+          .where('id', '=', pendingId)
+          .execute(),
+      ).toEqual([]);
+      const afterCorrection = await facts(item.lease);
+      for (const key of ['credits', 'anchors', 'flows', 'account', 'root', 'preview'])
+        expect(afterCorrection[key]).toEqual(original[key]);
+      await reconcile();
+      expect(
+        (await new PostgresNakhOperationalMetricsStore(database).measure())
+          .fundingInvariantMismatchCount,
+      ).toBe(0);
+      await database.transaction().execute(async (tx) => {
+        await sql`SET LOCAL TimeZone='Asia/Tehran'`.execute(tx);
+        expect(
+          (
+            await sql<{
+              valid: boolean;
+            }>`SELECT nakh.original_pending_reference_valid(${pendingId}::uuid) AS valid`.execute(
+              tx,
+            )
+          ).rows[0]!.valid,
+        ).toBe(true);
+      });
+      // Transport expiry and worker expiry cannot revoke old proof or mint a new removal.
+      await sql`DELETE FROM platform.outbox_events WHERE event_type='account.deletion-paid-pending-batch.v1'
+        AND aggregate_id=${item.lease.deletionRecordId}::uuid`.execute(database);
+      await sql`UPDATE identity.account_deletion_work SET lease_owner=NULL,lease_expires_at=NULL
+        WHERE deletion_record_id=${item.lease.deletionRecordId}::uuid`.execute(database);
+      expect(
+        (
+          await sql<{
+            valid: boolean;
+          }>`SELECT nakh.original_pending_reference_valid(${pendingId}::uuid) AS valid`.execute(
+            database,
+          )
+        ).rows[0]!.valid,
+      ).toBe(true);
+      await expect(paid.purgeNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+      if (item.replayFunding)
+        expect(await item.replayFunding()).toMatchObject({ replayed: true, nakhId: item.nakhId });
+    },
+  );
+  it.each([
+    ['identity.account_deletion_paid_pending_receipts', 'INSERT'],
+    ['platform.audit_logs', 'INSERT'],
+    ['platform.outbox_events', 'INSERT'],
+    ['nakh.pending_nakhes', 'DELETE'],
+  ] as const)(
+    'rolls back paid pending archival when %s %s is suppressed',
+    async (table, operation) => {
+      const item = await scene(0, 'pending_credits');
+      await store.purgeNext(item.lease);
+      const original = await facts(item.lease),
+        paid = new PostgresAccountDeletionPaidPendingStore(database);
+      await sql`CREATE FUNCTION identity.m8_paid_suppress_write() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF TG_OP='DELETE' THEN RETURN NULL; END IF;
+        IF TG_TABLE_NAME='account_deletion_paid_pending_receipts' THEN RETURN NULL; END IF;
+        IF NEW.event_type='account.deletion-paid-pending-batch.v1' THEN RETURN NULL; END IF;
+        RETURN NEW;
+      END $$`.execute(database);
+      await sql`CREATE TRIGGER m8_paid_suppress_write BEFORE ${sql.raw(operation)} ON ${sql.table(table)}
+      FOR EACH ROW EXECUTE FUNCTION identity.m8_paid_suppress_write()`.execute(database);
+      try {
+        await expect(paid.purgeNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+        expect(await facts(item.lease)).toEqual(original);
+        expect(
+          (
+            await sql`SELECT id FROM identity.account_deletion_paid_pending_receipts
+        WHERE pending_nakh_id=${item.pendingNakhId}::uuid`.execute(database)
+          ).rows,
+        ).toEqual([]);
+      } finally {
+        await sql`DROP TRIGGER m8_paid_suppress_write ON ${sql.table(table)}`.execute(database);
+        await sql`DROP FUNCTION identity.m8_paid_suppress_write()`.execute(database);
+      }
+      expect(await paid.purgeNext(item.lease)).toEqual({ purgedRows: 1, hasMore: false });
+    },
+  );
+  it.each(['event', 'lease'] as const)(
+    'rejects paid pending %s loss at actual deferred commit',
+    async (fault) => {
+      const item = await scene(0, 'pending_credits', false, fault === 'lease' ? 2000 : 120000);
+      await store.purgeNext(item.lease);
+      const original = await facts(item.lease);
+      await expect(
+        database.transaction().execute(async (tx) => {
+          const result = await sql<{
+            removed: number;
+          }>`SELECT purged_rows AS removed FROM nakh.purge_deletion_paid_pending_source(
+        ${item.lease.deletionRecordId}::uuid,${item.lease.userId}::uuid,${item.lease.leaseOwner}::uuid,
+        ${item.lease.leaseGeneration})`.execute(tx);
+          expect(result.rows).toEqual([{ removed: 1 }]);
+          if (fault === 'event') {
+            const erased = await tx
+              .deleteFrom('platform.outbox_events')
+              .where('aggregate_id', '=', item.lease.deletionRecordId)
+              .where('event_type', '=', 'account.deletion-paid-pending-batch.v1')
+              .returning('id')
+              .execute();
+            expect(erased).toHaveLength(1);
+          } else {
+            await sql`SELECT pg_sleep(2.1)`.execute(tx);
+          }
+        }),
+      ).rejects.toMatchObject({ code: '23514' });
+      expect(await facts(item.lease)).toEqual(original);
+    },
+  );
+  it('rejects paid pending forged fences and ordinary source or proof deletion', async () => {
+    const item = await scene(0, 'pending_credits');
+    await store.purgeNext(item.lease);
+    const original = await facts(item.lease),
+      paid = new PostgresAccountDeletionPaidPendingStore(database);
+    for (const changed of [
+      { deletionRecordId: randomUUID() },
+      { userId: randomUUID() },
+      { leaseOwner: randomUUID() },
+      { leaseGeneration: item.lease.leaseGeneration + 1 },
+      { checkpointVersion: 2 },
+      { phase: 'evidence_capture' },
+    ] as const) {
+      await expect(paid.purgeNext({ ...item.lease, ...changed })).rejects.toMatchObject({
+        code: 'conflict',
+      });
+      expect(await facts(item.lease)).toEqual(original);
+    }
+    await expect(
+      sql`DELETE FROM nakh.pending_nakhes WHERE id=${item.pendingNakhId}::uuid`.execute(database),
+    ).rejects.toMatchObject({ code: '55000' });
+    expect(await facts(item.lease)).toEqual(original);
+    await paid.purgeNext(item.lease);
+    for (const query of [
+      sql`UPDATE identity.account_deletion_paid_pending_receipts SET source_version=2 WHERE pending_nakh_id=${item.pendingNakhId}::uuid`,
+      sql`DELETE FROM identity.account_deletion_paid_pending_receipts WHERE pending_nakh_id=${item.pendingNakhId}::uuid`,
+    ])
+      await expect(query.execute(database)).rejects.toMatchObject({ code: '55000' });
+  });
+  it.each([
+    'billing.telegram_stars_receipts',
+    'billing.payment_provider_events',
+    'billing.payment_fulfillments',
+    'billing.refund_records',
+    'platform.outbox_events',
+  ] as const)(
+    'rejects genuine archived late capture with suppressed %s and permits exact retry',
+    async (table) => {
+      const item = await scene(0, 'pending_credits', false, 120000, true),
+        late = item.lateCapture!;
+      await store.purgeNext(item.lease);
+      await new PostgresAccountDeletionPaidPendingStore(database).purgeNext(item.lease);
+      const original = await facts(item.lease);
+      await sql`CREATE FUNCTION billing.m8_pending_suppress_capture() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RETURN NULL; END $$`.execute(database);
+      await sql`CREATE TRIGGER m8_pending_suppress_capture BEFORE INSERT ON ${sql.table(table)}
+      FOR EACH ROW EXECUTE FUNCTION billing.m8_pending_suppress_capture()`.execute(database);
+      try {
+        await expect(late.submit()).rejects.toBeDefined();
+        expect(await facts(item.lease)).toEqual(original);
+        expect(
+          await database
+            .selectFrom('billing.refund_records')
+            .select('id')
+            .where('payment_record_id', '=', late.paymentRecordId)
+            .execute(),
+        ).toEqual([]);
+        expect(
+          await database
+            .selectFrom('platform.outbox_events')
+            .select('id')
+            .where('aggregate_id', '=', late.paymentRecordId)
+            .execute(),
+        ).toEqual([]);
+      } finally {
+        await sql`DROP TRIGGER m8_pending_suppress_capture ON ${sql.table(table)}`.execute(
+          database,
+        );
+        await sql`DROP FUNCTION billing.m8_pending_suppress_capture()`.execute(database);
+      }
+      expect(await late.submit()).toMatchObject({ outcome: 'receipt_recorded' });
+      expect(await late.submit()).toMatchObject({ outcome: 'replayed' });
+      expect(
+        await database
+          .selectFrom('billing.refund_records')
+          .select('id')
+          .where('payment_record_id', '=', late.paymentRecordId)
+          .execute(),
+      ).toHaveLength(1);
+    },
+  );
+  it.each(['audit', 'receipt-version', 'missing-receipt'] as const)(
+    'keeps archived pending %s corruption visible and rejects funding replay',
+    async (fault) => {
+      const item = await scene(0, 'telegram_stars');
+      await store.purgeNext(item.lease);
+      await new PostgresAccountDeletionPaidPendingStore(database).purgeNext(item.lease);
+      const original = await facts(item.lease);
+      const receipt = (
+        await sql<{ saved: Record<string, unknown>; auditId: string }>`
+        SELECT to_jsonb(receipt) AS saved,audit_id AS "auditId"
+        FROM identity.account_deletion_paid_pending_receipts receipt
+        WHERE pending_nakh_id=${item.pendingNakhId}::uuid`.execute(database)
+      ).rows[0]!;
+      const audit = await database
+        .selectFrom('platform.audit_logs')
+        .select('metadata')
+        .where('id', '=', receipt.auditId)
+        .executeTakeFirstOrThrow();
+      const mutate = async (restore: boolean): Promise<void> =>
+        database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            if (restore) {
+              await sql`DELETE FROM identity.account_deletion_paid_pending_receipts
+              WHERE pending_nakh_id=${item.pendingNakhId}::uuid`.execute(connection);
+              await sql`INSERT INTO identity.account_deletion_paid_pending_receipts
+              SELECT restored.* FROM jsonb_populate_record(NULL::identity.account_deletion_paid_pending_receipts,
+              ${JSON.stringify(receipt.saved)}::jsonb) restored`.execute(connection);
+              await connection
+                .updateTable('platform.audit_logs')
+                .set({ metadata: audit.metadata })
+                .where('id', '=', receipt.auditId)
+                .execute();
+            } else if (fault === 'audit') {
+              await connection
+                .updateTable('platform.audit_logs')
+                .set({
+                  metadata: { kind: 'paid_pending_source', rows: 1, receiptDigest: '0'.repeat(64) },
+                })
+                .where('id', '=', receipt.auditId)
+                .execute();
+            } else if (fault === 'receipt-version') {
+              await sql`UPDATE identity.account_deletion_paid_pending_receipts SET source_version=source_version+1
+              WHERE pending_nakh_id=${item.pendingNakhId}::uuid`.execute(connection);
+            } else {
+              await sql`DELETE FROM identity.account_deletion_paid_pending_receipts
+              WHERE pending_nakh_id=${item.pendingNakhId}::uuid`.execute(connection);
+            }
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      try {
+        await mutate(false);
+        const visible = (
+          await sql<{ valid: boolean; shape: boolean }>`SELECT
+          nakh.original_pending_reference_valid(id) AS valid,shape_valid AS shape
+          FROM nakh.pending_nakh_lifecycle_facts WHERE id=${item.pendingNakhId}::uuid`.execute(
+            database,
+          )
+        ).rows;
+        expect(visible).toEqual([{ valid: false, shape: false }]);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          await reconcile();
+          expect(
+            (await new PostgresNakhOperationalMetricsStore(database).measure())
+              .fundingInvariantMismatchCount,
+          ).toBeGreaterThan(0);
+        }
+        await expect(item.replayFunding!()).rejects.toBeDefined();
+        expect(await facts(item.lease)).toEqual(original);
+      } finally {
+        await mutate(true);
+      }
+      await reconcile();
+      expect(
+        (await new PostgresNakhOperationalMetricsStore(database).measure())
+          .fundingInvariantMismatchCount,
+      ).toBe(0);
+      expect(await item.replayFunding!()).toMatchObject({ replayed: true, nakhId: item.nakhId });
+    },
+  );
   it('purges 205 receiver action rows in bounded batches under twenty retries without changing retained facts', async () => {
     const item = await scene(205),
       original = await facts(item.lease);
@@ -418,69 +965,96 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
       new PostgresDeliveredNakhStore(database).readDetail(item.receiver, item.nakhId),
     ).rejects.toMatchObject({ code: 'not_found' });
   });
-  it('serializes competing participant deletion roots without duplicate archival or financial changes', async () => {
-    const item = await scene();
-    const key = randomBytes(32);
-    const deletion = new PostgresAccountDeletionStore(database, {
-      activeKeyId: 'm8-nakh-competing',
-      keys: new Map([['m8-nakh-competing', key]]),
-    });
-    try {
-      const account = await database
-        .selectFrom('identity.accounts')
-        .select('version')
-        .where('user_id', '=', item.receiver)
-        .executeTakeFirstOrThrow();
-      const proof = await deletion.prepare({
-        actor: { kind: 'user', userId: item.receiver },
-        requestId: randomUUID(),
-        expectedAccountVersion: account.version,
+  it.each(['credits', 'pending_credits'] as const)(
+    'serializes competing participant deletion roots with %s funding without duplicate archival or financial changes',
+    async (funding) => {
+      const item = await scene(0, funding);
+      const key = randomBytes(32);
+      const deletion = new PostgresAccountDeletionStore(database, {
+        activeKeyId: 'm8-nakh-competing',
+        keys: new Map([['m8-nakh-competing', key]]),
       });
-      const commandId = randomUUID();
-      await deletion.request({
-        commandId,
-        commandType: 'account.delete',
-        schemaVersion: 1,
-        actor: { kind: 'user', userId: item.receiver },
-        requestId: randomUUID(),
-        idempotencyKey: `m8-nakh-competing:${commandId}`,
-        occurredAt: new Date().toISOString(),
-        locale: 'en',
-        data: {
+      try {
+        const account = await database
+          .selectFrom('identity.accounts')
+          .select('version')
+          .where('user_id', '=', item.receiver)
+          .executeTakeFirstOrThrow();
+        const proof = await deletion.prepare({
+          actor: { kind: 'user', userId: item.receiver },
+          requestId: randomUUID(),
           expectedAccountVersion: account.version,
-          confirmationToken: proof.confirmationToken,
-        },
-      });
-    } finally {
-      key.fill(0);
-    }
-    const checkpoints = new PostgresAccountDeletionCheckpointStore(database);
-    const shared = await claim();
-    const closure = new PostgresAccountDeletionSharedStore(database);
-    while ((await closure.closeNext(shared)).hasMore) {
-      /* bounded shared closure */
-    }
-    await checkpoints.finishShared(shared);
-    const evidence = await claim();
-    expect(await new PostgresAccountDeletionProfileStore(database).archive(evidence)).toMatchObject(
-      { archived: true },
-    );
-    expect(await checkpoints.finishEvidence(evidence)).toMatchObject({ phase: 'product_data' });
-    const counterpart = await claim();
-    expect(counterpart.userId).toBe(item.receiver);
-    const senderFacts = await facts(item.lease),
-      receiverFacts = await facts(counterpart);
-    const results = await Promise.all(
-      Array.from({ length: 20 }, (_, index) =>
-        store.purgeNext(index % 2 === 0 ? item.lease : counterpart),
-      ),
-    );
-    expect(results.filter((result) => result.purgedRows > 0)).toHaveLength(1);
-    expect(results.every((result) => !result.hasMore)).toBe(true);
-    expect(await facts(item.lease)).toEqual(senderFacts);
-    expect(await facts(counterpart)).toEqual(receiverFacts);
-    expect(await ordinary(item.nakhId)).toMatchObject({ receipts: [expect.any(Object)] });
-  });
+        });
+        const commandId = randomUUID();
+        await deletion.request({
+          commandId,
+          commandType: 'account.delete',
+          schemaVersion: 1,
+          actor: { kind: 'user', userId: item.receiver },
+          requestId: randomUUID(),
+          idempotencyKey: `m8-nakh-competing:${commandId}`,
+          occurredAt: new Date().toISOString(),
+          locale: 'en',
+          data: {
+            expectedAccountVersion: account.version,
+            confirmationToken: proof.confirmationToken,
+          },
+        });
+      } finally {
+        key.fill(0);
+      }
+      const checkpoints = new PostgresAccountDeletionCheckpointStore(database);
+      const shared = await claim();
+      const closure = new PostgresAccountDeletionSharedStore(database);
+      while ((await closure.closeNext(shared)).hasMore) {
+        /* bounded shared closure */
+      }
+      await checkpoints.finishShared(shared);
+      const evidence = await claim();
+      expect(
+        await new PostgresAccountDeletionProfileStore(database).archive(evidence),
+      ).toMatchObject({ archived: true });
+      expect(await checkpoints.finishEvidence(evidence)).toMatchObject({ phase: 'product_data' });
+      const counterpart = await claim();
+      expect(counterpart.userId).toBe(item.receiver);
+      const senderFacts = await facts(item.lease),
+        receiverFacts = await facts(counterpart);
+      const results = await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          store.purgeNext(index % 2 === 0 ? item.lease : counterpart),
+        ),
+      );
+      expect(results.filter((result) => result.purgedRows > 0)).toHaveLength(1);
+      expect(results.every((result) => !result.hasMore)).toBe(true);
+      expect(await facts(item.lease)).toEqual(senderFacts);
+      expect(await facts(counterpart)).toEqual(receiverFacts);
+      expect(await ordinary(item.nakhId)).toMatchObject({ receipts: [expect.any(Object)] });
+      if (item.pendingNakhId) {
+        const paid = new PostgresAccountDeletionPaidPendingStore(database);
+        const pendingResults = await Promise.all(
+          Array.from({ length: 20 }, (_, index) =>
+            paid.purgeNext(index % 2 === 0 ? item.lease : counterpart),
+          ),
+        );
+        expect(pendingResults.reduce((total, result) => total + result.purgedRows, 0)).toBe(1);
+        expect(pendingResults.every((result) => !result.hasMore)).toBe(true);
+        delete senderFacts.pending;
+        delete receiverFacts.pending;
+        const senderAfter = await facts(item.lease),
+          receiverAfter = await facts(counterpart);
+        delete senderAfter.pending;
+        delete receiverAfter.pending;
+        expect(senderAfter).toEqual(senderFacts);
+        expect(receiverAfter).toEqual(receiverFacts);
+        expect(
+          (
+            await sql`SELECT id FROM identity.account_deletion_paid_pending_receipts
+        WHERE pending_nakh_id=${item.pendingNakhId}::uuid`.execute(database)
+          ).rows,
+        ).toHaveLength(1);
+      }
+    },
+  );
   it.each(['credits', 'telegram_stars'] as const)(
     'preserves real %s funding and archived acceptance while denying new effects',
     async (funding) => {
