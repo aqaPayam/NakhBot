@@ -233,6 +233,7 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
             '000114_m8_paid_pending_archival.sql',
             '000115_m8_terminal_pending_archival.sql',
             '000116_m8_flow_references.sql',
+            '000117_m8_flow_archival.sql',
           ]);
           expect(await original(item.recordId, legacy)).toEqual({ ...before, product_epoch: 0 });
           expect(

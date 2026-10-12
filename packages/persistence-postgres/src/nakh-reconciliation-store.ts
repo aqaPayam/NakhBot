@@ -208,17 +208,19 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
   ): Promise<ScanResult> {
     const rows = await sql<{
       id: string;
+      flowShapeValid: boolean;
       pendingStatus: string | null;
       pendingShapeValid: boolean | null;
       pendingCount: number;
       deliveredCount: number;
     }>`
       SELECT flow.id,
+        bool_and(flow.shape_valid) AS "flowShapeValid",
         max(pending.status) AS "pendingStatus",
         bool_and(pending.shape_valid) AS "pendingShapeValid",
         count(DISTINCT pending.id)::integer AS "pendingCount",
         count(DISTINCT delivered.id)::integer AS "deliveredCount"
-      FROM nakh.nakh_flows flow
+      FROM nakh.flow_lifecycle_facts flow
       LEFT JOIN nakh.pending_nakh_lifecycle_facts pending ON pending.nakh_flow_id = flow.id
       LEFT JOIN nakh.nakh_lifecycle_facts delivered ON delivered.nakh_flow_id = flow.id
       WHERE (${cursor.lastId ?? null}::uuid IS NULL OR flow.id > ${cursor.lastId ?? null}::uuid)
@@ -229,6 +231,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
     const findings: Finding[] = [];
     for (const row of rows.rows) {
       const valid =
+        row.flowShapeValid &&
         row.pendingCount <= 1 &&
         row.deliveredCount <= 1 &&
         ((row.pendingCount === 0 && row.deliveredCount === 1) ||
@@ -422,7 +425,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
           delivered.sender_user_id,delivered.receiver_user_id,delivered.funding_type,
           delivered.credit_transaction_id,delivered.payment_record_id) AS "originalFundingLifeValid",
         EXISTS(SELECT 1 FROM nakh.nakh_reference_anchors anchor
-          JOIN nakh.nakh_flows original_flow ON original_flow.id=delivered.nakh_flow_id
+          JOIN nakh.verified_original_flow_lives original_flow ON original_flow.id=delivered.nakh_flow_id
           WHERE anchor.id=delivered.id AND anchor.nakh_flow_id=delivered.nakh_flow_id
             AND anchor.sender_user_id=delivered.sender_user_id
             AND anchor.receiver_user_id=delivered.receiver_user_id

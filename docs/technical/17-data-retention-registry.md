@@ -4,6 +4,13 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migration 117 brings the executable inventory to 138 tables, 1,276 columns and
+262 foreign keys. Its ten-field Flow archival receipt retains only original
+reference, deletion, transaction, lease and audit/event bindings. Migration 116
+added the five-field original Flow reference (ID, participants and their lives).
+Neither retains Flow creation time or product content, grants return, completes
+product purge or enables policy release. Retained-data release remains disabled.
+
 Migration 115's terminal unpaid archival receipt brings coverage to 136 tables,
 1,261 columns and 257 foreign keys. It retains the original terminal status,
 version, expiry, terminal time and cancellation resolution with the deletion,
@@ -32,7 +39,7 @@ in the historical helper. It creates no retained entity or new user data; the
 commit authority, retained transcript access and disabled release are preserved.
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 115: 136 tables, 1,261 columns and 257 foreign keys.
+code-owned M8 catalog inventory for migration 117: 138 tables, 1,276 columns and 262 foreign keys.
 
 Migration 109 binds notification history to an immutable original recipient epoch.
 Legacy history is accepted only with provable original epoch zero; ambiguous

@@ -85,6 +85,7 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
       '000114_m8_paid_pending_archival.sql',
       '000115_m8_terminal_pending_archival.sql',
       '000116_m8_flow_references.sql',
+      '000117_m8_flow_archival.sql',
     ]);
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000092_m8_match_references.sql',

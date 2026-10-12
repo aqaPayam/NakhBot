@@ -341,6 +341,7 @@ describe.skipIf(url === undefined)('M8 original credit lifecycle provenance', ()
         '000114_m8_paid_pending_archival.sql',
         '000115_m8_terminal_pending_archival.sql',
         '000116_m8_flow_references.sql',
+        '000117_m8_flow_archival.sql',
       ]);
       expect(
         await legacy

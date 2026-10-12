@@ -215,6 +215,7 @@ export * from './account-deletion-like-store.js';
 export * from './account-deletion-nakh-store.js';
 export * from './account-deletion-paid-pending-store.js';
 export * from './account-deletion-terminal-pending-store.js';
+export * from './account-deletion-flow-store.js';
 export * from './account-deletion-shared-store.js';
 export * from './account-deletion-checkpoint-store.js';
 export * from './account-deletion-evidence-store.js';

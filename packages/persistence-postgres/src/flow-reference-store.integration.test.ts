@@ -209,7 +209,10 @@ describe.skipIf(url === undefined)('M8 original Flow references', () => {
     const results = await Promise.all(
       Array.from({ length: 20 }, () => runMigrations(isolated.url, resolve('migrations'))),
     );
-    expect(results.flatMap((x) => x.applied)).toEqual(['000116_m8_flow_references.sql']);
+    expect(results.flatMap((x) => x.applied)).toEqual([
+      '000116_m8_flow_references.sql',
+      '000117_m8_flow_archival.sql',
+    ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);
     expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
@@ -217,9 +220,9 @@ describe.skipIf(url === undefined)('M8 original Flow references', () => {
       '000116_m8_flow_references.sql',
     );
     const catalog = await readDeletionCatalog(database);
-    expect(catalog.tables).toHaveLength(137);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1266);
-    expect(catalog.foreignKeys).toHaveLength(259);
+    expect(catalog.tables).toHaveLength(138);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1276);
+    expect(catalog.foreignKeys).toHaveLength(262);
     assertDeletionCatalogCoverage(catalog);
   });
   it('creates one five-field original Flow reference during twenty genuine pending retries', async () => {

@@ -1,5 +1,62 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: audited original Flow archival
+
+Reference commit `d3748c2` passed all six exact-head CI jobs in run `38197446763`,
+835 native tests in 111 suites, all 27 unchanged M7 plans, load checks and CI
+backup/restore. Terminal integrity took 1,443.387 ms against 1,500 ms with both
+required indexes, one worker and no temporary blocks.
+
+Migration 117 removes one original Flow only after delivered and pending bodies
+have complete original archival, financial and refund proof. The minimal receipt
+binds its original reference, deletion life, full transaction ID, exact current
+worker lease and mandatory audit/event. Every write and deletion is checked, then
+the complete fence, absence, financial closure and event are verified at commit.
+Historical Flow authenticity deliberately does not call financial readers, avoiding
+recursive proof; those readers use only verified original Flow lives after removal.
+Missing or damaged archival remains visible to reconciliation and denies empty
+replay. Current product admission still requires a live Flow and current Accounts.
+Original financial records, minimal references, preview usage and root phases remain.
+No phase completion, fresh Return or retained-data release is authorized.
+
+Initial focused probes diagnosed an unsupported fixture lease and a callback
+assertion that confused recorded receipts with separate correction/refund state.
+An attempted quoted shell filter supplied no test evidence. Corrected funding and
+terminal probes passed all six cases. The first commit-expiry probe renewed a lease,
+which cannot shorten existing authority; its repaired fixture releases and claims
+a genuine two-second lease. Failed logs remain preserved. Complete native regression,
+populated upgrades, project checks and all six exact-head CI jobs remain required.
+
+The complete first archival run passed 70 cases and failed four funding-matrix
+cases, beginning with the unchanged 60-second deadline. A disposable copy of its
+synthetic database compared complete proof readers with every predicate retained.
+Caching the query plans preserved all four result sets: pending-reference execution
+fell from 372 to 85 ms, terminal closure from 317 to 125 ms and delivered original
+funding from 3,140 to 528 ms. This is local diagnostic evidence, not acceptance of
+a production performance gate. The generated cached-reader definitions initially
+lacked separators when combined into one migration; the corrected bootstrap then
+ran all 74 archival cases successfully, including the original funding matrix and
+all sixteen new Flow cases. No case, concurrency count or deadline was removed.
+The initial local full check crashed in the bundled Node runtime during lint with
+exit code 0x80000003. Its log is retained; an explicit inherited interpreter-mode
+retry and the remaining migration/dependency/CI checks are still required.
+
+The final native regression batches passed all 74 archival cases, 91 populated
+migration/reference/registry cases and 82 affected financial, payment, reference
+and reconciliation cases: 247 distinct tests in 17 suites. All four original funding
+matrix cases passed within their unchanged deadline (46.6/30.3 seconds for credits,
+46.2/28.5 for Stars). The inherited interpreter-mode project retry passed lint and
+all workspace types but disabled WebAssembly at test-runner startup. A local-only
+phase wrapper now confines that workaround to lint/types and leaves the test runner
+in its normal runtime; the complete check must pass before committing. Neither
+failed bootstrap nor runtime-startup output supplies acceptance evidence.
+
+The final complete project check passed formatting, lint, all 17 workspace type
+checks, all 966 unit tests in 218 suites and every build using that phase-specific
+local runtime wrapper. Production code, dependency versions, test cases and limits
+were unchanged by the workaround. All six exact-head CI jobs remain required before
+this Flow archival increment is accepted or the next M8 feature starts.
+
 ## Current increment: minimal original Flow references
 
 Repair `ffd2d5f` passed all six exact-head CI jobs in run `38193390260`,

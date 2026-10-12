@@ -20,6 +20,7 @@ import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-
 import { PostgresAccountDeletionNakhStore } from './account-deletion-nakh-store.js';
 import { PostgresAccountDeletionPaidPendingStore } from './account-deletion-paid-pending-store.js';
 import { PostgresAccountDeletionTerminalPendingStore } from './account-deletion-terminal-pending-store.js';
+import { PostgresAccountDeletionFlowStore } from './account-deletion-flow-store.js';
 import { PostgresNakhMaintenanceStore } from './nakh-maintenance-store.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
 import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
@@ -644,6 +645,395 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
     }
     return run;
   }
+  async function retainedFlowFacts(): Promise<unknown> {
+    return (
+      await sql<{ facts: unknown }>`SELECT jsonb_build_object(
+      'credits',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM billing.credit_transactions row),
+      'payments',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM billing.payment_records row),
+      'intents',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM billing.pending_payments row),
+      'refunds',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM billing.refund_records row),
+      'accounts',(SELECT jsonb_agg(to_jsonb(row) ORDER BY user_id) FROM identity.accounts row),
+      'roots',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM identity.account_deletion_records row),
+      'preview',(SELECT jsonb_agg(to_jsonb(row) ORDER BY user_id) FROM identity.guest_preview_counters row),
+      'flows',(SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM nakh.flow_reference_anchors row)) AS facts`.execute(
+        database,
+      )
+    ).rows[0]!.facts;
+  }
+  it('serializes both original participant roots into one Flow removal', async () => {
+    const item = await scene();
+    await store.purgeNext(item.lease);
+    const key = randomBytes(32),
+      deletion = new PostgresAccountDeletionStore(database, {
+        activeKeyId: 'm8-flow-dual',
+        keys: new Map([['m8-flow-dual', key]]),
+      });
+    try {
+      const account = await database
+        .selectFrom('identity.accounts')
+        .select('version')
+        .where('user_id', '=', item.receiver)
+        .executeTakeFirstOrThrow();
+      const proof = await deletion.prepare({
+        actor: { kind: 'user', userId: item.receiver },
+        requestId: randomUUID(),
+        expectedAccountVersion: account.version,
+      });
+      const id = randomUUID();
+      await deletion.request({
+        commandId: id,
+        commandType: 'account.delete',
+        schemaVersion: 1,
+        actor: { kind: 'user', userId: item.receiver },
+        requestId: randomUUID(),
+        idempotencyKey: id,
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          expectedAccountVersion: account.version,
+          confirmationToken: proof.confirmationToken,
+        },
+      });
+    } finally {
+      key.fill(0);
+    }
+    const shared = await claim(),
+      closure = new PostgresAccountDeletionSharedStore(database);
+    while ((await closure.closeNext(shared)).hasMore) {
+      /* second original participant */
+    }
+    const checkpoints = new PostgresAccountDeletionCheckpointStore(database);
+    await checkpoints.finishShared(shared);
+    const evidence = await claim();
+    await new PostgresAccountDeletionProfileStore(database).archive(evidence);
+    expect(await checkpoints.finishEvidence(evidence)).toMatchObject({ phase: 'product_data' });
+    const counterpart = await claim();
+    expect(counterpart.userId).toBe(item.receiver);
+    const before = await retainedFlowFacts(),
+      flows = new PostgresAccountDeletionFlowStore(database);
+    const results = await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        flows.purgeNext(index % 2 === 0 ? item.lease : counterpart),
+      ),
+    );
+    expect(results.reduce((sum, result) => sum + result.purgedRows, 0)).toBe(1);
+    expect(results.every((result) => !result.hasMore)).toBe(true);
+    expect(await retainedFlowFacts()).toEqual(before);
+    expect(await flows.purgeNext(item.lease)).toEqual({ purgedRows: 0, hasMore: false });
+    expect(await flows.purgeNext(counterpart)).toEqual({ purgedRows: 0, hasMore: false });
+  });
+  it.each([
+    'identity.account_deletion_flow_receipts',
+    'platform.audit_logs',
+    'platform.outbox_events',
+    'nakh.nakh_flows',
+  ] as const)('rolls back Flow archival if required %s writing is suppressed', async (table) => {
+    const item = await scene();
+    await store.purgeNext(item.lease);
+    const reference = await database
+      .selectFrom('nakh.nakh_reference_anchors')
+      .selectAll()
+      .where('id', '=', item.nakhId)
+      .executeTakeFirstOrThrow();
+    const before = await retainedFlowFacts();
+    await sql`CREATE FUNCTION identity.m8_flow_suppress_test() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF TG_TABLE_NAME IN ('account_deletion_flow_receipts','nakh_flows') THEN RETURN NULL;
+        ELSIF NEW.event_type='account.deletion-flow-batch.v1' THEN RETURN NULL; END IF; RETURN NEW; END $$`.execute(
+      database,
+    );
+    await sql`CREATE TRIGGER m8_flow_suppress_test BEFORE ${sql.raw(table === 'nakh.nakh_flows' ? 'DELETE' : 'INSERT')}
+        ON ${sql.table(table)} FOR EACH ROW EXECUTE FUNCTION identity.m8_flow_suppress_test()`.execute(
+      database,
+    );
+    try {
+      await expect(
+        new PostgresAccountDeletionFlowStore(database).purgeNext(item.lease),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(await retainedFlowFacts()).toEqual(before);
+      expect(
+        (
+          await sql`SELECT id FROM nakh.nakh_flows WHERE id=${reference.nakh_flow_id}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql`SELECT id FROM identity.account_deletion_flow_receipts WHERE flow_id=${reference.nakh_flow_id}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([]);
+    } finally {
+      await sql`DROP TRIGGER m8_flow_suppress_test ON ${sql.table(table)}`.execute(database);
+      await sql`DROP FUNCTION identity.m8_flow_suppress_test()`.execute(database);
+    }
+    expect(await new PostgresAccountDeletionFlowStore(database).purgeNext(item.lease)).toEqual({
+      purgedRows: 1,
+      hasMore: false,
+    });
+  });
+  it('denies forged Flow leases and ordinary mutation without changing original proof', async () => {
+    const item = await scene();
+    await store.purgeNext(item.lease);
+    const reference = await database
+      .selectFrom('nakh.nakh_reference_anchors')
+      .selectAll()
+      .where('id', '=', item.nakhId)
+      .executeTakeFirstOrThrow();
+    const before = await retainedFlowFacts(),
+      flows = new PostgresAccountDeletionFlowStore(database);
+    for (const change of [
+      { deletionRecordId: randomUUID() },
+      { userId: randomUUID() },
+      { leaseOwner: randomUUID() },
+      { leaseGeneration: item.lease.leaseGeneration + 1 },
+      { checkpointVersion: 2 },
+      { phase: 'evidence_capture' },
+    ] as const)
+      await expect(flows.purgeNext({ ...item.lease, ...change })).rejects.toMatchObject({
+        code: 'conflict',
+      });
+    await expect(
+      sql`DELETE FROM nakh.nakh_flows WHERE id=${reference.nakh_flow_id}::uuid`.execute(database),
+    ).rejects.toMatchObject({ code: '55000' });
+    expect(await retainedFlowFacts()).toEqual(before);
+  });
+  it('rolls back Flow removal when the worker expires at actual deferred commit', async () => {
+    const item = await scene();
+    await store.purgeNext(item.lease);
+    await work.release(item.lease);
+    const lease = await claim(2000),
+      before = await retainedFlowFacts();
+    await expect(
+      database.transaction().execute(async (tx) => {
+        expect(
+          (
+            await sql<{
+              rows: number;
+            }>`SELECT purged_rows AS rows FROM nakh.purge_deletion_flow_source(
+        ${lease.deletionRecordId}::uuid,${lease.userId}::uuid,${lease.leaseOwner}::uuid,${lease.leaseGeneration})`.execute(
+              tx,
+            )
+          ).rows,
+        ).toEqual([{ rows: 1 }]);
+        await sql`SELECT pg_sleep(2.1)`.execute(tx);
+      }),
+    ).rejects.toMatchObject({ code: '23514' });
+    expect(await retainedFlowFacts()).toEqual(before);
+  });
+  it.each(['audit', 'missing-receipt', 'transaction'] as const)(
+    'keeps archived Flow %s corruption visible and rejects empty replay',
+    async (fault) => {
+      const item = await scene();
+      await store.purgeNext(item.lease);
+      const flows = new PostgresAccountDeletionFlowStore(database);
+      expect(await flows.purgeNext(item.lease)).toEqual({ purgedRows: 1, hasMore: false });
+      const receipt = (
+        await sql<{
+          saved: Record<string, unknown>;
+          flowId: string;
+          auditId: string;
+        }>`SELECT to_jsonb(receipt) AS saved,
+      flow_id AS "flowId",audit_id AS "auditId" FROM identity.account_deletion_flow_receipts receipt WHERE deletion_record_id=${item.lease.deletionRecordId}::uuid`.execute(
+          database,
+        )
+      ).rows[0]!;
+      const audit = await database
+        .selectFrom('platform.audit_logs')
+        .select('metadata')
+        .where('id', '=', receipt.auditId)
+        .executeTakeFirstOrThrow();
+      await database.connection().execute(async (connection) => {
+        await sql`SET session_replication_role=replica`.execute(connection);
+        try {
+          if (fault === 'audit')
+            await connection
+              .updateTable('platform.audit_logs')
+              .set({ metadata: { kind: 'flow_source', rows: 1, receiptDigest: '0'.repeat(64) } })
+              .where('id', '=', receipt.auditId)
+              .execute();
+          else if (fault === 'missing-receipt')
+            await sql`DELETE FROM identity.account_deletion_flow_receipts WHERE flow_id=${receipt.flowId}::uuid`.execute(
+              connection,
+            );
+          else
+            await sql`UPDATE identity.account_deletion_flow_receipts SET batch_transaction=pg_current_xact_id() WHERE flow_id=${receipt.flowId}::uuid`.execute(
+              connection,
+            );
+        } finally {
+          await sql`SET session_replication_role=origin`.execute(connection);
+        }
+      });
+      try {
+        expect(
+          (
+            await sql<{
+              shape_valid: boolean;
+            }>`SELECT shape_valid FROM nakh.flow_lifecycle_facts WHERE id=${receipt.flowId}::uuid`.execute(
+              database,
+            )
+          ).rows,
+        ).toEqual([{ shape_valid: false }]);
+        await expect(flows.purgeNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+        await reconcile();
+        expect(
+          (await new PostgresNakhOperationalMetricsStore(database).measure())
+            .fundingInvariantMismatchCount,
+        ).toBe(1);
+      } finally {
+        await database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            await sql`DELETE FROM identity.account_deletion_flow_receipts WHERE flow_id=${receipt.flowId}::uuid`.execute(
+              connection,
+            );
+            await sql`INSERT INTO identity.account_deletion_flow_receipts SELECT restored.* FROM jsonb_populate_record(
+            NULL::identity.account_deletion_flow_receipts,${JSON.stringify(receipt.saved)}::jsonb) restored`.execute(
+              connection,
+            );
+            await connection
+              .updateTable('platform.audit_logs')
+              .set({ metadata: audit.metadata })
+              .where('id', '=', receipt.auditId)
+              .execute();
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+      }
+      expect(await flows.purgeNext(item.lease)).toEqual({ purgedRows: 0, hasMore: false });
+      await reconcile();
+      expect(
+        (await new PostgresNakhOperationalMetricsStore(database).measure())
+          .fundingInvariantMismatchCount,
+      ).toBe(0);
+    },
+  );
+  it.each(['credits', 'pending_credits', 'telegram_stars'] as const)(
+    'archives original %s Flow once under twenty retries while keeping original financial replay',
+    async (funding) => {
+      const item = await scene(0, funding, false, 120000, funding !== 'credits');
+      const reference = await database
+        .selectFrom('nakh.nakh_reference_anchors')
+        .selectAll()
+        .where('id', '=', item.nakhId)
+        .executeTakeFirstOrThrow();
+      const flows = new PostgresAccountDeletionFlowStore(database);
+      await expect(flows.purgeNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+      while ((await store.purgeNext(item.lease)).hasMore) {
+        /* bounded original body archival */
+      }
+      if (item.pendingNakhId)
+        expect(
+          await new PostgresAccountDeletionPaidPendingStore(database).purgeNext(item.lease),
+        ).toEqual({ purgedRows: 1, hasMore: false });
+      const before = await retainedFlowFacts();
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => flows.purgeNext(item.lease)),
+      );
+      expect(results.reduce((sum, result) => sum + result.purgedRows, 0)).toBe(1);
+      expect(results.every((result) => !result.hasMore)).toBe(true);
+      expect(await retainedFlowFacts()).toEqual(before);
+      expect(
+        (
+          await sql<{
+            id: string;
+            shape_valid: boolean;
+          }>`SELECT id,shape_valid FROM nakh.flow_lifecycle_facts WHERE id=${reference.nakh_flow_id}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([{ id: reference.nakh_flow_id, shape_valid: true }]);
+      expect(
+        (
+          await sql`SELECT id FROM nakh.nakh_flows WHERE id=${reference.nakh_flow_id}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([]);
+      await expect(
+        database
+          .insertInto('nakh.nakh_flows')
+          .values({
+            id: reference.nakh_flow_id,
+            sender_user_id: reference.sender_user_id,
+            receiver_user_id: reference.receiver_user_id,
+          })
+          .execute(),
+      ).rejects.toMatchObject({ code: '23514' });
+      expect(
+        (
+          await sql`SELECT id FROM identity.account_deletion_flow_receipts WHERE flow_id=${reference.nakh_flow_id}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toHaveLength(1);
+      if (item.replayFunding)
+        for (const result of await Promise.all(Array.from({ length: 20 }, item.replayFunding)))
+          expect(result).toMatchObject({
+            outcome: 'fulfilled',
+            nakhId: item.nakhId,
+            replayed: true,
+          });
+      if (item.lateCapture) {
+        for (const result of await Promise.all(Array.from({ length: 20 }, item.lateCapture.submit)))
+          expect(['receipt_recorded', 'replayed']).toContain(result.outcome);
+        expect(
+          (
+            await sql`SELECT id FROM billing.refund_records WHERE payment_record_id=${item.lateCapture.paymentRecordId}::uuid`.execute(
+              database,
+            )
+          ).rows,
+        ).toHaveLength(1);
+      }
+      await reconcile();
+      expect(
+        (await new PostgresNakhOperationalMetricsStore(database).measure())
+          .fundingInvariantMismatchCount,
+      ).toBe(0);
+      await verifyMigrations(isolated.url, resolve('migrations/verify'));
+    },
+  );
+  it.each(['closed_by_system', 'expired', 'cancel_like'] as const)(
+    'archives terminal %s Flow without restoring its body or losing the original late refund',
+    async (status) => {
+      const item = await terminalScene(status, 'sender', 120000);
+      const reference = await database
+        .selectFrom('nakh.pending_nakh_reference_anchors')
+        .selectAll()
+        .where('id', '=', item.pendingId)
+        .executeTakeFirstOrThrow();
+      const flows = new PostgresAccountDeletionFlowStore(database);
+      await expect(flows.purgeNext(item.lease)).rejects.toMatchObject({ code: 'conflict' });
+      expect(
+        await new PostgresAccountDeletionTerminalPendingStore(database).purgeNext(item.lease),
+      ).toEqual({ purgedRows: 1, hasMore: false });
+      const before = await retainedFlowFacts();
+      expect(await flows.purgeNext(item.lease)).toEqual({ purgedRows: 1, hasMore: false });
+      expect(await flows.purgeNext(item.lease)).toEqual({ purgedRows: 0, hasMore: false });
+      expect(await retainedFlowFacts()).toEqual(before);
+      for (const result of await Promise.all(Array.from({ length: 20 }, item.submit)))
+        expect(['receipt_recorded', 'replayed']).toContain(result.outcome);
+      expect(
+        (
+          await sql`SELECT id FROM billing.refund_records WHERE payment_record_id=${item.paymentId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toHaveLength(1);
+      expect(
+        (
+          await sql<{
+            valid: boolean;
+          }>`SELECT nakh.original_flow_reference_valid(${reference.nakh_flow_id}::uuid) AS valid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([{ valid: true }]);
+      expect(await flows.purgeNext(item.lease)).toEqual({ purgedRows: 0, hasMore: false });
+    },
+  );
   async function terminalScene(
     status: 'closed_by_system' | 'cancel_like' | 'cancel_not_interested' | 'expired',
     role: 'sender' | 'receiver' = 'sender',
