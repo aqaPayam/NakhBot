@@ -1,5 +1,54 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: collector diagnostics and narrow action integrity bindings
+
+Commit `0b5fd5f` passed the complete local check (947 unit tests), targeted type/lint
+checks and 290 native regressions. CI run `38168690693` passed all four images, but
+quality failed before collector startup while pulling the pinned public image.
+The PostgreSQL job passed 782 native tests in 110 suites, then failed the terminal
+M7 integrity sample at 1,824.477 ms against the unchanged 1,500 ms limit. M7 load
+and restore rehearsal were consequently skipped. Both failures require repair;
+the four image successes do not establish a green head.
+Its private log reports exit 1 with both output channels and the fixed unknown
+classification. No SDK metric export or conversion/privacy assertions ran. The
+underlying registry/runtime cause is not established; do not attribute it to an
+HTTP status or transport fault without evidence. The GitHub job-rerun request
+returned HTTP 403; this host has no usable local Docker runtime.
+
+The repair exposes only a finite failure-kind vocabulary, never process text,
+URLs, credentials or payload fragments. Recognized public-image transport errors
+and HTTP 500 join the existing bounded transient policy: at most three unchanged
+pulls with one- and two-second waits. Denial and missing-image precedence remain;
+unsupported platforms, untrusted certificates and exhausted storage fail without
+retry, as do unrecognized failures. Container startup, actual SDK export and all
+conversion/privacy assertions still run once and must pass. Expanded focused
+startup evidence passed 36 tests. The fresh complete project check passed 966 unit
+tests in 218 suites, type checks and all builds. All six exact-head CI jobs remain
+required for this repair.
+
+Action integrity now uses narrow exact audit and notification membership tuples
+instead of carrying their joined metadata rows through history/restoration joins.
+Actor, administrator, physical reference, command, request, recipient, notice
+type and empty payload bindings remain complete. Null or missing tuples fail
+closed; unique physical IDs preserve one action row and entity count. Scanner
+flags remain complete, including simultaneous failures. The latest prior-state
+ordering, episode resolution proof and all other phases are unchanged.
+
+The isolated Windows full-size comparison retained all 27 plans and both required
+terminal indexes, one worker, no temporary blocks or disk sort, and single-batch
+hashes. Combined terminal timing improved modestly from 2,639.252 to 2,522.139 ms;
+this is diagnostic comparison, not Linux CI acceptance. Lower parallel costs,
+additional episode materialization, report-first staging and restoration batching
+did not improve the combined measurement and were discarded. No fixture volume,
+required index, memory/worker cap or timing threshold is relaxed. Native corruption
+and concurrent scanner/count regressions passed 50 tests across 12 native suites,
+including real permission-checked separate Appeal unbans. Actual CI remains required; do not
+claim the performance failure fixed until the unchanged gate passes.
+
+Do not advance pending-body archival from the failed head. Existing funding
+validation, migration 113 and retention restrictions remain intact. This repair
+does not establish the original image-pull cause or complete M8 acceptance.
+
 ## Current increment: complete pending-backed funding proof
 
 Migration 113 requires the exact original pending reference in both credit and

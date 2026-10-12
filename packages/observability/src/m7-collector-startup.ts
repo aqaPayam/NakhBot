@@ -9,6 +9,38 @@ export type CollectorStartupFailure = Readonly<{
   retryable: boolean;
 }>;
 
+type StartupFailureKind =
+  | 'registry_denied'
+  | 'image_missing'
+  | 'image_platform_unsupported'
+  | 'runtime_storage_exhausted'
+  | 'tls_verification_failed'
+  | 'registry_server_error'
+  | 'registry_rate_limited'
+  | 'network_interrupted'
+  | 'unknown';
+
+/** A finite diagnostic vocabulary; never echo even pre-export process output. */
+function startupFailureKind(diagnostic: string): StartupFailureKind {
+  if (/unauthorized|authentication required|access denied|\bdenied\b|\b40[13]\b/iu.test(diagnostic))
+    return 'registry_denied';
+  if (/no matching manifest/iu.test(diagnostic)) return 'image_platform_unsupported';
+  if (/manifest unknown|manifest.*not found|\b404\b/iu.test(diagnostic)) return 'image_missing';
+  if (/no space left on device|disk quota exceeded/iu.test(diagnostic))
+    return 'runtime_storage_exhausted';
+  if (/x509:|certificate.*(?:expired|not trusted|unknown authority)/iu.test(diagnostic))
+    return 'tls_verification_failed';
+  if (/\b(?:500|502|503|504)\b/iu.test(diagnostic)) return 'registry_server_error';
+  if (/\b429\b|too many requests/iu.test(diagnostic)) return 'registry_rate_limited';
+  if (
+    /connection reset|connection refused|connection aborted|network is unreachable|tls handshake timeout|i\/o timeout|operation timed out|timeout awaiting response headers|temporary failure in name resolution|context deadline exceeded|request canceled|\beof\b/iu.test(
+      diagnostic,
+    )
+  )
+    return 'network_interrupted';
+  return 'unknown';
+}
+
 /** Docker startup precedes all metric export. Return a fixed allowlist, never
  * stderr, provider endpoints, credentials, configuration or payload fragments. */
 export function classifyCollectorStartupFailure(error: unknown): CollectorStartupFailure {
@@ -25,15 +57,17 @@ export function classifyCollectorStartupFailure(error: unknown): CollectorStartu
     return { code: 'collector_runtime_unavailable', retryable: false };
   if (/already in use|port is already allocated/iu.test(diagnostic))
     return { code: 'collector_runtime_collision', retryable: false };
-  if (/unauthorized|authentication required|access denied|\b40[13]\b/iu.test(diagnostic))
-    return { code: 'collector_registry_denied', retryable: false };
-  if (/manifest unknown|manifest.*not found|\b404\b/iu.test(diagnostic))
+  const kind = startupFailureKind(diagnostic);
+  if (kind === 'registry_denied') return { code: 'collector_registry_denied', retryable: false };
+  if (kind === 'image_missing' || kind === 'image_platform_unsupported')
     return { code: 'collector_image_missing', retryable: false };
+  if (kind === 'runtime_storage_exhausted' || kind === 'tls_verification_failed')
+    return { code: 'collector_startup_unknown', retryable: false };
   if (
     failure.killed === true ||
-    /\b(?:429|502|503|504)\b|too many requests|connection reset|tls handshake timeout|i\/o timeout|temporary failure in name resolution|context deadline exceeded|unexpected eof/iu.test(
-      diagnostic,
-    )
+    kind === 'registry_server_error' ||
+    kind === 'registry_rate_limited' ||
+    kind === 'network_interrupted'
   )
     return { code: 'collector_registry_transient', retryable: true };
   return { code: 'collector_startup_unknown', retryable: false };
@@ -47,6 +81,7 @@ export function collectorStartupDiagnostic(error: unknown): Readonly<{
   killed: boolean;
   stdoutPresent: boolean;
   stderrPresent: boolean;
+  failureKind: StartupFailureKind;
 }> {
   const failure =
     typeof error === 'object' && error !== null ? (error as Readonly<Record<string, unknown>>) : {};
@@ -64,6 +99,11 @@ export function collectorStartupDiagnostic(error: unknown): Readonly<{
     killed: failure.killed === true,
     stdoutPresent: typeof failure.stdout === 'string' && failure.stdout.length > 0,
     stderrPresent: typeof failure.stderr === 'string' && failure.stderr.length > 0,
+    failureKind: startupFailureKind(
+      [failure.stderr, failure.stdout]
+        .filter((value): value is string => typeof value === 'string')
+        .join('\n'),
+    ),
   };
 }
 

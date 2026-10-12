@@ -36,14 +36,22 @@ function adminAccountHistoryMatches(): RawBuilder<boolean> {
 }
 
 /** Disjoint actor branches keep system restrictions out of administrator attempt/restoration joins.
- * The persisted actor CHECK makes the two branches exhaustive, with one row per action. */
+ * The persisted actor CHECK makes the two branches exhaustive, with one row per action.
+ * Narrow audit/notice membership sets preserve every original binding without carrying
+ * joined metadata rows through the action history and restoration joins. Null tuples
+ * fail closed; physical IDs keep membership equivalent to the original unique joins. */
 function moderationActionSource(actor: 'system' | 'admin'): RawBuilder<unknown> {
   const isSystem = actor === 'system';
   return sql`
-SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
-    AND bound_audit.actor_type = action.actor_type
-    AND ${isSystem ? sql`bound_audit.actor_admin_id IS NULL` : sql`bound_audit.actor_admin_id = action.actor_admin_id`}
-    AND bound_audit.command_id = action.command_id AND bound_audit.request_id = action.request_id,false) AS "hasAudit",
+SELECT action.id, COALESCE(${
+    isSystem
+      ? sql`(action.audit_log_id, action.command_id, action.request_id) IN (
+      SELECT audit.id, audit.command_id, audit.request_id FROM platform.audit_logs audit
+      WHERE audit.actor_type = 'system' AND audit.actor_admin_id IS NULL)`
+      : sql`(action.audit_log_id, action.actor_admin_id, action.command_id, action.request_id) IN (
+      SELECT audit.id, audit.actor_admin_id, audit.command_id, audit.request_id
+      FROM platform.audit_logs audit WHERE audit.actor_type = 'admin')`
+  },false) AS "hasAudit",
     ${
       isSystem
         ? sql`true`
@@ -79,10 +87,12 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
     `
     } AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
-      OR COALESCE(bound_notice.id IS NOT NULL AND bound_notice.user_id = action.target_user_id
-        AND bound_notice.payload = '{}'::jsonb
-        AND bound_notice.notification_type = CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
-          WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END,false) AS "hasNotice",
+      OR COALESCE((action.notification_id, action.target_user_id,
+        CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
+          WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END) IN (
+        SELECT notice.id, notice.user_id, notice.notification_type
+        FROM notification.notifications notice WHERE notice.payload = '{}'::jsonb
+      ),false) AS "hasNotice",
     action.source_report_id IS NULL OR (source_report.id IS NOT NULL
         AND ((action.action_type IN ('create_internal_block','remove_internal_block')
             AND LEAST(source_report.reporter_user_id, source_report.target_user_id) = action.target_pair_low_user_id
@@ -110,11 +120,6 @@ SELECT action.id, COALESCE(bound_audit.id IS NOT NULL
       ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
     ) restoration ON true`
     }
-    -- Primary/unique keys identify one candidate. Every safety binding remains in
-    -- its flag rather than becoming an additional hash key for this lookup.
-    LEFT JOIN platform.audit_logs bound_audit ON bound_audit.id = action.audit_log_id
-      AND bound_audit.actor_type = ${actor}
-    LEFT JOIN notification.notifications bound_notice ON bound_notice.id = action.notification_id
     WHERE action.actor_type = ${actor}
 `;
 }

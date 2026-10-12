@@ -8,6 +8,18 @@ import {
 describe('privacy-safe bounded collector image startup', () => {
   it.each([
     ['503 Service Unavailable', 'collector_registry_transient', true],
+    ['500 Internal Server Error', 'collector_registry_transient', true],
+    ['net/http: request canceled', 'collector_registry_transient', true],
+    ['timeout awaiting response headers', 'collector_registry_transient', true],
+    ['network is unreachable', 'collector_registry_transient', true],
+    ['connection refused', 'collector_registry_transient', true],
+    ['connection aborted', 'collector_registry_transient', true],
+    ['operation timed out', 'collector_registry_transient', true],
+    ['read: EOF', 'collector_registry_transient', true],
+    ['no matching manifest for linux/amd64', 'collector_image_missing', false],
+    ['denied: invalid authorization token; 500', 'collector_registry_denied', false],
+    ['no space left on device; 503', 'collector_startup_unknown', false],
+    ['x509: certificate signed by unknown authority; timeout', 'collector_startup_unknown', false],
     ['429 Too Many Requests', 'collector_registry_transient', true],
     ['TLS handshake timeout', 'collector_registry_transient', true],
     ['read: connection reset by peer', 'collector_registry_transient', true],
@@ -76,6 +88,7 @@ describe('privacy-safe bounded collector image startup', () => {
       killed: false,
       stdoutPresent: true,
       stderrPresent: true,
+      failureKind: 'unknown',
     });
     expect(JSON.stringify(diagnostic)).not.toContain('private');
     for (const code of [-1, 256, 1.5, Infinity, 'private-code', undefined])
@@ -87,7 +100,23 @@ describe('privacy-safe bounded collector image startup', () => {
       killed: false,
       stdoutPresent: false,
       stderrPresent: false,
+      failureKind: 'unknown',
     });
+  });
+  it.each([
+    ['500 Internal Server Error', 'registry_server_error'],
+    ['request canceled', 'network_interrupted'],
+    ['no space left on device', 'runtime_storage_exhausted'],
+    ['x509: certificate signed by unknown authority', 'tls_verification_failed'],
+    ['no matching manifest for linux/amd64', 'image_platform_unsupported'],
+  ])('exposes only a fixed failure kind for %s', (stderr, failureKind) => {
+    const result = collectorStartupDiagnostic({
+      code: 1,
+      stderr: `${stderr}; private-token=https://private-endpoint`,
+      stdout: 'private-payload',
+    });
+    expect(result.failureKind).toBe(failureKind);
+    expect(JSON.stringify(result)).not.toContain('private');
   });
   it('preserves a denial anywhere in buffered process output before retryable transport text', () => {
     expect(
@@ -97,27 +126,30 @@ describe('privacy-safe bounded collector image startup', () => {
       }),
     ).toEqual({ code: 'collector_registry_denied', retryable: false });
   });
-  it('recovers a recognized transient pull with at most three attempts', async () => {
-    let attempts = 0;
-    const waits: number[] = [];
-    await pullCollectorImage(
-      () => {
-        if (++attempts < 3)
-          return Promise.reject(
-            Object.assign(new Error('Collector startup fixture'), {
-              stderr: '503 Service Unavailable',
-            }),
-          );
-        return Promise.resolve();
-      },
-      (ms) => {
-        waits.push(ms);
-        return Promise.resolve();
-      },
-    );
-    expect(attempts).toBe(3);
-    expect(waits).toEqual([1000, 2000]);
-  });
+  it.each(['503 Service Unavailable', '500 Internal Server Error', 'request canceled'])(
+    'recovers %s with at most three attempts',
+    async (stderr) => {
+      let attempts = 0;
+      const waits: number[] = [];
+      await pullCollectorImage(
+        () => {
+          if (++attempts < 3)
+            return Promise.reject(
+              Object.assign(new Error('Collector startup fixture'), {
+                stderr,
+              }),
+            );
+          return Promise.resolve();
+        },
+        (ms) => {
+          waits.push(ms);
+          return Promise.resolve();
+        },
+      );
+      expect(attempts).toBe(3);
+      expect(waits).toEqual([1000, 2000]);
+    },
+  );
   it('fails closed immediately for denied, missing and unknown images', async () => {
     for (const stderr of ['403 access denied', 'manifest unknown', 'private unknown diagnostic']) {
       let attempts = 0;
