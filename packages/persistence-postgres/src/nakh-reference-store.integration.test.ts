@@ -278,6 +278,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       '000110_m8_nakh_retained_links.sql',
       '000111_m8_funded_nakh_archival.sql',
       '000112_m8_pending_nakh_references.sql',
+      '000113_m8_pending_funding_binding.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database
@@ -595,6 +596,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
               creditProofCount: '1',
               paymentProofCount: '0',
               originalFundingLifeValid: String(fault !== 'credit-life'),
+              originalFundingBindingValid: 'false',
               originalReferenceValid: String(fault === 'credit-life'),
             },
           },

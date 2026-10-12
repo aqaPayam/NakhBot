@@ -1,5 +1,46 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: complete pending-backed funding proof
+
+Migration 113 requires the exact original pending reference in both credit and
+Stars funding predicates. Credit-backed settlement also requires its paid intent;
+a removed credit-to-intent link cannot disguise an originally pending flow as a
+direct credit payment. Genuine direct credit flows still pass without a pending
+reference. Reconciliation evaluates complete funding binding in addition to its
+existing independent life, reference and amount checks, preserving those flags'
+meaning. Deploy migration 113 before this reader. No catalog tables, columns or
+foreign keys change; coverage remains 134 tables, 1,232 columns and 250 keys.
+
+Native probes use actual pending settlement with credits and actual test-environment
+Stars receipt/fulfillment, followed by real deletion, evidence capture and delivered
+source archival. They damage both participant epochs, the original intent link,
+the reference or intent row, intent status/expiry and the credit-to-intent link.
+Run them before and after delivered archival. Twenty competing archival attempts
+must reject each unproven live source; twenty fulfilled Stars replays must reject
+each unproven original chain. Repeated scans retain one canonical quarantine,
+current funding health returns to zero after restoration, and source, money,
+provider, fulfillment, account, root and preview facts remain unchanged.
+Canonical anomaly detail retains its first observation; current health and full
+funding validity independently detect later fault variants.
+
+The first focused run lost an integration worker without an assertion failure or
+an established cause. Preserve that unexpected-exit diagnostic. A fresh complete
+run passed all 44 tests across four suites. The expanded status/expiry/link probes
+and broader upgrade/financial regression matrix then passed all 290 tests across
+23 suites, including thirty fault observations before and after delivered archival.
+Full project checks and all six exact-head CI jobs remain required for this candidate.
+
+Commit `8b2012b` passed the full local check (947 unit tests), 42 focused native
+tests and all six jobs in CI run `38164991395`: 780 native tests across 110 suites,
+all 27 plans, load, collector and backup/restore. Initial integrity took 1,159.438 ms
+and terminal integrity 1,491.366 ms against the unchanged 1,500 ms limit, with both
+required indexes, one worker and zero spill. Its tracked line count was 199,723.
+
+This strengthens existing funding authority; it does not remove pending/Flow
+bodies, grant refunds or complete a deletion checkpoint. Archived-charge
+correction, remaining product resources and later deletion checkpoints still
+require evidence. Fresh Return and retained-data release remain disabled.
+
 ## Current increment: missing pending payment records remain visible
 
 Pending reconciliation now starts from each ordinary pending source and left joins

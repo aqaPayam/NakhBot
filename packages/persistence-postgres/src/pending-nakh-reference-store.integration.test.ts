@@ -159,6 +159,7 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
     );
     expect(results.flatMap((result) => result.applied)).toEqual([
       '000112_m8_pending_nakh_references.sql',
+      '000113_m8_pending_funding_binding.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);

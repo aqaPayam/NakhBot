@@ -2,7 +2,7 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { AccountDeletionLease } from '@nakh/application';
+import { SettlePendingNakhesHandler, type AccountDeletionLease } from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations, verifyMigrations } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
@@ -20,6 +20,7 @@ import { PostgresDirectNakhStore } from './direct-nakh-store.js';
 import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
 import { PostgresPendingNakhStore } from './pending-nakh-store.js';
+import { PostgresPendingNakhSettlementStore } from './pending-nakh-settlement-store.js';
 import { PostgresFundingStore } from './funding-store.js';
 import { PostgresTelegramStarsReceiptStore } from './payment-receipt-store.js';
 import { PostgresNakhReconciliationStore } from './nakh-reconciliation-store.js';
@@ -33,7 +34,7 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
     isolated = await createIsolatedTestDatabase(url!, 'm8_nakh_archive');
     await runMigrations(isolated.url, resolve('migrations'));
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
-      '000112_m8_pending_nakh_references.sql',
+      '000113_m8_pending_funding_binding.sql',
     );
     database = createDatabase({
       url: isolated.url,
@@ -59,7 +60,7 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
   }
   async function scene(
     actions = 0,
-    funding: 'credits' | 'telegram_stars' = 'credits',
+    funding: 'credits' | 'pending_credits' | 'telegram_stars' = 'credits',
     accepted = false,
     leaseMs = 120000,
   ): Promise<{
@@ -144,76 +145,106 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
           flowEventId: randomUUID(),
           pendingEventId: randomUUID(),
         });
-        const cleartext = randomBytes(24).toString('base64url'),
-          digest = (value: string): string => createHash('sha256').update(value).digest('hex');
-        const attempt = await new PostgresFundingStore(database).prepareStarsAttempt({
-          paymentRecordId: randomUUID(),
-          fundingIntentId: pending.fundingIntentId,
-          expectedVersion: 1,
-          userId: sender,
-          idempotencyKey: randomUUID(),
-          providerEnvironment: 'test',
-          providerBotIdDigest: 'b'.repeat(64),
-          payload: {
-            cleartext,
-            digest: digest(cleartext),
-            ciphertext: randomBytes(64),
-            keyId: 'm8-archive-test',
-          },
-        });
-        const receipts = new PostgresTelegramStarsReceiptStore(
-          database,
-          { uuid: randomUUID },
-          { digest },
-        );
-        const identity = await database
-          .selectFrom('identity.telegram_identities')
-          .select('telegram_user_id')
-          .where('user_id', '=', sender)
-          .executeTakeFirstOrThrow();
-        const event = randomUUID();
-        expect(
-          await receipts.recordSuccessfulPayment({
-            providerEventId: event,
-            telegramUserId: identity.telegram_user_id,
-            invoicePayload: cleartext,
-            currency: 'XTR',
-            totalAmount: attempt.starsAmount,
+        if (funding === 'pending_credits') {
+          const credit = await new PostgresCreditLedgerStore(database).append({
+            transactionId: randomUUID(),
+            userId: sender,
+            transactionType: 'admin_adjustment',
+            amount: 2n,
+            idempotencyKey: randomUUID(),
+            correlationId: randomUUID(),
+          });
+          await new SettlePendingNakhesHandler(new PostgresPendingNakhSettlementStore(database), {
+            uuid: randomUUID,
+          }).execute({
+            senderUserId: sender,
+            triggerCreditTransactionId: credit.transactionId,
+            causationId: randomUUID(),
+          });
+          const pendingSource = await database
+            .selectFrom('nakh.pending_nakhes')
+            .select('nakh_flow_id')
+            .where('id', '=', pending.pendingNakhId)
+            .executeTakeFirstOrThrow();
+          nakhId = (
+            await database
+              .selectFrom('nakh.nakhes')
+              .select('id')
+              .where('nakh_flow_id', '=', pendingSource.nakh_flow_id)
+              .executeTakeFirstOrThrow()
+          ).id;
+        } else {
+          const cleartext = randomBytes(24).toString('base64url'),
+            digest = (value: string): string => createHash('sha256').update(value).digest('hex');
+          const attempt = await new PostgresFundingStore(database).prepareStarsAttempt({
+            paymentRecordId: randomUUID(),
+            fundingIntentId: pending.fundingIntentId,
+            expectedVersion: 1,
+            userId: sender,
+            idempotencyKey: randomUUID(),
             providerEnvironment: 'test',
             providerBotIdDigest: 'b'.repeat(64),
-            telegramChargeId: `synthetic:${randomUUID()}`,
-            evidence: {
-              digest: digest(event),
+            payload: {
+              cleartext,
+              digest: digest(cleartext),
               ciphertext: randomBytes(64),
               keyId: 'm8-archive-test',
-              schemaVersion: 1,
             },
-          }),
-        ).toMatchObject({ outcome: 'receipt_recorded' });
-        const fulfillment = (
-          await receipts.claimFulfillments({ owner: 'm8-archive', leaseMs: 120000, limit: 100 })
-        ).find((row) => row.paymentRecordId === attempt.paymentRecordId)!;
-        expect(fulfillment).toBeDefined();
-        nakhId = randomUUID();
-        const fulfillmentWrite = {
-          paymentRecordId: attempt.paymentRecordId,
-          owner: 'm8-archive',
-          fenceToken: fulfillment.fenceToken,
-          nakhId,
-          historyId: randomUUID(),
-          refundRecordId: randomUUID(),
-          deliveredEventId: randomUUID(),
-          paymentTerminalEventId: randomUUID(),
-        };
-        expect(await receipts.fulfillPendingNakh(fulfillmentWrite)).toMatchObject({
-          replayed: false,
-        });
-        replayFunding = () =>
-          receipts.fulfillPendingNakh({
-            ...fulfillmentWrite,
-            nakhId: randomUUID(),
-            historyId: randomUUID(),
           });
+          const receipts = new PostgresTelegramStarsReceiptStore(
+            database,
+            { uuid: randomUUID },
+            { digest },
+          );
+          const identity = await database
+            .selectFrom('identity.telegram_identities')
+            .select('telegram_user_id')
+            .where('user_id', '=', sender)
+            .executeTakeFirstOrThrow();
+          const event = randomUUID();
+          expect(
+            await receipts.recordSuccessfulPayment({
+              providerEventId: event,
+              telegramUserId: identity.telegram_user_id,
+              invoicePayload: cleartext,
+              currency: 'XTR',
+              totalAmount: attempt.starsAmount,
+              providerEnvironment: 'test',
+              providerBotIdDigest: 'b'.repeat(64),
+              telegramChargeId: `synthetic:${randomUUID()}`,
+              evidence: {
+                digest: digest(event),
+                ciphertext: randomBytes(64),
+                keyId: 'm8-archive-test',
+                schemaVersion: 1,
+              },
+            }),
+          ).toMatchObject({ outcome: 'receipt_recorded' });
+          const fulfillment = (
+            await receipts.claimFulfillments({ owner: 'm8-archive', leaseMs: 120000, limit: 100 })
+          ).find((row) => row.paymentRecordId === attempt.paymentRecordId)!;
+          expect(fulfillment).toBeDefined();
+          nakhId = randomUUID();
+          const fulfillmentWrite = {
+            paymentRecordId: attempt.paymentRecordId,
+            owner: 'm8-archive',
+            fenceToken: fulfillment.fenceToken,
+            nakhId,
+            historyId: randomUUID(),
+            refundRecordId: randomUUID(),
+            deliveredEventId: randomUUID(),
+            paymentTerminalEventId: randomUUID(),
+          };
+          expect(await receipts.fulfillPendingNakh(fulfillmentWrite)).toMatchObject({
+            replayed: false,
+          });
+          replayFunding = () =>
+            receipts.fulfillPendingNakh({
+              ...fulfillmentWrite,
+              nakhId: randomUUID(),
+              historyId: randomUUID(),
+            });
+        }
       }
       const delivered = new PostgresDeliveredNakhStore(database);
       if (actions > 0) {
@@ -497,6 +528,201 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
             replayed: true,
           });
       expect(await facts(item.lease)).toEqual(original);
+    },
+  );
+  it.each(['pending_credits', 'telegram_stars'] as const)(
+    'requires exact original pending funding for %s archival, reconciliation and replay',
+    async (funding) => {
+      const item = await scene(0, funding),
+        source = await database
+          .selectFrom('nakh.nakhes')
+          .selectAll()
+          .where('id', '=', item.nakhId)
+          .executeTakeFirstOrThrow(),
+        pending = await database
+          .selectFrom('nakh.pending_nakhes')
+          .selectAll()
+          .where('nakh_flow_id', '=', source.nakh_flow_id)
+          .executeTakeFirstOrThrow(),
+        anchor = await database
+          .selectFrom('nakh.pending_nakh_reference_anchors')
+          .selectAll()
+          .where('id', '=', pending.id)
+          .executeTakeFirstOrThrow(),
+        intent = await database
+          .selectFrom('billing.pending_payments')
+          .selectAll()
+          .where('id', '=', pending.pending_payment_id)
+          .executeTakeFirstOrThrow(),
+        credit =
+          source.credit_transaction_id === null
+            ? undefined
+            : await database
+                .selectFrom('billing.credit_transactions')
+                .selectAll()
+                .where('id', '=', source.credit_transaction_id)
+                .executeTakeFirstOrThrow(),
+        original = await facts(item.lease);
+      const valid = async (): Promise<boolean> =>
+        (
+          await sql<{ valid: boolean }>`SELECT
+        nakh.original_funded_scope_valid(${source.id}::uuid,${source.nakh_flow_id}::uuid,
+          ${source.sender_user_id}::uuid,${source.receiver_user_id}::uuid,${source.funding_type},
+          ${source.credit_transaction_id}::uuid,${source.payment_record_id}::uuid) AS valid`.execute(
+            database,
+          )
+        ).rows[0]!.valid;
+      for (const archived of [false, true]) {
+        if (archived)
+          expect(await store.purgeNext(item.lease)).toEqual({ purgedRows: 3, hasMore: false });
+        for (const fault of [
+          'sender-life',
+          'receiver-life',
+          'intent',
+          'missing-anchor',
+          'missing-intent',
+          'intent-status',
+          'intent-expiry',
+          ...(funding === 'pending_credits' ? (['missing-credit-link'] as const) : []),
+        ] as const) {
+          const before = await ordinary(item.nakhId);
+          await database.connection().execute(async (connection) => {
+            await sql`SET session_replication_role=replica`.execute(connection);
+            try {
+              if (fault === 'missing-credit-link')
+                await connection
+                  .updateTable('billing.credit_transactions')
+                  .set({ pending_payment_id: null })
+                  .where('id', '=', credit!.id)
+                  .execute();
+              else if (fault === 'intent-status')
+                await connection
+                  .updateTable('billing.pending_payments')
+                  .set({ status: 'expired' })
+                  .where('id', '=', intent.id)
+                  .execute();
+              else if (fault === 'intent-expiry')
+                await connection
+                  .updateTable('billing.pending_payments')
+                  .set({ expires_at: new Date(intent.expires_at.getTime() + 1000) })
+                  .where('id', '=', intent.id)
+                  .execute();
+              else if (fault === 'missing-intent')
+                await connection
+                  .deleteFrom('billing.pending_payments')
+                  .where('id', '=', intent.id)
+                  .execute();
+              else if (fault === 'missing-anchor')
+                await connection
+                  .deleteFrom('nakh.pending_nakh_reference_anchors')
+                  .where('id', '=', anchor.id)
+                  .execute();
+              else
+                await connection
+                  .updateTable('nakh.pending_nakh_reference_anchors')
+                  .set(
+                    fault === 'sender-life'
+                      ? { sender_product_epoch: anchor.sender_product_epoch + 1 }
+                      : fault === 'receiver-life'
+                        ? { receiver_product_epoch: anchor.receiver_product_epoch + 1 }
+                        : { pending_payment_id: randomUUID() },
+                  )
+                  .where('id', '=', anchor.id)
+                  .execute();
+            } finally {
+              await sql`SET session_replication_role=origin`.execute(connection);
+            }
+          });
+          try {
+            expect(await valid()).toBe(false);
+            const corrupted = await facts(item.lease);
+            if (!archived) {
+              for (const outcome of await Promise.allSettled(
+                Array.from({ length: 20 }, () => store.purgeNext(item.lease)),
+              )) {
+                expect(outcome.status).toBe('rejected');
+                if (outcome.status === 'rejected')
+                  expect(outcome.reason as unknown).toMatchObject({ code: 'conflict' });
+              }
+            }
+            if (item.replayFunding) {
+              for (const outcome of await Promise.allSettled(
+                Array.from({ length: 20 }, item.replayFunding),
+              )) {
+                expect(outcome.status).toBe('rejected');
+                if (outcome.status === 'rejected')
+                  expect(outcome.reason as unknown).toMatchObject({ code: 'conflict' });
+              }
+            }
+            for (let scan = 0; scan < 2; scan++) await reconcile();
+            expect(
+              await database
+                .selectFrom('billing.reconciliation_anomalies')
+                .select(['disposition', 'safe_detail'])
+                .where('entity_id', '=', item.nakhId)
+                .where('anomaly_type', '=', 'delivered_nakh_funding_proof_invalid')
+                .execute(),
+            ).toEqual([
+              {
+                disposition: 'quarantined',
+                safe_detail: {
+                  fundingType: source.funding_type,
+                  creditProofCount: funding === 'pending_credits' ? '1' : '0',
+                  paymentProofCount: funding === 'telegram_stars' ? '1' : '0',
+                  // Canonical findings retain the first sender-life observation.
+                  originalFundingLifeValid: 'true',
+                  originalReferenceValid: 'true',
+                  originalFundingBindingValid: 'false',
+                },
+              },
+            ]);
+            expect(
+              (await new PostgresNakhOperationalMetricsStore(database).measure())
+                .fundingInvariantMismatchCount,
+            ).toBe(1);
+            expect(await ordinary(item.nakhId)).toEqual(before);
+            expect(await facts(item.lease)).toEqual(corrupted);
+          } finally {
+            await database.connection().execute(async (connection) => {
+              await sql`SET session_replication_role=replica`.execute(connection);
+              try {
+                if (credit !== undefined)
+                  await connection
+                    .updateTable('billing.credit_transactions')
+                    .set({ pending_payment_id: credit.pending_payment_id })
+                    .where('id', '=', credit.id)
+                    .execute();
+                await connection
+                  .insertInto('billing.pending_payments')
+                  .values(intent)
+                  .onConflict((conflict) => conflict.column('id').doUpdateSet(intent))
+                  .execute();
+                await connection
+                  .insertInto('nakh.pending_nakh_reference_anchors')
+                  .values(anchor)
+                  .onConflict((conflict) => conflict.column('id').doUpdateSet(anchor))
+                  .execute();
+              } finally {
+                await sql`SET session_replication_role=origin`.execute(connection);
+              }
+            });
+          }
+          expect(await valid()).toBe(true);
+          await reconcile();
+          expect(
+            (await new PostgresNakhOperationalMetricsStore(database).measure())
+              .fundingInvariantMismatchCount,
+          ).toBe(0);
+          expect(await facts(item.lease)).toEqual(original);
+        }
+        if (item.replayFunding)
+          for (const result of await Promise.all(Array.from({ length: 20 }, item.replayFunding)))
+            expect(result).toMatchObject({
+              outcome: 'fulfilled',
+              nakhId: item.nakhId,
+              replayed: true,
+            });
+      }
     },
   );
   it('keeps history/source during a partial batch and denies receipt reuse in another transaction', async () => {

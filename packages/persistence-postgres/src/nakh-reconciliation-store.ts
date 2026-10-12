@@ -387,6 +387,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
       creditProofCount: number;
       paymentProofCount: number;
       originalFundingLifeValid: boolean;
+      originalFundingBindingValid: boolean;
       originalReferenceValid: boolean;
       historyCount: number;
       historyMinVersion: number | null;
@@ -399,6 +400,9 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         delivered.funding_type AS "fundingType",
         delivered.status,
         delivered.version,
+        nakh.original_funded_scope_valid(delivered.id,delivered.nakh_flow_id,
+          delivered.sender_user_id,delivered.receiver_user_id,delivered.funding_type,
+          delivered.credit_transaction_id,delivered.payment_record_id) AS "originalFundingBindingValid",
         nakh.original_funding_scope_life_valid(delivered.id,delivered.nakh_flow_id,
           delivered.sender_user_id,delivered.receiver_user_id,delivered.funding_type,
           delivered.credit_transaction_id,delivered.payment_record_id) AS "originalFundingLifeValid",
@@ -441,6 +445,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
     const findings: Finding[] = [];
     for (const row of rows.rows) {
       const fundingValid =
+        row.originalFundingBindingValid &&
         row.originalFundingLifeValid &&
         row.originalReferenceValid &&
         (row.fundingType === 'credits'
@@ -457,6 +462,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
             creditProofCount: String(row.creditProofCount),
             paymentProofCount: String(row.paymentProofCount),
             originalFundingLifeValid: String(row.originalFundingLifeValid),
+            originalFundingBindingValid: String(row.originalFundingBindingValid),
             originalReferenceValid: String(row.originalReferenceValid),
           },
         });
