@@ -459,6 +459,8 @@ export interface NakhReferenceAnchorTable {
   receiver_product_epoch: number;
 }
 
+export type FlowReferenceAnchorTable = Omit<NakhReferenceAnchorTable, 'nakh_flow_id'>;
+
 export interface PendingNakhReferenceAnchorTable extends NakhReferenceAnchorTable {
   pending_payment_id: string;
 }
@@ -1358,6 +1360,7 @@ export interface DatabaseSchema {
   'interaction.current_like_lives': LikeTable;
   'matching.current_match_lives': MatchTable;
   'nakh.nakh_reference_anchors': NakhReferenceAnchorTable;
+  'nakh.flow_reference_anchors': FlowReferenceAnchorTable;
   'nakh.pending_nakh_reference_anchors': PendingNakhReferenceAnchorTable;
   'nakh.pending_nakhes': PendingNakhTable;
   'nakh.nakhes': NakhTable;

@@ -126,9 +126,9 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
     ).rows;
     await runMigrations(isolated.url, resolve('migrations'));
     await runMigrations(isolated.url, resolve('migrations'));
-    expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
-      '000115_m8_terminal_pending_archival.sql',
-    );
+    const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
+    expect(verified).toContain('000115_m8_terminal_pending_archival.sql');
+    expect(verified).toContain('000116_m8_flow_references.sql');
     expect(await facts(historical.lease)).toEqual(paidBefore);
     expect(await facts(terminal.lease)).toEqual(terminalBefore);
     expect(
@@ -2065,9 +2065,14 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
       expect(await facts(item.lease)).toEqual(original);
     },
   );
-  it.each(['pending_credits', 'telegram_stars'] as const)(
-    'requires exact original pending funding for %s archival, reconciliation and replay',
-    async (funding) => {
+  it.each([
+    { funding: 'pending_credits', archived: false },
+    { funding: 'pending_credits', archived: true },
+    { funding: 'telegram_stars', archived: false },
+    { funding: 'telegram_stars', archived: true },
+  ] as const)(
+    'requires exact original $funding funding with archived=$archived for archival, reconciliation and replay',
+    async ({ funding, archived }) => {
       const item = await scene(0, funding),
         source = await database
           .selectFrom('nakh.nakhes')
@@ -2111,165 +2116,163 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
         await sql<{ saved: Record<string, unknown> }>`SELECT to_jsonb(intent) AS saved
           FROM billing.pending_payments intent WHERE id=${intent.id}::uuid`.execute(database)
       ).rows[0]!.saved;
-      for (const archived of [false, true]) {
-        if (archived)
-          expect(await store.purgeNext(item.lease)).toEqual({ purgedRows: 3, hasMore: false });
-        for (const fault of [
-          'sender-life',
-          'receiver-life',
-          'intent',
-          'missing-anchor',
-          'missing-intent',
-          'intent-status',
-          'intent-expiry',
-          ...(funding === 'pending_credits' ? (['missing-credit-link'] as const) : []),
-        ] as const) {
-          const before = await ordinary(item.nakhId);
+      if (archived)
+        expect(await store.purgeNext(item.lease)).toEqual({ purgedRows: 3, hasMore: false });
+      for (const fault of [
+        'sender-life',
+        'receiver-life',
+        'intent',
+        'missing-anchor',
+        'missing-intent',
+        'intent-status',
+        'intent-expiry',
+        ...(funding === 'pending_credits' ? (['missing-credit-link'] as const) : []),
+      ] as const) {
+        const before = await ordinary(item.nakhId);
+        await database.connection().execute(async (connection) => {
+          await sql`SET session_replication_role=replica`.execute(connection);
+          try {
+            if (fault === 'missing-credit-link')
+              await connection
+                .updateTable('billing.credit_transactions')
+                .set({ pending_payment_id: null })
+                .where('id', '=', credit!.id)
+                .execute();
+            else if (fault === 'intent-status')
+              await connection
+                .updateTable('billing.pending_payments')
+                .set({ status: 'expired' })
+                .where('id', '=', intent.id)
+                .execute();
+            else if (fault === 'intent-expiry')
+              await connection
+                .updateTable('billing.pending_payments')
+                .set({ expires_at: new Date(intent.expires_at.getTime() + 1000) })
+                .where('id', '=', intent.id)
+                .execute();
+            else if (fault === 'missing-intent')
+              await connection
+                .deleteFrom('billing.pending_payments')
+                .where('id', '=', intent.id)
+                .execute();
+            else if (fault === 'missing-anchor')
+              await connection
+                .deleteFrom('nakh.pending_nakh_reference_anchors')
+                .where('id', '=', anchor.id)
+                .execute();
+            else
+              await connection
+                .updateTable('nakh.pending_nakh_reference_anchors')
+                .set(
+                  fault === 'sender-life'
+                    ? { sender_product_epoch: anchor.sender_product_epoch + 1 }
+                    : fault === 'receiver-life'
+                      ? { receiver_product_epoch: anchor.receiver_product_epoch + 1 }
+                      : { pending_payment_id: randomUUID() },
+                )
+                .where('id', '=', anchor.id)
+                .execute();
+          } finally {
+            await sql`SET session_replication_role=origin`.execute(connection);
+          }
+        });
+        try {
+          expect(await valid()).toBe(false);
+          const corrupted = await facts(item.lease);
+          if (!archived) {
+            for (const outcome of await Promise.allSettled(
+              Array.from({ length: 20 }, () => store.purgeNext(item.lease)),
+            )) {
+              expect(outcome.status).toBe('rejected');
+              if (outcome.status === 'rejected')
+                expect(outcome.reason as unknown).toMatchObject({ code: 'conflict' });
+            }
+          }
+          if (item.replayFunding) {
+            for (const outcome of await Promise.allSettled(
+              Array.from({ length: 20 }, item.replayFunding),
+            )) {
+              expect(outcome.status).toBe('rejected');
+              if (outcome.status === 'rejected')
+                expect(outcome.reason as unknown).toMatchObject({ code: 'conflict' });
+            }
+          }
+          for (let scan = 0; scan < 2; scan++) await reconcile();
+          expect(
+            await database
+              .selectFrom('billing.reconciliation_anomalies')
+              .select(['disposition', 'safe_detail'])
+              .where('entity_id', '=', item.nakhId)
+              .where('anomaly_type', '=', 'delivered_nakh_funding_proof_invalid')
+              .execute(),
+          ).toEqual([
+            {
+              disposition: 'quarantined',
+              safe_detail: {
+                fundingType: source.funding_type,
+                creditProofCount: funding === 'pending_credits' ? '1' : '0',
+                paymentProofCount: funding === 'telegram_stars' ? '1' : '0',
+                // Canonical findings retain the first sender-life observation.
+                originalFundingLifeValid: 'true',
+                originalReferenceValid: 'true',
+                originalFundingBindingValid: 'false',
+              },
+            },
+          ]);
+          expect(
+            (await new PostgresNakhOperationalMetricsStore(database).measure())
+              .fundingInvariantMismatchCount,
+            // Both source entities are unhealthy; removing only a credit-to-intent
+            // link damages the delivered funding proof without damaging pending.
+          ).toBe(fault === 'missing-credit-link' ? 1 : 2);
+          expect(await ordinary(item.nakhId)).toEqual(before);
+          expect(await facts(item.lease)).toEqual(corrupted);
+        } finally {
           await database.connection().execute(async (connection) => {
             await sql`SET session_replication_role=replica`.execute(connection);
             try {
-              if (fault === 'missing-credit-link')
+              if (credit !== undefined)
                 await connection
                   .updateTable('billing.credit_transactions')
-                  .set({ pending_payment_id: null })
-                  .where('id', '=', credit!.id)
+                  .set({ pending_payment_id: credit.pending_payment_id })
+                  .where('id', '=', credit.id)
                   .execute();
-              else if (fault === 'intent-status')
-                await connection
-                  .updateTable('billing.pending_payments')
-                  .set({ status: 'expired' })
-                  .where('id', '=', intent.id)
-                  .execute();
-              else if (fault === 'intent-expiry')
-                await connection
-                  .updateTable('billing.pending_payments')
-                  .set({ expires_at: new Date(intent.expires_at.getTime() + 1000) })
-                  .where('id', '=', intent.id)
-                  .execute();
-              else if (fault === 'missing-intent')
-                await connection
-                  .deleteFrom('billing.pending_payments')
-                  .where('id', '=', intent.id)
-                  .execute();
-              else if (fault === 'missing-anchor')
-                await connection
-                  .deleteFrom('nakh.pending_nakh_reference_anchors')
-                  .where('id', '=', anchor.id)
-                  .execute();
-              else
-                await connection
-                  .updateTable('nakh.pending_nakh_reference_anchors')
-                  .set(
-                    fault === 'sender-life'
-                      ? { sender_product_epoch: anchor.sender_product_epoch + 1 }
-                      : fault === 'receiver-life'
-                        ? { receiver_product_epoch: anchor.receiver_product_epoch + 1 }
-                        : { pending_payment_id: randomUUID() },
-                  )
-                  .where('id', '=', anchor.id)
-                  .execute();
+              await connection
+                .insertInto('billing.pending_payments')
+                .values(intent)
+                .onConflict((conflict) => conflict.column('id').doUpdateSet(intent))
+                .execute();
+              // JS Date drops native microseconds. Preserve the exact original
+              // financial timestamps even when a physically missing row is restored.
+              await sql`UPDATE billing.pending_payments intent
+                  SET created_at=restored.created_at,expires_at=restored.expires_at,resolved_at=restored.resolved_at
+                  FROM jsonb_populate_record(NULL::billing.pending_payments,${JSON.stringify(originalIntent)}::jsonb) restored
+                  WHERE intent.id=restored.id`.execute(connection);
+              await connection
+                .insertInto('nakh.pending_nakh_reference_anchors')
+                .values(anchor)
+                .onConflict((conflict) => conflict.column('id').doUpdateSet(anchor))
+                .execute();
             } finally {
               await sql`SET session_replication_role=origin`.execute(connection);
             }
           });
-          try {
-            expect(await valid()).toBe(false);
-            const corrupted = await facts(item.lease);
-            if (!archived) {
-              for (const outcome of await Promise.allSettled(
-                Array.from({ length: 20 }, () => store.purgeNext(item.lease)),
-              )) {
-                expect(outcome.status).toBe('rejected');
-                if (outcome.status === 'rejected')
-                  expect(outcome.reason as unknown).toMatchObject({ code: 'conflict' });
-              }
-            }
-            if (item.replayFunding) {
-              for (const outcome of await Promise.allSettled(
-                Array.from({ length: 20 }, item.replayFunding),
-              )) {
-                expect(outcome.status).toBe('rejected');
-                if (outcome.status === 'rejected')
-                  expect(outcome.reason as unknown).toMatchObject({ code: 'conflict' });
-              }
-            }
-            for (let scan = 0; scan < 2; scan++) await reconcile();
-            expect(
-              await database
-                .selectFrom('billing.reconciliation_anomalies')
-                .select(['disposition', 'safe_detail'])
-                .where('entity_id', '=', item.nakhId)
-                .where('anomaly_type', '=', 'delivered_nakh_funding_proof_invalid')
-                .execute(),
-            ).toEqual([
-              {
-                disposition: 'quarantined',
-                safe_detail: {
-                  fundingType: source.funding_type,
-                  creditProofCount: funding === 'pending_credits' ? '1' : '0',
-                  paymentProofCount: funding === 'telegram_stars' ? '1' : '0',
-                  // Canonical findings retain the first sender-life observation.
-                  originalFundingLifeValid: 'true',
-                  originalReferenceValid: 'true',
-                  originalFundingBindingValid: 'false',
-                },
-              },
-            ]);
-            expect(
-              (await new PostgresNakhOperationalMetricsStore(database).measure())
-                .fundingInvariantMismatchCount,
-              // Both source entities are unhealthy; removing only a credit-to-intent
-              // link damages the delivered funding proof without damaging pending.
-            ).toBe(fault === 'missing-credit-link' ? 1 : 2);
-            expect(await ordinary(item.nakhId)).toEqual(before);
-            expect(await facts(item.lease)).toEqual(corrupted);
-          } finally {
-            await database.connection().execute(async (connection) => {
-              await sql`SET session_replication_role=replica`.execute(connection);
-              try {
-                if (credit !== undefined)
-                  await connection
-                    .updateTable('billing.credit_transactions')
-                    .set({ pending_payment_id: credit.pending_payment_id })
-                    .where('id', '=', credit.id)
-                    .execute();
-                await connection
-                  .insertInto('billing.pending_payments')
-                  .values(intent)
-                  .onConflict((conflict) => conflict.column('id').doUpdateSet(intent))
-                  .execute();
-                // JS Date drops native microseconds. Preserve the exact original
-                // financial timestamps even when a physically missing row is restored.
-                await sql`UPDATE billing.pending_payments intent
-                  SET created_at=restored.created_at,expires_at=restored.expires_at,resolved_at=restored.resolved_at
-                  FROM jsonb_populate_record(NULL::billing.pending_payments,${JSON.stringify(originalIntent)}::jsonb) restored
-                  WHERE intent.id=restored.id`.execute(connection);
-                await connection
-                  .insertInto('nakh.pending_nakh_reference_anchors')
-                  .values(anchor)
-                  .onConflict((conflict) => conflict.column('id').doUpdateSet(anchor))
-                  .execute();
-              } finally {
-                await sql`SET session_replication_role=origin`.execute(connection);
-              }
-            });
-          }
-          expect(await valid()).toBe(true);
-          await reconcile();
-          expect(
-            (await new PostgresNakhOperationalMetricsStore(database).measure())
-              .fundingInvariantMismatchCount,
-          ).toBe(0);
-          expect(await facts(item.lease)).toEqual(original);
         }
-        if (item.replayFunding)
-          for (const result of await Promise.all(Array.from({ length: 20 }, item.replayFunding)))
-            expect(result).toMatchObject({
-              outcome: 'fulfilled',
-              nakhId: item.nakhId,
-              replayed: true,
-            });
+        expect(await valid()).toBe(true);
+        await reconcile();
+        expect(
+          (await new PostgresNakhOperationalMetricsStore(database).measure())
+            .fundingInvariantMismatchCount,
+        ).toBe(0);
+        expect(await facts(item.lease)).toEqual(original);
       }
+      if (item.replayFunding)
+        for (const result of await Promise.all(Array.from({ length: 20 }, item.replayFunding)))
+          expect(result).toMatchObject({
+            outcome: 'fulfilled',
+            nakhId: item.nakhId,
+            replayed: true,
+          });
     },
   );
   it('keeps history/source during a partial batch and denies receipt reuse in another transaction', async () => {

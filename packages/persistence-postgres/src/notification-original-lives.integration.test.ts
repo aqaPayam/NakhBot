@@ -120,6 +120,7 @@ describe.skipIf(url === undefined)('M8 populated original notification-life upgr
       '000113_m8_pending_funding_binding.sql',
       '000114_m8_paid_pending_archival.sql',
       '000115_m8_terminal_pending_archival.sql',
+      '000116_m8_flow_references.sql',
     ]);
     expect(await snapshot()).toEqual(original);
     expect(

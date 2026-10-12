@@ -1,5 +1,41 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: minimal original Flow references
+
+Repair `ffd2d5f` passed all six exact-head CI jobs in run `38193390260`,
+all 823 native tests in 110 suites, all 27 unchanged query plans, load checks
+and CI backup/restore. Terminal integrity took 1,207.14 ms against 1,500 ms,
+retaining both required indexes, one worker and no temporary blocks.
+
+Migration 116 records only the original Flow ID, sender, receiver and both
+product epochs. Populated migration refuses disagreement with delivered or
+pending original references. New Flow insertion creates its exact reference in
+the same transaction; deferred guards reject missing or mismatched proof.
+References are immutable, preserve original directional uniqueness per exact
+participant lives and reject retired Flow ID reuse. Current Account admission,
+ordinary Flow immutability and all original financial/source checks remain.
+No timestamp, text, transport key or new funding authority is retained here.
+Flow removal and historical financial readers require a later archival increment;
+phase 3 is unfinished, return and retained-data release remain disabled.
+Full local checks, native migration/concurrency evidence and all six exact-head
+CI jobs remain required before acceptance.
+
+Native verification passed 91 cases across five Flow/reference/registry/upgrade
+suites, including all ten new Flow cases and populated paid/unpaid deleted lives
+under twenty migration races. The affected dependency batch passed nine suites
+with 60 cases; its archival suite passed 55 cases and timed out in the combined
+Stars funding corruption matrix. That matrix also timed out in an isolated rerun.
+Its complete pre-archival and archived matrices now run as independent lifecycle
+cases with every fault, twenty-way retry, reconciliation/restoration assertion and
+unchanged 60-second per-case limit retained. All 58 archival cases then passed,
+giving 209 distinct passing native cases across 15 suites. The earlier type check
+also caught a two-argument migration matcher; separate assertions preserve both
+migration checks. Failed logs remain retained. No production proof or performance
+gate is relaxed. The final full project check passed formatting, lint, all 17
+workspace type checks, all 966 unit tests in 218 suites and every build. All six
+exact-head CI jobs remain required before this increment is accepted.
+
+
 ## Current repair: narrow original threshold action candidates
 
 Commit `d40fa82` passed the full local project check and five exact-head CI jobs

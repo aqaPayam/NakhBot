@@ -9216,6 +9216,53 @@
           "definition": "FOREIGN KEY (pending_nakh_id) REFERENCES nakh.pending_nakh_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
+    },
+    {
+      "table": "nakh.flow_reference_anchors",
+      "owner": "nakh",
+      "classification": "retained_compliance",
+      "action": "approved_policy_release",
+      "purpose": "minimal_original_flow_direction_and_participant_lives",
+      "subjectScope": ":userId IN (row.sender_user_id,row.receiver_user_id)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "sender_user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "receiver_user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "sender_product_epoch",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "receiver_product_epoch",
+          "type": "integer",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (receiver_user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (sender_user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        }
+      ]
     }
   ],
   "objectPrefixes": [
