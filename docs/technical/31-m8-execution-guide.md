@@ -1,6 +1,90 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
-## Current increment: audited paid pending body archival
+## Current increment: audited terminal unpaid pending body archival
+
+Migration 115 removes one cancelled, expired or system-closed unpaid pending body
+per owning phase-3 transaction. The immutable content-free receipt binds its
+original version, expiry, terminal time and cancellation resolution to the original
+participants, deletion life, full transaction ID, current lease and mandatory
+audit/event. Complete original intent and captured-money/refund proof is required;
+queued fulfillment cannot lose its target. Receipt insertion, body deletion, audit
+and event are checked individually, then rechecked with the live lease at commit.
+No Flow, financial record, lifetime preview usage or phase progress is removed.
+
+The lifecycle reader preserves archived terminal sources and missing-proof
+sentinels. Full reconciliation and shared financial blockers reject damaged
+receipts, original references and refund ownership/amount. Current funding-health
+observations count each affected pending or delivered entity once, including
+repeated scans with an existing canonical anomaly. Restoring complete proof and
+finishing a clean scan clears current health. Historical proof survives expired
+transport and worker leases, without granting new removal authority.
+
+The first isolated corruption run exposed a health counter that reported only
+delivered funding findings. The counter and Flow reader were repaired; all five
+terminal corruption/restoration cases then passed. The first combined run exposed
+expensive verification of unrelated archived sources before participant filtering,
+causing concurrent checkpoint conflicts. An explicit materialized participant
+scope preserves every proof condition while evaluating full closure only for
+the owning records. The unchanged timeouts and twenty-way race assertions remain
+required. The failed logs are retained; no failed candidate was committed.
+
+The first scoped rerun passed 79 tests and exposed three remaining failures:
+the large action race still paid for unrelated pending lookups, and two original
+funding tests expected only the delivered entity in health. Conservative candidate
+discovery now precedes the lifecycle proof and includes an archived terminal
+receipt's original deletion root; a candidate alone grants no authority. Damaged
+pending and delivered entities count separately, while multiple findings for one
+pending entity count once. The unchanged 205-action/twenty-retry test then passed.
+A new receipt-before-expiry fixture initially expected the claimed worker state
+instead of `receipt_recorded`; its corrected run uses actual admission, database
+clock expiry and delayed worker correction, with one original refund and no delivery.
+
+The complete original-funding corruption matrix subsequently exceeded its unchanged
+60-second limit. A read-only plan measured repeated pending verification at about
+3,000 ms; the base lifecycle scan took under 1 ms. Rolled-back comparisons retained
+every predicate and identified repeated expansion of terminal receipt proof through
+the readers. A cached complete predicate reduced diagnostic reference verification
+from 894 to 290 ms and closure/bound-closure from 924/1,061 to 157/136 ms. This is
+local diagnostic evidence, not CI performance acceptance. The full native matrix,
+project check and six exact-head jobs remain required on the repaired candidate.
+
+The optimized archival run passed 54 of 55 tests; the remaining exact-preservation
+failure exposed JavaScript Date truncating native financial timestamp microseconds
+in a physical-corruption restoration fixture. Restoring the exact saved native
+timestamps retained the stronger assertion. The final complete 23-suite regression
+run passed all 330 tests, including all 55 archival cases and the populated migration
+matrix. A subsequently added focused native overlap test passed: ten archival calls
+and ten genuine capture calls committed one body removal, one receipt and one
+original payer/charge/amount refund without deadlock or new delivery. The other 55
+cases were intentionally filtered in that focused run, not claimed as additional
+passes. Receiver-owned historical proof also remains valid in Asia/Tehran after
+transport loss and worker lease release. The first full project check stopped on
+the fixture helper's missing explicit return type; its annotation was repaired
+without changing runtime behavior. The fresh full project check passed formatting,
+lint, all 17 workspace type checks, all 966 unit tests in 218 suites and every build.
+All six exact-head CI jobs remain required before the next feature.
+
+Populated migration evidence starts under 114 with an already archived paid source
+and a live version-6 terminal unpaid source. Applying and replaying 115 preserves
+their exact original financial, reference, Flow, root, account and preview facts
+and the old paid receipt; it invents no terminal receipt or progress. The current
+executor then archives the terminal source. Native acceptance passed as recorded
+above; the full project check passed and six exact-head CI jobs remain required.
+
+Catalog coverage is 136 tables, 1,261 columns and 257 foreign keys. Deploy 115 before
+the new reader. Remaining product deletion, later checkpoints, media/provider and
+ephemeral verification, manifests, fresh Return and worker/ingress composition
+still require implementation and evidence. Retained-data release and fresh Return
+remain disabled; no retention periods or external sign-offs have been supplied.
+
+## Previous increment: audited paid pending body archival
+
+Commit `09f1f92` passed the full project check (966 unit tests), the final 100-test
+native rerun and all six exact-head CI jobs in run `38181487646`. CI passed 800
+native tests in 110 suites, all 27 plans, concurrency load, collector privacy and
+backup/restore. Initial integrity took 711.350 ms and terminal integrity 938.270 ms
+against the unchanged 1,500 ms limit, with both required indexes, one worker,
+zero temporary/disk spill and single-batch hashes. Its tracked count was 201,407.
 
 Repair commit `d830409` passed the full project check (966 unit tests), 50 focused
 native tests and all six exact-head jobs in CI run `38174316840`. The PostgreSQL
@@ -44,8 +128,8 @@ Twenty requests split between both participant deletion roots archive once.
 The broader run passed 250 tests; its remaining failures were outdated migration
 totals and the exact rejecting guard expectation. The complete repaired four-suite
 rerun passed 100 tests, including all historical migration baselines, original-life
-rollback, archival and registry coverage. Full checks and all six exact-head jobs
-remain required before acceptance.
+rollback, archival and registry coverage. The complete local check and all six
+exact-head CI jobs subsequently passed as recorded above.
 
 This removes paid pending text only. Unpaid terminal pending sources, Flow/product
 purge, remaining checkpoints, media/provider proofs and fresh Return still require

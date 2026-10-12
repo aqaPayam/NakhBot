@@ -131,9 +131,17 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
             .length,
         fundingInvariantMismatchCount:
           previous.fundingInvariantMismatchCount +
-          batch.findings.filter(
-            (finding) => finding.anomalyType === 'delivered_nakh_funding_proof_invalid',
-          ).length,
+          new Set(
+            batch.findings
+              .filter((finding) =>
+                [
+                  'delivered_nakh_funding_proof_invalid',
+                  'pending_nakh_payment_binding_invalid',
+                  'pending_nakh_payment_status_drift',
+                ].includes(finding.anomalyType),
+              )
+              .map((finding) => `${finding.entityType}:${finding.entityId}`),
+          ).size,
       });
 
       let anomalyCount = 0;
@@ -201,15 +209,17 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
     const rows = await sql<{
       id: string;
       pendingStatus: string | null;
+      pendingShapeValid: boolean | null;
       pendingCount: number;
       deliveredCount: number;
     }>`
       SELECT flow.id,
         max(pending.status) AS "pendingStatus",
+        bool_and(pending.shape_valid) AS "pendingShapeValid",
         count(DISTINCT pending.id)::integer AS "pendingCount",
         count(DISTINCT delivered.id)::integer AS "deliveredCount"
       FROM nakh.nakh_flows flow
-      LEFT JOIN nakh.pending_nakhes pending ON pending.nakh_flow_id = flow.id
+      LEFT JOIN nakh.pending_nakh_lifecycle_facts pending ON pending.nakh_flow_id = flow.id
       LEFT JOIN nakh.nakh_lifecycle_facts delivered ON delivered.nakh_flow_id = flow.id
       WHERE (${cursor.lastId ?? null}::uuid IS NULL OR flow.id > ${cursor.lastId ?? null}::uuid)
       GROUP BY flow.id
@@ -223,6 +233,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         row.deliveredCount <= 1 &&
         ((row.pendingCount === 0 && row.deliveredCount === 1) ||
           (row.pendingCount === 1 &&
+            row.pendingShapeValid === true &&
             ((row.pendingStatus === 'paid_and_sent' && row.deliveredCount === 1) ||
               (row.pendingStatus !== 'paid_and_sent' && row.deliveredCount === 0))));
       if (!valid)
@@ -302,6 +313,7 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
       paymentExpiresAt: Date | null;
       paymentStatus: string | null;
       boundClosure: boolean;
+      terminalClosureValid: boolean;
       originalReferenceValid: boolean;
     }>`
       SELECT pending.id,
@@ -316,7 +328,9 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         payment.status AS "paymentStatus",
         nakh.original_pending_reference_valid(pending.id) AS "originalReferenceValid",
         CASE WHEN pending.status='closed_by_system' THEN billing.pending_nakh_has_bound_closure(pending.id)
-          ELSE false END AS "boundClosure"
+          ELSE false END AS "boundClosure",
+        CASE WHEN pending.status IN ('cancelled','expired','closed_by_system')
+          THEN nakh.terminal_pending_closure_valid(pending) ELSE false END AS "terminalClosureValid"
       FROM nakh.pending_nakh_lifecycle_facts pending
       LEFT JOIN billing.pending_payments payment ON payment.id = pending.pending_payment_id
       WHERE (${cursor.lastId ?? null}::uuid IS NULL OR pending.id > ${cursor.lastId ?? null}::uuid)
@@ -352,8 +366,9 @@ export class PostgresNakhReconciliationStore implements NakhReconciliationStore 
         });
       if (
         row.paymentStatus === null ||
-        (row.pendingStatus === 'closed_by_system'
-          ? !row.boundClosure
+        (['cancelled', 'expired', 'closed_by_system'].includes(row.pendingStatus)
+          ? !row.terminalClosureValid ||
+            (row.pendingStatus === 'closed_by_system' && !row.boundClosure)
           : expectedPaymentStatus[row.pendingStatus] !== row.paymentStatus)
       )
         findings.push({

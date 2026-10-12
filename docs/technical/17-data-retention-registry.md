@@ -4,13 +4,35 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migration 115's terminal unpaid archival receipt brings coverage to 136 tables,
+1,261 columns and 257 foreign keys. It retains the original terminal status,
+version, expiry, terminal time and cancellation resolution with the deletion,
+transaction, lease and audit/event bindings. It contains no message body or
+request/action hash. The same lifecycle policy requires approved release; release
+remains disabled. Applying this migration does not authorize whole-purge completion
+or fresh Return. Native acceptance passed 330 tests across 23 suites and the
+additional overlapping capture/archival race. The full project check passed;
+all six exact-head CI checks remain required.
+
+Migration 114 brings the code-owned inventory to 135 tables, 1,246 columns and
+254 foreign keys. Its new immutable paid-pending archival receipt retains only
+original identity, terminal scalars, transaction/lease bindings and audit/event
+references. It retains no message text or request/action hash. Policy-approved
+release remains disabled. Original financial records, participant references,
+Flows and lifetime preview usage are preserved.
+
+Migration 112 adds original pending-funding identity references; migration 111
+adds bounded delivered-Nakh archival receipts. Migration 113 strengthens their
+original funding proof without changing catalog counts. None grants a fresh
+product life, whole-purge completion or retained-data release.
+
 Migration 103 adds a derived read-only support closure proof view and reuses it
 in the historical helper. It creates no retained entity or new user data; the
 130-table inventory and deletion policies remain unchanged. Live lease and
 commit authority, retained transcript access and disabled release are preserved.
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 109: 132 tables, 1,209 columns and 244 foreign keys.
+code-owned M8 catalog inventory for migration 115: 136 tables, 1,261 columns and 257 foreign keys.
 
 Migration 109 binds notification history to an immutable original recipient epoch.
 Legacy history is accepted only with provable original epoch zero; ambiguous

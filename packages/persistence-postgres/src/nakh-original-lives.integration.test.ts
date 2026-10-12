@@ -165,6 +165,7 @@ describe.skipIf(url === undefined)('M8 populated original Nakh-life upgrade', ()
       '000112_m8_pending_nakh_references.sql',
       '000113_m8_pending_funding_binding.sql',
       '000114_m8_paid_pending_archival.sql',
+      '000115_m8_terminal_pending_archival.sql',
     ]);
     expect(await snapshot()).toEqual(original);
     expect(

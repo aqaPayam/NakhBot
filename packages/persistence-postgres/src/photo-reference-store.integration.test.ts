@@ -85,6 +85,7 @@ describe.skipIf(url === undefined)('M8 original Photo references and populated u
       '000112_m8_pending_nakh_references.sql',
       '000113_m8_pending_funding_binding.sql',
       '000114_m8_paid_pending_archival.sql',
+      '000115_m8_terminal_pending_archival.sql',
     ]);
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000094_m8_photo_archival.sql',
