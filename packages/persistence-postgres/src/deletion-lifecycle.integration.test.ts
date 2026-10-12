@@ -239,6 +239,9 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
             '000120_m8_owned_unlock_archival.sql',
             '000121_m8_match_original_lives.sql',
             '000122_m8_pair_archival.sql',
+            '000123_m8_notification_references.sql',
+            '000124_m8_notification_archival.sql',
+            '000125_m8_owned_transport_batches.sql',
           ]);
           expect(await original(item.recordId, legacy)).toEqual({ ...before, product_epoch: 0 });
           expect(

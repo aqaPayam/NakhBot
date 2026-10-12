@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'kysely';
 
 import {
   ApplicationError,
@@ -117,6 +118,9 @@ export async function insertNotification(
     };
   }
 
+  if (write.telegramDeliveryAllowed === false)
+    return { notificationId: inserted.id, replayed: false };
+
   const preferences = await database
     .selectFrom('notification.notification_preferences')
     .select(['chat_enabled', 'like_enabled', 'nakh_enabled', 'match_enabled'])
@@ -125,7 +129,6 @@ export async function insertNotification(
   if (preferences === undefined)
     throw new ApplicationError('not_found', 'error.notification.preferences_not_found', 404);
   if (
-    write.telegramDeliveryAllowed === false ||
     !shouldCreateTelegramDelivery(write.type, {
       chatEnabled: preferences.chat_enabled,
       likeEnabled: preferences.like_enabled,
@@ -232,6 +235,9 @@ export async function insertPaymentSuccessNotification(
     payload: Readonly<Record<string, unknown>>;
   }>,
 ): Promise<void> {
+  if (!database.isTransaction)
+    return database.transaction().execute((tx) => insertPaymentSuccessNotification(tx, write));
+  if (!(await currentPaymentNoticeLife(database, write.userId, write.paymentRecordId))) return;
   await insertNotification(database, {
     userId: write.userId,
     type: 'payment_success',
@@ -249,6 +255,9 @@ export async function insertPaymentCorrectionNotification(
   database: NakhDatabase,
   write: Readonly<{ paymentRecordId: string; refundRecordId: string; userId: string }>,
 ): Promise<void> {
+  if (!database.isTransaction)
+    return database.transaction().execute((tx) => insertPaymentCorrectionNotification(tx, write));
+  if (!(await currentPaymentNoticeLife(database, write.userId, write.paymentRecordId))) return;
   await insertNotification(database, {
     userId: write.userId,
     type: 'payment_failure',
@@ -263,6 +272,33 @@ export async function insertPaymentCorrectionNotification(
     correlationId: write.paymentRecordId,
     causationId: write.refundRecordId,
   });
+}
+
+/** Original financial facts/events remain durable. Deleted or later-life payers
+ * receive no recreated product notification, delivery or cached message body. */
+async function currentPaymentNoticeLife(
+  database: NakhDatabase,
+  userId: string,
+  paymentId: string,
+): Promise<boolean> {
+  const owner = await database
+    .selectFrom('identity.accounts')
+    .select(['state', 'product_epoch'])
+    .where('user_id', '=', userId)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  const original = (
+    await sql<{
+      epoch: number;
+    }>`SELECT intent.product_epoch AS epoch FROM billing.payment_records payment
+    JOIN billing.pending_payments intent ON intent.id=payment.pending_payment_id
+    WHERE payment.id=${paymentId}::uuid AND payment.user_id=${userId}::uuid AND intent.user_id=${userId}::uuid`.execute(
+      database,
+    )
+  ).rows[0];
+  if (original === undefined)
+    throw new ApplicationError('conflict', 'error.notification.idempotency_conflict', 409);
+  return owner.state !== 'deleted' && owner.product_epoch === original.epoch;
 }
 
 export class PostgresNotificationStore {

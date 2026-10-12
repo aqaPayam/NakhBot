@@ -4,6 +4,18 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migrations 123–125 bring the inventory to 144 tables, 1,332 columns and 281
+foreign keys. Six-field notification references preserve only original recipient
+life, type, empty-payload qualification and an optional exact threshold episode;
+ten-field removal receipts bind root, full transaction, lease and audit/event.
+No payload, template/dedup text or provider receipt is copied. Historical safety
+facts remain inaccessible to normal notification rendering and delivery.
+System-owned registration response scope includes its typed `context.userId`.
+Own cached response bodies and expired media authority are bounded phase-3
+resources 9–10; current media expiry remains mandatory. Provider receipts and
+global typed operational policy still require their later phases. Retained-data
+release and fresh Return remain disabled.
+
 Migrations 121–122 bring the inventory to 142 tables, 1,316 columns and 276
 foreign keys. Original Match references add only both participant epochs.
 Historical pair uniqueness is scoped to those lives. The ten-field ordinary

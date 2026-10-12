@@ -6196,8 +6196,8 @@
           "definition": "FOREIGN KEY (audit_log_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT"
         },
         {
-          "target": "notification.notifications",
-          "definition": "FOREIGN KEY (notification_id) REFERENCES notification.notifications(id) ON DELETE RESTRICT"
+          "target": "notification.notice_reference_anchors",
+          "definition": "FOREIGN KEY (notification_id) REFERENCES notification.notice_reference_anchors(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
         },
         {
           "target": "moderation.restriction_episodes",
@@ -7605,7 +7605,7 @@
       "classification": "transport",
       "action": "cancel_then_expire_or_redact",
       "purpose": "bounded_delivery_and_replay",
-      "subjectScope": "row.actor_user_id=:userId",
+      "subjectScope": "row.actor_user_id=:userId OR (row.scope='identity.register-telegram-identity' AND row.response_json#>>'{context,userId}'=:userId::text)",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -9649,6 +9649,134 @@
         {
           "target": "matching.match_reference_anchors",
           "definition": "FOREIGN KEY (match_id) REFERENCES matching.match_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "notification.notice_reference_anchors",
+      "owner": "notification",
+      "classification": "reference",
+      "action": "retain_reference",
+      "purpose": "Original notice identity/life and minimum immutable safety binding; no body, rendering or delivery authority",
+      "subjectScope": "row.user_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": null,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "product_epoch",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "notification_type",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "empty_payload",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "threshold_episode_id",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "moderation.restriction_episodes",
+          "definition": "FOREIGN KEY (threshold_episode_id) REFERENCES moderation.restriction_episodes(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "identity.account_deletion_notice_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "Exact owned original-life notification removal with transaction, lease and mandatory audit proof; no message body or product access",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "notice_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "batch_transaction",
+          "type": "xid8",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "notification.notice_reference_anchors",
+          "definition": "FOREIGN KEY (notice_id) REFERENCES notification.notice_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
     }

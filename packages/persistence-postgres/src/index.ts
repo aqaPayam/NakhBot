@@ -230,3 +230,5 @@ export * from './account-deletion-referenced-like-store.js';
 
 export * from './account-deletion-unlock-store.js';
 export * from './account-deletion-pair-store.js';
+export * from './account-deletion-notice-store.js';
+export * from './account-deletion-transport-store.js';

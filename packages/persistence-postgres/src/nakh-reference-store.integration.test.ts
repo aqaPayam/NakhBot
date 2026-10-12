@@ -288,6 +288,9 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       '000120_m8_owned_unlock_archival.sql',
       '000121_m8_match_original_lives.sql',
       '000122_m8_pair_archival.sql',
+      '000123_m8_notification_references.sql',
+      '000124_m8_notification_archival.sql',
+      '000125_m8_owned_transport_batches.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database
@@ -322,9 +325,9 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     );
     expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
     const catalog = await readDeletionCatalog(database);
-    expect(catalog.tables).toHaveLength(142);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1316);
-    expect(catalog.foreignKeys).toHaveLength(276);
+    expect(catalog.tables).toHaveLength(144);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1332);
+    expect(catalog.foreignKeys).toHaveLength(281);
     assertDeletionCatalogCoverage(catalog);
   });
   it('rejects orphan, reassigned and borrowed-life anchors and denies retained identity mutation', async () => {

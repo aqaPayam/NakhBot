@@ -1,5 +1,66 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: ordinary notifications and owned transport cleanup
+
+Commit `8df6bdf` passed all six exact-head jobs in run `38223704037`,
+889 native tests in 114 suites, all 27 unchanged M7 plans, load, collector
+privacy and backup/restore. Its first terminal snapshot took 1,565.743 ms
+against 1,500 ms; all required indexes and the worker were present, without
+spill or hash batching. Every phase was 1.38–1.66 times slower than the prior
+green run. Three local alternating old/new comparisons preserved counts but
+showed no reliable gain from experimental query changes; all experiments were
+discarded. One unchanged diagnostic CI rerun passed, with terminal snapshot
+1,488.620 ms and both required indexes. Timing variation is an inference;
+the original infrastructure cause is unproven. No gate, volume, sample count
+or predicate was relaxed. Tracked source count was 208,379 lines.
+
+Migrations 123–125 retain six original notification identity/life/safety fields
+and a ten-field audited removal receipt, without copying payloads, templates,
+deduplication text, message dates or provider message keys. Exact original
+threshold-template/delivery qualification is captured as an episode identity.
+Moderation's notice FK targets that immutable reference; new actions still
+require the actual original-life notice. Historical safety readers recognize
+only independently authenticated body removal, never normal rendering/access.
+
+The owning phase-3 executor waits for active delivery leases/calls and original
+Nakh source summaries, removes one body and its delivery rows atomically, and
+requires receipt, audit, event and absence under the exact current full-XID
+lease at commit. Lost proof denies replay. Retired IDs cannot be reinserted.
+Late original payment success/correction keeps its original money/refund/event
+facts but creates no product notice for a deleted or different-life payer.
+The post-product insertion guard locks the Account and rechecks the checkpoint
+after committing waits. Production advance past phase 3 remains unavailable.
+
+Two bounded transport resources remove own cached command responses (including
+system-owned registration responses linked by their typed `context.userId`)
+and expired two-sided media authority. Expiry is preserved; no TTL or approved
+retention period is invented. Response cleanup skips locked rows rather than
+inverting command-admission response-before-User/Account locks. Provider message
+receipts remain for later provider verification. Typed operational disposition,
+the whole-product checkpoint, provider/ephemeral verification, retention records,
+completion, safe Return, composition and acceptance evidence remain required.
+
+Initial bootstrap passed 15 native schema/catalog/safety cases. The first broad
+run passed 47 cases; its direct delivery lease fixture lacked the required
+version increment. The next run passed 52 cases but its fence increment lacked
+the required attempt claim. Replacing the fixture with genuine claim admission
+preserves both production guards. A committing-checkpoint observer initially
+searched uppercase SQL while the builder emits lowercase; its case-insensitive
+observer now proves the actual lock wait and rejection. Final verification
+passed all 54 cases in four suites, including sixteen new notice/transport
+probes, actual MFA-authorized restriction preservation, twenty-way retries,
+all mandatory-write rollback paths, expiry, lost proof, bounded cache drains,
+registration scope, lock ordering and post-checkpoint insertion rejection.
+The populated-migration/deletion regression passed all 156 cases in eleven
+suites, including the full historical upgrade matrix. The final complete
+project check passed all 966 unit tests in 218 files and the full build.
+One repeat could not start its test helper under the Windows sandbox; its
+authorized retry passed 961 tests but a worker exited before five existing M4
+cases completed. That unchanged isolated suite passed all six tests, and the
+subsequent complete check passed. The original worker exit cause is unproven;
+no test assertion, safeguard or gate was relaxed. All six exact-head CI jobs
+remain required before acceptance.
+
 ## Current increment: original Match lives and audited ordinary pair removal
 
 Owned-unlock commit `c937298` passed all six exact-head CI jobs in run

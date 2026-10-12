@@ -73,6 +73,9 @@ describe.skipIf(url === undefined)('M8 original pair removal and Match lifetimes
     expect(migrations.flatMap((r) => r.applied)).toEqual([
       '000121_m8_match_original_lives.sql',
       '000122_m8_pair_archival.sql',
+      '000123_m8_notification_references.sql',
+      '000124_m8_notification_archival.sql',
+      '000125_m8_owned_transport_batches.sql',
     ]);
     expect(
       (

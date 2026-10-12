@@ -92,6 +92,9 @@ SELECT action.id, COALESCE(${
           WHEN 'ban_user' THEN 'ban_warning' ELSE 'admin_notice' END) IN (
         SELECT notice.id, notice.user_id, notice.notification_type
         FROM notification.notifications notice WHERE notice.payload = '{}'::jsonb
+        UNION ALL
+        SELECT notice.id,notice.user_id,notice.notification_type FROM notification.archived_notice_facts notice
+          WHERE notice.empty_payload
       ),false) AS "hasNotice",
     action.source_report_id IS NULL OR (source_report.id IS NOT NULL
         AND ((action.action_type IN ('create_internal_block','remove_internal_block')
@@ -198,7 +201,11 @@ export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilde
       AND restriction_notice.body_key = 'notification.restriction_warning.body' AND restriction_notice.payload = '{}'::jsonb
       AND restriction_notice.payload_schema_version = 1
       AND restriction_notice.deduplication_key = 'moderation-threshold:' || episode.id::text || ':restriction'
-      AND telegram_delivery.notification_id IS NOT NULL,false) AS "hasRestrictionNotice",
+      AND telegram_delivery.notification_id IS NOT NULL,false) OR EXISTS(
+        SELECT 1 FROM notification.archived_notice_facts archived WHERE archived.id=action.notification_id
+          AND archived.user_id=episode.target_user_id AND archived.notification_type='restriction_warning'
+          AND archived.empty_payload AND archived.threshold_episode_id=episode.id
+      ) AS "hasRestrictionNotice",
     ${eligibleOnly ? sql`true` : sql`episode.status <> 'resolved' OR COALESCE(resolution_binding.valid,false)`} AS "hasResolutionAttempt"
     FROM ${eligibleOnly ? sql`eligible_episodes` : sql`moderation.restriction_episodes`} episode
     ${eligibleOnly ? sql`` : sql`LEFT JOIN resolution_facts resolution_binding ON resolution_binding.restriction_episode_id = episode.id`}
