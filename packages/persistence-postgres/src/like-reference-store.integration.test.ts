@@ -96,6 +96,7 @@ describe.skipIf(url === undefined)(
           '000115_m8_terminal_pending_archival.sql',
           '000116_m8_flow_references.sql',
           '000117_m8_flow_archival.sql',
+          '000118_m8_referenced_like_archival.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');
@@ -269,13 +270,16 @@ describe.skipIf(url === undefined)(
           .where('id', '=', source.id as string)
           .execute(),
       ).rejects.toMatchObject({ code: '23514' });
-      // The original source FKs still prevent purging referenced product rows.
+      // Referenced sources require the exact current audited removal transaction.
       await expect(
         database
           .deleteFrom('interaction.likes')
           .where('id', '=', source.id as string)
           .execute(),
-      ).rejects.toMatchObject({ code: '23503' });
+      ).rejects.toMatchObject({
+        code: '55000',
+        message: 'referenced Like removal lacks its exact archival transaction',
+      });
       expect(await anchor(source.id as string)).toEqual(before);
     });
     it('rejects reusing a retired referenced identity and restores the deliberate missing-source corruption', async () => {

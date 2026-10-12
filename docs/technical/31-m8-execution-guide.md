@@ -1,5 +1,64 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: audited referenced Like removal
+
+Commit `d452718` passed all six exact-head CI jobs in run `38204205601`,
+851 native tests in 111 suites, all 27 unchanged M7 plans, load checks,
+collector privacy and CI backup/restore. The terminal integrity snapshot took
+1,490.02 ms against 1,500 ms and retained both required indexes.
+
+Migration 118 removes one original referenced Like per current phase-3 lease.
+Its ten-field immutable receipt binds only the original participant lives,
+deletion root, full transaction ID, lease and mandatory audit/event. Raw status,
+creation/closure times and content are not copied. Match sources must already
+be archived; paid unlocks must be terminal and keep their complete original
+ledger/payment rows. The Like FK for retained unlocks now targets the minimal
+original reference, while new unlock insertion still requires the live Like.
+Every required write/removal and commit-time fence is checked; damaged archival
+or funding proof denies empty replay. This does not finish phase 3, activate
+the whole worker, authorize fresh Return or release retained data.
+
+The first eight native concurrency, mandatory-write rollback, expiry, forgery
+and digest probes passed. Added real credit and Stars probes exposed an immediate
+FK check preceding the existing after-insert reference creation. The repair
+defers that FK to commit, where the reference remains mandatory and the original
+live-source check still applies. Failed logs remain preserved; the repaired
+funding cases, broader regression, complete project check and all six exact-head
+CI jobs are required before acceptance.
+
+Both genuine payment routes then passed. One concurrency fixture assumed that
+twenty calls selecting the same candidate would necessarily remove both directions.
+The bounded executor correctly returned `hasMore` after stale-candidate retries;
+the repaired fixture runs twenty concurrent resumable drains and still requires
+exactly two removals, two receipts and two audits. No production batching, lock
+order, concurrency count or proof assertion is relaxed.
+
+The repaired core regression passed 120 cases in seven suites, including all ten
+new removal/funding probes, both referenced/unreferenced Like paths, native catalog
+coverage and the full populated-upgrade matrix. A separate affected-dependency
+batch passed 111 cases in twelve suites, including paid actions, Stars receipts,
+notification scope fences, financial epochs, support and original references:
+231 distinct native cases across nineteen suites. Final focused financial
+corruption/restoration probes and the complete project/CI checks remain required.
+
+The final ten-case run also passed corruption/restoration of the exact original
+credit epoch and Stars receipt payer, denying empty replay while damaged and
+accepting exact repair without restoring product bodies. The first full project
+check stopped at nine test-code lint findings: helper return types and untyped
+matcher values. Explicit helper types and exact database error strings replace
+those values; the full repaired check remains required before committing.
+
+The post-lint-repair native run passed all eighteen cases in the two edited
+suites, including the final ten removal/funding cases and eight original Like
+reference cases. The exact database rejection strings and final corruption
+assertions are verified; repeated cases are not added to the 231 distinct total.
+
+The repaired complete project check passed formatting, lint, all seventeen
+workspace type checks, all 966 unit tests in 218 suites and every build. Local
+runtime workarounds and the normal content cache do not change production code,
+dependencies or assertions. All six exact-head CI jobs remain mandatory before
+this increment is accepted and the next M8 feature starts.
+
 ## Current increment: audited original Flow archival
 
 Reference commit `d3748c2` passed all six exact-head CI jobs in run `38197446763`,

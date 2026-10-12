@@ -428,6 +428,7 @@ describe.skipIf(url === undefined)('M8 original financial epoch preservation and
             '000115_m8_terminal_pending_archival.sql',
             '000116_m8_flow_references.sql',
             '000117_m8_flow_archival.sql',
+            '000118_m8_referenced_like_archival.sql',
           ]);
           expect(
             await legacy

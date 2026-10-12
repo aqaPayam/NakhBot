@@ -4771,7 +4771,7 @@
       "classification": "financial_projection",
       "action": "fence_epoch_then_reset",
       "purpose": "product_epoch_projection",
-      "subjectScope": "row.payer_user_id=:userId OR EXISTS (SELECT 1 FROM interaction.likes governing WHERE governing.id=row.like_id AND :userId IN (governing.sender_user_id,governing.receiver_user_id)) OR EXISTS (SELECT 1 FROM matching.match_reference_anchors governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "subjectScope": "row.payer_user_id=:userId OR EXISTS (SELECT 1 FROM interaction.like_reference_anchors governing WHERE governing.id=row.like_id AND :userId IN (governing.sender_user_id,governing.receiver_user_id)) OR EXISTS (SELECT 1 FROM matching.match_reference_anchors governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
       "scopeCoverage": "linked_rows",
       "releasePolicy": null,
       "columns": [
@@ -4857,8 +4857,8 @@
           "definition": "FOREIGN KEY (credit_transaction_id) REFERENCES billing.credit_transactions(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
         },
         {
-          "target": "interaction.likes",
-          "definition": "FOREIGN KEY (like_id) REFERENCES interaction.likes(id) ON DELETE RESTRICT"
+          "target": "interaction.like_reference_anchors",
+          "definition": "FOREIGN KEY (like_id) REFERENCES interaction.like_reference_anchors(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
         },
         {
           "target": "matching.match_reference_anchors",
@@ -9337,6 +9337,82 @@
         {
           "target": "nakh.flow_reference_anchors",
           "definition": "FOREIGN KEY (flow_id) REFERENCES nakh.flow_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "identity.account_deletion_like_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "paid_pending_original_funding_archival",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "like_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "batch_transaction",
+          "type": "xid8",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "interaction.like_reference_anchors",
+          "definition": "FOREIGN KEY (like_id) REFERENCES interaction.like_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
     }

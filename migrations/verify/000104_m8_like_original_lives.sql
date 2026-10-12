@@ -13,7 +13,7 @@ DO $$ BEGIN
     OR NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='interaction.feature_unlocks'::regclass AND tgname='unlock_original_like_reference' AND tgenabled='O')
     OR NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='matching.matches'::regclass AND tgname='match_original_like_references_committed' AND tgenabled='O' AND tgdeferrable AND tginitdeferred)
     OR NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='interaction.feature_unlocks'::regclass AND tgname='unlock_original_like_reference_committed' AND tgenabled='O' AND tgdeferrable AND tginitdeferred)
-    OR (SELECT count(*) FROM pg_constraint WHERE confrelid='interaction.likes'::regclass AND contype='f'
+    OR (SELECT count(*) FROM pg_constraint WHERE confrelid IN ('interaction.likes'::regclass,'interaction.like_reference_anchors'::regclass) AND contype='f'
       AND conrelid IN ('matching.matches'::regclass,'interaction.feature_unlocks'::regclass) AND confdeltype='r')<>3 THEN
     RAISE EXCEPTION 'original Like ownership/reference safeguards missing';
   END IF;

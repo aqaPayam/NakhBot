@@ -485,6 +485,7 @@ describe.skipIf(url === undefined)(
                   '000115_m8_terminal_pending_archival.sql',
                   '000116_m8_flow_references.sql',
                   '000117_m8_flow_archival.sql',
+                  '000118_m8_referenced_like_archival.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -502,6 +503,7 @@ describe.skipIf(url === undefined)(
                   '000115_m8_terminal_pending_archival.sql',
                   '000116_m8_flow_references.sql',
                   '000117_m8_flow_archival.sql',
+                  '000118_m8_referenced_like_archival.sql',
                 ],
           );
           expect(
