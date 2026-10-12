@@ -10,6 +10,7 @@ import { analyzeM7QueryTables, measureM7SyntheticPlans } from './m7-query-plans.
 import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import { seedM7AppealIntegrityPlans } from './m7-appeal-integrity-plan-fixture.js';
 import { seedM7UnrestrictionPlans } from './m7-unrestriction-plan-fixture.js';
+import { scanRestrictionEpisodes } from './moderation-review-reconciliation.js';
 import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
 import { withM6SyntheticPlanSession } from './m6-query-plans.js';
 import {
@@ -459,6 +460,54 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             .where('id', '=', duplicateAttempt)
             .execute();
           expect((await store.measure()).counts.episodes).toBe(baseline);
+          const systemAction = await tx
+            .selectFrom('moderation.moderation_actions')
+            .selectAll()
+            .where('id', '=', sql<string>`md5(${prefix} || 'threshold-action2')::uuid`)
+            .executeTakeFirstOrThrow();
+          const flags = async (): Promise<readonly Record<string, unknown>[]> =>
+            (
+              await sql<Record<string, unknown>>`SELECT probe.*
+              FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
+              WHERE probe.id=${systemAction.restriction_episode_id}::uuid`.execute(tx)
+            ).rows;
+          const originalFlags = await flags();
+          expect(originalFlags).toHaveLength(1);
+          expect(originalFlags[0]).toMatchObject({
+            hasOneSystemAction: true,
+            hasRestrictionHistory: true,
+            hasRestrictionAudit: true,
+            hasRestrictionNotice: true,
+          });
+          for (const changed of [
+            { target_user_id: randomUUID() },
+            { source_report_id: randomUUID() },
+            { reason_code: 'wrong_threshold_reason' },
+            { occurred_at: new Date(systemAction.occurred_at.getTime() + 1) },
+            { restriction_episode_id: randomUUID() },
+            { actor_type: 'admin', actor_admin_id: randomUUID() },
+            { action_type: 'ban_user', actor_type: 'admin', actor_admin_id: randomUUID() },
+          ] as const) {
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set(changed)
+              .where('id', '=', systemAction.id)
+              .execute();
+            expect(await flags()).toEqual([{ ...originalFlags[0], hasOneSystemAction: false }]);
+            expect((await store.measure()).counts.episodes).toBe(baseline + 1);
+            expect(
+              (await scanRestrictionEpisodes(tx, { phase: 'episodes' }, 2000)).findings
+                .filter((finding) => finding.entityId === systemAction.restriction_episode_id)
+                .map((finding) => finding.anomalyType),
+            ).toEqual(['threshold_episode_action_missing']);
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set(systemAction)
+              .where('id', '=', systemAction.id)
+              .execute();
+            expect(await flags()).toEqual(originalFlags);
+            expect((await store.measure()).counts.episodes).toBe(baseline);
+          }
           throw new FixtureRollback();
         });
       } catch (error) {

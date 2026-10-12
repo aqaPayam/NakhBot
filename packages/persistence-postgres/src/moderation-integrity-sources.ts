@@ -163,6 +163,13 @@ export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_candidate
 )
 `;
 
+function thresholdActionBinding(): RawBuilder<boolean> {
+  return sql<boolean>`COALESCE(action.id IS NOT NULL AND action.actor_admin_id IS NULL
+    AND action.target_user_id = episode.target_user_id AND action.source_report_id = episode.source_report_id
+    AND action.reason_code = 'distinct_reporter_threshold'
+    AND action.occurred_at = date_trunc('milliseconds',episode.started_at),false)`;
+}
+
 /** Complete scanner flags; aggregate callers can supply an already resolution-valid scope. */
 export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilder<unknown> {
   return sql`SELECT episode.id, EXISTS (SELECT 1 FROM moderation.reports report WHERE report.id = episode.source_report_id
@@ -170,14 +177,14 @@ export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilde
     episode.witness_required AS "witnessRequired",
     COALESCE(episode.witness_required AND witness."count" = episode.distinct_reporter_count
       AND witness."bindingsValid",false) AS "hasAdmissionWitness",
-    action.id IS NOT NULL AS "hasOneSystemAction",
-    action.id IS NULL OR COALESCE((episode.target_user_id,action.occurred_at) IN (
+    ${thresholdActionBinding()} AS "hasOneSystemAction",
+    NOT ${thresholdActionBinding()} OR COALESCE((episode.target_user_id,action.occurred_at) IN (
       SELECT history.user_id,history.changed_at FROM identity.account_state_history history
       WHERE history.actor_type = 'system' AND history.actor_user_id IS NULL AND history.actor_admin_id IS NULL
         AND history.previous_state IN ('guest','incomplete','active') AND history.next_state = 'restricted'
         AND history.reason_code = 'distinct_reporter_threshold'
     ),false) AS "hasRestrictionHistory",
-    action.id IS NULL OR COALESCE(restriction_audit.id IS NOT NULL
+    NOT ${thresholdActionBinding()} OR COALESCE(restriction_audit.id IS NOT NULL
       AND restriction_audit.category = 'security' AND restriction_audit.event_type = 'moderation.threshold-restriction.v1'
       AND restriction_audit.actor_type = 'system' AND restriction_audit.actor_admin_id IS NULL AND restriction_audit.actor_user_id IS NULL
       AND restriction_audit.subject_type = 'user' AND restriction_audit.subject_id = episode.target_user_id
@@ -185,7 +192,7 @@ export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilde
       AND restriction_audit.metadata = expected_audit.metadata
       AND restriction_audit.command_id = action.command_id AND restriction_audit.request_id = action.request_id
       AND restriction_audit.occurred_at = action.occurred_at,false) AS "hasRestrictionAudit",
-    action.id IS NULL OR COALESCE(restriction_notice.id IS NOT NULL
+    NOT ${thresholdActionBinding()} OR COALESCE(restriction_notice.id IS NOT NULL
       AND restriction_notice.user_id = episode.target_user_id AND restriction_notice.notification_type = 'restriction_warning'
       AND restriction_notice.category = 'restriction' AND restriction_notice.title_key = 'notification.restriction_warning.title'
       AND restriction_notice.body_key = 'notification.restriction_warning.body' AND restriction_notice.payload = '{}'::jsonb
@@ -207,13 +214,11 @@ export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilde
       LEFT JOIN moderation.reports report ON report.id = roster.report_id
       GROUP BY roster.restriction_episode_id
     ) witness ON witness.restriction_episode_id = episode.id
-    -- The verified partial unique index guarantees at most one system restriction per episode.
-    -- A direct join preserves that cardinality without repeating an aggregate for every episode.
+    -- The partial unique episode key identifies one candidate. Exact actor/owner,
+    -- Report, reason and timestamp fields remain in the binding flag above; a bad
+    -- candidate has the same downstream flags as the original missing binding.
     LEFT JOIN moderation.moderation_actions action ON action.restriction_episode_id = episode.id
-        AND action.actor_type = 'system' AND action.actor_admin_id IS NULL AND action.action_type = 'restrict_user'
-        AND action.target_user_id = episode.target_user_id AND action.source_report_id = episode.source_report_id
-        AND action.reason_code = 'distinct_reporter_threshold'
-        AND action.occurred_at = date_trunc('milliseconds',episode.started_at)
+        AND action.actor_type = 'system' AND action.action_type = 'restrict_user'
     LEFT JOIN LATERAL (
       SELECT jsonb_build_object('reasonCode','distinct_reporter_threshold',
         'distinctReporterCount',episode.distinct_reporter_count) AS metadata OFFSET 0

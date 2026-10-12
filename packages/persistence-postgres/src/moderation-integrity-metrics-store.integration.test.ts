@@ -352,6 +352,22 @@ describe.skipIf(url === undefined)(
           'moderation_action_audit_missing',
         ],
         [
+          sql`UPDATE platform.audit_logs SET actor_type='system',actor_admin_id=NULL WHERE id=${audit.id}::uuid`,
+          'moderation_action_audit_missing',
+        ],
+        [
+          sql`UPDATE moderation.moderation_actions SET audit_log_id=${randomUUID()}::uuid WHERE id=${action.id}::uuid`,
+          'moderation_action_audit_missing',
+        ],
+        [
+          sql`UPDATE moderation.moderation_actions SET notification_id=NULL WHERE id=${action.id}::uuid`,
+          'moderation_action_notice_invalid',
+        ],
+        [
+          sql`UPDATE moderation.moderation_actions SET notification_id=${randomUUID()}::uuid WHERE id=${action.id}::uuid`,
+          'moderation_action_notice_invalid',
+        ],
+        [
           sql`UPDATE notification.notifications SET user_id=${other.target}::uuid WHERE id=${action.notification_id}::uuid`,
           'moderation_action_notice_invalid',
         ],
@@ -386,7 +402,13 @@ describe.skipIf(url === undefined)(
               command_code=${attempt.command_code},target_type=${attempt.target_type},target_id=${attempt.target_id}::uuid
               WHERE id=${attempt.id}::uuid`.execute(tx);
             await sql`UPDATE platform.audit_logs SET command_id=${audit.command_id}::uuid,request_id=${audit.request_id}::uuid,
-              actor_admin_id=${audit.actor_admin_id}::uuid WHERE id=${audit.id}::uuid`.execute(tx);
+              actor_type=${audit.actor_type},actor_admin_id=${audit.actor_admin_id}::uuid WHERE id=${audit.id}::uuid`.execute(
+              tx,
+            );
+            await sql`UPDATE moderation.moderation_actions SET audit_log_id=${action.audit_log_id}::uuid,
+              notification_id=${action.notification_id}::uuid WHERE id=${action.id}::uuid`.execute(
+              tx,
+            );
             await sql`UPDATE notification.notifications SET user_id=${notice.user_id}::uuid,
               payload=${JSON.stringify(notice.payload)}::jsonb,notification_type=${notice.notification_type},category=${notice.category}
               WHERE id=${notice.id}::uuid`.execute(tx);

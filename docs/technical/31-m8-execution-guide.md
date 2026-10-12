@@ -1,5 +1,46 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: narrow original threshold action candidates
+
+Commit `d40fa82` passed the full local project check and five exact-head CI jobs
+in run `38188219341`. PostgreSQL passed all 823 native tests in 110 suites and
+26 of 27 query plans, but the terminal combined integrity sample took 1,537.587 ms
+against the unchanged 1,500 ms limit. Both required indexes were present, one
+worker launched, hashes used one batch and there was no temporary or disk spill.
+Load and backup/restore were skipped; this head is not an accepted green commit.
+
+Local paired diagnostics rejected larger action joins, shared actor lookups,
+Report membership, batched resolutions, combined aggregation and predicate reordering
+without consistent improvement. All were reverted. Batched resolution also lost a
+required index. The shared-actor diagnostic ended with PostgreSQL `XX000` after its
+paired samples; its cause is not established and that run supplies no acceptance.
+The capture rehearsal already uses bounded batches; no memory-pressure cause is
+claimed. Failed and rejected diagnostic evidence remains preserved.
+
+The retained plan underestimated system-action candidates at 1,194 against 20,000
+actual rows. The repair joins by the verified partial unique episode key and checks
+all original administrator-null, target, Report, reason and millisecond-time bindings
+in explicit flags. A wrong candidate retains precisely the original missing-binding
+flags: only its missing-action finding is added; downstream history/audit/notice
+flags are unchanged. Administrator restoration, witness, audit, notice and resolution
+checks remain intact. No schema, retention policy or phase progress changes.
+
+Three paired 20,000-row local comparisons retained every phase count and both required
+indexes, one worker and zero temporary blocks. Candidate estimates improved from
+1,143 to 12,229 for 20,000 actual rows; before/after execution was 3,008/2,918,
+2,968/2,891 and 2,669/2,658 ms. These modest local improvements are diagnostics,
+not acceptance against the CI limit. The four native suites passed all 19 tests,
+including seven full-flag/scanner/count corruption-restoration probes. The initial
+last probe attempted an illegal system ban and was rejected by the existing actor
+constraint; the repaired probe uses a schema-valid administrator ban, with the
+constraint unchanged. Missing/null audit/notice and wrong audit actor probes also
+passed. Five additional native moderation, threshold and reconciliation suites
+passed all 16 tests, for 35 tests in nine suites on this repair. The complete
+project check subsequently passed formatting, lint, all 17 workspace type checks,
+all 966 unit tests in 218 suites and every build. All six exact-head CI jobs remain
+required before this repair is accepted or M8 feature work advances.
+No time limit, fixture population, required index or policy approval is relaxed.
+
 ## Current increment: audited terminal unpaid pending body archival
 
 Migration 115 removes one cancelled, expired or system-closed unpaid pending body
