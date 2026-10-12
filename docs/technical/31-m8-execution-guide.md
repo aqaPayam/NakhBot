@@ -1,5 +1,32 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: product-fence lock ordering
+
+Commit `462769d` passed quality and all four image jobs, but PostgreSQL
+integration failed five cases in four suites (924 passed, 929 total).
+The new generic write fence acquired Accounts before later Match reference
+pair/User locks, and Chat cleanup acquired a Chat before that Account fence.
+The completed server log confirms both lock inversions. The notification-life
+upgrade also lacked the newly nullable cancellation field in its old snapshot.
+Downstream plan/load/recovery gates did not run; this head is not accepted.
+
+Additive migration 128 retains migrations 126–127 unchanged. Match birth takes
+the existing pair order before User/Account locks. Ordinary inserts lock User
+before Account and recheck the verified product checkpoint. Updates already hold
+the ordinary source row, which prevents a purge from verifying absence until
+commit; they retain post-checkpoint rejection without taking late identity locks.
+The derived Chat cleanup checkpoint relies on its actual nondeferrable live-Chat
+FK: it cannot outlive body removal. Migration verification requires that FK.
+The corrected notification snapshot compares every original field and requires
+its new cancellation value to be NULL. No deadline, assertion or gate changed.
+
+All 49 cases in the six focused repair suites passed, including each original
+failed race and the original deletion/lease/rollback/catalog checks. The complete populated upgrade matrix passed all 59 cases, including migration
+127. Both additional unfiltered runs passed all 18 M7 cases each. The complete
+project check passed 997 unit tests in 219 files, all types and the full build.
+All six repaired-head CI jobs remain required. M8 remains incomplete; no provider/Return/release or
+external acceptance is claimed.
+
 ## Current increment: operational cancellation and verified product checkpoint
 
 Commit `78ae245` passed all six exact-head CI jobs in run `38241459117`,

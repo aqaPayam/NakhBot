@@ -106,6 +106,7 @@ describe.skipIf(url === undefined)(
           '000125_m8_owned_transport_batches.sql',
           '000126_m8_operational_outbox_cancellation.sql',
           '000127_m8_product_checkpoint.sql',
+          '000128_m8_product_fence_lock_order.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');

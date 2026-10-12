@@ -438,6 +438,7 @@ describe.skipIf(url === undefined)('M8 original financial epoch preservation and
             '000125_m8_owned_transport_batches.sql',
             '000126_m8_operational_outbox_cancellation.sql',
             '000127_m8_product_checkpoint.sql',
+            '000128_m8_product_fence_lock_order.sql',
           ]);
           expect(
             await legacy

@@ -72,7 +72,10 @@ describe.skipIf(url === undefined)('M8 populated original notification-life upgr
           .selectFrom('platform.outbox_events')
           .selectAll()
           .where('aggregate_id', '=', deliveryId)
-          .execute(),
+          .execute()
+          .then((rows) =>
+            rows.map((row) => Object.assign({ deletion_cancellation_audit_id: null }, row)),
+          ),
         database
           .selectFrom('billing.credit_transactions')
           .selectAll()
@@ -132,6 +135,7 @@ describe.skipIf(url === undefined)('M8 populated original notification-life upgr
       '000125_m8_owned_transport_batches.sql',
       '000126_m8_operational_outbox_cancellation.sql',
       '000127_m8_product_checkpoint.sql',
+      '000128_m8_product_fence_lock_order.sql',
     ]);
     expect(await snapshot()).toEqual(original);
     expect(

@@ -4,6 +4,9 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migration 128 changes only product-write lock ordering; the inventory is unchanged.
+Its derived Chat cleanup exemption requires the existing nondeferrable live-Chat FK.
+
 Migrations 126–127 cover 144 tables, 1,333 columns and 282 foreign keys.
 The sole new column links minimum ordinary outbox transport to an immutable
 cancellation audit; it defaults to NULL for every existing event. Code-owned
