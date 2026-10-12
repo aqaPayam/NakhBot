@@ -229,3 +229,4 @@ export { PostgresAccountDeletionPhotoStore } from './account-deletion-photo-stor
 export * from './account-deletion-referenced-like-store.js';
 
 export * from './account-deletion-unlock-store.js';
+export * from './account-deletion-pair-store.js';

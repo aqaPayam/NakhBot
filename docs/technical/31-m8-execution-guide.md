@@ -1,5 +1,71 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: original Match lives and audited ordinary pair removal
+
+Owned-unlock commit `c937298` passed all six exact-head CI jobs in run
+`38217521523`, 877 native tests in 113 suites, all 27 unchanged M7 plans,
+load gates, collector privacy and backup/restore. The terminal snapshot took
+1,024.671 ms against 1,500 ms with both required indexes. Its first quality
+attempt failed before export at collector image pull with an unknown startup
+classification. One unchanged diagnostic rerun passed; the original pull cause
+remains unidentified, and no retry classification or acceptance gate changed.
+Tracked source count was 207,386 lines.
+
+Migrations 121–122 preserve each Match's original participant epochs and replace
+global historical pair uniqueness with uniqueness within those exact lives.
+Legacy epochs are provably zero while Return remains disabled; ambiguous legacy
+lives are rejected. New references are stamped under canonical pair/identity/
+Account locks and require the original live sources. References remain immutable
+and retired Match IDs cannot be reused.
+
+The phase-3 pair executor removes one exact terminal ordinary pair after its
+Match/Chat and Likes are archived and reporting windows have expired. A ten-field
+immutable receipt binds the Match reference, root, full transaction, current
+lease, audit and event. The deletion guard, required-write checks and deferred
+proof all require actual removal and current authority. Active administrator
+blocks remain retained safety facts. Original Unmatch consistency accepts only
+the authenticated original removal proof, checks every historical Match life
+and scopes live Likes to their original epochs. Missing receipts are discovered
+through retained Match witnesses and denied rather than treated as empty replay.
+Neither phase completion, fresh Return nor retained-data release is enabled.
+
+The first test startup was blocked by local child-process permissions before
+any database acceptance cases ran. The first native run identified missing
+notification preferences in closed-Match fixture setup; the historical Unmatch
+and both existing suites passed. Adding both participants' preferences restored
+ten new probes; the later-life fixture then hit the existing mandatory two-
+participant guard. Adding those actual participants corrects its setup without
+relaxing the guard. Final native regressions, the genuine deferred expiry probe,
+full project check and all six exact-head CI jobs remain required.
+
+All twelve final new native probes passed, including both genuine terminal
+closure paths, twenty-way removal, all four mandatory-write rollbacks, source
+waiting/resumption, borrowed authority, lost receipts, original-life digest
+corruption, distinct later Match identity and genuine deferred lease expiry.
+The broader initial run passed 144 cases and found one stale catalog count.
+All three reference suites' exact counts now match 142 tables, 1,316 columns
+and 276 foreign keys. Replay additionally discovers missing Match closure
+through retained original Match identities and owning archival witnesses.
+The final-byte core regression passed all 145 cases in eleven suites, including
+the complete populated-upgrade matrix, original unlock/Like/Flow references,
+active blocks, Unmatch and survivor reporting. No migration checksum, schema
+coverage predicate or production guard was bypassed.
+
+Project verification diagnosed five empty-loop lint errors in the new fixture
+and an automated migration-list update that incorrectly expanded a one-value
+`toContain` assertion. Comments and the corrected matcher restored the intended
+checks; the full check is rerunning and supplies acceptance only on success.
+Affected funding, notification and lifetime dependency regressions and all six
+exact-head CI jobs remain required before the next feature begins.
+
+Final affected-dependency verification passed 120 cases in twelve further
+suites, including original Stars/credit funding and replay, support closure,
+financial cutover, pending/Nakh/Photo references and notification lifetimes.
+Together with the core batch, 265 distinct native cases in 23 suites passed
+with successful cleanup. The full `pnpm check` passed formatting, lint, all
+seventeen type checks, all 966 unit tests in 218 suites and every build.
+All six exact-head GitHub jobs remain required before any next feature begins.
+
 ## Current increment: original owned unlock removal
 
 Repair `f667b21` passed all six exact-head CI jobs in run `38210198537`,

@@ -99,6 +99,8 @@ describe.skipIf(url === undefined)(
           '000118_m8_referenced_like_archival.sql',
           '000119_m8_unlock_original_references.sql',
           '000120_m8_owned_unlock_archival.sql',
+          '000121_m8_match_original_lives.sql',
+          '000122_m8_pair_archival.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');

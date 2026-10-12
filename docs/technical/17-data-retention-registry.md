@@ -4,6 +4,15 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migrations 121–122 bring the inventory to 142 tables, 1,316 columns and 276
+foreign keys. Original Match references add only both participant epochs.
+Historical pair uniqueness is scoped to those lives. The ten-field ordinary
+pair removal receipt binds the original Match, root, transaction, lease and
+mandatory audit/event; no raw pair state, reason, time or version is copied.
+Active administrator blocks remain safety facts. Historical Unmatch proof can
+survive ordinary pair removal without granting a later-life product action.
+Retained-data release and fresh Return remain disabled.
+
 Migrations 119–120 bring the inventory to 141 tables, 1,304 columns and 273
 foreign keys. Original unlock references retain eight financial identity/life
 fields; audited owned-grant removal retains ten transaction, lease and audit

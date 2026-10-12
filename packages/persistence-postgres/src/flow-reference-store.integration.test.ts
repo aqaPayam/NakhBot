@@ -215,6 +215,8 @@ describe.skipIf(url === undefined)('M8 original Flow references', () => {
       '000118_m8_referenced_like_archival.sql',
       '000119_m8_unlock_original_references.sql',
       '000120_m8_owned_unlock_archival.sql',
+      '000121_m8_match_original_lives.sql',
+      '000122_m8_pair_archival.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);
@@ -223,9 +225,9 @@ describe.skipIf(url === undefined)('M8 original Flow references', () => {
       '000116_m8_flow_references.sql',
     );
     const catalog = await readDeletionCatalog(database);
-    expect(catalog.tables).toHaveLength(141);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1304);
-    expect(catalog.foreignKeys).toHaveLength(273);
+    expect(catalog.tables).toHaveLength(142);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1316);
+    expect(catalog.foreignKeys).toHaveLength(276);
     assertDeletionCatalogCoverage(catalog);
   });
   it('creates one five-field original Flow reference during twenty genuine pending retries', async () => {

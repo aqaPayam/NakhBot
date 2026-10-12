@@ -89,6 +89,8 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
       '000118_m8_referenced_like_archival.sql',
       '000119_m8_unlock_original_references.sql',
       '000120_m8_owned_unlock_archival.sql',
+      '000121_m8_match_original_lives.sql',
+      '000122_m8_pair_archival.sql',
     ]);
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000092_m8_match_references.sql',
@@ -107,7 +109,13 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
   }
   it('backfills a deleted participant without changing the original Match or immutable Unmatch', async () => {
     const [low, high] = [owner, survivor].sort();
-    expect(await anchor(matchId)).toEqual({ id: matchId, user_low_id: low, user_high_id: high });
+    expect(await anchor(matchId)).toEqual({
+      id: matchId,
+      user_low_id: low,
+      user_high_id: high,
+      low_product_epoch: 0,
+      high_product_epoch: 0,
+    });
     expect(
       await database
         .selectFrom('matching.matches')
@@ -129,7 +137,13 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
       second = await createReportUser(database);
     const id = await createReportMatch(database, first, second);
     const [low, high] = [first, second].sort();
-    expect(await anchor(id)).toEqual({ id, user_low_id: low, user_high_id: high });
+    expect(await anchor(id)).toEqual({
+      id,
+      user_low_id: low,
+      user_high_id: high,
+      low_product_epoch: 0,
+      high_product_epoch: 0,
+    });
   });
   it('rejects reassignment, retained-reference deletion and synthetic orphan identities', async () => {
     await expect(
@@ -142,7 +156,7 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
     ).rejects.toMatchObject({ code: '55000' });
     const [low, high] = [await createReportUser(database), await createReportUser(database)].sort();
     await expect(
-      sql`INSERT INTO matching.match_reference_anchors VALUES(${randomUUID()}::uuid,${low}::uuid,${high}::uuid)`.execute(
+      sql`INSERT INTO matching.match_reference_anchors(id,user_low_id,user_high_id) VALUES(${randomUUID()}::uuid,${low}::uuid,${high}::uuid)`.execute(
         database,
       ),
     ).rejects.toMatchObject({ code: '23514' });

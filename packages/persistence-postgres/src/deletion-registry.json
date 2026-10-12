@@ -5105,6 +5105,16 @@
           "name": "user_high_id",
           "type": "uuid",
           "nullable": false
+        },
+        {
+          "name": "low_product_epoch",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "high_product_epoch",
+          "type": "integer",
+          "nullable": false
         }
       ],
       "foreignKeys": [
@@ -9563,6 +9573,82 @@
         {
           "target": "billing.payment_records",
           "definition": "FOREIGN KEY (payment_record_id) REFERENCES billing.payment_records(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        }
+      ]
+    },
+    {
+      "table": "identity.account_deletion_pair_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "Exact original closed pair removal, participant lives, transaction, lease and mandatory audit proof; no product access or fresh return",
+      "subjectScope": "EXISTS (SELECT 1 FROM matching.match_reference_anchors governing WHERE governing.id=row.match_id AND :userId IN (governing.user_low_id,governing.user_high_id))",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "match_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "batch_transaction",
+          "type": "xid8",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "matching.match_reference_anchors",
+          "definition": "FOREIGN KEY (match_id) REFERENCES matching.match_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
     }

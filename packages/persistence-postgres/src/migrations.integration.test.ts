@@ -335,7 +335,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         };
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        120 - baseline,
+        122 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (previousPayment !== undefined) {
@@ -658,6 +658,8 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000118_m8_referenced_like_archival.sql',
         '000119_m8_unlock_original_references.sql',
         '000120_m8_owned_unlock_archival.sql',
+        '000121_m8_match_original_lives.sql',
+        '000122_m8_pair_archival.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -767,7 +769,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000115_m8_terminal_pending_archival.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(120);
+      expect(replay.existing).toHaveLength(122);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);
