@@ -1,5 +1,85 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: original owned unlock removal
+
+Repair `f667b21` passed all six exact-head CI jobs in run `38210198537`,
+861 native tests in 112 suites, the repaired M4 gate, all 27 unchanged M7
+plans, load checks, collector privacy and CI backup/restore. Terminal integrity
+took 1,220.121 ms against 1,500 ms and retained both required indexes.
+
+Migrations 119–120 retain only eight original financial identity fields for a
+paid unlock and a ten-field audited removal receipt. New insertion requires
+the original live scope and payer life; references are immutable and retired
+IDs cannot be reused. Deleted payers' terminal grants can be removed under
+their exact current phase-3 lease and full transaction ID. The counterpart's
+financial history remains ineffective and unchanged. Original ledger and
+Stars facts stay linked to minimal references; verified fulfillment replay
+returns the original financial identity without recreating an access grant.
+Required receipt, audit, event and body removal are checked individually and
+at commit. Scope closure, original funding and historical audit proof are
+separate, avoiding cyclic authority with Like archival. Empty replay discovers
+credit witnesses and fulfilled Stars charges even after physical identity loss.
+No phase completion, fresh Return or retained-data release is enabled.
+
+The first migration draft's generator boundary was corrected during static
+inspection before database execution. Initial native bootstrap ran the schema
+and passed all three paid-action cases; eighteen deletion/catalog cases failed
+because the new inventory's FK order did not match its exact canonical order.
+A fresh catalog comparison found all 141 tables, 1,304 columns and 273 keys,
+with no missing or additional key. Sorting the declared keys restored all
+21 bootstrap/Like/funding/catalog cases without changing the production guard.
+
+All fifteen final owned-unlock probes passed: genuine credits/Stars for Like
+and Match, twenty-way removal/replay, exact financial/root/preview preservation,
+counterpart ownership, four required-write rollbacks, borrowed authority,
+immutable references and retired IDs, genuine deferred expiry, credit-life
+corruption/restoration and fulfilled-Stars discovery after complete identity
+loss. Before those cases, twenty migration races upgraded a genuine paid
+legacy Like grant from 118 exactly once without changing its original fields,
+ledger, balance or source. Full regression, project checks and all six exact-head
+CI jobs remain required before this increment is accepted.
+
+Lock-order review removed an unnecessary Nakh-counter acquisition from new
+unlock insertion: paid-action writers already hold the pair before inserting
+the grant, so acquiring a counter there would invert counter-before-pair Nakh
+writers. The guard keeps pair-before-identity/Account locks and current-source
+verification. Owned purge retains counter-before-pair order. Mixed-writer native
+evidence and the final full checks are required for this repair within the feature.
+
+The core batch passed 136 native cases in eight suites, including the new
+mixed-writer probe. Editing the uncommitted insertion guard during an earlier
+dependency run correctly triggered migration checksum protection; those
+dependencies require fresh final-byte reruns. The first such rerun was
+interrupted by a Windows PostgreSQL backend exception `0xC0000005` during
+`commit`; the server automatically recovered and resumed connections. Its cause
+is not established, and the failed cleanup/recovery logs supply no acceptance.
+The standalone mixed-writer suite had passed all sixteen cases before its
+cleanup connection reset. A serial fresh rerun remains required.
+
+The first complete project check passed lint and all seventeen type checks but
+lost one unit-test worker: 217 suites/960 tests passed, six target-selection
+tests were unexecuted. Those six passed in isolation. The complete check is
+rerunning with one local test worker, preserving all cases and deadlines;
+neither runtime failure is treated as a green feature or bypassed assertion.
+
+Recovered native verification passed all 111 dependency cases in twelve suites
+and the standalone sixteen owned-unlock cases, including successful cleanup and
+the real mixed-writer barrier. Together with the 136-case core batch, this is
+247 distinct cases across twenty suites; repeated probes are not added to that
+total. Final M4 full-volume compatibility and the complete serial project check
+remain required, followed by all six exact-head CI jobs.
+
+The final M4 compatibility gate passed all six required indexes and unchanged
+limits at 5,000 rows. The serial project retry passed formatting, lint, all
+seventeen type checks and all 966 unit tests in 218 suites with no lost worker;
+every build and all six exact-head CI jobs remain required before committing
+and accepting the increment.
+
+The final complete serial check finished successfully through every build.
+No production dependency, business predicate, concurrency count, test case or
+deadline was relaxed by the local runtime recovery. All six exact-head GitHub
+jobs remain required before the next M8 feature begins.
+
 ## Current repair: receiver-owned Like query-plan fixtures
 
 Commit `2544d5c` passed local checks and five exact-head CI jobs in run

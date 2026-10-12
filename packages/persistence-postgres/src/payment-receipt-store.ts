@@ -829,11 +829,19 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
       if (fulfillment === undefined)
         throw new ApplicationError('not_found', 'error.billing.fulfillment_not_found', 404);
       if (fulfillment.state === 'fulfilled') {
-        const prior = await transaction
-          .selectFrom('interaction.feature_unlocks')
-          .select('id')
-          .where('payment_record_id', '=', input.paymentRecordId)
-          .executeTakeFirstOrThrow();
+        const prior = (
+          await sql<{
+            id: string;
+          }>`SELECT original.id FROM interaction.feature_unlock_reference_anchors original
+            WHERE original.payment_record_id=${input.paymentRecordId}::uuid
+              AND interaction.original_unlock_replay_valid(original.id)`.execute(transaction)
+        ).rows[0];
+        if (prior === undefined)
+          throw new ApplicationError(
+            'payment_verification_failed',
+            'error.billing.payment_mismatch',
+            409,
+          );
         return {
           paymentRecordId: input.paymentRecordId,
           outcome: 'fulfilled',

@@ -1182,8 +1182,8 @@
           "definition": "FOREIGN KEY (credit_account_id) REFERENCES billing.credit_accounts(user_id) ON DELETE RESTRICT"
         },
         {
-          "target": "interaction.feature_unlocks",
-          "definition": "FOREIGN KEY (feature_unlock_id) REFERENCES interaction.feature_unlocks(id) DEFERRABLE INITIALLY DEFERRED"
+          "target": "interaction.feature_unlock_reference_anchors",
+          "definition": "FOREIGN KEY (feature_unlock_id) REFERENCES interaction.feature_unlock_reference_anchors(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
         },
         {
           "target": "nakh.nakh_reference_anchors",
@@ -9413,6 +9413,156 @@
         {
           "target": "interaction.like_reference_anchors",
           "definition": "FOREIGN KEY (like_id) REFERENCES interaction.like_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "identity.account_deletion_unlock_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "paid_pending_original_funding_archival",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "unlock_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "batch_transaction",
+          "type": "xid8",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "interaction.feature_unlock_reference_anchors",
+          "definition": "FOREIGN KEY (unlock_id) REFERENCES interaction.feature_unlock_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "interaction.feature_unlock_reference_anchors",
+      "owner": "interaction",
+      "classification": "retained_compliance",
+      "action": "approved_policy_release",
+      "purpose": "original_financial_scope_identity",
+      "subjectScope": "row.payer_user_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "payer_user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "payer_product_epoch",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "feature_type",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "like_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "match_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "payment_record_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "credit_transaction_id",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "billing.credit_transactions",
+          "definition": "FOREIGN KEY (credit_transaction_id) REFERENCES billing.credit_transactions(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "interaction.like_reference_anchors",
+          "definition": "FOREIGN KEY (like_id) REFERENCES interaction.like_reference_anchors(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "matching.match_reference_anchors",
+          "definition": "FOREIGN KEY (match_id) REFERENCES matching.match_reference_anchors(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (payer_user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "billing.payment_records",
+          "definition": "FOREIGN KEY (payment_record_id) REFERENCES billing.payment_records(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
         }
       ]
     }

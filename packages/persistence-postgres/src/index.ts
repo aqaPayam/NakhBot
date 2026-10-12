@@ -227,3 +227,5 @@ export { PostgresAccountDeletionMatchStore } from './account-deletion-match-stor
 export { PostgresAccountDeletionPhotoStore } from './account-deletion-photo-store.js';
 
 export * from './account-deletion-referenced-like-store.js';
+
+export * from './account-deletion-unlock-store.js';

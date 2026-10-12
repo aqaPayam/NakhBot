@@ -62,6 +62,8 @@ describe.skipIf(url === undefined)('M8 audited referenced Like source removal', 
         );
       expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([
         '000118_m8_referenced_like_archival.sql',
+        '000119_m8_unlock_original_references.sql',
+        '000120_m8_owned_unlock_archival.sql',
       ]);
       expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
       expect(

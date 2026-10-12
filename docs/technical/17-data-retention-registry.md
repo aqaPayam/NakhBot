@@ -4,6 +4,14 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migrations 119–120 bring the inventory to 141 tables, 1,304 columns and 273
+foreign keys. Original unlock references retain eight financial identity/life
+fields; audited owned-grant removal retains ten transaction, lease and audit
+bindings. Neither retains grant status, times, revocation prose or administrator
+data, nor grants product access. Deleted payers' access projections can be
+removed while exact original finance remains linked; the other payer's history
+stays ineffective. Controlled retained-data release remains disabled.
+
 Migration 118 brings the executable inventory to 139 tables, 1,286 columns and
 265 foreign keys. Its ten-field referenced Like removal receipt binds the
 original identity/lives, deletion root, full transaction, lease and audit/event.
@@ -48,7 +56,7 @@ in the historical helper. It creates no retained entity or new user data; the
 commit authority, retained transcript access and disabled release are preserved.
 
 [`deletion-registry.json`](../../packages/persistence-postgres/src/deletion-registry.json) is the
-code-owned M8 catalog inventory for migration 118: 139 tables, 1,286 columns and 265 foreign keys.
+code-owned M8 catalog inventory for migration 120: 141 tables, 1,304 columns and 273 foreign keys.
 
 Migration 109 binds notification history to an immutable original recipient epoch.
 Legacy history is accepted only with provable original epoch zero; ambiguous
