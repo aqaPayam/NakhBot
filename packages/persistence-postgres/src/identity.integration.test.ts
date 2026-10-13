@@ -771,7 +771,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     await identities.registerTelegramIdentity(registrationWrite(telegramUserId(), 70, userId));
     await signup.startSignup(startSignupWrite(userId, 20));
     const primaryMediaAssetId = randomUUID();
-    const additionalMediaAssetId = randomUUID();
+    let additionalMediaAssetId = randomUUID();
     const values: Array<SaveSignupStepCommand['data']['value']> = [
       { step: 'age_confirmation', accepted: true },
       { step: 'name', value: 'Payam' },
@@ -857,21 +857,38 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         .where('user_id', '=', userId)
         .execute(),
     ).toHaveLength(0);
-    // Fixture repair only: terminal deletion must not be reversed, so replace this
-    // disposable synthetic row rather than weakening the production invariant.
-    const deletedVariant = await database
-      .selectFrom('media.photo_variants')
+    // Fixture repair only: preserve the deleted upload and its original
+    // references, select a fresh upload in this synthetic confirmation draft,
+    // then obtain fresh eligibility through the real media authority.
+    additionalMediaAssetId = randomUUID();
+    await seedValidMedia(database, userId, additionalMediaAssetId);
+    const draft = await database
+      .selectFrom('identity.signup_drafts')
       .selectAll()
-      .where('asset_id', '=', additionalMediaAssetId)
+      .where('user_id', '=', userId)
       .executeTakeFirstOrThrow();
     await database
-      .deleteFrom('media.photo_variants')
-      .where('asset_id', '=', additionalMediaAssetId)
-      .execute();
-    await database
-      .insertInto('media.photo_variants')
-      .values({ ...deletedVariant, id: randomUUID(), deleted_at: null })
-      .execute();
+      .updateTable('identity.signup_drafts')
+      .set({
+        draft_data: {
+          ...draft.draft_data,
+          additional_photos: {
+            step: 'additional_photos',
+            mediaAssetIds: [additionalMediaAssetId],
+          },
+        },
+        version: draft.version + 1,
+      })
+      .where('user_id', '=', userId)
+      .executeTakeFirstOrThrow();
+    command.data.expectedDraftVersion = 14;
+    Object.assign(
+      proof,
+      await eligibility.issueProof(userId, {
+        primaryMediaAssetId,
+        additionalMediaAssetIds: [additionalMediaAssetId],
+      }),
+    );
     const confirmations = await Promise.all([
       profiles.confirmSignup(makeWrite()),
       profiles.confirmSignup(makeWrite()),

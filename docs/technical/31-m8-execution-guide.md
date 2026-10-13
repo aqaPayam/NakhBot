@@ -1,5 +1,20 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: R2 namespace test promise
+
+Feature `b728d6b` passed all four container jobs, but exact-head CI quality
+rejected one async-without-await callback in the new R2 namespace test.
+The fixture now returns its provider response promise directly; its assertions,
+actual adapter call and provider boundary are unchanged. Uncached targeted lint
+passes. Local full check and all six repaired-head CI jobs remain required.
+The prior Windows validation used a local lint cache; it did not catch this
+fixture error, and the cache discrepancy has not been established. The repair
+runs local lint without that cache. No production or CI lint rule is relaxed.
+The completed original PostgreSQL job failed exactly the legacy signup fixture below: 940 native cases passed, one failed across 117 suites. Downstream plans/load/recovery did not run. This head is not accepted.
+
+A local reproduction also found that the legacy signup fixture physically deleted an original variant to recover from a simulated deletion. The owning media guard correctly rejects that bypass. The fixture now preserves the original source, prepares a fresh asset, updates only its synthetic confirmation draft and obtains fresh eligibility through the real authority. All nine unfiltered identity integration cases passed. The final complete repair check passed uncached lint, all 17 workspace types, 1,008 unit tests in 220 files and the full build. Production guards and original assertions remain unchanged. All six repaired-head CI jobs remain required.
+
+
 ## Current increment: verified media removal and private report evidence
 
 The preceding repair `a375b0f` passed all six exact-head CI jobs in run

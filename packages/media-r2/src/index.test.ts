@@ -433,13 +433,13 @@ describe('AwsR2ObjectClient', () => {
   it('lists the exact deleting asset namespace through the actual R2 adapter', async () => {
     const prefix = 'variants/staging/20000000-0000-4000-8000-000000000002/';
     const client = new AwsR2ObjectClient(config, {
-      send: async (command) => {
+      send: (command) => {
         expect(command).toBeInstanceOf(ListObjectsV2Command);
         expect(command.input).toMatchObject({ Prefix: prefix, MaxKeys: 100 });
-        return {
+        return Promise.resolve({
           Contents: [{ Key: `${prefix}thumbnail-v2.webp`, LastModified: new Date() }],
           IsTruncated: false,
-        };
+        });
       },
     });
     const adapter = new R2AccountDeletionMediaObjects(client);
