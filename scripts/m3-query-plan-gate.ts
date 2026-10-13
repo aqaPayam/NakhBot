@@ -370,10 +370,33 @@ async function applyLikedByMatrix(
     ({ variantId }) => variantId,
   );
   if (missingThumbnails.length > 0)
-    await database
-      .deleteFrom('media.photo_variants')
-      .where('id', 'in', missingThumbnails)
-      .execute();
+    await database.connection().execute(async (connection) => {
+      // This matrix deliberately simulates physical source loss. Ordinary SQL
+      // must not bypass account deletion receipts; inject corruption only in
+      // this synthetic fixture transaction, with the setting restored at commit.
+      await connection.transaction().execute(async (fixture) => {
+        const statement = 'SET LOCAL session_replication_role=replica';
+        await fixture.executeQuery({
+          sql: statement,
+          parameters: [],
+          query: { kind: 'RawNode', sqlFragments: [statement], parameters: [] },
+        });
+        await fixture
+          .deleteFrom('media.photo_variants')
+          .where('id', 'in', missingThumbnails)
+          .execute();
+      });
+      const statement = "SELECT current_setting('session_replication_role') AS role";
+      const restored = await connection.executeQuery<{ role: string }>({
+        sql: statement,
+        parameters: [],
+        query: { kind: 'RawNode', sqlFragments: [statement], parameters: [] },
+      });
+      if (restored.rows.length !== 1 || restored.rows[0]!.role !== 'origin')
+        throw new Error(
+          'Synthetic M3 corruption fixture did not restore normal trigger authority.',
+        );
+    });
 }
 
 function isCapabilityDenied(error: unknown): boolean {

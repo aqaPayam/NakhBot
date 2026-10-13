@@ -1,5 +1,27 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: M3 missing-thumbnail corruption fixture
+
+Repair `3f68ff9` passed quality (including collector privacy), all four container
+jobs and every native test: 941 cases in 117 suites. Its PostgreSQL job then
+failed during M3 matrix setup, before measuring any plan: the thumbnail-missing
+fixture attempted ordinary physical deletion of twenty original variants. The
+new owning archive guard correctly rejected that bypass with SQLSTATE 23514.
+M1/M3 load passed; later plan/load/recovery gates did not run. Run `38357844508`
+is not accepted as a green milestone.
+
+The matrix still injects physical source loss for the same missing-thumbnail
+case, using a transaction-local replica setting in its synthetic fixture only.
+The script keeps every original matrix state, count assertion, production query,
+volume and plan/index/timing limit. The same leased connection must report
+normal origin authority after that transaction before plan measurement proceeds.
+Production guard functions, migrations and account-removal permissions are
+unchanged. The first repaired 5,000-user matrix and all three plan gates passed;
+the explicit restoration check also passed. The full local check passed uncached lint, all 17 workspace types, 1,008 unit tests in 220 files and the full build. M3–M6 plans/load and the independent M7 concurrency load passed. All six repaired-head CI jobs remain required. M8 implementation remains incomplete.
+
+The local 20,000-row M7 plan run missed two unchanged timing limits: integrity snapshot 2,039.836 ms and terminal snapshot 2,676.216 ms. One standalone control after the full check still missed them (1,976.210 / 2,633.049 ms). The original green source and 128-migration schema from a375b0f also missed them on this Windows host (2,000.461 / 2,721.258 ms). All required indexes and the worker were present, without disk spill. Relevant M7 query/gate sources are unchanged. The comparison does not demonstrate a new regression; the specific local cause remains unproven. No gate is relaxed, and Linux CI must verify performance before acceptance. The diagnostic reference dependency links were restored from main with the unchanged frozen lockfile.
+
+
 ## Current repair: R2 namespace test promise
 
 Feature `b728d6b` passed all four container jobs, but exact-head CI quality
