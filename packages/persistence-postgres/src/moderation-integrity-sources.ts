@@ -14,25 +14,28 @@ function systemAccountHistoryMatches(): RawBuilder<boolean> {
   ),false)`;
 }
 
-/** Uncorrelated exact tuples permit one hashable membership set rather than one
- * history probe per action. The previous-state class keeps restoration separate
- * from restriction/ban admission, including duplicate valid/invalid histories. */
+/** Admission and restoration use disjoint exact membership sets. Admission does
+ * not carry a synthetic previous-state column through a combined history hash.
+ * Restoration still binds both states, including duplicate valid/invalid histories. */
 function adminAccountHistoryMatches(): RawBuilder<boolean> {
-  return sql<boolean>`COALESCE((action.target_user_id, action.actor_admin_id, action.reason_code,
+  return sql<boolean>`COALESCE(CASE WHEN action.action_type IN ('restrict_user','ban_user') THEN
+    (action.target_user_id, action.actor_admin_id, action.reason_code,
+      action.occurred_at, CASE action.action_type WHEN 'restrict_user' THEN 'restricted'
+        ELSE 'banned' END) IN (
+    SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
+      history.next_state FROM identity.account_state_history history
+      WHERE history.actor_type = 'admin' AND history.actor_admin_id IS NOT NULL
+        AND history.next_state IN ('restricted','banned')
+    ) ELSE (action.target_user_id, action.actor_admin_id, action.reason_code,
       action.occurred_at, CASE action.action_type WHEN 'restrict_user' THEN 'restricted'
         WHEN 'ban_user' THEN 'banned' ELSE restoration.previous_state END,
       CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted'
         WHEN 'unban_user' THEN 'banned' ELSE 'any' END) IN (
     SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
-      history.next_state, 'any'::text FROM identity.account_state_history history
-      WHERE history.actor_type = 'admin' AND history.actor_admin_id IS NOT NULL
-        AND history.next_state IN ('restricted','banned')
-    UNION ALL
-    SELECT history.user_id, history.actor_admin_id, history.reason_code, history.changed_at,
       history.next_state, history.previous_state FROM identity.account_state_history history
       WHERE history.actor_type = 'admin' AND history.actor_admin_id IS NOT NULL
         AND history.previous_state IN ('restricted','banned')
-  ),false)`;
+  ) END,false)`;
 }
 
 /** Disjoint actor branches keep system restrictions out of administrator attempt/restoration joins.

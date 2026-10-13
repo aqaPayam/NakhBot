@@ -1,5 +1,26 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: separate administrator admission and restoration history
+
+Commit `5e67a46` failed run `38447571466` after all 1,006 native cases in
+124 files passed without skips. Quality and all four images passed. The terminal
+M7 integrity statement took 1,555.047 ms against the unchanged 1,500 ms limit,
+with its required indexes, one worker and no spill. Subsequent support load and
+backup/restore steps were not reached; this head is not accepted evidence.
+
+The repair separates administrator admission and restoration membership sets.
+Admission hashes only the five exact identity/actor/reason/time/next-state fields;
+restoration retains those fields and the exact previous-state binding. The former
+synthetic admission class cannot equal a restoration state, so the branch dispatch
+preserves membership semantics and duplicate-history handling while avoiding the
+wider combined UNION hash. Null fields still fail closed. System authority,
+restoration selection, audit/attempt/notice bindings, fixtures, indexes, workers
+and all acceptance limits remain unchanged.
+
+All sixteen native integrity and plan regressions passed, including corruption,
+duplicate histories, review/unban bindings and pooled setting restoration. Full
+project checks and six exact-head CI successes remain required before advancing.
+
 ## Current increment: audited inactive legacy queue migration
 
 Reference delivery `75cc60d` passed all six jobs in run `38439921757`, including
