@@ -1,5 +1,47 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: reference-only production queue delivery
+
+Redis revocation `cd856ed` passed all six jobs in run `38429146134`. Its native
+artifact proves 966 cases in 119 files, zero skips and all twelve new real-Redis
+cases. The unchanged terminal M7 statement took 1,237.117 ms against 1,500 ms;
+all performance, support concurrency and backup/restore checks passed. Tracked
+source count: 216,731.
+
+The production worker now publishes bound outbox references, never complete
+event bodies. References contain only event/schema and original aggregate IDs.
+The consumer loads canonical PostgreSQL facts and validates every binding before
+dispatch. A missing financial canonical record fails closed. Valid financial,
+safety and lifecycle work remains available; proved product cancellation is
+suppressed. Sample content cannot cross an immediate tombstone or original life,
+and missing sample bodies require the independent immutable source-purge proof.
+Live unresolved M0 actors retain their explicit original unresolved ownership.
+
+During rolling transition, existing bodies must match canonical immutable facts
+before normalization. The active worker replaces a validated legacy body with a
+reference before application processing, so later processing failure/retry does
+not retain its private clone. Changed reference/name/job bindings and changed
+hydrated bodies fail before normalization. Newly queued references require a
+hydrator; older consumer versions cannot execute them. Deploy the new consumer
+before enabling deletion, and drain old producers before final legacy absence
+verification. Inactive legacy-job sweep and the audited ephemeral checkpoint
+remain required; processing normalization alone is not whole-queue completion.
+
+All twelve focused PostgreSQL cases passed, including twenty concurrent reference
+resolutions, exactly one projection, forged legacy prose/context/snapshots,
+immediate real tombstones, actual audited source removal, lost/corrupt source
+proof and financial availability after deletion. Queue and worker type checking
+passed. Six real BullMQ cases and two combined PostgreSQL/Redis worker journeys
+cover payload minimization, replay, normalization before failure, wrong hydration,
+forged references and late delivery after source purge. No local Redis service
+is available; these require actual CI execution without skips. Native coverage
+now requires at least 986 cases in 122 files. The full project check passed
+formatting, uncached lint, all 17 workspace types, 1,014 unit cases in 221 files
+and every build after all six new-code lint errors were repaired. All six
+exact-head jobs remain required before accepting this increment. M8 remains incomplete;
+runtime opaque ownership/legacy cleanup, manifests, completion/return, full saga
+composition and final acceptance are still required. Retained-data release is off.
+
 ## Current increment: bounded account-life Redis state revocation
 
 Repair `9ab2ba2` passed all six jobs in run `38422566805`, including all 954

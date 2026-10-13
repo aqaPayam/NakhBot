@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import { sql } from 'kysely';
 
 import type {
   CreateSampleEffectCommand,
@@ -139,6 +141,100 @@ export type ClaimedOutboxEvent = DomainEvent;
 
 export class PostgresOutboxStore {
   public constructor(private readonly database: NakhDatabase) {}
+
+  /** Queue references carry no event bodies. Legacy bodies must equal canonical
+   * immutable facts before normalization; financial/custody work is preserved. */
+  public async resolveQueuedEvent(
+    reference: Readonly<{
+      eventId: string;
+      eventType: string;
+      eventSchemaVersion: number;
+      aggregateType: string;
+      aggregateId: string;
+    }>,
+    legacy?: DomainEvent,
+  ): Promise<DomainEvent | undefined> {
+    const row = await this.database
+      .selectFrom('platform.outbox_events')
+      .selectAll()
+      .where('id', '=', reference.eventId)
+      .executeTakeFirst();
+    const isSample =
+      reference.eventType === 'platform.sample-effect-created.v1' &&
+      reference.eventSchemaVersion === 1 &&
+      reference.aggregateType === 'sample_effect';
+    if (
+      isSample &&
+      legacy !== undefined &&
+      (Object.keys(legacy.payload).sort().join(',') !== 'effectId,name' ||
+        legacy.payload.effectId !== reference.aggregateId ||
+        typeof legacy.payload.name !== 'string')
+    )
+      throw new Error('queued_event_source_conflict');
+    if (row === undefined) {
+      if (isSample) {
+        const proven = (
+          await sql<{ proven: boolean }>`SELECT EXISTS(
+          SELECT 1 FROM platform.sample_reference_anchors original
+          JOIN identity.account_deletion_sample_receipts receipt ON receipt.source_id=original.id
+          WHERE original.id=${reference.aggregateId}::uuid
+            AND platform.sample_purge_proven(receipt.deletion_record_id,original.id)
+            AND (${legacy === undefined}::boolean OR original.name_digest=${
+              legacy === undefined
+                ? ''
+                : createHash('sha256').update(String(legacy.payload.name)).digest('hex')
+            })
+        ) AS proven`.execute(this.database)
+        ).rows[0]!.proven;
+        if (proven) return undefined;
+      }
+      throw new Error('queued_event_source_unavailable');
+    }
+    if (
+      row.event_type !== reference.eventType ||
+      row.schema_version !== reference.eventSchemaVersion ||
+      row.aggregate_type !== reference.aggregateType ||
+      row.aggregate_id !== reference.aggregateId
+    )
+      throw new Error('queued_event_source_conflict');
+    const canonical: DomainEvent = {
+      id: row.id,
+      eventType: row.event_type,
+      schemaVersion: row.schema_version,
+      aggregateType: row.aggregate_type,
+      aggregateId: row.aggregate_id,
+      payload: row.payload,
+      occurredAt: row.occurred_at.toISOString(),
+      correlationId: row.correlation_id,
+      causationId: row.causation_id,
+    };
+    if (legacy !== undefined && !isDeepStrictEqual(legacy, canonical))
+      throw new Error('queued_event_source_conflict');
+    if (row.deletion_cancellation_audit_id !== null) {
+      const valid = (
+        await sql<{ valid: boolean }>`SELECT platform.deletion_cancellation_audit_valid(
+        ${row.deletion_cancellation_audit_id}::uuid) AS valid`.execute(this.database)
+      ).rows[0]!.valid;
+      if (!valid) throw new Error('queued_event_source_conflict');
+      return undefined;
+    }
+    if (isSample) {
+      const source = (
+        await sql<{ valid: boolean; deleted: boolean }>`SELECT
+        source.actor_user_id=original.actor_user_id AND original.name_digest=encode(sha256(convert_to(source.name,'UTF8')),'hex')
+          AND ${JSON.stringify(row.payload)}::jsonb=jsonb_build_object('effectId',source.id,'name',source.name)
+          AND ((account.user_id IS NULL AND original.product_epoch IS NULL)
+            OR account.product_epoch=original.product_epoch) AS valid,
+        account.state='deleted' AS deleted
+        FROM platform.sample_effects source JOIN platform.sample_reference_anchors original ON original.id=source.id
+        LEFT JOIN identity.accounts account ON account.user_id=original.actor_user_id
+        WHERE source.id=${row.aggregate_id}::uuid`.execute(this.database)
+      ).rows[0];
+      if (source === undefined || !source.valid) throw new Error('queued_event_source_conflict');
+      if (source.deleted) return undefined;
+    }
+    return canonical;
+  }
 
   public async claimBatch(
     input: Readonly<{

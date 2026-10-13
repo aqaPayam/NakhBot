@@ -257,6 +257,15 @@ The native worker must supply original lifecycle authority and resume the scan
 cursor. Legacy migration/runtime binding and separately approved fresh-return
 activation remain required before M8 ingress can be enabled.
 
+Production domain-event jobs now contain a bound outbox reference (event ID/type/
+schema and original aggregate type/ID), not the event payload. Consumers validate
+canonical PostgreSQL facts before dispatch and normalize validated legacy bodies
+before application processing. Financial canonical facts remain required; only
+proved cancellation/ordinary sample removal permits suppression. This reduces
+new private-copy creation; inactive historical bodies, active jobs and old
+producers still require a complete verified legacy sweep before deletion can
+finish. A normalized job or an empty consumer result alone never proves that sweep.
+
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|
 | `administration.admin_sessions` | restricted bearer hashes, factor-proof identifiers and verification/expiry/revocation times | revoke current grants immediately when operator authority ends; retain security history under the approved audit policy; M8 must implement controlled release before deletion | Administration/Security; never retain bearer, factor assertion, OTP or factor secret; ordinary deletion/extension/revival is forbidden |

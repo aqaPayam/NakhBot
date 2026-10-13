@@ -81,7 +81,7 @@ const database = createDatabase(config.database);
 const publisherConnection = createRedisConnection(config.redis.url);
 const workerConnection = createRedisConnection(config.redis.url);
 await Promise.all([publisherConnection.connect(), workerConnection.connect()]);
-const publisher = new BullMqOutboxPublisher(publisherConnection, config.redis.queuePrefix);
+const publisher = new BullMqOutboxPublisher(publisherConnection, config.redis.queuePrefix, true);
 const outbox = new PostgresOutboxStore(database);
 const ids = new SystemIdGenerator();
 const nakhMetrics = new M5Metrics();
@@ -179,8 +179,11 @@ const eventProcessor = new WorkerEventProcessor(
   nakhMetrics,
   notificationDelivery,
 );
-const eventWorker = createDomainEventWorker(workerConnection, config.redis.queuePrefix, (event) =>
-  eventProcessor.process(event),
+const eventWorker = createDomainEventWorker(
+  workerConnection,
+  config.redis.queuePrefix,
+  (event) => eventProcessor.process(event),
+  (reference, legacy) => outbox.resolveQueuedEvent(reference, legacy),
 );
 
 let dispatching = false;

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
 import { Queue, Worker, type JobsOptions } from 'bullmq';
 import { Redis } from 'ioredis';
@@ -13,6 +14,51 @@ import type { DomainEvent } from '@nakh/contracts';
 
 export const DOMAIN_EVENT_QUEUE = 'domain-events';
 
+export type QueuedEventReference = Readonly<{
+  kind: 'outbox-reference.v1';
+  eventId: string;
+  eventType: string;
+  eventSchemaVersion: number;
+  aggregateType: string;
+  aggregateId: string;
+}>;
+export type QueuedEventHydrator = (
+  reference: QueuedEventReference,
+  legacy?: DomainEvent,
+) => Promise<DomainEvent | undefined>;
+type QueuedEvent = DomainEvent | QueuedEventReference;
+
+function validateQueuedDomainEvent(value: unknown): asserts value is DomainEvent {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw new Error('invalid_queued_event');
+  const event = value as Readonly<Record<string, unknown>>;
+  const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
+  if (
+    Object.keys(event).sort().join(',') !==
+      'aggregateId,aggregateType,causationId,correlationId,eventType,id,occurredAt,payload,schemaVersion' ||
+    !['id', 'aggregateId', 'correlationId', 'causationId'].every(
+      (key) => typeof event[key] === 'string' && uuid.test(event[key]),
+    ) ||
+    typeof event.eventType !== 'string' ||
+    event.eventType.length < 1 ||
+    event.eventType.length > 160 ||
+    typeof event.aggregateType !== 'string' ||
+    event.aggregateType.length < 1 ||
+    event.aggregateType.length > 80 ||
+    !Number.isSafeInteger(event.schemaVersion) ||
+    (event.schemaVersion as number) < 1 ||
+    typeof event.occurredAt !== 'string' ||
+    !Number.isFinite(Date.parse(event.occurredAt)) ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/iu.test(
+      event.occurredAt,
+    ) ||
+    typeof event.payload !== 'object' ||
+    event.payload === null ||
+    Array.isArray(event.payload)
+  )
+    throw new Error('invalid_queued_event');
+}
+
 export function createRedisConnection(url: string): Redis {
   return new Redis(url, {
     maxRetriesPerRequest: null,
@@ -22,10 +68,14 @@ export function createRedisConnection(url: string): Redis {
 }
 
 export class BullMqOutboxPublisher implements OutboxPublisher {
-  private readonly queue: Queue<DomainEvent>;
+  private readonly queue: Queue<QueuedEvent>;
 
-  public constructor(connection: Redis, prefix: string) {
-    this.queue = new Queue<DomainEvent>(DOMAIN_EVENT_QUEUE, { connection, prefix });
+  public constructor(
+    connection: Redis,
+    prefix: string,
+    private readonly referenceOnly = false,
+  ) {
+    this.queue = new Queue<QueuedEvent>(DOMAIN_EVENT_QUEUE, { connection, prefix });
   }
 
   public async publish(event: DomainEvent): Promise<void> {
@@ -36,7 +86,18 @@ export class BullMqOutboxPublisher implements OutboxPublisher {
       removeOnComplete: { age: 24 * 60 * 60, count: 10_000 },
       removeOnFail: false,
     };
-    await this.queue.add(event.eventType, event, options);
+    validateQueuedDomainEvent(event);
+    const data: QueuedEvent = this.referenceOnly
+      ? {
+          kind: 'outbox-reference.v1',
+          eventId: event.id,
+          eventType: event.eventType,
+          eventSchemaVersion: event.schemaVersion,
+          aggregateType: event.aggregateType,
+          aggregateId: event.aggregateId,
+        }
+      : event;
+    await this.queue.add(event.eventType, data, options);
   }
 
   public async close(): Promise<void> {
@@ -48,12 +109,79 @@ export function createDomainEventWorker(
   connection: Redis,
   prefix: string,
   processor: (event: DomainEvent) => Promise<void>,
-): Worker<DomainEvent> {
-  return new Worker<DomainEvent>(DOMAIN_EVENT_QUEUE, async (job) => processor(job.data), {
-    connection,
-    prefix,
-    concurrency: 20,
-  });
+  hydrate?: QueuedEventHydrator,
+): Worker<QueuedEvent> {
+  return new Worker<QueuedEvent>(
+    DOMAIN_EVENT_QUEUE,
+    async (job) => {
+      const data: unknown = job.data;
+      if (typeof data !== 'object' || data === null || Array.isArray(data))
+        throw new Error('invalid_queued_event');
+      const candidate = data as Readonly<Record<string, unknown>>;
+      let event: DomainEvent | undefined;
+      let normalize: QueuedEventReference | undefined;
+      let legacyBody: DomainEvent | undefined;
+      if (candidate.kind === 'outbox-reference.v1') {
+        if (
+          Object.keys(candidate).sort().join(',') !==
+            'aggregateId,aggregateType,eventId,eventSchemaVersion,eventType,kind' ||
+          typeof candidate.eventId !== 'string' ||
+          candidate.eventId !== job.id ||
+          !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(candidate.eventId) ||
+          typeof candidate.eventType !== 'string' ||
+          candidate.eventType !== job.name ||
+          typeof candidate.aggregateType !== 'string' ||
+          candidate.aggregateType.length < 1 ||
+          candidate.aggregateType.length > 80 ||
+          typeof candidate.aggregateId !== 'string' ||
+          !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(candidate.aggregateId) ||
+          !Number.isSafeInteger(candidate.eventSchemaVersion) ||
+          (candidate.eventSchemaVersion as number) < 1 ||
+          hydrate === undefined
+        )
+          throw new Error('invalid_queued_event_reference');
+        event = await hydrate(candidate as QueuedEventReference);
+      } else {
+        validateQueuedDomainEvent(data);
+        const legacy = data;
+        if (legacy.id !== job.id || legacy.eventType !== job.name)
+          throw new Error('invalid_queued_event');
+        const reference: QueuedEventReference = {
+          kind: 'outbox-reference.v1',
+          eventId: legacy.id,
+          eventType: legacy.eventType,
+          eventSchemaVersion: legacy.schemaVersion,
+          aggregateType: legacy.aggregateType,
+          aggregateId: legacy.aggregateId,
+        };
+        event = hydrate === undefined ? legacy : await hydrate(reference, legacy);
+        if (hydrate !== undefined) {
+          normalize = reference;
+          legacyBody = legacy;
+        }
+      }
+      if (event !== undefined) {
+        validateQueuedDomainEvent(event);
+        if (
+          event.id !== job.id ||
+          event.eventType !== job.name ||
+          event.aggregateType !== candidate.aggregateType ||
+          event.aggregateId !== candidate.aggregateId ||
+          event.schemaVersion !== (candidate.eventSchemaVersion ?? candidate.schemaVersion)
+        )
+          throw new Error('invalid_queued_event');
+        if (legacyBody !== undefined && !isDeepStrictEqual(legacyBody, event))
+          throw new Error('invalid_queued_event');
+      }
+      if (normalize !== undefined) await job.updateData(normalize);
+      if (event !== undefined) await processor(event);
+    },
+    {
+      connection,
+      prefix,
+      concurrency: 20,
+    },
+  );
 }
 
 export class RedisLease {
