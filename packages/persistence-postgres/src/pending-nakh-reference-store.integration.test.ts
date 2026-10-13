@@ -178,6 +178,7 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
       '000129_m8_account_media_provider_work.sql',
       '000130_m8_media_checkpoint.sql',
       '000131_m8_private_photo_parallel_read.sql',
+      '000132_m8_sample_source_cleanup.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);
@@ -186,9 +187,9 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
       '000112_m8_pending_nakh_references.sql',
     );
     const catalog = await readDeletionCatalog(database);
-    expect(catalog.tables).toHaveLength(148);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1371);
-    expect(catalog.foreignKeys).toHaveLength(294);
+    expect(catalog.tables).toHaveLength(150);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1380);
+    expect(catalog.foreignKeys).toHaveLength(298);
     assertDeletionCatalogCoverage(catalog);
   });
   it.each(['target', 'payer-life'] as const)(

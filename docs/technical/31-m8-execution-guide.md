@@ -1,5 +1,42 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: bounded synthetic source cleanup
+
+Custody integration `e8ec365` passed all six jobs in run `38395234556`, including
+942 native cases in 117 files without skips, all unchanged performance gates and
+backup/restore. Tracked source count was 215,240 lines.
+
+Migration 132 and the owning sample cleanup store remove the synthetic source,
+its projection and private source-event copies. Each call processes one original
+source and at most 100 event copies; a source remains until every event copy is
+gone. Active publication leases wait, locked rows are skipped and retries resume
+under the same checked deletion authority. Counterpart records remain intact.
+Original actor/life and a one-way name fingerprint remain in a minimal immutable
+reference. Legacy walking-skeleton actors without Accounts remain explicitly
+unresolved; existing nonzero-life ownership is not guessed during migration.
+
+Every partial/final batch requires the existing product audit/event chain. Final
+removal also requires an immutable receipt digest covering the audit and original
+event facts; delivery scheduling remains mutable. Missing source bodies without
+that proof, wrong ownership/life, and corrupt receipts fail closed. Product
+verification independently checks the original references. Source, projection
+and publication writes cannot cross a tombstone or original life.
+
+The final focused run passed 19 cleanup/catalog cases, including twenty retries,
+205 event copies removed in 100/100/5 batches, active-lease waiting, required-write
+suppression rollback, late-write denial and privileged ownership/life/source-loss
+probes. All 38 walking-skeleton/product/operational regression cases then passed
+on a fresh migrated database. Persistence type checking passed. The catalog now
+covers 150 tables, 1,380 columns and 298 foreign keys.
+
+All 63 populated upgrade/bootstrap cases passed, including upgrading from the
+previous green migration 131 and replaying migration 132 without changes. The
+full project check passed formatting, uncached lint, all 17 workspace types,
+1,014 unit cases in 221 files and all builds. All six exact-head CI jobs remain
+required before accepting this increment. M8 still requires ephemeral/queue
+cleanup, retained-data manifests, final completion and safe return, runtime
+composition and final acceptance evidence. Retained-data release stays disabled.
+
 ## Current increment: retained photo custody in moderation integrity
 
 Repair `2731798` passed all six exact-head jobs in run `38391345733`. Its retained

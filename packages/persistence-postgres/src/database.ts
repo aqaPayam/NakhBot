@@ -1337,6 +1337,19 @@ export interface DatabaseSchema {
   'media.photo_moderation_records': PhotoModerationTable;
   'platform.idempotency_records': IdempotencyTable;
   'platform.sample_effects': SampleEffectTable;
+  'platform.sample_reference_anchors': {
+    id: string;
+    actor_user_id: string;
+    product_epoch: number | null;
+    name_digest: string;
+  };
+  'identity.account_deletion_sample_receipts': {
+    source_id: string;
+    deletion_record_id: string;
+    audit_id: string;
+    event_id: string;
+    proof_hash: string;
+  };
   'platform.outbox_events': OutboxEventTable;
   'platform.inbox_messages': InboxMessageTable;
   'platform.sample_projections': SampleProjectionTable;

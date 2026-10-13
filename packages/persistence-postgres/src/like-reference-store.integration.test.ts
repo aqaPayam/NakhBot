@@ -110,6 +110,7 @@ describe.skipIf(url === undefined)(
           '000129_m8_account_media_provider_work.sql',
           '000130_m8_media_checkpoint.sql',
           '000131_m8_private_photo_parallel_read.sql',
+          '000132_m8_sample_source_cleanup.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');

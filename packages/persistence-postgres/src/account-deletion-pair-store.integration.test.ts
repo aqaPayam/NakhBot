@@ -82,6 +82,7 @@ describe.skipIf(url === undefined)('M8 original pair removal and Match lifetimes
       '000129_m8_account_media_provider_work.sql',
       '000130_m8_media_checkpoint.sql',
       '000131_m8_private_photo_parallel_read.sql',
+      '000132_m8_sample_source_cleanup.sql',
     ]);
     expect(
       (

@@ -10083,6 +10083,94 @@
           "definition": "FOREIGN KEY (asset_id) REFERENCES media.asset_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
+    },
+    {
+      "table": "platform.sample_reference_anchors",
+      "owner": "platform",
+      "classification": "retained_compliance",
+      "action": "approved_policy_release",
+      "purpose": "minimal_original_sample_scope",
+      "subjectScope": "row.actor_user_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "product_epoch",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "name_digest",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": []
+    },
+    {
+      "table": "identity.account_deletion_sample_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "deletion_sample_source_proof",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "source_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "proof_hash",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "platform.outbox_events",
+          "definition": "FOREIGN KEY (event_id) REFERENCES platform.outbox_events(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "platform.sample_reference_anchors",
+          "definition": "FOREIGN KEY (source_id) REFERENCES platform.sample_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
     }
   ],
   "objectPrefixes": [

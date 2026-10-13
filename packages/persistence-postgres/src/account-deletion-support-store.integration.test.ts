@@ -499,6 +499,7 @@ describe.skipIf(url === undefined)(
                   '000129_m8_account_media_provider_work.sql',
                   '000130_m8_media_checkpoint.sql',
                   '000131_m8_private_photo_parallel_read.sql',
+                  '000132_m8_sample_source_cleanup.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -530,6 +531,7 @@ describe.skipIf(url === undefined)(
                   '000129_m8_account_media_provider_work.sql',
                   '000130_m8_media_checkpoint.sql',
                   '000131_m8_private_photo_parallel_read.sql',
+                  '000132_m8_sample_source_cleanup.sql',
                 ],
           );
           expect(
