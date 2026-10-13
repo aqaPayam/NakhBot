@@ -15,6 +15,7 @@ export {
 } from './foundation-store.js';
 export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-store.js';
 export { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
+export { PostgresQueueReferenceMigrationAudit } from './queue-reference-migration-audit.js';
 export { PostgresAdminCommandStore } from './admin-command-store.js';
 export {
   PostgresModerationReviewStore,

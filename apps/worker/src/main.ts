@@ -28,14 +28,18 @@ import {
   PostgresMediaStore,
   PostgresMediaValidationStore,
   PostgresOutboxStore,
+  PostgresQueueReferenceMigrationAudit,
   PostgresPendingNakhSettlementStore,
   PostgresTelegramStarsReceiptStore,
   SystemIdGenerator,
 } from '@nakh/persistence-postgres';
 import {
   BullMqOutboxPublisher,
+  BullMqLegacyReferenceMigration,
   createDomainEventWorker,
   createRedisConnection,
+  RedisLease,
+  type QueueReferenceMigrationCursor,
 } from '@nakh/queue-redis';
 import { TelegramMediaTransportCipher, TelegramPhotoDownloadAdapter } from '@nakh/telegram';
 
@@ -87,6 +91,84 @@ const ids = new SystemIdGenerator();
 const nakhMetrics = new M5Metrics();
 const inbox = new PostgresInboxStore(database, ids);
 const owner = `${config.serviceName}-${randomUUID()}`;
+const queueMigration = new BullMqLegacyReferenceMigration(
+  publisherConnection,
+  config.redis.queuePrefix,
+  new PostgresQueueReferenceMigrationAudit(database),
+);
+const queueMigrationLease = new RedisLease(publisherConnection);
+const queueMigrationLeaseKey = `${config.redis.queuePrefix}:worker:legacy-reference-migration`;
+const queueMigrationCursorKey = `${config.redis.queuePrefix}:worker:legacy-reference-cursor`;
+let queueMigrating = false;
+const migrateLegacyQueue = async (): Promise<void> => {
+  if (queueMigrating) return;
+  queueMigrating = true;
+  let acquired = false;
+  try {
+    acquired = await queueMigrationLease.acquire(queueMigrationLeaseKey, owner, 30000);
+    if (!acquired) return;
+    const saved = await publisherConnection.get(queueMigrationCursorKey);
+    let cursor: QueueReferenceMigrationCursor = { redisCursor: '0', pendingKeys: [] };
+    if (saved !== null) {
+      const parsed: unknown = JSON.parse(saved);
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+        throw new Error('invalid_queue_migration_cursor');
+      const value = parsed as Record<string, unknown>;
+      if (
+        Object.keys(value).sort().join(',') !== 'pendingKeys,redisCursor' ||
+        typeof value.redisCursor !== 'string' ||
+        !Array.isArray(value.pendingKeys) ||
+        !value.pendingKeys.every((key) => typeof key === 'string')
+      )
+        throw new Error('invalid_queue_migration_cursor');
+      cursor = { redisCursor: value.redisCursor, pendingKeys: value.pendingKeys };
+    }
+    const result = await queueMigration.scanNext(cursor);
+    // A slow batch must not overwrite a newer worker's durable cursor. Replaying
+    // an old batch is safe: bytes, locks and native audits are checked again.
+    await publisherConnection.eval(
+      `
+      if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+      redis.call('SET', KEYS[2], ARGV[2])
+      return 1
+    `,
+      2,
+      queueMigrationLeaseKey,
+      queueMigrationCursorKey,
+      owner,
+      JSON.stringify(result.nextCursor),
+    );
+    if (result.normalized > 0 || result.active > 0 || result.changed > 0)
+      logger.info(
+        {
+          operation: 'queue.legacy-reference-migration',
+          normalized: result.normalized,
+          active: result.active,
+          changed: result.changed,
+        },
+        'Legacy queue migration batch',
+      );
+  } catch {
+    logger.error(
+      { operation: 'queue.legacy-reference-migration', reasonCode: 'queue_migration_unavailable' },
+      'Legacy queue migration batch failed',
+    );
+  } finally {
+    try {
+      if (acquired) await queueMigrationLease.release(queueMigrationLeaseKey, owner);
+    } catch {
+      logger.error(
+        {
+          operation: 'queue.legacy-reference-migration',
+          reasonCode: 'queue_migration_lease_release_unavailable',
+        },
+        'Legacy queue migration lease release failed',
+      );
+    } finally {
+      queueMigrating = false;
+    }
+  }
+};
 const paymentFulfillment = new PaymentFulfillmentProcessor(
   PostgresTelegramStarsReceiptStore.forFulfillment(database),
   ids,
@@ -377,6 +459,7 @@ await Promise.all([
   dispatchNotification(),
 ]);
 const timer = setInterval(() => void dispatch(), 250);
+const queueMigrationTimer = setInterval(() => void migrateLegacyQueue(), 5000);
 const paymentFulfillmentTimer = setInterval(() => void dispatchPaymentFulfillment(), 250);
 const likedByTimer =
   likedByDelivery === undefined ? undefined : setInterval(() => void dispatchLikedBy(), 250);
@@ -399,6 +482,7 @@ logger.info(
 
 const shutdown = async (): Promise<void> => {
   clearInterval(timer);
+  clearInterval(queueMigrationTimer);
   clearInterval(paymentFulfillmentTimer);
   if (likedByTimer !== undefined) clearInterval(likedByTimer);
   if (likedByBacklogTimer !== undefined) clearInterval(likedByBacklogTimer);

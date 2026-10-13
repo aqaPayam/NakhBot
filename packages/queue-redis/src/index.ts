@@ -13,6 +13,12 @@ import type {
 import type { DomainEvent } from '@nakh/contracts';
 
 export const DOMAIN_EVENT_QUEUE = 'domain-events';
+export {
+  BullMqLegacyReferenceMigration,
+  type QueueReferenceMigrationAudit,
+  type QueueReferenceMigrationBatch,
+  type QueueReferenceMigrationCursor,
+} from './legacy-reference-migration.js';
 
 export type QueuedEventReference = Readonly<{
   kind: 'outbox-reference.v1';

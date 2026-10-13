@@ -1,5 +1,48 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: audited inactive legacy queue migration
+
+Reference delivery `75cc60d` passed all six jobs in run `38439921757`, including
+986 native cases in 122 files without skips. The unchanged terminal M7 query
+took 1,043.441 ms at full volume; all performance and backup/restore checks
+passed. Tracked source count: 217,622. A duplicate push run was superseded by
+the configured same-branch concurrency; only the completed six-success run is
+accepted evidence.
+
+The production worker runs one bounded legacy migration batch every five seconds
+under a shared Redis lease. It preserves a resumable cursor and unexamined page
+keys, so SCAN's advisory count cannot lose work or endlessly restart a page of
+already-normalized jobs. At most 100 metadata entries are processed per call.
+Active jobs are skipped; an atomic lock/byte comparison also catches a job that
+became active or changed while native authorization was running. References with
+private extra fields, wrong job/name bindings and foreign pending keys fail closed.
+
+PostgreSQL authorizes each legacy body against its canonical record or independent
+ordinary-source purge proof before mutation and requires an append-only prepared
+audit. The audit stores only queue/body/reference digests and opaque job identity.
+Native advisory locks converge concurrent preparation/observation retries. Outcome
+audits retain normalized/already-reference/active/gone/changed facts. If Redis
+normalization succeeds but observation fails, the old cursor is retained and the
+next exact-reference pass reconciles its persisted preparation. A worker whose
+lease expired cannot overwrite a newer cursor. Canonical financial/safety/lifecycle
+facts are unchanged; no retained-data release or subject deletion completion is
+granted by an operational format pass.
+
+All six focused PostgreSQL cases passed, including twenty concurrent preparations
+and observations, required-audit suppression, forged prose, lost observation,
+privileged actor corruption and distinct queue namespaces. Production types pass.
+Twelve real-Redis cases cover actual lock/byte races, concurrent scanners,
+205-job/seven-item cursor recovery, audit failures, malformed references and
+namespace isolation. Two combined PostgreSQL/Redis worker journeys prove native
+authorization before normalization and recovery after a lost observation. Actual
+CI Redis execution without skips remains required; no local Redis is available.
+The native floor is now 1,006 cases in 124 files. The full project check passed
+formatting, uncached lint, all 17 workspace types, 1,014 unit cases in 221 files
+and every build. Four early focused-lint issues were diagnosed and fixed without
+relaxing rules. All six exact-head jobs remain required before acceptance. Runtime opaque ownership and
+legacy-cache handling, complete audited ephemeral phase verification, retention
+manifests, completion/return and final saga/acceptance work remain M8 requirements.
+
 ## Current increment: reference-only production queue delivery
 
 Redis revocation `cd856ed` passed all six jobs in run `38429146134`. Its native

@@ -266,6 +266,15 @@ new private-copy creation; inactive historical bodies, active jobs and old
 producers still require a complete verified legacy sweep before deletion can
 finish. A normalized job or an empty consumer result alone never proves that sweep.
 
+Inactive legacy jobs are normalized in bounded audited batches under a worker
+lease. Native preparation verifies canonical facts and records only body/reference/
+queue digests; Redis atomically checks the original bytes and absence of an active
+job lock before replacing data. Post-change observation failures are reconciled
+from the persisted preparation on the next reference pass. The durable worker
+cursor contains only opaque physical job keys and SCAN position. These are
+operational migration controls, not retained-data release or deletion-completion
+authority; old producers must be drained and complete absence verified separately.
+
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|
 | `administration.admin_sessions` | restricted bearer hashes, factor-proof identifiers and verification/expiry/revocation times | revoke current grants immediately when operator authority ends; retain security history under the approved audit policy; M8 must implement controlled release before deletion | Administration/Security; never retain bearer, factor assertion, OTP or factor secret; ordinary deletion/extension/revival is forbidden |

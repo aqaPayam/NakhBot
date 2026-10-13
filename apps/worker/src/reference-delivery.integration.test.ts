@@ -12,10 +12,12 @@ import {
   PostgresAccountDeletionWorkStore,
   PostgresAccountDeletionCheckpointStore,
   PostgresAccountDeletionSampleStore,
+  PostgresQueueReferenceMigrationAudit,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
   BullMqOutboxPublisher,
+  BullMqLegacyReferenceMigration,
   createDomainEventWorker,
   createRedisConnection,
   DOMAIN_EVENT_QUEUE,
@@ -160,6 +162,65 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
           .where('id', '=', event.aggregateId)
           .execute(),
       ).toEqual([]);
+    });
+    it('normalizes an inactive real legacy job behind native append-only authority while preserving its canonical body', async () => {
+      const event = await seed(),
+        prefix = `m8-legacy-real-${randomUUID()}`;
+      const publisher = new BullMqOutboxPublisher(connection, prefix);
+      cleanup.push(() => publisher.close());
+      await publisher.publish(event);
+      const key = `${prefix}:${DOMAIN_EVENT_QUEUE}:${event.id}`;
+      expect(await connection.hget(key, 'data')).toContain('private end-to-end sample');
+      const migrator = new BullMqLegacyReferenceMigration(
+        connection,
+        prefix,
+        new PostgresQueueReferenceMigrationAudit(database),
+      );
+      const result = await migrator.scanNext({ redisCursor: '0', pendingKeys: [key] });
+      expect(result.normalized).toBe(1);
+      expect(await connection.hget(key, 'data')).not.toContain('private end-to-end sample');
+      const records = await database
+        .selectFrom('platform.audit_logs')
+        .selectAll()
+        .where('subject_id', '=', event.id)
+        .execute();
+      expect(records).toHaveLength(2);
+      expect(JSON.stringify(records)).not.toContain('private end-to-end sample');
+      expect(
+        (
+          await database
+            .selectFrom('platform.outbox_events')
+            .select('payload')
+            .where('id', '=', event.id)
+            .executeTakeFirstOrThrow()
+        ).payload,
+      ).toEqual(event.payload);
+    });
+    it('reconciles a real persisted preparation after normalization succeeds but post-change observation fails', async () => {
+      const event = await seed(),
+        prefix = `m8-legacy-recovery-${randomUUID()}`;
+      const publisher = new BullMqOutboxPublisher(connection, prefix);
+      cleanup.push(() => publisher.close());
+      await publisher.publish(event);
+      const key = `${prefix}:${DOMAIN_EVENT_QUEUE}:${event.id}`,
+        native = new PostgresQueueReferenceMigrationAudit(database);
+      const migrator = new BullMqLegacyReferenceMigration(connection, prefix, {
+        prepare: (hash, reference, legacy) => native.prepare(hash, reference, legacy),
+        observe: () => Promise.reject(new Error('synthetic_observation_failure')),
+        reconcile: (hash, reference) => native.reconcile(hash, reference),
+      });
+      await expect(migrator.scanNext({ redisCursor: '0', pendingKeys: [key] })).rejects.toThrow(
+        'synthetic_observation_failure',
+      );
+      expect(await connection.hget(key, 'data')).not.toContain('private end-to-end sample');
+      await migrator.scanNext({ redisCursor: '0', pendingKeys: [key] });
+      const records = await database
+        .selectFrom('platform.audit_logs')
+        .selectAll()
+        .where('subject_id', '=', event.id)
+        .execute();
+      expect(records).toHaveLength(2);
+      expect(records.some((record) => record.metadata.outcome === 'already_reference')).toBe(true);
     });
   },
 );
