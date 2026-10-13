@@ -1,5 +1,40 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: retained photo custody in moderation integrity
+
+Repair `2731798` passed all six exact-head jobs in run `38391345733`. Its retained
+native coverage artifact verifies 941 passes in 117 files, two isolated shards
+and zero skips. Quality, all four images, every existing performance/load gate
+and backup/restore passed. Tracked source count was 215,138 lines.
+
+After legitimate media archival, the moderation integrity query previously
+required the removed public asset and variant rows. It now uses the existing
+owning source view, which independently authenticates the live original or the
+verified private copy. Exact evidence, photo, asset, variant, thumbnail version
+and content-hash bindings remain required; no public delivery fallback is added.
+
+Native checks passed all 15 cases in the media and integrity suites. The actual
+provider-removal journey preserves the encrypted capture and custody fingerprint,
+keeps the current evidence health count unchanged and creates no false retention
+finding. Corrupting private proof then increments that count, denies capture
+access and media completion, and produces one metadata-only quarantine through
+the actual reconciliation scanner. Repeated scans preserve one finding.
+
+Migration 131 marks the existing stable private-proof function parallel safe.
+Its body only reads permanent relations and snapshot-stable metadata; it changes
+no state and acquires no locks. The verify script requires both properties, and
+the populated upgrade matrix now includes migration 130 as a starting state.
+Prior migrations, custody predicates and retention policies remain unchanged.
+The final native run passed 77 cases in three files, including all 62 populated
+upgrade/bootstrap cases and the media/integrity cases on migration 131. The full
+project check passed uncached lint, all 17 workspace types, 1,014 unit tests in
+221 files and all builds. The native CI baseline is now at least 942 cases.
+All six exact-head CI jobs, including unchanged full-volume performance gates,
+remain required for this increment. M8 remains incomplete: ephemeral cleanup,
+demo/projection cleanup, retention manifests, final completion and safe return,
+runtime composition and final acceptance evidence still remain. Retained-data
+release stays disabled pending approved periods.
+
 ## Current repair: bounded CI work with complete native coverage
 
 Head `ac8daf6` passed quality and three container jobs. All 941 native cases in

@@ -266,18 +266,22 @@ SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS 
       UNION ALL
 SELECT evidence.id, evidence.report_id AS "reportId", evidence.evidence_type AS "evidenceType",
         snapshot.id IS NOT NULL AS "hasCapture", COALESCE(
-          hold.photo_id = evidence.profile_photo_id AND variant.id IS NOT NULL AND asset.id IS NOT NULL
+          hold.photo_id = evidence.profile_photo_id AND variant.variant_id IS NOT NULL
+          AND variant.asset_id = hold.asset_id
           AND variant.variant_type = 'thumbnail' AND variant.transformation_version = 1
-          AND encode(variant.sha256, 'hex') = hold.content_sha256
-          AND variant.storage_deleted_at IS NULL AND asset.storage_deleted_at IS NULL,
+          AND encode(variant.sha256, 'hex') = hold.content_sha256,
           false) AS "hasRetainedPhoto"
       FROM moderation.report_evidence evidence
       LEFT JOIN moderation.report_snapshots snapshot ON snapshot.report_evidence_id = evidence.id
         AND snapshot.report_id = evidence.report_id AND snapshot.snapshot_type = evidence.evidence_type
         AND snapshot.metadata_shape_valid
       LEFT JOIN media.report_photo_evidence_holds hold ON hold.report_evidence_id = evidence.id
-      LEFT JOIN media.photo_variants variant ON variant.id = hold.variant_id AND variant.asset_id = hold.asset_id
-      LEFT JOIN media.media_assets asset ON asset.id = hold.asset_id
+      -- The owning view independently verifies either live original bytes or the
+      -- audited private copy. Ordinary source archival must not hide custody;
+      -- missing or corrupt private proof still yields no matching source.
+      LEFT JOIN media.report_photo_source_facts variant
+        ON variant.report_evidence_id = evidence.id AND variant.variant_id = hold.variant_id
+        AND variant.asset_id = hold.asset_id
       WHERE evidence.evidence_type = 'photo'
 `,
   reviews: sql`

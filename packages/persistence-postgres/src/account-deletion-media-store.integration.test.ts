@@ -28,6 +28,8 @@ import { PostgresAccountDeletionTransportStore } from './account-deletion-transp
 import { PostgresAccountDeletionFinancialStore } from './account-deletion-financial-store.js';
 import { PostgresAccountDeletionOperationalStore } from './account-deletion-operational-store.js';
 import { PostgresAccountDeletionMediaStore } from './account-deletion-media-store.js';
+import { PostgresModerationIntegrityMetricsStore } from './moderation-integrity-metrics-store.js';
+import { PostgresModerationReconciliationStore } from './moderation-reconciliation-store.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('M8 owning account media provider work', () => {
@@ -409,6 +411,22 @@ describe.skipIf(url === undefined)('M8 owning account media provider work', () =
   it('preserves authenticated report evidence in private storage after every public object and raw media source is removed', async () => {
     const item = await scene(true);
     const capture = item.captured!;
+    const metrics = new PostgresModerationIntegrityMetricsStore(database);
+    const baselineEvidence = (await metrics.measure()).counts.evidence;
+    const reconcile = async (): Promise<unknown[]> => {
+      const scanner = new PostgresModerationReconciliationStore(database);
+      const runId = await scanner.resumeOrStart(randomUUID());
+      let completed = false;
+      for (let batch = 0; batch < 100 && !completed; batch++)
+        completed = (await scanner.scanNextBatch(runId, 500)).completed;
+      expect(completed).toBe(true);
+      return database
+        .selectFrom('billing.reconciliation_anomalies')
+        .select(['anomaly_type', 'disposition', 'safe_detail'])
+        .where('entity_id', '=', capture.reportId)
+        .where('anomaly_type', '=', 'report_photo_retention_invalid')
+        .execute();
+    };
     const readers = {
       photo: new AesGcmPhotoReportSnapshotReader({
         resolve: (id, version) =>
@@ -486,6 +504,8 @@ describe.skipIf(url === undefined)('M8 owning account media provider work', () =
     }
     expect([...objects.keys()]).toEqual([`evidence/test/${capture.evidenceId}/thumbnail-v1.webp`]);
     expect(await read()).toEqual(before);
+    expect((await metrics.measure()).counts.evidence).toBe(baselineEvidence);
+    expect(await reconcile()).toEqual([]);
     expect(
       (
         await sql`SELECT capture_fingerprint FROM identity.account_deletion_evidence_receipts WHERE deletion_record_id=${item.lease.deletionRecordId}::uuid`.execute(
@@ -506,6 +526,17 @@ describe.skipIf(url === undefined)('M8 owning account media provider work', () =
         WHERE evidence_id=${capture.evidenceId}::uuid AND kind='retain_photo'`.execute(tx);
     });
     await expect(read()).rejects.toThrow('Report snapshot reference is invalid.');
+    const damagedSample = await metrics.measure();
+    expect(damagedSample.counts.evidence).toBe(baselineEvidence + 1);
+    expect(JSON.stringify(damagedSample)).not.toContain(capture.evidenceId);
+    expect(await reconcile()).toEqual([
+      {
+        anomaly_type: 'report_photo_retention_invalid',
+        disposition: 'quarantined',
+        safe_detail: { evidenceType: 'photo' },
+      },
+    ]);
+    expect(await reconcile()).toHaveLength(1);
     await expect(store.archiveNext(item.lease)).rejects.toMatchObject({ status: 409 });
     expect(
       await new PostgresAccountDeletionCheckpointStore(database).finishMedia(item.lease),
