@@ -43,6 +43,15 @@ export type ProductCheckpointResult =
       replayed: false;
       waitingFor: (typeof PRODUCT_BLOCKERS)[number];
     }>;
+const MEDIA_BLOCKERS = ['product', 'sources', 'provider_proof'] as const;
+export type MediaCheckpointResult =
+  | Readonly<{ phase: 'ephemeral_access'; checkpointVersion: 5; replayed: boolean }>
+  | Readonly<{
+      phase: 'media_objects';
+      checkpointVersion: 4;
+      replayed: false;
+      waitingFor: (typeof MEDIA_BLOCKERS)[number];
+    }>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 function conflict(): ApplicationError {
   return new ApplicationError('conflict', 'error.deletion.checkpoint_conflict', 409);
@@ -53,6 +62,56 @@ function conflict(): ApplicationError {
  * closure and evidence/source completion can advance; later phases stay disabled. */
 export class PostgresAccountDeletionCheckpointStore {
   public constructor(private readonly database: NakhDatabase) {}
+  public async finishMedia(lease: AccountDeletionLease): Promise<MediaCheckpointResult> {
+    if (!this.database.isTransaction)
+      return this.database
+        .transaction()
+        .execute((tx) => new PostgresAccountDeletionCheckpointStore(tx).finishMedia(lease));
+    if (
+      !UUID.test(lease.deletionRecordId) ||
+      !UUID.test(lease.userId) ||
+      !UUID.test(lease.leaseOwner) ||
+      lease.phase !== 'media_objects' ||
+      lease.checkpointVersion !== 4 ||
+      !Number.isSafeInteger(lease.leaseGeneration) ||
+      lease.leaseGeneration < 1
+    )
+      throw conflict();
+    try {
+      assertDeletionCatalogCoverage(await readDeletionCatalog(this.database));
+      const rows = (
+        await sql<{
+          phase: string;
+          checkpointVersion: number;
+          replayed: boolean;
+          waitingFor: string | null;
+        }>`SELECT phase,checkpoint_version AS "checkpointVersion",replayed,waiting_for AS "waitingFor"
+         FROM identity.finish_deletion_media_phase(${lease.deletionRecordId}::uuid,${lease.userId}::uuid,
+           ${lease.leaseOwner}::uuid,${lease.leaseGeneration},${lease.checkpointVersion})`.execute(
+          this.database,
+        )
+      ).rows;
+      const row = rows[0];
+      if (rows.length !== 1 || row === undefined) throw conflict();
+      if (
+        row.phase === 'ephemeral_access' &&
+        row.checkpointVersion === 5 &&
+        row.waitingFor === null
+      )
+        return { phase: 'ephemeral_access', checkpointVersion: 5, replayed: row.replayed };
+      const waitingFor = MEDIA_BLOCKERS.find((value) => value === row.waitingFor);
+      if (
+        row.phase === 'media_objects' &&
+        row.checkpointVersion === 4 &&
+        !row.replayed &&
+        waitingFor !== undefined
+      )
+        return { phase: 'media_objects', checkpointVersion: 4, replayed: false, waitingFor };
+      throw conflict();
+    } catch {
+      throw conflict();
+    }
+  }
   public async finishProduct(lease: AccountDeletionLease): Promise<ProductCheckpointResult> {
     if (!this.database.isTransaction)
       return this.database

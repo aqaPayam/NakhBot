@@ -101,6 +101,8 @@ const shapes: Readonly<Record<string, Shape | readonly Shape[]>> = Object.freeze
   },
   'account.deletion-credit-epoch-prepared.v1': { required: 'deletionRecordId kind' },
   'account.deletion-product-batch.v1': { required: 'deletionRecordId resource rows auditId' },
+  'account.deletion-media-archived.v1': { required: 'deletionRecordId kind assetId' },
+  'account.deletion-media-operation.v1': { required: 'deletionRecordId operationId kind' },
   'account.deletion-operational-batch.v1': { required: 'deletionRecordId kind rows auditId' },
   'account.deletion-evidence-verified.v1': { required: 'deletionRecordId kind' },
   'account.deletion-profile-archived.v1': { required: 'deletionRecordId kind' },
@@ -244,6 +246,9 @@ const machineValues = new Set([
   'unlock_source',
   'pair_source',
   'notice_source',
+  'media_source',
+  'media_copy',
+  'media_delete',
   'outbox_cancel',
 ]);
 

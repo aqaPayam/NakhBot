@@ -5891,8 +5891,8 @@
       ],
       "foreignKeys": [
         {
-          "target": "media.media_assets",
-          "definition": "FOREIGN KEY (asset_id) REFERENCES media.media_assets(id) ON DELETE RESTRICT"
+          "target": "media.asset_reference_anchors",
+          "definition": "FOREIGN KEY (asset_id) REFERENCES media.asset_reference_anchors(id) ON DELETE RESTRICT"
         },
         {
           "target": "media.photo_reference_anchors",
@@ -5903,8 +5903,8 @@
           "definition": "FOREIGN KEY (report_evidence_id) REFERENCES moderation.report_evidence(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
         },
         {
-          "target": "media.photo_variants",
-          "definition": "FOREIGN KEY (variant_id) REFERENCES media.photo_variants(id) ON DELETE RESTRICT"
+          "target": "media.variant_reference_anchors",
+          "definition": "FOREIGN KEY (variant_id) REFERENCES media.variant_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
     },
@@ -9789,6 +9789,300 @@
           "definition": "FOREIGN KEY (notice_id) REFERENCES notification.notice_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
+    },
+    {
+      "table": "identity.account_deletion_media_operations",
+      "owner": "identity",
+      "classification": "operations",
+      "action": "typed_operational_policy",
+      "purpose": "verified_media_provider_obligations",
+      "subjectScope": "EXISTS(SELECT 1 FROM identity.account_deletion_records parent WHERE parent.id=row.deletion_record_id AND parent.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "asset_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "environment",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "evidence_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "variant_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "key_role",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "prepared_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "verified_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "verified_bytes",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "verified_sha256",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "verification_transaction",
+          "type": "xid8",
+          "nullable": true
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "media.asset_reference_anchors",
+          "definition": "FOREIGN KEY (asset_id) REFERENCES media.asset_reference_anchors(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "platform.outbox_events",
+          "definition": "FOREIGN KEY (event_id) REFERENCES platform.outbox_events(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "moderation.report_evidence",
+          "definition": "FOREIGN KEY (evidence_id) REFERENCES moderation.report_evidence(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "media.variant_reference_anchors",
+          "definition": "FOREIGN KEY (variant_id) REFERENCES media.variant_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "identity.account_deletion_media_receipts",
+      "owner": "identity",
+      "classification": "retained_safety",
+      "action": "approved_policy_release",
+      "purpose": "verified_original_media_removal",
+      "subjectScope": "EXISTS(SELECT 1 FROM identity.account_deletion_records root WHERE root.id=row.deletion_record_id AND root.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "asset_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "source_version",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "source_digest",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "variant_count",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "batch_transaction",
+          "type": "xid8",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "media.asset_reference_anchors",
+          "definition": "FOREIGN KEY (asset_id) REFERENCES media.asset_reference_anchors(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "platform.outbox_events",
+          "definition": "FOREIGN KEY (event_id) REFERENCES platform.outbox_events(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+        }
+      ]
+    },
+    {
+      "table": "media.asset_reference_anchors",
+      "owner": "media",
+      "classification": "retained_safety",
+      "action": "approved_policy_release",
+      "purpose": "original_media_identity",
+      "subjectScope": "row.owner_user_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "owner_user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "product_epoch",
+          "type": "integer",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (owner_user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        }
+      ]
+    },
+    {
+      "table": "media.variant_reference_anchors",
+      "owner": "media",
+      "classification": "retained_safety",
+      "action": "approved_policy_release",
+      "purpose": "original_variant_identity",
+      "subjectScope": "EXISTS(SELECT 1 FROM media.asset_reference_anchors parent WHERE parent.id=row.asset_id AND parent.owner_user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "asset_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "variant_type",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "transformation_version",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "sha256",
+          "type": "bytea",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "media.asset_reference_anchors",
+          "definition": "FOREIGN KEY (asset_id) REFERENCES media.asset_reference_anchors(id) ON DELETE RESTRICT"
+        }
+      ]
     }
   ],
   "objectPrefixes": [
@@ -9801,20 +10095,20 @@
     {
       "prefix": "validated/{environment}/{assetId}/",
       "owner": "media",
-      "action": "verify_absence_or_explicit_hold",
+      "action": "verify_absence",
       "subjectScope": "owning_asset"
     },
     {
       "prefix": "variants/{environment}/{assetId}/",
       "owner": "media",
-      "action": "verify_absence_except_exact_held_variant",
+      "action": "verify_absence",
       "subjectScope": "owning_asset"
     },
     {
-      "prefix": "report-evidence/{environment}/{reportId}/",
+      "prefix": "evidence/{environment}/{evidenceId}/",
       "owner": "moderation",
       "action": "approved_policy_release",
-      "subjectScope": "governing_report"
+      "subjectScope": "exact_retained_photo_evidence"
     }
   ]
 }

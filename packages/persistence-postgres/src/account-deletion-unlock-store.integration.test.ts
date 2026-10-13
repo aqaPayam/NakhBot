@@ -115,6 +115,8 @@ describe.skipIf(url === undefined)(
         '000126_m8_operational_outbox_cancellation.sql',
         '000127_m8_product_checkpoint.sql',
         '000128_m8_product_fence_lock_order.sql',
+        '000129_m8_account_media_provider_work.sql',
+        '000130_m8_media_checkpoint.sql',
       ]);
       expect(await legacyFacts()).toEqual(before);
       expect(

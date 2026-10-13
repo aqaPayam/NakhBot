@@ -8,7 +8,7 @@ export type CloudflareCachePurgeConfig = Readonly<{
 type FetchPort = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 const pathPattern =
-  /^\/media\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:thumbnail-v1|blurred-preview-v1)\.webp$/u;
+  /^\/media\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:thumbnail|blurred-preview)-v[1-9][0-9]{0,9}\.webp$/u;
 
 function invalidConfiguration(): never {
   throw new Error('invalid_cloudflare_cache_purge_configuration');

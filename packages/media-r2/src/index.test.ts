@@ -9,7 +9,12 @@ import {
 } from '@aws-sdk/client-s3';
 import { describe, expect, it } from 'vitest';
 import { DeletePhotoMediaObjects, type MediaCleanupStore } from '@nakh/application';
-import { AwsR2ObjectClient, R2QuarantineObjectStore, type R2ObjectClient } from './index.js';
+import {
+  AwsR2ObjectClient,
+  R2QuarantineObjectStore,
+  R2AccountDeletionMediaObjects,
+  type R2ObjectClient,
+} from './index.js';
 
 describe('R2QuarantineObjectStore', () => {
   it.each([undefined, { bytes: 2, sha256: 'a'.repeat(64) }, { bytes: 3, sha256: 'a'.repeat(64) }])(
@@ -422,6 +427,27 @@ describe('AwsR2ObjectClient', () => {
     ).rejects.toThrow('invalid_media_object_listing');
     await expect(client.listObjects({ prefix: 'variants/test/', limit: 10 })).rejects.toThrow(
       'media_storage_listing_invalid',
+    );
+  });
+
+  it('lists the exact deleting asset namespace through the actual R2 adapter', async () => {
+    const prefix = 'variants/staging/20000000-0000-4000-8000-000000000002/';
+    const client = new AwsR2ObjectClient(config, {
+      send: async (command) => {
+        expect(command).toBeInstanceOf(ListObjectsV2Command);
+        expect(command.input).toMatchObject({ Prefix: prefix, MaxKeys: 100 });
+        return {
+          Contents: [{ Key: `${prefix}thumbnail-v2.webp`, LastModified: new Date() }],
+          IsTruncated: false,
+        };
+      },
+    });
+    const adapter = new R2AccountDeletionMediaObjects(client);
+    await expect(adapter.list(prefix, 100, AbortSignal.timeout(1000))).resolves.toEqual([
+      `${prefix}thumbnail-v2.webp`,
+    ]);
+    await expect(adapter.list(`${prefix}../`, 100, AbortSignal.timeout(1000))).rejects.toThrow(
+      'invalid_media_object_listing',
     );
   });
 

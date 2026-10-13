@@ -140,19 +140,17 @@ export async function authenticateReportEvidenceInTransaction(
   if (content.evidenceType === 'photo') {
     const held = await transaction
       .selectFrom('media.report_photo_evidence_holds as hold')
-      .innerJoin('media.photo_variants as variant', 'variant.id', 'hold.variant_id')
-      .select([
-        'hold.photo_id',
-        'hold.content_sha256',
-        'hold.captured_primary',
-        'variant.storage_deleted_at',
-      ])
+      .innerJoin('media.report_photo_source_facts as variant', (join) =>
+        join
+          .onRef('variant.variant_id', '=', 'hold.variant_id')
+          .onRef('variant.report_evidence_id', '=', 'hold.report_evidence_id'),
+      )
+      .select(['hold.photo_id', 'hold.content_sha256', 'hold.captured_primary'])
       .where('hold.report_evidence_id', '=', evidenceId)
       .executeTakeFirst();
     if (
       held === undefined ||
       held.photo_id !== row.profile_photo_id ||
-      held.storage_deleted_at !== null ||
       content.evidenceObjectRef !== `v1.pe.${evidenceId}` ||
       content.contentSha256 !== held.content_sha256 ||
       content.primary !== held.captured_primary

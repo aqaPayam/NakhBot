@@ -1,5 +1,45 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: verified media removal and private report evidence
+
+The preceding repair `a375b0f` passed all six exact-head CI jobs in run
+`38270429765`, 930 native tests in 116 suites, all 27 unchanged M7 plans,
+load, collector privacy and backup/restore. Its terminal snapshot took
+1,266.602 ms against 1,500 ms with both required indexes. Tracked count was
+212,158 lines. The failed `462769d` head is superseded by that verified repair.
+
+Migrations 129–130 add immutable original asset/variant references, bounded
+provider operations and audited source-removal receipts. The owning phase-4
+worker preserves exact reported thumbnail bytes in a private evidence namespace
+before deleting public quarantine, validated and variant objects. It verifies
+provider absence, waits for cache purge acknowledgement and drains actual asset
+namespaces, including unrecorded variants. Provider calls run outside database
+transactions; observations require the current lease and commit fence.
+
+Only independently authenticated private copies can replace the original source
+facts for retained report readers. Existing administrator permission and access
+audit checks remain required. Private evidence is not a normal delivery path.
+Actual asset and variant body removal requires every provider observation and
+source receipt; lost or corrupted proof denies replay and phase advancement.
+Twenty concurrent retries archive once and complete one media checkpoint.
+The transition reaches ephemeral_access/5 without authorizing Return or claiming
+account deletion completion. Suppression of any required checkpoint audit,
+event, receipt, root or work update rolls back the whole transition.
+
+The complete populated upgrade matrix passed 61 cases through migration 130,
+including populated baselines 128 and 129. Initial checkpoint testing found a
+missing media phase in the receipt guard; the repaired guard passed concurrent
+replay. A real adapter test found and repaired R2 prefix validation for exact
+asset namespaces. Existing held-photo cleanup error wording is preserved.
+Corrupted private evidence correctly fails at the earlier evidence verification
+blocker. The final native run passed 20 cases in six media/photo suites; the operational/catalog regression passed 34 cases in three suites. The complete project check passed 1,008 unit tests in 220 files, all 17 workspace types and the full build. All six exact-head CI jobs remain required for this candidate. No volume, timeout, production CI runtime or assertion was weakened.
+
+Ephemeral access revocation, bounded demo/projection cleanup, retention manifests,
+final completion and safe Return, runtime composition and full M8 acceptance
+remain required. Retained-data release and deletion ingress stay disabled;
+retention periods and external staging/provider/operator approvals are unknown.
+
+
 ## Current repair: product-fence lock ordering
 
 Commit `462769d` passed quality and all four image jobs, but PostgreSQL

@@ -46,6 +46,16 @@ export interface SampleEffectTable {
   created_at: Date;
 }
 
+export interface ReportPhotoSourceFactsTable {
+  report_evidence_id: string;
+  asset_id: string;
+  variant_id: string;
+  storage_key: string;
+  sha256: ColumnType<Buffer, never, never>;
+  variant_type: 'thumbnail' | 'blurred_preview';
+  transformation_version: number;
+}
+
 export interface OutboxEventTable {
   id: string;
   deletion_cancellation_audit_id: Generated<string | null>;
@@ -1323,6 +1333,7 @@ export interface DatabaseSchema {
   'media.photo_variants': PhotoVariantTable;
   'media.profile_photos': ProfilePhotoTable;
   'media.report_photo_evidence_holds': ReportPhotoEvidenceHoldTable;
+  'media.report_photo_source_facts': ReportPhotoSourceFactsTable;
   'media.photo_moderation_records': PhotoModerationTable;
   'platform.idempotency_records': IdempotencyTable;
   'platform.sample_effects': SampleEffectTable;

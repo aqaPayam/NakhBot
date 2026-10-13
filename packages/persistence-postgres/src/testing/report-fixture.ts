@@ -58,6 +58,7 @@ export async function createReportMessage(
 export async function createRetainedReportPhoto(
   database: NakhDatabase,
   syntheticBytes?: Uint8Array,
+  existingTarget?: string,
 ): Promise<
   Readonly<{
     reporter: string;
@@ -70,7 +71,7 @@ export async function createRetainedReportPhoto(
   }>
 > {
   const reporter = await createReportUser(database),
-    target = await createReportUser(database, true),
+    target = existingTarget ?? (await createReportUser(database, true)),
     photoId = await createReportPhoto(database, target, true, syntheticBytes),
     reportId = randomUUID(),
     evidenceId = randomUUID();

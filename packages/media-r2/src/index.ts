@@ -19,6 +19,7 @@ import type {
   MediaStorePort,
   MediaValidationObjectPort,
   QuarantineObjectPort,
+  AccountDeletionMediaObjects,
 } from '@nakh/application';
 
 export type R2Location = Readonly<{
@@ -41,6 +42,12 @@ export class UnconfiguredR2MediaStore implements MediaStorePort {
 }
 
 export interface R2ObjectClient {
+  listObjects?(input: Readonly<{ prefix: string; limit: number; signal?: AbortSignal }>): Promise<
+    Readonly<{
+      objects: readonly Readonly<{ key: string; lastModified: Date }>[];
+      nextCursor?: string;
+    }>
+  >;
   getObject(key: string, signal?: AbortSignal): Promise<AsyncIterable<Uint8Array>>;
   putObject(
     input: Readonly<{
@@ -266,7 +273,7 @@ export class AwsR2ObjectClient implements R2ObjectClient {
     }>
   > {
     if (
-      !/^(?:quarantine|validated|variants)\/(?:development|test|staging|production)\/$/u.test(
+      !/^(?:quarantine|validated|variants)\/(?:development|test|staging|production)\/(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/)?$/u.test(
         input.prefix,
       ) ||
       !Number.isSafeInteger(input.limit) ||
@@ -382,5 +389,47 @@ export class R2QuarantineObjectStore implements QuarantineObjectPort, MediaValid
     await this.client.deleteObject(key, signal);
     if ((await this.client.headObject(key, signal)) !== undefined)
       throw new Error('media_storage_delete_verification_failed');
+  }
+}
+
+/** Account deletion uses the same bucket-verified absence checks as ordinary
+ * media cleanup. Private evidence keys never become normal delivery paths. */
+export class R2AccountDeletionMediaObjects implements AccountDeletionMediaObjects {
+  private readonly verified: R2QuarantineObjectStore;
+  public constructor(private readonly client: R2ObjectClient) {
+    this.verified = new R2QuarantineObjectStore(client);
+  }
+  public get(key: string, signal: AbortSignal): Promise<AsyncIterable<Uint8Array>> {
+    return this.client.getObject(key, signal);
+  }
+  public async list(
+    prefix: string,
+    limit: number,
+    signal: AbortSignal,
+  ): Promise<readonly string[]> {
+    if (this.client.listObjects === undefined) throw new Error('media_storage_listing_unavailable');
+    const page = await this.client.listObjects({ prefix, limit, signal });
+    if (page.objects.length === 0 && page.nextCursor !== undefined)
+      throw new Error('media_storage_listing_incomplete');
+    return page.objects.map((object) => object.key);
+  }
+  public head(key: string, signal: AbortSignal): ReturnType<R2ObjectClient['headObject']> {
+    return this.client.headObject(key, signal);
+  }
+  public delete(key: string, signal: AbortSignal): Promise<void> {
+    return this.verified.delete(key, signal);
+  }
+  public putPrivate(
+    key: string,
+    body: AsyncIterable<Uint8Array>,
+    signal: AbortSignal,
+  ): Promise<Readonly<{ bytes: number; sha256: string }>> {
+    if (
+      !/^evidence\/(development|test|staging|production)\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/thumbnail-v1\.webp$/u.test(
+        key,
+      )
+    )
+      throw new Error('invalid_private_evidence_key');
+    return this.verified.put({ key, body, contentType: 'image/webp', signal });
   }
 }

@@ -90,7 +90,13 @@ describe('M8 schema coverage denial', () => {
     ).toBe('stable_identity');
     expect(
       DELETION_OBJECT_PREFIXES.find((item) => item.prefix.startsWith('variants/'))?.action,
-    ).toBe('verify_absence_except_exact_held_variant');
+    ).toBe('verify_absence');
+    expect(
+      DELETION_OBJECT_PREFIXES.find((item) => item.prefix.startsWith('evidence/')),
+    ).toMatchObject({
+      action: 'approved_policy_release',
+      subjectScope: 'exact_retained_photo_evidence',
+    });
     expect(() => {
       Object.assign(DELETION_REGISTRY[0]!, { action: 'purge_product' });
     }).toThrow();

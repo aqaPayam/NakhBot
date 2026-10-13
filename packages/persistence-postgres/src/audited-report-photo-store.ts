@@ -23,12 +23,12 @@ export class PostgresAuditedReportPhotoStore implements AuditedReportPhotoStore 
     const row = await this.database
       .selectFrom('media.report_photo_evidence_holds as hold')
       .innerJoin('moderation.report_evidence as evidence', 'evidence.id', 'hold.report_evidence_id')
-      .innerJoin('media.photo_variants as variant', (join) =>
+      .innerJoin('media.report_photo_source_facts as variant', (join) =>
         join
-          .onRef('variant.id', '=', 'hold.variant_id')
-          .onRef('variant.asset_id', '=', 'hold.asset_id'),
+          .onRef('variant.variant_id', '=', 'hold.variant_id')
+          .onRef('variant.asset_id', '=', 'hold.asset_id')
+          .onRef('variant.report_evidence_id', '=', 'hold.report_evidence_id'),
       )
-      .innerJoin('media.media_assets as asset', 'asset.id', 'hold.asset_id')
       .innerJoin('moderation.evidence_access_audits as access', (join) =>
         join
           .onRef('access.report_evidence_id', '=', 'evidence.id')
@@ -60,21 +60,20 @@ export class PostgresAuditedReportPhotoStore implements AuditedReportPhotoStore 
       .where('log.created_at', '>', sql<Date>`now() - interval '5 minutes'`)
       .where('variant.variant_type', '=', 'thumbnail')
       .where('variant.transformation_version', '=', 1)
-      .where('variant.storage_provider', '=', 'r2')
-      .where('asset.storage_provider', '=', 'r2')
-      .where('asset.validation_state', '=', 'valid')
-      .where('variant.storage_deleted_at', 'is', null)
-      .where('asset.storage_deleted_at', 'is', null)
-      .where('asset.cleanup_lease_owner', 'is', null)
       .executeTakeFirst();
     if (
       row === undefined ||
       row.content_sha256 !== input.contentSha256 ||
       row.sha256.toString('hex') !== input.contentSha256 ||
-      !new RegExp(
-        `^variants/(?:development|test|staging|production)/${row.asset_id}/thumbnail-v1\\.webp$`,
-        'u',
-      ).test(row.storage_key)
+      !(
+        new RegExp(
+          `^variants/(?:development|test|staging|production)/${row.asset_id}/thumbnail-v1\\.webp$`,
+          'u',
+        ).test(row.storage_key) ||
+        (row.storage_key ===
+          `evidence/${row.storage_key.split('/')[1]}/${input.objectRef.slice(6)}/thumbnail-v1.webp` &&
+          ['development', 'test', 'staging', 'production'].includes(row.storage_key.split('/')[1]!))
+      )
     )
       return undefined;
     const current = await new PostgresAdminAuthorizationStore(this.database).loadByTelegramIdentity(
