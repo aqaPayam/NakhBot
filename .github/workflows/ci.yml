@@ -103,7 +103,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:migrate
       - run: pnpm db:verify
-      - run: pnpm test:integration
+      - run: pnpm test:integration:ci
+      - name: Retain complete native shard coverage
+        uses: actions/upload-artifact@v6
+        with:
+          name: postgres-integration-${{ github.sha }}
+          path: artifacts/postgres-integration-shards.json
+          if-no-files-found: error
+          retention-days: 14
       - name: M1 concurrency load smoke
         run: pnpm test:m1-load-smoke
       - name: M3 concurrency load smoke

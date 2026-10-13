@@ -2,7 +2,12 @@ FROM node:24.19.0-bookworm-slim AS build
 
 ARG APP
 WORKDIR /workspace
-RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
+RUN corepack enable \
+    && for pnpm_attempt in 1 2 3; do \
+         if timeout --kill-after=10s 120s corepack prepare pnpm@11.19.0 --activate; then break; fi; \
+         if [ "$pnpm_attempt" = "3" ]; then exit 1; fi; \
+         sleep 5; \
+       done
 COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm build

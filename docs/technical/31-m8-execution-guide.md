@@ -1,5 +1,49 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: bounded CI work with complete native coverage
+
+Head `ac8daf6` passed quality and three container jobs. All 941 native cases in
+117 suites passed, and the repaired M3 setup and plan gate passed. PostgreSQL then
+reached its existing 20-minute job deadline before M7/recovery could run. The
+Telegram container independently reached its unchanged 30-minute deadline while
+Corepack was preparing pinned pnpm 11.19.0, before dependency installation or
+application compilation. Run `38368115357` is not accepted as green.
+
+The CI-only integration runner executes the same unfiltered suite in two child
+processes. Each child has a new migrated and verified PostgreSQL database and a
+separate Redis logical database; files remain serial inside each child, preserving existing fixture and
+race semantics. Coverage must include every discovered integration file exactly
+once, at least the existing 941 cases, zero failures and zero skips. Missing JSON,
+partial runs, duplicate/unexpected files and service absence fail closed before
+later gates. Retained evidence contains only counts and a file-inventory digest;
+full assertion reports remain temporary and are removed by exact file paths.
+All six jobs and the 20/30-minute deadlines, all query/index/timing gates, fixture
+volumes and load/recovery checks remain unchanged.
+
+Corepack still verifies the same pinned package manager. Its download now has
+three bounded attempts rather than hanging through the entire container deadline.
+No application, schema, production permission or retention policy is changed.
+Six coverage/environment unit cases and targeted uncached lint passed. The full
+local check passed formatting, uncached lint, all 17 workspace type checks,
+1,014 unit tests in 221 files and the complete build. Its first run stopped one
+test worker after 1,012 passes; both omitted cases passed independently, and the
+complete rerun used the local diagnostic Node engine mode without changing CI.
+
+The local parallel native run selected all 941 cases in 117 files: 924 passed,
+six failed and eleven were skipped because this Windows host has no Redis.
+Two funded-Nakh corruption cases exceeded the unchanged 60-second test deadline;
+later assertions observed inconsistent fixture state. The four corruption cases
+then passed alone in 48.36 seconds. The complete funded-Nakh and unlock suites
+passed all 90 cases without competing checks. Chat's first standalone attempt
+encountered incompatible historical fixtures in the old local database during
+migration; all 14 chat cases passed on a fresh migrated and verified database.
+All 104 cases in the affected suites therefore passed independently. The precise
+cause of the parallel run's later assertions is not established; neither skipped
+providers nor targeted reruns count as complete native evidence.
+All six exact repaired-head jobs remain required. M8 is still incomplete; this
+increment only repairs CI reliability.
+
+
 ## Current repair: M3 missing-thumbnail corruption fixture
 
 Repair `3f68ff9` passed quality (including collector privacy), all four container
