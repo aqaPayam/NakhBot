@@ -58,10 +58,10 @@ SELECT action.id, COALESCE(${
         : sql`COALESCE(attempt.id IS NOT NULL
         AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
         AND attempt.result = 'succeeded'
-        AND ((action.action_type = 'unban_user' AND EXISTS (SELECT 1 FROM moderation.appeal_unbans unban
-          WHERE unban.action_id = action.id AND unban.admin_action_log_id = attempt.id
-            AND attempt.command_code = 'moderation.unban-appeal' AND attempt.target_type = 'user_appeal'
-            AND attempt.target_id = unban.appeal_id))
+        AND ((action.action_type = 'unban_user'
+          AND attempt.command_code = 'moderation.unban-appeal' AND attempt.target_type = 'user_appeal'
+          AND (action.id,attempt.id,attempt.target_id) IN (
+            SELECT unban.action_id,unban.admin_action_log_id,unban.appeal_id FROM moderation.appeal_unbans unban))
           OR (action.action_type IN ('restrict_user','unrestrict_user','ban_user','unban_user')
             AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
             AND attempt.target_id = action.target_user_id)
@@ -69,13 +69,13 @@ SELECT action.id, COALESCE(${
             AND attempt.command_code = 'moderation.apply-photo-action' AND attempt.target_type = 'photo'
             AND attempt.target_id = action.target_photo_id)
           OR (action.action_type = 'dismiss_report' AND attempt.command_code = 'moderation.decide-review'
-            AND attempt.target_type = 'moderation_review' AND EXISTS (SELECT 1 FROM moderation.moderation_reviews review
-              WHERE review.id = attempt.target_id AND review.report_id = action.source_report_id))
+            AND attempt.target_type = 'moderation_review' AND (attempt.target_id,action.source_report_id) IN (
+              SELECT review.id,review.report_id FROM moderation.moderation_reviews review))
           OR (action.action_type IN ('create_internal_block','remove_internal_block')
             AND attempt.command_code = 'moderation.change-internal-block' AND attempt.target_type = 'user_pair'
             AND attempt.target_id = moderation.admin_pair_target_id(action.target_pair_low_user_id, action.target_pair_high_user_id)
-            AND EXISTS (SELECT 1 FROM platform.audit_logs audit WHERE audit.id = action.audit_log_id
-              AND audit.subject_type = 'user_pair' AND audit.subject_id = attempt.target_id))),false)`
+            AND (action.audit_log_id,attempt.target_id) IN (
+              SELECT audit.id,audit.subject_id FROM platform.audit_logs audit WHERE audit.subject_type = 'user_pair'))),false)`
     } AS "hasAttempt",
     ${
       isSystem

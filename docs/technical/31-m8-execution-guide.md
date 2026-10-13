@@ -1,5 +1,33 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: exact moderation attempt membership
+
+Commit `408964a` passed quality, all four container builds and all 954 native
+cases in 118 files without skips. Run `38414973628` failed the unchanged M7
+query-plan gate: terminal integrity took 1,562.655 ms against 1,500 ms. Both
+required indexes were present, one parallel worker launched and no disk spill
+occurred. The previous green run measured 1,301.095 ms for that statement;
+other dense statements also slowed. This commit is not accepted as green.
+
+The repair replaces correlated administrator appeal-unban, review and Pair audit
+existence probes with uncorrelated exact tuple membership. Every original ID,
+command, target type, request, digest and result check remains. Tuple nulls still
+fail closed through the enclosing boolean guard. No fixture volume, repeated
+sample, required index, worker limit, deadline or timing threshold changes.
+
+All 16 focused native integrity and plan cases passed, including exact review
+and unban field drift, duplicate review audits, real Report-bound block/removal
+and dismissal, concurrent sampling and current capture/custody corruption.
+Independent fresh-database Windows controls at the unchanged 20,000-row volume
+completed all fixture and repeated-sampling invariants. The failed-head terminal
+statement took 2,860.926 ms; the repair took 2,714.404 ms. Both exceed the original
+CI budget locally, so the comparison is diagnostic evidence, not gate acceptance.
+The full project check passed formatting, uncached lint, all 17 workspace types,
+1,014 unit cases in 221 files and every build after a local Windows Node runtime
+crash was diagnosed and the ignored runtime helper was repaired. All six
+exact-head jobs remain required before this repair is accepted. No further M8
+feature starts from the failed run.
+
 ## Current increment: bounded synthetic source cleanup
 
 Custody integration `e8ec365` passed all six jobs in run `38395234556`, including
