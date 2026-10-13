@@ -1,5 +1,41 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: bounded account-life Redis state revocation
+
+Repair `9ab2ba2` passed all six jobs in run `38422566805`, including all 954
+native cases in 118 files without skips. The unchanged full-volume terminal
+integrity gate took 1,463.468 ms against 1,500 ms. All remaining performance,
+support concurrency and backup/restore gates passed. Tracked count: 216,291.
+
+The owning opaque-state adapter partitions values by a one-way User digest and
+original product epoch. Physical values keep their existing byte/namespace
+policy and native first-allocation TTL. A bounded metadata index never stores
+state bodies. Atomic Lua allocation/read/revocation enforces the exact life;
+revocation fences reads and late writes before removing at most 100 bodies.
+Unknown later lives cannot initialize authority, and old-life cleanup cannot
+revoke a separately activated newer life. Fresh return authorization remains
+separate and disabled.
+
+Index cleanup requires a complete independently resumed physical-namespace sweep.
+Missing index references cannot prove absence, foreign entries fail closed before
+body removal, and a SCAN page larger than its advisory count cannot exceed the
+actual removal limit. The write-fence read alone is not completion evidence.
+Commands remain compatible with staging Redis 7.1; no newer field-expiry command
+or dependency/version change is required.
+
+Twelve real-Redis cases cover isolation, first-write TTL, 205-value batching,
+twenty concurrent revokers, racing late puts, corrupt foreign index entries,
+physical orphans, oversize SCAN pages, unknown lives, stale-life cleanup,
+malformed indexes and expired references. Local queue types pass; no local Redis
+service is available, so native Redis success requires the actual CI service.
+The full project check passed formatting, uncached lint, all 17 workspace types,
+1,014 unit cases in 221 files and every build. The native CI floor increases to
+966 cases in 119 files. All six exact-head jobs, including actual native Redis
+execution without skips, remain required before acceptance.
+The unscoped legacy adapter remains unchanged. Runtime owner binding, legacy
+state handling, queue cleanup and the audited ephemeral checkpoint remain M8
+work; this adapter alone does not authorize a phase advance or deletion ingress.
+
 ## Current repair: exact moderation attempt membership
 
 Commit `408964a` passed quality, all four container builds and all 954 native

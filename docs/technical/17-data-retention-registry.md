@@ -246,6 +246,17 @@ authoritative. UTF-8 limits match the existing envelope budgets; unknown logical
 formats and oversized cache state fail closed. Deletion-time product token invalidation
 remains a separate required M8 executor; these expiry rules are not its completion proof.
 
+The M8 owning adapter stores account-life values separately at
+`{queuePrefix}:owned-action:{sha256(userId)}:{productEpoch}:value:{referenceDigest}`.
+Values retain their original native TTL and byte limits. Its bounded hash index
+contains only physical reference keys; its minimal lifecycle marker fences stale
+reads/writes and survives body cleanup. Both use the same User hash tag. Removal
+requires an independent complete physical-namespace sweep, including unindexed
+orphans; an empty index or a write-fence check alone never proves completion.
+The native worker must supply original lifecycle authority and resume the scan
+cursor. Legacy migration/runtime binding and separately approved fresh-return
+activation remain required before M8 ingress can be enabled.
+
 | Resource | Classification | Product-deletion action | Retention reason / owner |
 |---|---|---|---|
 | `administration.admin_sessions` | restricted bearer hashes, factor-proof identifiers and verification/expiry/revocation times | revoke current grants immediately when operator authority ends; retain security history under the approved audit policy; M8 must implement controlled release before deletion | Administration/Security; never retain bearer, factor assertion, OTP or factor secret; ordinary deletion/extension/revival is forbidden |

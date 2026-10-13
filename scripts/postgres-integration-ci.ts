@@ -29,7 +29,7 @@ for await (const file of glob(
 ))
   expectedFiles.push(resolve(file));
 expectedFiles.sort();
-if (expectedFiles.length < 118)
+if (expectedFiles.length < 119)
   throw new Error('Native integration file inventory lost baseline coverage.');
 
 const temporary = await mkdtemp(join(tmpdir(), 'nakh-native-shards-'));
@@ -101,7 +101,7 @@ try {
       skipped: reports.reduce((sum, report) => sum + report.skipped, 0),
     }) + '\n',
   );
-  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 954);
+  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 966);
   const evidence = {
     schemaVersion: 1,
     scenario: 'POSTGRES-INTEGRATION-ISOLATED-SHARDS',

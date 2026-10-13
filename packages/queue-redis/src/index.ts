@@ -149,11 +149,11 @@ function opaqueStatePolicy(id: string): OpaqueStatePolicy | undefined {
 
 export class RedisOpaqueTokenStore implements OpaqueTokenStore {
   public constructor(
-    private readonly redis: Redis,
-    private readonly prefix: string,
+    protected readonly redis: Redis,
+    protected readonly prefix: string,
   ) {}
 
-  private key(id: string, policy: OpaqueStatePolicy): string {
+  protected key(id: string, policy: OpaqueStatePolicy): string {
     // Existing short action keys retain their physical namespace. Internal UI
     // receipts use a separate hashed namespace and cannot alias public actions.
     return policy.internal
@@ -181,5 +181,198 @@ export class RedisOpaqueTokenStore implements OpaqueTokenStore {
     return value === null || value.length < 1 || Buffer.byteLength(value, 'utf8') > policy.maxBytes
       ? undefined
       : value;
+  }
+}
+
+export type OpaqueStateLife = Readonly<{ userId: string; productEpoch: number }>;
+export type OpaqueStateRevocationBatch = Readonly<{
+  removed: number;
+  hasMore: boolean;
+  nextCursor: string;
+}>;
+
+/** A native owning caller supplies the original account life. Revocation is
+ * permanent until separately verified fresh-return composition authorizes it.
+ * Existing unscoped keys require migration/composition before phase completion. */
+export class RedisOwnedOpaqueTokenStore extends RedisOpaqueTokenStore {
+  private readonly subject: string;
+  private readonly epoch: string;
+  private readonly lifecycleKey: string;
+  private readonly indexKey: string;
+  private readonly valuePrefix: string;
+
+  public constructor(redis: Redis, prefix: string, life: OpaqueStateLife) {
+    super(redis, prefix);
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+        life.userId,
+      ) ||
+      !Number.isSafeInteger(life.productEpoch) ||
+      life.productEpoch < 0
+    )
+      throw new Error('Opaque state life is invalid.');
+    this.subject = createHash('sha256').update(life.userId.toLowerCase()).digest('hex');
+    this.epoch = String(life.productEpoch);
+    const scopePrefix = `${prefix}:owned-action:{${this.subject}}`;
+    this.lifecycleKey = `${scopePrefix}:life`;
+    this.indexKey = `${scopePrefix}:${this.epoch}:index`;
+    this.valuePrefix = `${scopePrefix}:${this.epoch}:value:`;
+  }
+
+  protected override key(id: string, policy: OpaqueStatePolicy): string {
+    return (
+      this.valuePrefix +
+      createHash('sha256')
+        .update(`${policy.internal ? 'internal' : 'public'}:${id}`)
+        .digest('hex')
+    );
+  }
+
+  private async evaluate(
+    script: string,
+    keys: readonly string[],
+    args: readonly (string | number)[],
+  ): Promise<unknown> {
+    try {
+      return await this.redis.eval(script, keys.length, ...keys, ...args);
+    } catch {
+      throw new Error('Opaque state operation is unavailable.');
+    }
+  }
+
+  public override async putIfAbsent(
+    id: string,
+    value: string,
+    ttlSeconds: number,
+  ): Promise<boolean> {
+    const policy = opaqueStatePolicy(id);
+    if (
+      policy === undefined ||
+      value.length < 1 ||
+      Buffer.byteLength(value, 'utf8') > policy.maxBytes ||
+      !Number.isSafeInteger(ttlSeconds) ||
+      ttlSeconds < 30 ||
+      ttlSeconds > policy.maxLifetime
+    )
+      throw new Error('Opaque token state is invalid.');
+    const key = this.key(id, policy);
+    const result = await this.evaluate(
+      `
+      local active = 'active:' .. ARGV[1]
+      local state = redis.call('GET', KEYS[1])
+      if not state and ARGV[1] == '0' then
+        redis.call('SET', KEYS[1], active, 'NX')
+        state = redis.call('GET', KEYS[1])
+      end
+      if state ~= active then return -1 end
+      if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
+      local references = redis.call('HRANDFIELD', KEYS[2], 100)
+      for _, key in ipairs(references) do
+        if string.sub(key, 1, string.len(ARGV[4])) ~= ARGV[4] then return -1 end
+      end
+      for _, key in ipairs(references) do
+        if redis.call('EXISTS', key) == 0 then redis.call('HDEL', KEYS[2], key) end
+      end
+      if redis.call('HLEN', KEYS[2]) >= 10000 then return -1 end
+      redis.call('SET', KEYS[3], ARGV[2], 'EX', ARGV[3], 'NX')
+      redis.call('HSET', KEYS[2], KEYS[3], 1)
+      return 1
+    `,
+      [this.lifecycleKey, this.indexKey, key],
+      [this.epoch, value, ttlSeconds, this.valuePrefix],
+    );
+    if (result === -1) throw new Error('Opaque state allocation is unavailable.');
+    if (result !== 0 && result !== 1) throw new Error('Opaque state allocation is unavailable.');
+    return result === 1;
+  }
+
+  public override async get(id: string): Promise<string | undefined> {
+    const policy = opaqueStatePolicy(id);
+    if (policy === undefined) return undefined;
+    const key = this.key(id, policy);
+    const result = await this.evaluate(
+      `
+      if redis.call('GET', KEYS[1]) ~= 'active:' .. ARGV[1] then return false end
+      return redis.call('GET', KEYS[2])
+    `,
+      [this.lifecycleKey, key],
+      [this.epoch],
+    );
+    return typeof result === 'string' &&
+      result.length > 0 &&
+      Buffer.byteLength(result, 'utf8') <= policy.maxBytes
+      ? result
+      : undefined;
+  }
+
+  public async revokeNext(limit = 100, cursor = '0'): Promise<OpaqueStateRevocationBatch> {
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !/^(0|[1-9][0-9]{0,19})$/u.test(cursor)
+    )
+      throw new Error('Opaque state revocation limit is invalid.');
+    const result = await this.evaluate(
+      `
+      local active = 'active:' .. ARGV[1]
+      local blocked = 'blocked:' .. ARGV[1]
+      local state = redis.call('GET', KEYS[1])
+      if (not state and ARGV[1] ~= '0') or (state and state ~= active and state ~= blocked) then return {-1,1,'0'} end
+      redis.call('SET', KEYS[1], blocked)
+      local members = redis.call('HRANDFIELD', KEYS[2], tonumber(ARGV[2]))
+      -- Validate the complete bounded batch before deleting any value. A damaged
+      -- reverse index never authorizes deleting a counterpart's cached state.
+      for _, key in ipairs(members) do
+        if string.sub(key, 1, string.len(ARGV[3])) ~= ARGV[3] then return {-1,1,'0'} end
+      end
+      local removed = 0
+      for _, key in ipairs(members) do
+        removed = removed + redis.call('DEL', key)
+        redis.call('HDEL', KEYS[2], key)
+      end
+      if #members > 0 then return {removed,1,'0'} end
+      -- Independently sweep the physically owned namespace. A missing index
+      -- entry cannot bless an orphan. Redis COUNT is a hint: cap actual deletes
+      -- and restart when a returned page exceeds the exact batch limit.
+      local page = redis.call('SCAN', ARGV[4], 'MATCH', ARGV[3] .. '*', 'COUNT', 100)
+      local keys = page[2]
+      for _, key in ipairs(keys) do
+        if string.sub(key, 1, string.len(ARGV[3])) ~= ARGV[3] then return {-1,1,'0'} end
+      end
+      for i=1,math.min(#keys,tonumber(ARGV[2])) do removed = removed + redis.call('DEL',keys[i]) end
+      if #keys > tonumber(ARGV[2]) then return {removed,1,'0'} end
+      return {removed,page[1] ~= '0' and 1 or 0,page[1]}
+    `,
+      [this.lifecycleKey, this.indexKey],
+      [this.epoch, limit, this.valuePrefix, cursor],
+    );
+    if (
+      !Array.isArray(result) ||
+      result.length !== 3 ||
+      typeof result[0] !== 'number' ||
+      result[0] < 0 ||
+      !Number.isSafeInteger(result[0]) ||
+      result[0] > limit ||
+      (result[1] !== 0 && result[1] !== 1) ||
+      typeof result[2] !== 'string' ||
+      !/^(0|[1-9][0-9]{0,19})$/u.test(result[2])
+    )
+      throw new Error('Opaque state revocation is unavailable.');
+    return { removed: result[0], hasMore: result[1] === 1, nextCursor: result[2] };
+  }
+
+  /** Tests the write/read fence only. Complete namespace absence additionally
+   * requires the owning worker to finish revokeNext's full cursor cycle. */
+  public async isWriteRevoked(): Promise<boolean> {
+    const result = await this.evaluate(
+      `
+      return redis.call('GET', KEYS[1]) == 'blocked:' .. ARGV[1] and 1 or 0
+    `,
+      [this.lifecycleKey],
+      [this.epoch],
+    );
+    if (result !== 0 && result !== 1) throw new Error('Opaque state verification is unavailable.');
+    return result === 1;
   }
 }
