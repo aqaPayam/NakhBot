@@ -1,16 +1,18 @@
 import { createHash } from 'node:crypto';
-import type {
-  LocalizedIntent,
-  RateLimiterPort,
-  TelegramUserResolver,
-  UserSafetyContactHandler,
-} from '@nakh/application';
+import type { LocalizedIntent, RateLimiterPort, UserSafetyContactHandler } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import { presentM7Error } from './m7-presentation.js';
+import type { TelegramLikedByLifeResolver } from './liked-by-adapter.js';
 
 export type TelegramSupportAppealResult =
   | Readonly<{ handled: false }>
-  | Readonly<{ handled: true; userId: string; telegramUserId: string; notice: LocalizedIntent }>;
+  | Readonly<{
+      handled: true;
+      userId: string;
+      productEpoch: number;
+      telegramUserId: string;
+      notice: LocalizedIntent;
+    }>;
 
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -22,7 +24,7 @@ function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
 export class TelegramSupportAppealAdapter {
   public constructor(
     private readonly botId: string,
-    private readonly users: TelegramUserResolver,
+    private readonly users: TelegramLikedByLifeResolver,
     private readonly handler: Pick<UserSafetyContactHandler, 'execute'>,
     private readonly limiter: RateLimiterPort,
   ) {
@@ -55,11 +57,13 @@ export class TelegramSupportAppealAdapter {
     )
       throw new ApplicationError('invalid_request', 'error.m7.invalid_request', 400);
     const telegramUserId = String(sender);
-    const userId = await this.users.resolveUserId(telegramUserId);
-    if (userId === undefined)
-      throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+    const life = await this.users.resolveProductLife(telegramUserId);
+    if (life === undefined) throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+    const { userId, productEpoch } = life;
     const bytes = createHash('sha256')
       .update(`telegram-support-appeal-v1\0${this.botId}\0${updateId}\0${userId}`)
+      // Preserve initial-life replay IDs across deployment; later lives have distinct commands.
+      .update(productEpoch === 0 ? '' : `\0life:${productEpoch}`)
       .digest()
       .subarray(0, 16);
     bytes[6] = (bytes[6]! & 15) | 0x50;
@@ -77,6 +81,7 @@ export class TelegramSupportAppealAdapter {
       if (!rate.allowed) throw new ApplicationError('rate_limited', 'error.m7.rate_limited', 429);
       notice = await this.handler.execute({
         userId,
+        productEpoch,
         commandId,
         kind: match[1] as 'support' | 'appeal',
         text: match[2] ?? '',
@@ -86,6 +91,6 @@ export class TelegramSupportAppealAdapter {
         throw new ApplicationError('internal_error', 'error.m7.internal', 500);
       notice = presentM7Error(error);
     }
-    return { handled: true, userId, telegramUserId, notice };
+    return { handled: true, userId, productEpoch, telegramUserId, notice };
   }
 }

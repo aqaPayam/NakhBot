@@ -46,6 +46,26 @@ function validReference(value: unknown): value is SupportReferenceState {
 export class SupportOpaqueReferences {
   private readonly key: Uint8Array;
 
+  public static forLife(
+    store: OpaqueTokenStore,
+    key: Uint8Array,
+    life: Readonly<{ userId: string; productEpoch: number }>,
+  ): SupportOpaqueReferences {
+    if (
+      key.byteLength < 32 ||
+      !UUID.test(life.userId) ||
+      !Number.isSafeInteger(life.productEpoch) ||
+      life.productEpoch < 0
+    )
+      throw new Error('Support token life is invalid.');
+    return new SupportOpaqueReferences(
+      store,
+      createHmac('sha256', key)
+        .update(`support-life-v1\0${life.userId}\0${life.productEpoch}`)
+        .digest(),
+    );
+  }
+
   public constructor(
     private readonly store: OpaqueTokenStore,
     key: Uint8Array,
@@ -136,6 +156,7 @@ export type StoredSupportResult = Readonly<{
 
 export type UserSupportWrite = Readonly<{
   userId: string;
+  expectedProductEpoch?: number;
   supportThreadId: string;
   messageId: string;
   eventId: string;
@@ -178,9 +199,11 @@ function userWrite(
   ids: IdGenerator,
   threadId: string,
   normalizedText: string,
+  expectedProductEpoch?: number,
 ): UserSupportWrite {
   return {
     userId: command.actor.userId,
+    ...(expectedProductEpoch === undefined ? {} : { expectedProductEpoch }),
     supportThreadId: threadId,
     messageId: ids.uuid(),
     eventId: ids.uuid(),
@@ -225,12 +248,15 @@ export class OpenSupportThreadHandler {
     private readonly ids: IdGenerator,
   ) {}
 
-  public async execute(command: OpenSupportThreadCommand): Promise<SupportThreadResult> {
+  public async execute(
+    command: OpenSupportThreadCommand,
+    expectedProductEpoch?: number,
+  ): Promise<SupportThreadResult> {
     if (command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const normalizedText = normalizeSupportText(command.data.text);
     const result = await this.store.open(
-      userWrite(command, this.ids, this.ids.uuid(), normalizedText),
+      userWrite(command, this.ids, this.ids.uuid(), normalizedText, expectedProductEpoch),
     );
     return present(result, command.actor.userId, command.commandId, this.references);
   }
@@ -243,7 +269,10 @@ export class SendSupportMessageHandler {
     private readonly ids: IdGenerator,
   ) {}
 
-  public async execute(command: SendSupportMessageCommand): Promise<SupportThreadResult> {
+  public async execute(
+    command: SendSupportMessageCommand,
+    expectedProductEpoch?: number,
+  ): Promise<SupportThreadResult> {
     if (command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const threadId = await this.references.resolve(
@@ -253,7 +282,9 @@ export class SendSupportMessageHandler {
     if (threadId === undefined)
       throw new ApplicationError('invalid_request', 'error.support.reference_invalid', 400);
     const normalizedText = normalizeSupportText(command.data.text);
-    const result = await this.store.send(userWrite(command, this.ids, threadId, normalizedText));
+    const result = await this.store.send(
+      userWrite(command, this.ids, threadId, normalizedText, expectedProductEpoch),
+    );
     return present(result, command.actor.userId, command.commandId, this.references);
   }
 }

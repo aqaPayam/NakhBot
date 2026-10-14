@@ -27,6 +27,7 @@ const fixture = (
 describe('authenticated safety contact routing', () => {
   const input = {
     userId: randomUUID(),
+    productEpoch: 0,
     commandId: randomUUID(),
     kind: 'support' as const,
     text: 'restricted help text',
@@ -75,6 +76,7 @@ describe('authenticated safety contact routing', () => {
         actor: { kind: 'user', userId: input.userId },
         data: { text: input.text, banActionToken: 'opaque-ban-reference' },
       }),
+      0,
     );
   });
   it('shows support help without writes and returns no submitted text or identifiers', async () => {
@@ -87,6 +89,7 @@ describe('authenticated safety contact routing', () => {
     expect(await f.handler.execute(input)).toEqual({ key: 'support.sent', variables: {} });
     expect(f.support.execute).toHaveBeenCalledWith(
       expect.objectContaining({ commandType: 'support.open-thread', data: { text: input.text } }),
+      0,
     );
   });
 });

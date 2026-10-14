@@ -18,6 +18,36 @@ class MemoryTokens implements OpaqueTokenStore {
 }
 
 describe('Ban references', () => {
+  it('binds exact-ban signatures independently to the original owner and life', async () => {
+    const store = new MemoryTokens(),
+      key = Buffer.alloc(32, 9),
+      userId = randomUUID();
+    const old = BanOpaqueReferences.forLife(store, key, { userId, productEpoch: 0 });
+    const banId = randomUUID(),
+      commandId = randomUUID();
+    const token = await old.issue(userId, banId, commandId);
+    expect(await old.resolve(token, userId)).toBe(banId);
+    expect(
+      await BanOpaqueReferences.forLife(store, key, { userId, productEpoch: 1 }).resolve(
+        token,
+        userId,
+      ),
+    ).toBeUndefined();
+    expect(
+      await BanOpaqueReferences.forLife(store, key, {
+        userId: randomUUID(),
+        productEpoch: 0,
+      }).resolve(token, userId),
+    ).toBeUndefined();
+  });
+  it.each([-1, NaN, 0.5])('denies malformed original ban-reference life %s', (productEpoch) => {
+    expect(() =>
+      BanOpaqueReferences.forLife(new MemoryTokens(), Buffer.alloc(32), {
+        userId: randomUUID(),
+        productEpoch,
+      }),
+    ).toThrow(/life is invalid/);
+  });
   it('binds the normalized submission digest to the resolved event and refuses invalid references', async () => {
     const userId = randomUUID();
     let banId = randomUUID();

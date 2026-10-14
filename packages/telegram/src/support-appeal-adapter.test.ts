@@ -27,12 +27,12 @@ const fixture = (
   userId: string = randomUUID(),
 ): {
   userId: string;
-  users: { resolveUserId: Mock };
+  users: { resolveProductLife: Mock };
   handler: { execute: Mock<UserSafetyContactHandler['execute']> };
   limiter: { consume: Mock };
   adapter: TelegramSupportAppealAdapter;
 } => {
-  const users = { resolveUserId: vi.fn().mockResolvedValue(userId) };
+  const users = { resolveProductLife: vi.fn().mockResolvedValue({ userId, productEpoch: 0 }) };
   const handler = {
     execute: vi
       .fn<UserSafetyContactHandler['execute']>()
@@ -48,6 +48,46 @@ const fixture = (
   };
 };
 describe('Telegram support and appeal ingress boundary', () => {
+  it('freezes native life before a limiter wait and separates later-life replay identities', async () => {
+    const f = fixture();
+    let release!: () => void, observed!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      observed = resolve;
+    });
+    f.limiter.consume.mockImplementationOnce(async () => {
+      observed();
+      await waiting;
+      return { allowed: true, retryAfterSeconds: 0 };
+    });
+    const pending = f.adapter.handle(update());
+    await started;
+    f.users.resolveProductLife.mockResolvedValue({ userId: f.userId, productEpoch: 1 });
+    release();
+    expect(await pending).toMatchObject({ handled: true, productEpoch: 0 });
+    expect(f.handler.execute.mock.calls[0]?.[0]).toMatchObject({
+      userId: f.userId,
+      productEpoch: 0,
+    });
+    await f.adapter.handle(update());
+    expect(f.handler.execute.mock.calls[1]?.[0]).toMatchObject({ productEpoch: 1 });
+    expect(f.handler.execute.mock.calls[1]?.[0].commandId).not.toBe(
+      f.handler.execute.mock.calls[0]?.[0].commandId,
+    );
+  });
+  it('ignores provider-supplied epoch fields and forwards only the captured native life', async () => {
+    const f = fixture();
+    await f.adapter.handle({
+      ...update(),
+      productEpoch: 99,
+      actor: { userId: 'forged', productEpoch: 99 },
+    });
+    expect(f.handler.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: f.userId, productEpoch: 0 }),
+    );
+  });
   it('uses only resolved identity and stable replay IDs scoped to bot, user and update', async () => {
     const f = fixture();
     const first = await f.adapter.handle(update());
@@ -88,7 +128,7 @@ describe('Telegram support and appeal ingress boundary', () => {
       {},
     ])
       expect(await f.adapter.handle(value)).toEqual({ handled: false });
-    expect(f.users.resolveUserId).not.toHaveBeenCalled();
+    expect(f.users.resolveProductLife).not.toHaveBeenCalled();
   });
   it('rejects group, bot, forged chat and unsafe numeric identities before resolution', async () => {
     const f = fixture();
@@ -104,11 +144,11 @@ describe('Telegram support and appeal ingress boundary', () => {
       },
     ])
       await expect(f.adapter.handle(value)).rejects.toMatchObject({ code: 'invalid_request' });
-    expect(f.users.resolveUserId).not.toHaveBeenCalled();
+    expect(f.users.resolveProductLife).not.toHaveBeenCalled();
   });
   it('denies unknown users and rate-limited users before business writes', async () => {
     const f = fixture();
-    f.users.resolveUserId.mockResolvedValueOnce(undefined);
+    f.users.resolveProductLife.mockResolvedValueOnce(undefined);
     await expect(f.adapter.handle(update())).rejects.toMatchObject({ code: 'unauthorized' });
     f.limiter.consume.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 12 });
     expect(await f.adapter.handle(update())).toMatchObject({

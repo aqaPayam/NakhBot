@@ -26,6 +26,7 @@ describe('Telegram support/appeal activation and delivery', () => {
     const notice = {
       handled: true as const,
       userId: 'user',
+      productEpoch: 0,
       telegramUserId: '123',
       notice: { key: 'support.sent', variables: {} },
     };
@@ -53,6 +54,7 @@ describe('Telegram support/appeal activation and delivery', () => {
     adapter.handle.mockResolvedValue({
       handled: true,
       userId: 'user',
+      productEpoch: 0,
       telegramUserId: '123',
       notice: { key: 'appeal.submitted', variables: {} },
     });

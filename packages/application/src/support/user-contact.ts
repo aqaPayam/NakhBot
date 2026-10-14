@@ -8,11 +8,12 @@ export type SafetyContactState =
   | Readonly<{ route: 'appeal'; status?: 'submitted' | 'in_review' | 'accepted' | 'rejected' }>;
 
 export interface SafetyContactStateStore {
-  get(userId: string): Promise<SafetyContactState>;
+  get(userId: string, expectedProductEpoch?: number): Promise<SafetyContactState>;
 }
 
 export type UserSafetyContact = Readonly<{
   userId: string;
+  productEpoch: number;
   commandId: string;
   kind: 'support' | 'appeal';
   text: string;
@@ -28,7 +29,7 @@ export class UserSafetyContactHandler {
   ) {}
 
   public async execute(input: UserSafetyContact): Promise<LocalizedIntent> {
-    const state = await this.states.get(input.userId);
+    const state = await this.states.get(input.userId, input.productEpoch);
     const notice = (key: string): LocalizedIntent => ({ key, variables: {} });
     if (state.route === 'unavailable') return notice('error.m7.unavailable');
     if (input.kind === 'support' && state.route === 'appeal') return notice('appeal.prompt');
@@ -47,19 +48,29 @@ export class UserSafetyContactHandler {
       locale: 'en',
     };
     if (input.kind === 'support') {
-      await this.support.execute({
-        ...base,
-        commandType: 'support.open-thread',
-        data: { text: input.text },
-      });
+      await this.support.execute(
+        {
+          ...base,
+          commandType: 'support.open-thread',
+          data: { text: input.text },
+        },
+        input.productEpoch,
+      );
       return notice('support.sent');
     }
-    const banActionToken = await this.prepare.execute(input.userId, input.commandId);
-    await this.appeals.execute({
-      ...base,
-      commandType: 'moderation.submit-appeal',
-      data: { text: input.text, banActionToken },
-    });
+    const banActionToken = await this.prepare.execute(
+      input.userId,
+      input.commandId,
+      input.productEpoch,
+    );
+    await this.appeals.execute(
+      {
+        ...base,
+        commandType: 'moderation.submit-appeal',
+        data: { text: input.text, banActionToken },
+      },
+      input.productEpoch,
+    );
     return notice('appeal.submitted');
   }
 }

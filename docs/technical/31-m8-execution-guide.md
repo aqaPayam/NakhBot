@@ -1,5 +1,48 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: original-life safety contact and opaque references
+
+Commit `be0ebe6` passed all six jobs in run `38492388865`, attempt 1. Its native
+artifact proves 1,024 cases in 127 files without skips, including six native photo
+cases and two actual Redis cases. All 27 full-volume plans passed; terminal
+sampling took 1,255.026 ms against the unchanged 1,500 ms limit with both required
+indexes, one worker and zero temporary blocks. Support load, backup/restore and
+the actual thirteen-metric privacy rehearsal passed; actual CloudWatch/SNS and
+operator acceptance remain external.
+
+Telegram support/appeal ingress now captures native User/epoch before rate-limit
+or handler waits. It creates per-life support and exact-ban reference issuers and
+readers using the owning Redis namespace and independent owner/epoch MACs. The
+initial life's deterministic command identity remains compatible; later lives
+have distinct command identities. Provider/client epoch fields cannot supply
+authority. Notice delivery retains the captured scope and rechecks native life
+after catalog waits before sending.
+
+Contact metadata and current-ban queries restrict the captured epoch. Support
+admission/send check it under the existing User/Account protocol before replay;
+the existing thread epoch also protects quota and cross-life sends. Appeal
+submission locks the stable User and owning Account, then rejects a tombstone or
+captured-life mismatch before returning a completed submission. Same-life M7
+replay semantics remain; exactly one appeal belongs to its immutable ban event.
+Review, separate unban permission/confirmation/auditing and retained safety facts
+remain unchanged. A product epoch does not erase or relax lifetime safety history.
+
+Local evidence includes thirty focused unit cases and twenty-one native cases in
+four files, including the eight new original-life probes. Twenty submission
+replays race six separately authorized unban commands: one account effect and six
+attempt audits remain. Three real-Redis/composition cases require CI, including a
+delayed actual ingress interrupted by an actual deletion tombstone
+without provider delivery. Privileged epoch/Redis activation fixtures are
+corruption probes and do not prove approved Return. Schema 134 and the catalog
+inventory are unchanged. The full project check passed formatting, lint, all 17
+workspace type checks, 1,030 unit tests in 221 files and builds. The native floor
+is 1,035 cases in 129 files; all six exact-head jobs remain required for this candidate.
+
+This increment binds the actual Telegram contact path. The opt-in HTTP service
+factories, authenticated in-flight session scopes, legacy namespace absence,
+ephemeral completion proof and later M8 phases still require implementation and
+verification. Retained-data release and fresh Return remain disabled.
+
 ## Current increment: original-life photo management and menu references
 
 Repair `4734bee` passed all six jobs in run `38484860156`, attempt 1. The native

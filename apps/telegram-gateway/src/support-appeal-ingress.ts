@@ -20,7 +20,7 @@ import {
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
-  RedisOpaqueTokenStore,
+  RedisOwnedOpaqueTokenStore,
   RedisRateLimiter,
   type createRedisConnection,
 } from '@nakh/queue-redis';
@@ -78,9 +78,10 @@ export function createTelegramSupportAppealIngress(
     key.toString('base64url') !== encoded
   )
     throw new Error('Invalid 32-byte secret key.');
-  const tokens = new RedisOpaqueTokenStore(input.redis, input.config.redis.queuePrefix);
-  const references = new BanOpaqueReferences(tokens, key);
   const appeals = new PostgresAppealStore(input.database);
+  const support = new PostgresSupportStore(input.database);
+  const states = new PostgresSafetyContactStore(input.database);
+  const users = new PostgresTelegramUserResolver(input.database);
   const ids = new SystemIdGenerator();
   const identities = new PostgresIdentityStore(input.database);
   const localization = new PostgresLocalizationStore(input.database);
@@ -88,17 +89,28 @@ export function createTelegramSupportAppealIngress(
   return new TelegramSupportAppealIngress(
     new TelegramSupportAppealAdapter(
       match[1]!,
-      new PostgresTelegramUserResolver(input.database),
-      new UserSafetyContactHandler(
-        new PostgresSafetyContactStore(input.database),
-        new OpenSupportThreadHandler(
-          new PostgresSupportStore(input.database),
-          new SupportOpaqueReferences(tokens, key),
-          ids,
-        ),
-        new PrepareAppealHandler(appeals, references),
-        new SubmitAppealHandler(appeals, references, ids),
-      ),
+      users,
+      {
+        execute: (contact) => {
+          const life = { userId: contact.userId, productEpoch: contact.productEpoch };
+          const tokens = new RedisOwnedOpaqueTokenStore(
+            input.redis,
+            input.config.redis.queuePrefix,
+            life,
+          );
+          const references = BanOpaqueReferences.forLife(tokens, key, life);
+          return new UserSafetyContactHandler(
+            states,
+            new OpenSupportThreadHandler(
+              support,
+              SupportOpaqueReferences.forLife(tokens, key, life),
+              ids,
+            ),
+            new PrepareAppealHandler(appeals, references),
+            new SubmitAppealHandler(appeals, references, ids),
+          ).execute(contact);
+        },
+      },
       new RedisRateLimiter(input.redis, input.config.redis.queuePrefix),
     ),
     async (notice): Promise<void> => {
@@ -110,6 +122,12 @@ export function createTelegramSupportAppealIngress(
         { [catalog.resolvedLocale]: catalog.messages },
         catalog.resolvedLocale,
       );
+      const currentLife = await users.resolveProductLife(notice.telegramUserId);
+      if (
+        currentLife?.userId !== notice.userId ||
+        currentLife?.productEpoch !== notice.productEpoch
+      )
+        throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
       await client.sendMenu(notice.telegramUserId, {
         text: renderer.render(catalog.resolvedLocale, notice.notice),
         replyMarkup: { inline_keyboard: [] },

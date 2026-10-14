@@ -35,6 +35,26 @@ function validReference(value: unknown): value is BanReferenceState {
 export class BanOpaqueReferences {
   private readonly key: Uint8Array;
 
+  public static forLife(
+    store: OpaqueTokenStore,
+    key: Uint8Array,
+    life: Readonly<{ userId: string; productEpoch: number }>,
+  ): BanOpaqueReferences {
+    if (
+      key.byteLength < 32 ||
+      !UUID.test(life.userId) ||
+      !Number.isSafeInteger(life.productEpoch) ||
+      life.productEpoch < 0
+    )
+      throw new Error('Ban token life is invalid.');
+    return new BanOpaqueReferences(
+      store,
+      createHmac('sha256', key)
+        .update(`ban-life-v1\0${life.userId}\0${life.productEpoch}`)
+        .digest(),
+    );
+  }
+
   public constructor(
     private readonly store: OpaqueTokenStore,
     key: Uint8Array,
@@ -116,6 +136,7 @@ export class BanOpaqueReferences {
 
 export type UserAppealWrite = Readonly<{
   userId: string;
+  expectedProductEpoch?: number;
   banHistoryId: string;
   appealId: string;
   eventId: string;
@@ -126,7 +147,7 @@ export type UserAppealWrite = Readonly<{
   normalizedText: string;
 }>;
 export interface AppealStore {
-  currentBan(userId: string): Promise<string | undefined>;
+  currentBan(userId: string, expectedProductEpoch?: number): Promise<string | undefined>;
   submit(write: UserAppealWrite): Promise<AppealResult>;
 }
 export class PrepareAppealHandler {
@@ -134,8 +155,12 @@ export class PrepareAppealHandler {
     private readonly store: Pick<AppealStore, 'currentBan'>,
     private readonly references: BanOpaqueReferences,
   ) {}
-  public async execute(userId: string, commandId: string): Promise<string> {
-    const historyId = await this.store.currentBan(userId);
+  public async execute(
+    userId: string,
+    commandId: string,
+    expectedProductEpoch?: number,
+  ): Promise<string> {
+    const historyId = await this.store.currentBan(userId, expectedProductEpoch);
     if (historyId === undefined)
       throw new ApplicationError('conflict', 'error.appeal.unavailable', 409);
     return this.references.issue(userId, historyId, commandId);
@@ -147,7 +172,10 @@ export class SubmitAppealHandler {
     private readonly references: Pick<BanOpaqueReferences, 'resolve'>,
     private readonly ids: IdGenerator,
   ) {}
-  public async execute(command: SubmitAppealCommand): Promise<AppealResult> {
+  public async execute(
+    command: SubmitAppealCommand,
+    expectedProductEpoch?: number,
+  ): Promise<AppealResult> {
     if (command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const banHistoryId = await this.references.resolve(
@@ -159,6 +187,7 @@ export class SubmitAppealHandler {
     const normalizedText = normalizeAppealText(command.data.text);
     return this.store.submit({
       userId: command.actor.userId,
+      ...(expectedProductEpoch === undefined ? {} : { expectedProductEpoch }),
       banHistoryId,
       appealId: this.ids.uuid(),
       eventId: this.ids.uuid(),

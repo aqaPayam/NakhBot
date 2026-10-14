@@ -25,30 +25,58 @@ export async function lockAppealAccount(database: NakhDatabase, userId: string):
 export async function currentBan(
   database: NakhDatabase,
   userId: string,
+  expectedProductEpoch?: number,
 ): Promise<string | undefined> {
-  const row = await database
+  if (
+    expectedProductEpoch !== undefined &&
+    (!Number.isSafeInteger(expectedProductEpoch) || expectedProductEpoch < 0)
+  )
+    return undefined;
+  let query = database
     .selectFrom('identity.accounts as a')
     .innerJoin('identity.account_state_history as h', 'h.user_id', 'a.user_id')
     .select('h.id')
     .where('a.user_id', '=', userId)
     .where('a.state', '=', 'banned')
     .where('h.next_state', '=', 'banned')
-    .whereRef('h.changed_at', '=', 'a.state_changed_at')
-    .orderBy('h.id', 'desc')
-    .executeTakeFirst();
+    .whereRef('h.changed_at', '=', 'a.state_changed_at');
+  if (expectedProductEpoch !== undefined)
+    query = query.where('a.product_epoch', '=', expectedProductEpoch);
+  const row = await query.orderBy('h.id', 'desc').executeTakeFirst();
   return row?.id;
 }
 
 export class PostgresAppealStore implements AppealStore {
   public constructor(private readonly database: NakhDatabase) {}
 
-  public currentBan(userId: string): Promise<string | undefined> {
-    return currentBan(this.database, userId);
+  public currentBan(userId: string, expectedProductEpoch?: number): Promise<string | undefined> {
+    return currentBan(this.database, userId, expectedProductEpoch);
   }
 
   public submit(write: UserAppealWrite): Promise<AppealResult> {
     return this.database.transaction().execute(async (database) => {
+      await database
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', write.userId)
+        .forNoKeyUpdate()
+        .execute();
       await lockAppealAccount(database, write.userId);
+      // Original-life authority is required before even a completed command replay.
+      const account = await database
+        .selectFrom('identity.accounts')
+        .select(['state', 'product_epoch'])
+        .where('user_id', '=', write.userId)
+        .executeTakeFirst();
+      if (
+        account === undefined ||
+        account.state === 'deleted' ||
+        (write.expectedProductEpoch !== undefined &&
+          (!Number.isSafeInteger(write.expectedProductEpoch) ||
+            write.expectedProductEpoch < 0 ||
+            account.product_epoch !== write.expectedProductEpoch))
+      )
+        throw unavailable();
       const replays = await database
         .selectFrom('moderation.appeal_submissions as s')
         .innerJoin('moderation.user_appeals as a', 'a.id', 's.appeal_id')

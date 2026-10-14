@@ -279,6 +279,15 @@ receipts without a life binding fail closed; their physical legacy caches still
 require the independently verified sweep. No new table, retained-data policy,
 release permission, deletion completion or approved Return is introduced.
 
+The actual Telegram safety-contact producer also freezes native life before
+rate-limit/handler waits and uses independent life-bound support/ban reference
+signatures in the owning namespace. Native contact metadata, support admission
+and exact-ban preparation/submission require the captured epoch; tombstones and
+mismatches deny appeal replay before returning retained results. Existing safety
+history remains lifetime evidence, not ordinary data scoped away by a new epoch.
+HTTP/session binding, legacy namespace absence and complete ephemeral receipts
+remain required before deletion completion or approved Return can be enabled.
+
 Production domain-event jobs now contain a bound outbox reference (event ID/type/
 schema and original aggregate type/ID), not the event payload. Consumers validate
 canonical PostgreSQL facts before dispatch and normalize validated legacy bodies

@@ -330,7 +330,7 @@ describe.skipIf(databaseUrl === undefined)('M7 separate appeal-authorized unban'
         .execute(),
     ).toHaveLength(2);
   });
-  it('admits one account effect across independent concurrent unban commands', async () => {
+  it('admits one separately authorized unban while original-life submission replays race', async () => {
     const input = await submitted(),
       admins = await Promise.all(Array.from({ length: 6 }, () => createAdmin(database)));
     await accept(input, admins[0]!);
@@ -343,8 +343,18 @@ describe.skipIf(databaseUrl === undefined)('M7 separate appeal-authorized unban'
       await barrier;
       return workflow.unban(command, 2);
     });
+    const userReplays = Array.from({ length: 20 }, async () => {
+      await barrier;
+      return new PostgresAppealStore(database).submit({ ...input, expectedProductEpoch: 0 });
+    });
     release();
-    const results = await Promise.all(racers);
+    const [results, replayResults] = await Promise.all([
+      Promise.all(racers),
+      Promise.all(userReplays),
+    ]);
+    expect(
+      replayResults.every((result) => result.replayed && result.appealId === input.appealId),
+    ).toBe(true);
     expect(results.filter((r) => r.result === 'succeeded')).toHaveLength(1);
     expect(results.filter((r) => r.result === 'rejected')).toHaveLength(5);
     expect(

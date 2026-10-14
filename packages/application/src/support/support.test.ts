@@ -28,6 +28,36 @@ class MemoryTokens implements OpaqueTokenStore {
 }
 
 describe('Support application boundary', () => {
+  it('rejects another life or owner even when the original stored reference remains reachable', async () => {
+    const store = new MemoryTokens(),
+      key = Buffer.alloc(32, 9),
+      userId = randomUUID();
+    const old = SupportOpaqueReferences.forLife(store, key, { userId, productEpoch: 0 });
+    const threadId = randomUUID(),
+      commandId = randomUUID();
+    const token = await old.issue(userId, threadId, commandId);
+    expect(await old.resolve(token, userId)).toBe(threadId);
+    expect(
+      await SupportOpaqueReferences.forLife(store, key, { userId, productEpoch: 1 }).resolve(
+        token,
+        userId,
+      ),
+    ).toBeUndefined();
+    expect(
+      await SupportOpaqueReferences.forLife(store, key, {
+        userId: randomUUID(),
+        productEpoch: 0,
+      }).resolve(token, userId),
+    ).toBeUndefined();
+  });
+  it.each([-1, NaN, 0.5])('denies malformed original support life %s', (productEpoch) => {
+    expect(() =>
+      SupportOpaqueReferences.forLife(new MemoryTokens(), Buffer.alloc(32), {
+        userId: randomUUID(),
+        productEpoch,
+      }),
+    ).toThrow(/life is invalid/);
+  });
   it('issues stable signed references bound to the exact user and thread', async () => {
     const now = 1_800_000_000_000;
     const references = new SupportOpaqueReferences(

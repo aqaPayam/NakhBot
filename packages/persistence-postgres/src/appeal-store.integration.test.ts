@@ -132,6 +132,7 @@ describe.skipIf(databaseUrl === undefined)('M7 exact-ban appeal admission', () =
     await ban(database, userId);
     const input = {
       userId,
+      productEpoch: 0,
       commandId: randomUUID(),
       kind: 'appeal' as const,
       text: 'Restricted explanation',

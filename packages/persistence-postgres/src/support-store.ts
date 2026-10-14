@@ -73,14 +73,28 @@ async function countUnanswered(database: NakhDatabase, userId: string): Promise<
   return result.rows[0]?.count ?? 0;
 }
 
-async function assertSupportAccount(database: NakhDatabase, userId: string): Promise<number> {
+async function assertSupportAccount(
+  database: NakhDatabase,
+  userId: string,
+  expectedProductEpoch?: number,
+): Promise<number> {
+  if (
+    expectedProductEpoch !== undefined &&
+    (!Number.isSafeInteger(expectedProductEpoch) || expectedProductEpoch < 0)
+  )
+    throw unavailable();
   const account = await database
     .selectFrom('identity.accounts')
     .select(['state', 'product_epoch'])
     .where('user_id', '=', userId)
     .forUpdate()
     .executeTakeFirst();
-  if (account === undefined || !canUseSupport(account.state)) throw unavailable();
+  if (
+    account === undefined ||
+    !canUseSupport(account.state) ||
+    (expectedProductEpoch !== undefined && account.product_epoch !== expectedProductEpoch)
+  )
+    throw unavailable();
   return account.product_epoch;
 }
 
@@ -177,7 +191,11 @@ export class PostgresSupportStore implements SupportStore<NakhDatabase> {
   public open(write: UserSupportWrite): Promise<StoredSupportResult> {
     return this.database.transaction().execute(async (transaction) => {
       await lockSupportUser(transaction, write.userId);
-      const productEpoch = await assertSupportAccount(transaction, write.userId);
+      const productEpoch = await assertSupportAccount(
+        transaction,
+        write.userId,
+        write.expectedProductEpoch,
+      );
       const replay = await replayUserMessage(transaction, write, productEpoch);
       if (replay !== undefined) return replay;
       const unanswered = assertAdmission(await countUnanswered(transaction, write.userId));
@@ -241,7 +259,11 @@ export class PostgresSupportStore implements SupportStore<NakhDatabase> {
   public send(write: UserSupportWrite): Promise<StoredSupportResult> {
     return this.database.transaction().execute(async (transaction) => {
       await lockSupportUser(transaction, write.userId);
-      const productEpoch = await assertSupportAccount(transaction, write.userId);
+      const productEpoch = await assertSupportAccount(
+        transaction,
+        write.userId,
+        write.expectedProductEpoch,
+      );
       const replay = await replayUserMessage(transaction, write, productEpoch);
       if (replay !== undefined) return replay;
       const thread = await transaction
