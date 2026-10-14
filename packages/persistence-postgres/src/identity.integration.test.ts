@@ -202,7 +202,23 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(585);
+    expect(Object.keys(english.messages)).toHaveLength(595);
+    expect(
+      Object.keys(english.messages)
+        .filter((key) => key.startsWith('deletion.'))
+        .sort(),
+    ).toEqual([
+      'deletion.button.cancel',
+      'deletion.button.confirm',
+      'deletion.cancelled',
+      'deletion.completed',
+      'deletion.completed_denied',
+      'deletion.confirm',
+      'deletion.not_requested',
+      'deletion.progress',
+      'deletion.rate_limited',
+      'deletion.unavailable',
+    ]);
     expect(english.messages['error.deletion.confirmation_invalid']).toBe(
       'Prepare a new deletion confirmation.',
     );

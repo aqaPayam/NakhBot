@@ -1,6 +1,24 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
-## Current increment: trusted Telegram own deletion and limited status (migration 140)
+## Current repair: include the ten deletion texts in the exact English inventory
+
+Feature `89d3108` is not accepted green. Run `38612700292` passed quality and all
+four images. Its native inventory covered all 1,170 cases in 144 files with zero
+skips; 1,169 passed and one failed. The locked English catalog assertion still
+expected 585 messages, while migration 140 correctly adds ten deletion texts for
+595. The repair keeps an exact total and additionally asserts the exact ten-key
+deletion namespace. Existing locale, fallback and message checks remain intact.
+No production flow or acceptance limit changes. Later plans/load/restore gates
+did not run on the failed head and remain required on this repair.
+
+All eight new native Telegram cases passed, including the actual authenticated
+webhook with real Redis limits, complete native cleanup/status, provider failure
+recovery and the negative lifecycle/ownership probes. The measured 17,206 ms now
+replaces the provisional scheduling estimate, with failed overall provenance
+explicitly retained. Full project checks and all six exact-head CI jobs are
+required before another feature. Full M8 scope and external approvals remain due.
+
+## Historical increment: trusted Telegram own deletion and limited status (migration 140)
 
 Accepted repair `38a3ae1` passed all six exact-head jobs on attempt 1 of run
 `38605992173`: all 1,161 native cases in 143 files, zero skips; all 27 plans at
