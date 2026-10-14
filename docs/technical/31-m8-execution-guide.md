@@ -1,6 +1,42 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
 
+## Current repair: balance complete native dispatch within existing limits
+
+Feature `c186dee` passed local full checks and 89 targeted native cases. In run
+`38546893913`, the collector initially failed before startup with an unknown
+image-pull error. One unchanged quality replay after the original run became
+terminal passed the project, dependency, actual collector/privacy and deployment
+checks. The unknown original cause is not relabeled transient or erased.
+
+The native job reached its existing 20-minute limit. All 14 retention cases
+passed, but full native coverage, performance/load gates and recovery were not
+reached. Missing downstream artifacts are consequences, not accepted evidence.
+The head is not green and no later M8 feature may proceed from it.
+
+The old filename-hash partition does not balance runtime. Recorded green-run
+suite durations plus the observed new suite estimate give 858,663 ms versus
+366,045 ms in its two groups. Deterministic duration-based dispatch gives
+612,347 ms versus 612,361 ms using the same inputs. These are scheduling estimates,
+not measured performance acceptance. New unmeasured suites receive an estimate
+and still execute; estimates cannot exclude or authorize a test.
+
+The same two isolated PostgreSQL/Redis contexts, one worker per child, all 139
+files, minimum 1,127 native cases, zero skipped/failed cases, unique complete
+inventory proof, 20-minute job limit and all existing performance/load/recovery
+checks remain required. The real Vitest file-selection probe confirms 70 plus
+69 files, exactly once with no omissions or overlap. Four new dispatcher cases
+cover deterministic balance, unmeasured files, invalid input and preservation of
+independent coverage authority. Full checks and all six exact-head jobs remain
+required for this repair before further feature implementation.
+
+An extra root-project type check also exposed two legacy M3 synthetic fixture
+queries missing Kysely's required query identifier. Both now provide an opaque
+identifier; their SQL, parameters, trigger-restoration assertion, fixture volume
+and query-plan acceptance remain unchanged.
+
+
+
 ## Current increment: provisional retention manifest and checkpoint
 
 Commit `5624d53` passed all six jobs in run `38539338959`, attempt 1.

@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   integrationShardEnvironment,
+  planIntegrationShards,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
   type IntegrationShardReport,
@@ -14,6 +15,67 @@ function report(file: string, total = 1): IntegrationShardReport {
 }
 
 describe('complete isolated native integration shards', () => {
+  it('dispatches every file exactly once with deterministic bounded load imbalance', () => {
+    const files = Array.from({ length: 100 }, (_, index) =>
+      resolve(`packages/dispatch-${index}.integration.test.ts`),
+    );
+    const durations = Object.fromEntries(
+      files.map((_file, index) => [
+        `packages/dispatch-${index}.integration.test.ts`,
+        ((index * 7919) % 100000) + 1,
+      ]),
+    );
+    const plan = planIntegrationShards(files, durations);
+    expect(planIntegrationShards([...files].reverse(), durations)).toEqual(plan);
+    expect(new Set(plan.files.flat())).toEqual(new Set(files));
+    expect(plan.files.flat()).toHaveLength(files.length);
+    expect(Math.abs(plan.estimatedMs[0] - plan.estimatedMs[1])).toBeLessThanOrEqual(
+      Math.max(...Object.values(durations)),
+    );
+    expect(plan.files.every((shard) => shard.length > 0)).toBe(true);
+  });
+
+  it('executes unmeasured suites and keeps duration estimates out of coverage authority', () => {
+    const plan = planIntegrationShards([first, second], {});
+    expect(plan.files.flat().sort()).toEqual([first, second].sort());
+    expect(plan.estimatedMs).toEqual([30000, 30000]);
+    expect(() =>
+      verifyIntegrationShardCoverage(
+        [report(plan.files[0][0]!), { ...report(plan.files[1][0]!), skipped: 1 }],
+        [first, second],
+        2,
+      ),
+    ).toThrow('coverage');
+  });
+
+  it('rejects malformed scheduling input rather than dropping or duplicating native suites', () => {
+    for (const files of [
+      [],
+      [first],
+      [first, first],
+      [first, resolve('../outside.integration.test.ts')],
+    ])
+      expect(() => planIntegrationShards(files, {})).toThrow('coverage');
+    for (const value of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() => planIntegrationShards([first, second], { [first]: value })).toThrow('coverage');
+  });
+
+  it('separates the longest suites so a filename partition cannot strand all heavy work together', () => {
+    const files = ['largest', 'second', 'third', 'small'].map((name) =>
+      resolve(`packages/${name}.integration.test.ts`),
+    );
+    const weights = {
+      'packages/largest.integration.test.ts': 300000,
+      'packages/second.integration.test.ts': 220000,
+      'packages/third.integration.test.ts': 200000,
+      'packages/small.integration.test.ts': 10000,
+    };
+    const plan = planIntegrationShards(files, weights);
+    expect(plan.files.find((group) => group.includes(files[0]!))).not.toContain(files[1]!);
+    expect(plan.estimatedMs.reduce((sum, value) => sum + value, 0)).toBe(730000);
+    expect(plan.files.flat()).toHaveLength(4);
+  });
+
   it('retains every declared file exactly once and accounts for every passed test', () => {
     expect(
       verifyIntegrationShardCoverage(

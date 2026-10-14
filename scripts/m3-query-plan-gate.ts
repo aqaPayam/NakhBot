@@ -378,6 +378,7 @@ async function applyLikedByMatrix(
         const statement = 'SET LOCAL session_replication_role=replica';
         await fixture.executeQuery({
           sql: statement,
+          queryId: { queryId: randomUUID() },
           parameters: [],
           query: { kind: 'RawNode', sqlFragments: [statement], parameters: [] },
         });
@@ -389,6 +390,7 @@ async function applyLikedByMatrix(
       const statement = "SELECT current_setting('session_replication_role') AS role";
       const restored = await connection.executeQuery<{ role: string }>({
         sql: statement,
+        queryId: { queryId: randomUUID() },
         parameters: [],
         query: { kind: 'RawNode', sqlFragments: [statement], parameters: [] },
       });

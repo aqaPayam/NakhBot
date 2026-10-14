@@ -10,10 +10,12 @@ import {
 } from '../packages/persistence-postgres/src/migrations.js';
 import {
   integrationShardEnvironment,
+  planIntegrationShards,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
   type IntegrationShardReport,
 } from './postgres-integration-shards.js';
+import durations from './postgres-integration-durations.json' with { type: 'json' };
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 if (url === undefined) throw new Error('Native integration requires its PostgreSQL test service.');
@@ -31,6 +33,7 @@ for await (const file of glob(
 expectedFiles.sort();
 if (expectedFiles.length < 139)
   throw new Error('Native integration file inventory lost baseline coverage.');
+const dispatch = planIntegrationShards(expectedFiles, durations.files);
 
 const temporary = await mkdtemp(join(tmpdir(), 'nakh-native-shards-'));
 const paths = [join(temporary, '1.json'), join(temporary, '2.json')];
@@ -59,12 +62,12 @@ async function runShard(shard: 1 | 2): Promise<IntegrationShardReport> {
           'run',
           '--config',
           'vitest.integration.config.ts',
-          `--shard=${shard}/2`,
           '--maxWorkers=1',
           ...engineArguments.map((argument) => `--execArgv=${argument}`),
           '--reporter=default',
           '--reporter=json',
           `--outputFile.json=${reportPath}`,
+          ...dispatch.files[shard - 1]!,
         ],
         { env: integrationShardEnvironment(process.env, database.url, shard), stdio: 'inherit' },
       );
@@ -106,6 +109,12 @@ try {
     schemaVersion: 1,
     scenario: 'POSTGRES-INTEGRATION-ISOLATED-SHARDS',
     ...coverage,
+    dispatch: {
+      mode: 'duration_balanced',
+      estimatedMs: dispatch.estimatedMs,
+      fileCounts: dispatch.files.map((files) => files.length),
+      durationInventorySha256: createHash('sha256').update(JSON.stringify(durations)).digest('hex'),
+    },
     fileInventorySha256: createHash('sha256')
       .update(
         expectedFiles

@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 
 export type IntegrationShardReport = Readonly<{
   success: boolean;
@@ -26,6 +26,43 @@ function count(value: unknown): number {
 function canonical(path: string): string {
   const normalized = resolve(path).replaceAll('\\', '/');
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+/** Durations affect dispatch only. Unknown files still run, and the independent
+ * coverage verifier must account for every discovered file and every test. */
+export function planIntegrationShards(
+  files: readonly string[],
+  durations: Readonly<Record<string, number>>,
+  directory = process.cwd(),
+): Readonly<{
+  files: readonly [readonly string[], readonly string[]];
+  estimatedMs: readonly [number, number];
+}> {
+  if (
+    files.length < 2 ||
+    new Set(files.map(canonical)).size !== files.length ||
+    Object.values(durations).some((value) => !Number.isSafeInteger(value) || value < 1)
+  )
+    invalid();
+  const candidates = files.map((file) => {
+    const key = relative(resolve(directory), resolve(file)).replaceAll('\\', '/');
+    if (isAbsolute(key) || key.startsWith('../') || !key.endsWith('.integration.test.ts'))
+      invalid();
+    return { file, key, ms: durations[key] ?? 30000 };
+  });
+  candidates.sort((a, b) => b.ms - a.ms || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const buckets: [string[], string[]] = [[], []];
+  const totals: [number, number] = [0, 0];
+  for (const candidate of candidates) {
+    const shard = totals[0] <= totals[1] ? 0 : 1;
+    buckets[shard].push(candidate.file);
+    totals[shard] += candidate.ms;
+    if (!Number.isSafeInteger(totals[shard])) invalid();
+  }
+  return {
+    files: [Object.freeze(buckets[0]), Object.freeze(buckets[1])],
+    estimatedMs: Object.freeze(totals),
+  };
 }
 
 /** Read only coverage facts; assertion text and private fixture diagnostics are
