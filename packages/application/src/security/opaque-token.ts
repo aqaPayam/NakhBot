@@ -7,3 +7,15 @@ export interface OpaqueTokenStore {
 export interface UserOpaqueTokenStores {
   forLife(life: UserProductLife): OpaqueTokenStore;
 }
+
+/** Global legacy-cache cutover. Hashes describe only namespace and scan progress;
+ * neither cache values nor inferred user ownership may enter the audit. */
+export interface LegacyOpaqueRetirementAudit {
+  prepare(
+    input: Readonly<{ namespaceHash: string; cursorHash: string; limit: number }>,
+  ): Promise<string>;
+  observe(
+    authorizationId: string,
+    observation: Readonly<{ removed: number; nextCursorHash: string; hasMore: boolean }>,
+  ): Promise<void>;
+}

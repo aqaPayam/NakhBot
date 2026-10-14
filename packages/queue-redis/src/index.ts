@@ -21,6 +21,7 @@ export {
   type QueueReferenceMigrationBatch,
   type QueueReferenceMigrationCursor,
 } from './legacy-reference-migration.js';
+export { RedisLegacyOpaqueStateRetirement } from './legacy-opaque-state-retirement.js';
 
 export type QueuedEventReference = Readonly<{
   kind: 'outbox-reference.v1';
@@ -287,14 +288,19 @@ export class RedisOpaqueTokenStore implements OpaqueTokenStore {
   public constructor(
     protected readonly redis: Redis,
     protected readonly prefix: string,
-  ) {}
+    private readonly namespaceVersion: 1 | 2 = 2,
+  ) {
+    if (namespaceVersion !== 1 && namespaceVersion !== 2)
+      throw new Error('Opaque token namespace is invalid.');
+  }
 
   protected key(id: string, policy: OpaqueStatePolicy): string {
-    // Existing short action keys retain their physical namespace. Internal UI
-    // receipts use a separate hashed namespace and cannot alias public actions.
+    // Current unowned administration/UI references cannot recreate retired v1
+    // bodies. User product references must use the owning lifetime store below.
+    const namespace = this.namespaceVersion === 1 ? 'action' : 'action-v2';
     return policy.internal
-      ? `${this.prefix}:action:internal:${createHash('sha256').update(id).digest('hex')}`
-      : `${this.prefix}:action:${id}`;
+      ? `${this.prefix}:${namespace}:internal:${createHash('sha256').update(id).digest('hex')}`
+      : `${this.prefix}:${namespace}:${id}`;
   }
 
   public async putIfAbsent(id: string, value: string, ttlSeconds: number): Promise<boolean> {
@@ -307,14 +313,38 @@ export class RedisOpaqueTokenStore implements OpaqueTokenStore {
       throw new Error('Opaque token state is invalid.');
     if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > policy.maxLifetime)
       throw new Error('Opaque token lifetime is invalid.');
-    return (await this.redis.set(this.key(id, policy), value, 'EX', ttlSeconds, 'NX')) === 'OK';
+    if (this.namespaceVersion === 2)
+      return (await this.redis.set(this.key(id, policy), value, 'EX', ttlSeconds, 'NX')) === 'OK';
+    const result = await this.redis.eval(
+      `if redis.call('EXISTS', KEYS[1]) ~= 0 then return -1 end
+       if redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2], 'NX') then return 1 end
+       return 0`,
+      2,
+      `${this.prefix}:legacy-action-retired`,
+      this.key(id, policy),
+      value,
+      ttlSeconds,
+    );
+    if (result !== 0 && result !== 1) throw new Error('Legacy opaque token state is unavailable.');
+    return result === 1;
   }
 
   public async get(id: string): Promise<string | undefined> {
     const policy = opaqueStatePolicy(id);
     if (policy === undefined) return undefined;
-    const value = await this.redis.get(this.key(id, policy));
-    return value === null || value.length < 1 || Buffer.byteLength(value, 'utf8') > policy.maxBytes
+    const value =
+      this.namespaceVersion === 2
+        ? await this.redis.get(this.key(id, policy))
+        : await this.redis.eval(
+            `if redis.call('EXISTS', KEYS[1]) ~= 0 then return nil end
+         return redis.call('GET', KEYS[2])`,
+            2,
+            `${this.prefix}:legacy-action-retired`,
+            this.key(id, policy),
+          );
+    return typeof value !== 'string' ||
+      value.length < 1 ||
+      Buffer.byteLength(value, 'utf8') > policy.maxBytes
       ? undefined
       : value;
   }

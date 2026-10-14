@@ -2,6 +2,30 @@
 
 This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M8, with M7 owning moderation/evidence decisions; new migrations must update this file immediately.
 
+## Opaque cache cutover namespaces
+
+The old global `{prefix}:action:*` namespace has no authenticated ownership index.
+Retire it globally after draining pre-cutover runtimes; never open encrypted bodies
+to assign them to a deleting user. A permanent `{prefix}:legacy-action-retired`
+fence blocks current-code v1 compatibility writers and readers. Remove at most 100
+values per audited batch, then run a separate complete physical absence scan.
+Prepared authorization without an observation remains uncertain, not completion.
+
+Current unowned administration/retained-safety UI references use
+`{prefix}:action-v2:*`, with the existing purpose-specific byte/lifetime bounds and
+no fallback to v1. Product-user references must use the existing owner/epoch-bound
+`{prefix}:owned-action:{ownerHash}:{epoch}:value:*` stores. Global retirement does
+not remove those current values, native workforce sessions, roles, MFA factors,
+financial facts or retained safety proof. Minimal permanent lifecycle fences must
+not expire or be removed by ordinary cache cleanup.
+
+The global cutover reuses append-only security audits for authorization and
+observation. Only namespace/cursor hashes, batch bounds, actual removal counts,
+finite progress flags and audit identities are retained. No key roster, cache body,
+user inference or provider endpoint enters these facts. They follow the existing
+security-audit policy; no retention duration or controlled-release approval is
+invented. Root ephemeral completion still requires its own authenticated proof.
+
 ## Native user session security facts
 
 Original-life HTTP sessions reuse append-only `platform.audit_logs`; no new

@@ -24,8 +24,8 @@ describe.skipIf(url === undefined)(
       reference = 'abcdefghijklmnopqrstuv';
     function physical(logical: string): string {
       return logical.length === 16
-        ? `${prefix}:action:${logical}`
-        : `${prefix}:action:internal:${createHash('sha256').update(logical).digest('hex')}`;
+        ? `${prefix}:action-v2:${logical}`
+        : `${prefix}:action-v2:internal:${createHash('sha256').update(logical).digest('hex')}`;
     }
     async function ownKeys(): Promise<string[]> {
       let cursor = '0';

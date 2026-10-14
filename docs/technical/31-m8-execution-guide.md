@@ -1,5 +1,47 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: audited retirement of legacy opaque state
+
+Repair `feeeda7` passed all six jobs in run `38509390470`, attempt 1. Its native
+artifact proves 1,046 cases in 131 files with zero skips, including all three
+actual Redis/HTTP cases. All 27 full-volume plans passed; terminal integrity took
+1,493.327 ms against the unchanged 1,500 ms limit, using the required indexes.
+Support load, backup/restore and the actual collector privacy rehearsal passed.
+The initial collector image-pull failure on `9e6f875` had an unknown provider
+cause; one unchanged quality control passed. No privacy or startup assertion was
+relaxed. The separate native import failure was repaired before this increment.
+
+Current unowned administration/UI state uses `:action-v2:` and never falls back
+to `:action:`. Account-life-owned values keep their separate namespaces. Explicit
+v1 compatibility writers check the permanent retirement fence and write in one
+Redis operation; their readers also reject retired state. Existing pre-cutover
+runtimes must be drained before enabling deletion. The cutover is global because
+old ciphertext has no authenticated user ownership roster. It removes opaque
+values without reading, decrypting or inferring ownership from their bodies.
+
+Each removal batch requires native immutable authorization before installing the
+fence or deleting at most 100 values. Native observations record only counts,
+namespace/progress hashes and a finite continuation flag. Identical twenty-way
+observation retries append one fact; changed observations fail closed. A missing
+observation remains uncertain intent. A separate read-only physical scan must
+start at zero, retain every page and report no findings under a permanent fence;
+an arbitrary cursor, zero removal count or fence alone is not completion proof.
+Current UI and owning-life bodies remain outside the retired namespace.
+
+Five new native audit cases passed locally, covering concurrency, immutability,
+bounds, captured observation data and mandatory-write rollback. Eight Redis cases and three composed native
+Redis cases require full CI services. The native floor is 1,062 cases in 134 files.
+Full project checks and all six exact-head jobs remain required for this candidate.
+No DDL is introduced; schema 134 and the catalog inventory are unchanged.
+
+The [cutover runbook](../../deploy/runbooks/m8-ephemeral-cutover.md) describes
+runtime drain, interruption and independent verification. This provider operation
+does not advance a deletion Root. Durable full-pass/producer-drain coordination,
+uncertain-intent reconciliation, bounded native session revocation, complete queue
+verification and the independent ephemeral checkpoint remain required. Policy
+manifests, final verification and approved fresh Return remain later M8 work.
+Retained-data release stays disabled pending approved retention periods.
+
 ## Current repair: explicit HTTP integration dependency
 
 Commit `9e6f875` passed local full checks, GitHub full quality checks and all four
