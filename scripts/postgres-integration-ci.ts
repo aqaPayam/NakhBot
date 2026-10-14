@@ -33,7 +33,7 @@ for await (const file of glob(
 ))
   expectedFiles.push(resolve(file));
 expectedFiles.sort();
-if (expectedFiles.length < 139)
+if (expectedFiles.length < 140)
   throw new Error('Native integration file inventory lost baseline coverage.');
 const dispatch = planIntegrationShards(expectedFiles, durations.files);
 
@@ -106,7 +106,7 @@ try {
       skipped: reports.reduce((sum, report) => sum + report.skipped, 0),
     }) + '\n',
   );
-  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 1127);
+  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 1143);
   const evidence = {
     schemaVersion: 1,
     scenario: 'POSTGRES-INTEGRATION-ISOLATED-SHARDS',

@@ -70,7 +70,11 @@ export class ExecuteAccountDeletionEphemeral {
     lease: AccountDeletionLease,
   ): Promise<Readonly<{ worked: boolean; completed: boolean }>> {
     const scope = Object.freeze({ ...lease, leaseExpiresAt: new Date(lease.leaseExpiresAt) });
-    if (scope.phase !== 'ephemeral_access' || scope.checkpointVersion !== 5) conflict();
+    if (!(
+      (scope.phase === 'ephemeral_access' && scope.checkpointVersion === 5) ||
+      (scope.phase === 'verification' && scope.checkpointVersion === 7)
+    ))
+      conflict();
     const sessions = await this.sessions.revokeNext(scope);
     if (sessions.hasMore) return { worked: true, completed: false };
     if (!(await this.sessions.verify(scope)).verified) conflict();

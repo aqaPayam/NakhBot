@@ -1,5 +1,38 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
+## Current increment: fresh final verification and atomic completion
+
+Accepted base `e50b969` passed all six jobs in run `38560803736`:
+1,127 native cases in 139 files, three isolated contexts, zero skips; all 27
+query plans at 20,000 scale (terminal integrity 1,476.611 ms, below the unchanged
+1,500 ms gate); support load, backup/restore smoke and actual collector/privacy
+rehearsal passed. Delivery/routing and production recovery approval remain external.
+
+Migration 138 introduces a fresh six-stage provider cycle at verification/7.
+Its prepared audit binds checkpoint seven while preserving original phase-five
+13-key audit bytes. Revisions remain one immutable chain; namespace, original
+product life, cutover evidence and native lease checks remain required. Historical
+reconciliation selects the terminal page as of its original timestamp, so later
+verification cannot rewrite or invalidate that proof.
+
+Completion independently checks all prior cleanup, the current catalog, retained
+record descriptors, native sessions, stable identity minimization and a fresh
+terminal provider pass. Reconciliation, completion audit/event, receipt, Root and
+work checkpoint eight commit together. Missing writes and lease expiry roll back.
+Completion leaves the account deleted and reactivation disabled. Retention release
+remains disabled pending approved periods. This increment does not complete M8:
+separate approved fresh Return, later-life Redis authority, runtime composition,
+telemetry and remaining full acceptance evidence still require implementation.
+
+New evidence includes twenty concurrent claims/observations/completion retries,
+lost response and lease generation recovery, six suppressed-write boundaries,
+real deferred lease expiry, independent manifest/username corruption, populated
+137 upgrade preservation, and actual Redis/native final composition. Local native
+observations are fixture inputs, never evidence of actual Redis cleanup or producer
+drain. Real Redis composition runs in CI; no production drain approval is inferred.
+Full checks and all six exact-head jobs must pass before the next feature.
+
+
 
 ## Current repair: preserve all acceptance work with three isolated native contexts
 

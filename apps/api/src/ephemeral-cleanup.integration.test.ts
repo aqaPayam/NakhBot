@@ -14,6 +14,7 @@ import {
   PostgresAccountDeletionEphemeralStore,
   PostgresAccountDeletionSessionStore,
   PostgresAccountDeletionWorkStore,
+  PostgresAccountDeletionRetentionStore,
   PostgresUserSessionStore,
   PostgresQueueReferenceMigrationAudit,
   PostgresLegacyOpaqueRetirementAudit,
@@ -229,6 +230,37 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
         )
       ).rows;
       expect(JSON.stringify(audits)).not.toContain('PRIVATE');
+    });
+    it('composes real Redis cleanup, retention inventory and a fresh final cycle without enabling Return', async () => {
+      const f = await scene();
+      await run(f);
+      f.lease = (await f.work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 120000 }))[0]!;
+      expect(f.lease.phase).toBe('retention_manifest');
+      const retention = new PostgresAccountDeletionRetentionStore(database);
+      for (let n = 0; n < 20; n++) if (!(await retention.recordNext(f.lease)).hasMore) break;
+      expect(await retention.finish(f.lease)).toEqual({ completed: true });
+      f.lease = (await f.work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 120000 }))[0]!;
+      expect(f.lease.phase).toBe('verification');
+      expect(await f.store.finish(f.lease)).toEqual({ completed: false });
+      const scope = `${f.prefix}:owned-action:{${createHash('sha256').update(f.lease.userId).digest('hex')}}`;
+      await redis.set(`${scope}:0:value:late-orphan`, 'PRIVATE LATE BODY');
+      await run(f);
+      expect(await redis.get(`${scope}:0:value:late-orphan`)).toBeNull();
+      expect(await f.counterpart.get('abcdefghijklmnop')).toBe('COUNTERPART BODY');
+      expect(
+        (
+          await sql`SELECT phase,checkpoint_version,reactivation_allowed FROM identity.account_deletion_records WHERE id=${f.lease.deletionRecordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([{ phase: 'completed', checkpoint_version: 8, reactivation_allowed: false }]);
+      expect(
+        (
+          await sql`SELECT state,product_epoch FROM identity.accounts WHERE user_id=${f.lease.userId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([{ state: 'deleted', product_epoch: 0 }]);
     });
     it('recovers an actual provider effect followed by transport loss without inventing an observation', async () => {
       const f = await scene();

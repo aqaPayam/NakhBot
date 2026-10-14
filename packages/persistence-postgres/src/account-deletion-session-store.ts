@@ -18,7 +18,11 @@ export class PostgresAccountDeletionSessionStore {
     this.work = new PostgresAccountDeletionWorkStore(database);
   }
   private validate(lease: AccountDeletionLease): void {
-    if (lease.phase !== 'ephemeral_access' || lease.checkpointVersion !== 5) conflict();
+    if (!(
+      (lease.phase === 'ephemeral_access' && lease.checkpointVersion === 5) ||
+      (lease.phase === 'verification' && lease.checkpointVersion === 7)
+    ))
+      conflict();
   }
   private async blocker(
     transaction: NakhDatabase,

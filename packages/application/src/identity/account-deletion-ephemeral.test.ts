@@ -156,4 +156,30 @@ describe('durable ephemeral deletion coordinator', () => {
       { cursor: '0', more: false, found: 0 },
     );
   });
+  it('executes the same fenced coordinator at final verification checkpoint seven', async () => {
+    const f = scene(),
+      finalLease = { ...lease, phase: 'verification' as const, checkpointVersion: 7 };
+    expect(await f.execute.executeNext(finalLease)).toEqual({ worked: true, completed: false });
+    expect(f.mocks.revokeNext).toHaveBeenCalledExactlyOnceWith(finalLease);
+    expect(f.mocks.complete).toHaveBeenCalledWith(finalLease, id, {
+      cursor: '0',
+      more: false,
+      found: 0,
+    });
+    f.mocks.claimNext.mockResolvedValue({ done: true });
+    expect(await f.execute.executeNext(finalLease)).toEqual({ worked: false, completed: true });
+    expect(f.mocks.finish).toHaveBeenCalledWith(finalLease);
+  });
+  it.each([
+    ['verification', 5],
+    ['ephemeral_access', 7],
+    ['completed', 8],
+  ] as const)('rejects mismatched phase %s checkpoint %i', async (phase, checkpointVersion) => {
+    const f = scene();
+    await expect(
+      f.execute.executeNext({ ...lease, phase, checkpointVersion }),
+    ).rejects.toBeDefined();
+    expect(f.mocks.claimNext).not.toHaveBeenCalled();
+    expect(f.mocks.provide).not.toHaveBeenCalled();
+  });
 });

@@ -44,7 +44,11 @@ export class PostgresAccountDeletionEphemeralStore implements AccountDeletionEph
     this.queueHash = hash(`${prefix}:domain-events:`);
   }
   private validate(lease: AccountDeletionLease): void {
-    if (lease.phase !== 'ephemeral_access' || lease.checkpointVersion !== 5) conflict();
+    if (!(
+      (lease.phase === 'ephemeral_access' && lease.checkpointVersion === 5) ||
+      (lease.phase === 'verification' && lease.checkpointVersion === 7)
+    ))
+      conflict();
   }
   private async configuration(tx: NakhDatabase, root: string): Promise<void> {
     assertDeletionCatalogCoverage(await readDeletionCatalog(tx));
@@ -72,14 +76,18 @@ export class PostgresAccountDeletionEphemeralStore implements AccountDeletionEph
           revision: number;
           next_stage: number;
           next_cursor: DeletionEphemeralCursor;
-        }>`SELECT id,revision,next_stage,next_cursor FROM identity.account_deletion_ephemeral_pages
-        WHERE deletion_record_id=${scope.deletionRecordId}::uuid ORDER BY revision DESC LIMIT 1`.execute(
+          checkpoint: number;
+        }>`SELECT p.id,p.revision,p.next_stage,p.next_cursor,coalesce((a.metadata->>'checkpointVersion')::integer,5) AS checkpoint
+        FROM identity.account_deletion_ephemeral_pages p JOIN platform.audit_logs a ON a.id=p.id
+        WHERE p.deletion_record_id=${scope.deletionRecordId}::uuid ORDER BY p.revision DESC LIMIT 1`.execute(
           tx,
         )
       ).rows[0];
-      const stage = prior?.next_stage ?? 0,
+      const restart =
+        scope.checkpointVersion === 7 && prior?.next_stage === 6 && prior.checkpoint === 5;
+      const stage = restart ? 0 : (prior?.next_stage ?? 0),
         revision = (prior?.revision ?? 0) + 1,
-        cursor = prior?.next_cursor ?? '0';
+        cursor = restart ? '0' : (prior?.next_cursor ?? '0');
       if (stage === 6) return { done: true };
       const name = DELETION_EPHEMERAL_STAGES[stage];
       if (name === undefined) conflict();
@@ -100,7 +108,8 @@ export class PostgresAccountDeletionEphemeralStore implements AccountDeletionEph
         SELECT ${id}::uuid,'account',${PREPARED},'system',NULL,NULL,'account_deletion',root.id,'prepared',1,
           jsonb_build_object('revision',${revision}::integer,'stage',${stage}::integer,'cursorHash',encode(sha256(convert_to(${JSON.stringify(cursor)}::jsonb::text,'UTF8')),'hex'),
             'previousId',${prior?.id ?? null}::uuid,'namespaceHash',${this.namespaceHash}::text,'legacyNamespaceHash',${this.legacyNamespaceHash}::text,'queueHash',${this.queueHash}::text,'cutoverEvidenceHash',${this.cutoverEvidenceHash}::text,
-            'productEpoch',root.product_epoch,'owner',job.lease_owner,'generation',job.lease_generation,'leaseExpiresAt',job.lease_expires_at,'transactionId',pg_current_xact_id()::text),root.command_id,root.request_id,clock_timestamp()
+            'productEpoch',root.product_epoch,'owner',job.lease_owner,'generation',job.lease_generation,'leaseExpiresAt',job.lease_expires_at,'transactionId',pg_current_xact_id()::text)
+            || CASE WHEN ${scope.checkpointVersion}::integer=7 THEN jsonb_build_object('checkpointVersion',7) ELSE '{}'::jsonb END,root.command_id,root.request_id,clock_timestamp()
         FROM identity.account_deletion_records root JOIN identity.account_deletion_work job ON job.deletion_record_id=root.id WHERE root.id=${scope.deletionRecordId}::uuid RETURNING (metadata->>'productEpoch')::integer AS epoch`.execute(
           tx,
         )
@@ -172,7 +181,7 @@ export class PostgresAccountDeletionEphemeralStore implements AccountDeletionEph
           phase: string;
           checkpoint: number;
           waiting: string | null;
-        }>`SELECT phase,checkpoint_version AS checkpoint,waiting_for AS waiting FROM identity.finish_deletion_ephemeral_phase(
+        }>`SELECT phase,checkpoint_version AS checkpoint,waiting_for AS waiting FROM ${sql.raw(lease.checkpointVersion === 7 ? 'identity.finish_deletion_verification_phase' : 'identity.finish_deletion_ephemeral_phase')}(
         ${lease.deletionRecordId}::uuid,${lease.userId}::uuid,${lease.leaseOwner}::uuid,${lease.leaseGeneration},${lease.checkpointVersion})`.execute(
           tx,
         )
@@ -180,7 +189,11 @@ export class PostgresAccountDeletionEphemeralStore implements AccountDeletionEph
       if (row === undefined) conflict();
       if (row.phase === 'retention_manifest' && row.checkpoint === 6 && row.waiting === null)
         return { completed: true };
+      if (row.phase === 'completed' && row.checkpoint === 8 && row.waiting === null)
+        return { completed: true };
       if (row.phase === 'ephemeral_access' && row.checkpoint === 5 && row.waiting !== null)
+        return { completed: false };
+      if (row.phase === 'verification' && row.checkpoint === 7 && row.waiting !== null)
         return { completed: false };
       conflict();
     });
