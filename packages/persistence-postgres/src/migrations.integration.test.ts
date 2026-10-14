@@ -22,7 +22,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
     78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100,
-    101, 102, 103, 104, 105, 106, 107, 108, 125, 126, 127, 128, 129, 130, 131, 132,
+    101, 102, 103, 104, 105, 106, 107, 108, 125, 126, 127, 128, 129, 130, 131, 132, 133,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -387,9 +387,32 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         await target.query('COMMIT');
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        133 - baseline,
+        134 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      if (baseline === 133) {
+        const originalIndex = (
+          await target.query<{ definition: string }>(
+            "SELECT pg_get_indexdef('administration.admin_action_logs_account_proof_idx'::regclass) AS definition",
+          )
+        ).rows[0]!.definition;
+        for (const malformed of [
+          "CREATE INDEX admin_action_logs_account_proof_idx ON administration.admin_action_logs(admin_user_id,command_id) INCLUDE(request_id,request_digest) WHERE result='succeeded' AND command_code='moderation.apply-account-action' AND target_type='user'",
+          "CREATE INDEX admin_action_logs_account_proof_idx ON administration.admin_action_logs(admin_user_id,command_id) INCLUDE(request_id,request_digest,target_id) WHERE result='rejected' AND command_code='moderation.apply-account-action' AND target_type='user'",
+        ]) {
+          await target.query('DROP INDEX administration.admin_action_logs_account_proof_idx');
+          await target.query(malformed);
+          try {
+            await expect(
+              verifyMigrations(targetUrl.toString(), join(directory, 'verify')),
+            ).rejects.toMatchObject({ code: 'P0001' });
+          } finally {
+            await target.query('DROP INDEX administration.admin_action_logs_account_proof_idx');
+            await target.query(originalIndex);
+          }
+          await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+        }
+      }
       if (previousLikedByRequest !== undefined) {
         expect(
           (
@@ -733,6 +756,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000131_m8_private_photo_parallel_read.sql',
         '000132_m8_sample_source_cleanup.sql',
         '000133_m8_liked_by_request_life.sql',
+        '000134_m7_account_action_proof_index.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -842,7 +866,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000115_m8_terminal_pending_archival.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(133);
+      expect(replay.existing).toHaveLength(134);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

@@ -101,7 +101,7 @@ try {
       skipped: reports.reduce((sum, report) => sum + report.skipped, 0),
     }) + '\n',
   );
-  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 1015);
+  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 1016);
   const evidence = {
     schemaVersion: 1,
     scenario: 'POSTGRES-INTEGRATION-ISOLATED-SHARDS',

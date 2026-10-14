@@ -1,5 +1,27 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: covering exact account-action proof
+
+Run `38471167381` on `d637d05` passed quality, all four images and all 1,015
+native cases in 125 files without skips. Its terminal M7 statement still took
+1,532.326 ms against the unchanged 1,500 ms limit. The failed run remains
+preserved and is not a staging candidate. GitHub omitted step arrays, so completed
+logs and the exact-head native/performance artifacts supply the gate diagnosis.
+
+The normalized plan performs 20,000 administrator-attempt index lookups for
+resolved episodes. Migration 134 adds a partial covering index on administrator
+and command, including request, digest and target, restricted to succeeded
+`moderation.apply-account-action` attempts targeting users. These are the exact
+fields/predicates used by the existing resolution probe. No binding, accepted
+result, role, fixture, index requirement, memory/worker setting or time limit is
+removed or widened. Verification checks its complete keys, include columns,
+predicate and ready/valid state. Entity inventory and retained-data release are
+unchanged; no Return activation is introduced.
+
+Populated migration 133 upgrade/bootstrap evidence, native integrity regressions,
+full-volume index/timing evidence, the full project check and all six exact-head
+jobs remain required. The native floor is 1,016 cases in 125 files.
+
 ## Current repair: indexed resolution existence and audit candidates
 
 Commit `3b25802` failed run `38462089620` at the terminal M7 integrity gate:

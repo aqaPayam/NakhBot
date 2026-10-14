@@ -4,6 +4,11 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migration 134 adds only a partial covering index for succeeded, user-targeted
+administrator account-action proof. The inventory remains 150 tables, 1,381
+columns and 298 foreign keys. Exact actor/command, request/digest and target
+bindings remain mandatory; the index adds no retained data or release authority.
+
 Migration 133 preserves original Liked By delivery ownership through an immutable
 account epoch. The inventory now covers 150 tables, 1,381 columns and 298 foreign
 keys. Native identity resolution freezes that epoch before asynchronous ingress;

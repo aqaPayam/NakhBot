@@ -501,6 +501,7 @@ describe.skipIf(url === undefined)(
                   '000131_m8_private_photo_parallel_read.sql',
                   '000132_m8_sample_source_cleanup.sql',
                   '000133_m8_liked_by_request_life.sql',
+                  '000134_m7_account_action_proof_index.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -534,6 +535,7 @@ describe.skipIf(url === undefined)(
                   '000131_m8_private_photo_parallel_read.sql',
                   '000132_m8_sample_source_cleanup.sql',
                   '000133_m8_liked_by_request_life.sql',
+                  '000134_m7_account_action_proof_index.sql',
                 ],
           );
           expect(
