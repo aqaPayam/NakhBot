@@ -104,9 +104,9 @@ describe.skipIf(url === undefined)('M8 owned operational cancellation', () => {
       ).rows[0]!.policy,
     ).toEqual(DELETION_EVENT_POLICY);
     const catalog = await readDeletionCatalog(database);
-    expect(catalog.tables).toHaveLength(151);
-    expect(catalog.tables.reduce((n, row) => n + row.columns.length, 0)).toBe(1384);
-    expect(catalog.foreignKeys).toHaveLength(300);
+    expect(catalog.tables).toHaveLength(152);
+    expect(catalog.tables.reduce((n, row) => n + row.columns.length, 0)).toBe(1399);
+    expect(catalog.foreignKeys).toHaveLength(304);
     assertDeletionCatalogCoverage(catalog);
   });
   it('cancels 207 owned metadata events in bounded concurrent batches and preserves counterpart and retained channels', async () => {

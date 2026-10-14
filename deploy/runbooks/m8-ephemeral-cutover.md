@@ -13,7 +13,7 @@ an account deletion complete, release retained data, enable Return or start M9.
    evidence separately from tests. Do not infer process drain from a scan cursor.
 3. For each configured Redis prefix, compose `RedisLegacyOpaqueStateRetirement`
    with `PostgresLegacyOpaqueRetirementAudit`. Start removal at cursor zero and
-   retain progress until every page has been processed. Use a limit of 1�100.
+   retain progress until every page has been processed. Use a limit of 1ï¿½100.
    Authorization must persist before the first fence or removal. Do not substitute
    an in-memory/no-op audit in a deployed worker.
 4. The permanent retirement fence blocks current v1 reads and writes. Preserve it.
@@ -37,3 +37,31 @@ an account deletion complete, release retained data, enable Return or start M9.
 Keep the exact-head CI artifacts, actual runtime-drain observations and provider
 verification distinct. Tests do not certify a real deployment, Redis outage drill,
 CloudWatch/SNS routing, PITR/DR, external security review or operator sign-off.
+
+Migration 136 provides `ExecuteAccountDeletionEphemeral` with native durable page
+history and the separate phase-5 checkpoint. Compose it with the actual native
+session store, `PostgresAccountDeletionEphemeralStore` and
+`RedisAccountDeletionEphemeralProvider`, using the same configured prefix and
+native audit adapters. Each bounded invocation must retain/reclaim work through
+the owning native lease; provider errors preserve uncertain prepared intent.
+The next generation resumes the original cursor and repeats independent physical
+verification. A busy operation is not done; release/retry through native work.
+
+The native store constructor requires the SHA-256 reference to actual operator
+producer-drain evidence. This must identify the verified old-process drain and
+current reference-only producers; it is not a user-supplied HTTP field, a boolean
+inferred from an empty scan, or approval to release retained data. Preserve the
+same prefix/evidence configuration for an in-flight Root. Missing or changed
+configuration blocks progress. Fixture hashes do not certify any deployment.
+
+Queue cleanup includes original job envelopes, ordinary diagnostic fields/logs
+and old event history. Active/changed jobs block their complete pass. New current
+failures must remain coarse with stack retention disabled. Unknown queue families
+or control/history collections above the fixed verification ceiling require
+operator diagnosis; do not delete canonical money, invent ownership or relax a
+verification bound to obtain a green checkpoint. Keep actual drain observations,
+exact-head CI evidence and external provider/DR/security acceptance separate.
+
+Only the independent native checkpoint can advance to retention_manifest/6.
+The full saga composition, policy manifests and final completion/Return gates
+must still be verified before enabling deletion ingress in a deployment.

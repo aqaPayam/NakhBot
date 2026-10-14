@@ -297,6 +297,7 @@ describe.skipIf(url === undefined)('M8 session authority migration provenance', 
         if (mode === 'valid') {
           expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([
             '000135_m8_deletion_sessions.sql',
+            '000136_m8_ephemeral_checkpoint.sql',
           ]);
           await verifyMigrations(isolated.url, resolve('migrations/verify'));
           expect(

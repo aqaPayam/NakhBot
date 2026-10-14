@@ -179,3 +179,5 @@ export * from './administration/admin-session.js';
 export * from './administration/admin-totp.js';
 export * from './administration/admin-totp-enrollment.js';
 export * from './identity/account-deletion-media.js';
+
+export * from './identity/account-deletion-ephemeral.js';

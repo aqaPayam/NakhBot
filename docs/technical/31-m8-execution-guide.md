@@ -1,4 +1,52 @@
-# M8 Execution Guide — Deletion, Retention and Production Hardening
+# M8 Execution Guide â€” Deletion, Retention and Production Hardening
+
+## Current increment: durable ephemeral cleanup and checkpoint
+
+Repair `407bd04` passed all six jobs in run `38527306206`, attempt 1. Its native
+artifact proves 1,081 cases in 135 files with zero skips. All 27 unchanged
+20,000-row plans passed; terminal integrity took 957.016 ms against 1,500 ms,
+with the required indexes, one worker and no temporary blocks. Support load,
+backup/restore and the actual collector privacy rehearsal passed. The failed
+`4a42d7d` head is superseded; it did not reach performance or recovery gates.
+
+Migration 136 adds immutable original-Root ephemeral page receipts. Prepared
+native intent commits before provider work. Native lease/current-life checks
+surround provider waits, bind observations to the exact cursor and revision,
+and recheck the database clock at deferred commit. A concurrent claimant cannot
+allocate a second operation for the same revision and generation. A restarted
+worker uses a new generation without fabricating an earlier provider outcome.
+
+Removal and independent read-only verification each start a complete cursor
+cycle for owned state, legacy state and queue transport. Findings persist across
+all pages and force a new cleanup/verification cycle. An index, fence, empty
+batch, busy claim or terminal cursor does not authorize completion. Physical
+owned orphan values are included; counterpart life state and current workforce
+UI references remain independent. Lost/expiring fences produce blockers and
+require renewed removal plus a fresh independent verification pass.
+
+The queue pass normalizes only canonically authorized legacy jobs, preserves
+active/changed jobs, minimizes ordinary diagnostic/log/event clones and verifies
+reference envelopes and control metadata independently. Physical resource batches
+remain bounded to 100, event removals to 100 entries, and atomic control/history
+reads have a fixed 100,000-entry ceiling. Unknown families fail closed. New worker
+failures persist only reviewed coarse codes and no stack/cause; retry attempts,
+backoff and canonical financial/inbox authority are unchanged.
+
+The checkpoint independently rechecks native session authority, all earlier
+media/product/evidence obligations and the complete immutable pass chain. A
+mandatory reverified-intent summary binds original preparation digests and the
+last independent proof. This acknowledges uncertain intent without inventing
+an original removal count or rewriting its observation. Required audit/event/
+receipt/Root/work writes commit together, advancing only phase 5 to phase 6.
+
+Trusted deployment composition must supply the hash of actual operator evidence
+that old producers were drained. A hash is an assertion reference, not a scan or
+test proving a real deployment. Do not use fixture hashes in deployment. Full
+worker/scheduler/HTTP/Telegram composition, retained manifests, final verification,
+approved fresh Return and remaining M8 acceptance work are still required.
+Retained-data release stays disabled; no retention periods or external staging,
+PITR/DR, security review or operator sign-offs are fabricated by this increment.
+
 
 ## Current increment: audited retirement of legacy opaque state
 
@@ -619,7 +667,7 @@ volume and plan/index/timing limit. The same leased connection must report
 normal origin authority after that transaction before plan measurement proceeds.
 Production guard functions, migrations and account-removal permissions are
 unchanged. The first repaired 5,000-user matrix and all three plan gates passed;
-the explicit restoration check also passed. The full local check passed uncached lint, all 17 workspace types, 1,008 unit tests in 220 files and the full build. M3–M6 plans/load and the independent M7 concurrency load passed. All six repaired-head CI jobs remain required. M8 implementation remains incomplete.
+the explicit restoration check also passed. The full local check passed uncached lint, all 17 workspace types, 1,008 unit tests in 220 files and the full build. M3â€“M6 plans/load and the independent M7 concurrency load passed. All six repaired-head CI jobs remain required. M8 implementation remains incomplete.
 
 The local 20,000-row M7 plan run missed two unchanged timing limits: integrity snapshot 2,039.836 ms and terminal snapshot 2,676.216 ms. One standalone control after the full check still missed them (1,976.210 / 2,633.049 ms). The original green source and 128-migration schema from a375b0f also missed them on this Windows host (2,000.461 / 2,721.258 ms). All required indexes and the worker were present, without disk spill. Relevant M7 query/gate sources are unchanged. The comparison does not demonstrate a new regression; the specific local cause remains unproven. No gate is relaxed, and Linux CI must verify performance before acceptance. The diagnostic reference dependency links were restored from main with the unchanged frozen lockfile.
 
@@ -647,7 +695,7 @@ load, collector privacy and backup/restore. Its terminal snapshot took
 1,266.602 ms against 1,500 ms with both required indexes. Tracked count was
 212,158 lines. The failed `462769d` head is superseded by that verified repair.
 
-Migrations 129–130 add immutable original asset/variant references, bounded
+Migrations 129â€“130 add immutable original asset/variant references, bounded
 provider operations and audited source-removal receipts. The owning phase-4
 worker preserves exact reported thumbnail bytes in a private evidence namespace
 before deleting public quarantine, validated and variant objects. It verifies
@@ -689,7 +737,7 @@ The completed server log confirms both lock inversions. The notification-life
 upgrade also lacked the newly nullable cancellation field in its old snapshot.
 Downstream plan/load/recovery gates did not run; this head is not accepted.
 
-Additive migration 128 retains migrations 126–127 unchanged. Match birth takes
+Additive migration 128 retains migrations 126â€“127 unchanged. Match birth takes
 the existing pair order before User/Account locks. Ordinary inserts lock User
 before Account and recheck the verified product checkpoint. Updates already hold
 the ordinary source row, which prevents a purge from verifying absence until
@@ -713,7 +761,7 @@ Commit `78ae245` passed all six exact-head CI jobs in run `38241459117`,
 collector privacy and backup/restore. The terminal snapshot took 1,463.044 ms
 against 1,500 ms with both required indexes. Tracked source count was 209,870.
 
-Migrations 126–127 classify reviewed minimum event shapes, preserve original
+Migrations 126â€“127 classify reviewed minimum event shapes, preserve original
 financial/safety/lifecycle channels and cancel ordinary publication under the
 exact owning deletion lease. Cancellation keeps only already minimum transport
 facts and requires source hashes, audit and event atomically. Active publisher
@@ -757,7 +805,7 @@ Commit `8df6bdf` passed all six exact-head jobs in run `38223704037`,
 889 native tests in 114 suites, all 27 unchanged M7 plans, load, collector
 privacy and backup/restore. Its first terminal snapshot took 1,565.743 ms
 against 1,500 ms; all required indexes and the worker were present, without
-spill or hash batching. Every phase was 1.38–1.66 times slower than the prior
+spill or hash batching. Every phase was 1.38â€“1.66 times slower than the prior
 green run. Three local alternating old/new comparisons preserved counts but
 showed no reliable gain from experimental query changes; all experiments were
 discarded. One unchanged diagnostic CI rerun passed, with terminal snapshot
@@ -765,7 +813,7 @@ discarded. One unchanged diagnostic CI rerun passed, with terminal snapshot
 the original infrastructure cause is unproven. No gate, volume, sample count
 or predicate was relaxed. Tracked source count was 208,379 lines.
 
-Migrations 123–125 retain six original notification identity/life/safety fields
+Migrations 123â€“125 retain six original notification identity/life/safety fields
 and a ten-field audited removal receipt, without copying payloads, templates,
 deduplication text, message dates or provider message keys. Exact original
 threshold-template/delivery qualification is captured as an episode identity.
@@ -823,7 +871,7 @@ classification. One unchanged diagnostic rerun passed; the original pull cause
 remains unidentified, and no retry classification or acceptance gate changed.
 Tracked source count was 207,386 lines.
 
-Migrations 121–122 preserve each Match's original participant epochs and replace
+Migrations 121â€“122 preserve each Match's original participant epochs and replace
 global historical pair uniqueness with uniqueness within those exact lives.
 Legacy epochs are provably zero while Return remains disabled; ambiguous legacy
 lives are rejected. New references are stamped under canonical pair/identity/
@@ -885,7 +933,7 @@ Repair `f667b21` passed all six exact-head CI jobs in run `38210198537`,
 plans, load checks, collector privacy and CI backup/restore. Terminal integrity
 took 1,220.121 ms against 1,500 ms and retained both required indexes.
 
-Migrations 119–120 retain only eight original financial identity fields for a
+Migrations 119â€“120 retain only eight original financial identity fields for a
 paid unlock and a ten-field audited removal receipt. New insertion requires
 the original live scope and payer life; references are immutable and retired
 IDs cannot be reused. Deleted payers' terminal grants can be removed under
@@ -967,7 +1015,7 @@ The fixture incorrectly made its unlock payer the Like sender; business rules
 require the payer to be the Like receiver. The repair reverses the synthetic
 Like direction while preserving the payer, invoice/refund ownership, 5,000-row
 population, six exact indexed queries and unchanged 1,000 ms limit. No production
-guard is changed. Downstream M5–M7 gates and backup/restore were skipped and
+guard is changed. Downstream M5â€“M7 gates and backup/restore were skipped and
 must pass on the repaired head before any next M8 feature begins.
 
 The corrected local M4 gate passed against a fresh native PostgreSQL database
@@ -1695,10 +1743,10 @@ retry limit or assertion is replaced or weakened.
 The diagnostic repair classifies both buffered Docker output channels, retaining
 runtime/denial/missing-image precedence over transient transport messages. Startup
 failure reporting emits only the fixed classification, retryability, a validated
-0–255 exit code or null, killed status and two output-presence booleans. No command,
+0â€“255 exit code or null, killed status and two output-presence booleans. No command,
 endpoint, raw process output, stack, configuration, credential or metric payload is
 printed. Unknown failures still fail immediately; only recognized transient image
-pulls retain the existing three-attempt/1–2-second retry policy. Native Docker is
+pulls retain the existing three-attempt/1â€“2-second retry policy. Native Docker is
 unavailable on this host, so actual pinned collector conversion remains a CI gate.
 
 Seventeen focused startup tests pass, including stdout-only failures, mixed-channel

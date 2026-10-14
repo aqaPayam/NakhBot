@@ -94,6 +94,7 @@ export class BullMqOutboxPublisher implements OutboxPublisher {
       backoff: { type: 'exponential', delay: 1_000 },
       removeOnComplete: { age: 24 * 60 * 60, count: 10_000 },
       removeOnFail: false,
+      stackTraceLimit: 0,
     };
     validateQueuedDomainEvent(event);
     const data: QueuedEvent = this.referenceOnly
@@ -114,6 +115,16 @@ export class BullMqOutboxPublisher implements OutboxPublisher {
   }
 }
 
+/** Do not persist provider/SQL text or causes in BullMQ diagnostics. */
+function sanitizedQueueFailure(error: unknown): Error {
+  const allowed = new Set(['invalid_queued_event', 'invalid_queued_event_reference']);
+  return new Error(
+    error instanceof Error && allowed.has(error.message)
+      ? error.message
+      : 'domain_event_processing_failed',
+  );
+}
+
 export function createDomainEventWorker(
   connection: Redis,
   prefix: string,
@@ -123,67 +134,72 @@ export function createDomainEventWorker(
   return new Worker<QueuedEvent>(
     DOMAIN_EVENT_QUEUE,
     async (job) => {
-      const data: unknown = job.data;
-      if (typeof data !== 'object' || data === null || Array.isArray(data))
-        throw new Error('invalid_queued_event');
-      const candidate = data as Readonly<Record<string, unknown>>;
-      let event: DomainEvent | undefined;
-      let normalize: QueuedEventReference | undefined;
-      let legacyBody: DomainEvent | undefined;
-      if (candidate.kind === 'outbox-reference.v1') {
-        if (
-          Object.keys(candidate).sort().join(',') !==
-            'aggregateId,aggregateType,eventId,eventSchemaVersion,eventType,kind' ||
-          typeof candidate.eventId !== 'string' ||
-          candidate.eventId !== job.id ||
-          !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(candidate.eventId) ||
-          typeof candidate.eventType !== 'string' ||
-          candidate.eventType !== job.name ||
-          typeof candidate.aggregateType !== 'string' ||
-          candidate.aggregateType.length < 1 ||
-          candidate.aggregateType.length > 80 ||
-          typeof candidate.aggregateId !== 'string' ||
-          !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(candidate.aggregateId) ||
-          !Number.isSafeInteger(candidate.eventSchemaVersion) ||
-          (candidate.eventSchemaVersion as number) < 1 ||
-          hydrate === undefined
-        )
-          throw new Error('invalid_queued_event_reference');
-        event = await hydrate(candidate as QueuedEventReference);
-      } else {
-        validateQueuedDomainEvent(data);
-        const legacy = data;
-        if (legacy.id !== job.id || legacy.eventType !== job.name)
+      job.opts.stackTraceLimit = 0;
+      try {
+        const data: unknown = job.data;
+        if (typeof data !== 'object' || data === null || Array.isArray(data))
           throw new Error('invalid_queued_event');
-        const reference: QueuedEventReference = {
-          kind: 'outbox-reference.v1',
-          eventId: legacy.id,
-          eventType: legacy.eventType,
-          eventSchemaVersion: legacy.schemaVersion,
-          aggregateType: legacy.aggregateType,
-          aggregateId: legacy.aggregateId,
-        };
-        event = hydrate === undefined ? legacy : await hydrate(reference, legacy);
-        if (hydrate !== undefined) {
-          normalize = reference;
-          legacyBody = legacy;
+        const candidate = data as Readonly<Record<string, unknown>>;
+        let event: DomainEvent | undefined;
+        let normalize: QueuedEventReference | undefined;
+        let legacyBody: DomainEvent | undefined;
+        if (candidate.kind === 'outbox-reference.v1') {
+          if (
+            Object.keys(candidate).sort().join(',') !==
+              'aggregateId,aggregateType,eventId,eventSchemaVersion,eventType,kind' ||
+            typeof candidate.eventId !== 'string' ||
+            candidate.eventId !== job.id ||
+            !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(candidate.eventId) ||
+            typeof candidate.eventType !== 'string' ||
+            candidate.eventType !== job.name ||
+            typeof candidate.aggregateType !== 'string' ||
+            candidate.aggregateType.length < 1 ||
+            candidate.aggregateType.length > 80 ||
+            typeof candidate.aggregateId !== 'string' ||
+            !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(candidate.aggregateId) ||
+            !Number.isSafeInteger(candidate.eventSchemaVersion) ||
+            (candidate.eventSchemaVersion as number) < 1 ||
+            hydrate === undefined
+          )
+            throw new Error('invalid_queued_event_reference');
+          event = await hydrate(candidate as QueuedEventReference);
+        } else {
+          validateQueuedDomainEvent(data);
+          const legacy = data;
+          if (legacy.id !== job.id || legacy.eventType !== job.name)
+            throw new Error('invalid_queued_event');
+          const reference: QueuedEventReference = {
+            kind: 'outbox-reference.v1',
+            eventId: legacy.id,
+            eventType: legacy.eventType,
+            eventSchemaVersion: legacy.schemaVersion,
+            aggregateType: legacy.aggregateType,
+            aggregateId: legacy.aggregateId,
+          };
+          event = hydrate === undefined ? legacy : await hydrate(reference, legacy);
+          if (hydrate !== undefined) {
+            normalize = reference;
+            legacyBody = legacy;
+          }
         }
+        if (event !== undefined) {
+          validateQueuedDomainEvent(event);
+          if (
+            event.id !== job.id ||
+            event.eventType !== job.name ||
+            event.aggregateType !== candidate.aggregateType ||
+            event.aggregateId !== candidate.aggregateId ||
+            event.schemaVersion !== (candidate.eventSchemaVersion ?? candidate.schemaVersion)
+          )
+            throw new Error('invalid_queued_event');
+          if (legacyBody !== undefined && !isDeepStrictEqual(legacyBody, event))
+            throw new Error('invalid_queued_event');
+        }
+        if (normalize !== undefined) await job.updateData(normalize);
+        if (event !== undefined) await processor(event);
+      } catch (error) {
+        throw sanitizedQueueFailure(error);
       }
-      if (event !== undefined) {
-        validateQueuedDomainEvent(event);
-        if (
-          event.id !== job.id ||
-          event.eventType !== job.name ||
-          event.aggregateType !== candidate.aggregateType ||
-          event.aggregateId !== candidate.aggregateId ||
-          event.schemaVersion !== (candidate.eventSchemaVersion ?? candidate.schemaVersion)
-        )
-          throw new Error('invalid_queued_event');
-        if (legacyBody !== undefined && !isDeepStrictEqual(legacyBody, event))
-          throw new Error('invalid_queued_event');
-      }
-      if (normalize !== undefined) await job.updateData(normalize);
-      if (event !== undefined) await processor(event);
     },
     {
       connection,
@@ -538,6 +554,48 @@ export class RedisOwnedOpaqueTokenStore extends RedisOpaqueTokenStore {
     return { removed: result[0], hasMore: result[1] === 1, nextCursor: result[2] };
   }
 
+  /** Independent read-only physical pass. The native coordinator must start at
+   * zero and retain every page; the reverse index is only an additional blocker. */
+  public async verifyNext(
+    cursor = '0',
+    limit = 100,
+  ): Promise<Readonly<{ found: number; nextCursor: string; hasMore: boolean }>> {
+    if (
+      !/^(0|[1-9][0-9]{0,19})$/u.test(cursor) ||
+      BigInt(cursor) > 18446744073709551615n ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    )
+      throw new Error('Opaque state verification is unavailable.');
+    const result = await this.evaluate(
+      `
+      if redis.call('GET',KEYS[1]) ~= 'blocked:' .. ARGV[1] or redis.call('PTTL',KEYS[1]) ~= -1 then return {-1,'0',0} end
+      local page=redis.call('SCAN',ARGV[2],'MATCH',ARGV[3] .. '*','COUNT',100)
+      local found=math.min(#page[2],tonumber(ARGV[4]))
+      if redis.call('HLEN',KEYS[2]) > 0 then found=math.max(found,1) end
+      return {found,page[1],page[1] ~= '0' and 1 or 0}
+    `,
+      [this.lifecycleKey, this.indexKey],
+      [this.epoch, cursor, this.valuePrefix, limit],
+    );
+    if (
+      !Array.isArray(result) ||
+      result.length !== 3 ||
+      typeof result[0] !== 'number' ||
+      !Number.isSafeInteger(result[0]) ||
+      result[0] < 0 ||
+      result[0] > limit ||
+      typeof result[1] !== 'string' ||
+      !/^(0|[1-9][0-9]{0,19})$/u.test(result[1]) ||
+      BigInt(result[1]) > 18446744073709551615n ||
+      (result[2] !== 0 && result[2] !== 1) ||
+      (result[1] !== '0') !== (result[2] === 1)
+    )
+      throw new Error('Opaque state verification is unavailable.');
+    return { found: result[0], nextCursor: result[1], hasMore: result[2] === 1 };
+  }
+
   /** Tests the write/read fence only. Complete namespace absence additionally
    * requires the owning worker to finish revokeNext's full cursor cycle. */
   public async isWriteRevoked(): Promise<boolean> {
@@ -552,3 +610,5 @@ export class RedisOwnedOpaqueTokenStore extends RedisOpaqueTokenStore {
     return result === 1;
   }
 }
+
+export { RedisAccountDeletionEphemeralProvider } from './account-deletion-ephemeral-provider.js';

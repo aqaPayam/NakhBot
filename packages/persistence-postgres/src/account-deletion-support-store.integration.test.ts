@@ -503,6 +503,7 @@ describe.skipIf(url === undefined)(
                   '000133_m8_liked_by_request_life.sql',
                   '000134_m7_account_action_proof_index.sql',
                   '000135_m8_deletion_sessions.sql',
+                  '000136_m8_ephemeral_checkpoint.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -538,6 +539,7 @@ describe.skipIf(url === undefined)(
                   '000133_m8_liked_by_request_life.sql',
                   '000134_m7_account_action_proof_index.sql',
                   '000135_m8_deletion_sessions.sql',
+                  '000136_m8_ephemeral_checkpoint.sql',
                 ],
           );
           expect(

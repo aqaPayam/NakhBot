@@ -148,7 +148,9 @@ describe.skipIf(url === undefined)('M8 immutable queue reference migration audit
     const scene = await fixture(),
       queueHash = 'a'.repeat(64);
     const id = await audit.prepare(queueHash, scene.reference, scene.event);
-    await audit.reconcile(queueHash, { ...scene.reference, aggregateId: randomUUID() });
+    await expect(
+      audit.reconcile(queueHash, { ...scene.reference, aggregateId: randomUUID() }),
+    ).rejects.toThrow('queued_event_source_conflict');
     expect(
       await database
         .selectFrom('platform.audit_logs')
@@ -197,5 +199,27 @@ describe.skipIf(url === undefined)('M8 immutable queue reference migration audit
           .executeTakeFirstOrThrow()
       ).payload,
     ).toEqual(scene.event.payload);
+  });
+  it('validates references against canonical facts without writing audit or blessing forged reference-shaped content', async () => {
+    const f = await fixture();
+    const before = (
+      await sql`SELECT id,metadata FROM platform.audit_logs WHERE subject_id=${f.reference.eventId}::uuid ORDER BY id`.execute(
+        database,
+      )
+    ).rows;
+    await audit.verifyReference(f.reference);
+    await expect(
+      audit.verifyReference({ ...f.reference, aggregateType: 'private_forged_reference' }),
+    ).rejects.toThrow('queued_event_source_conflict');
+    await expect(audit.verifyReference({ ...f.reference, eventId: randomUUID() })).rejects.toThrow(
+      'queued_event_source_unavailable',
+    );
+    expect(
+      (
+        await sql`SELECT id,metadata FROM platform.audit_logs WHERE subject_id=${f.reference.eventId}::uuid ORDER BY id`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual(before);
   });
 });

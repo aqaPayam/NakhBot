@@ -58,7 +58,7 @@ without granting phase completion, retained-data release or approved Return.
 Migration 128 changes only product-write lock ordering; the inventory is unchanged.
 Its derived Chat cleanup exemption requires the existing nondeferrable live-Chat FK.
 
-Migrations 126–127 cover 144 tables, 1,333 columns and 282 foreign keys.
+Migrations 126â€“127 cover 144 tables, 1,333 columns and 282 foreign keys.
 The sole new column links minimum ordinary outbox transport to an immutable
 cancellation audit; it defaults to NULL for every existing event. Code-owned
 shape policy rejects unknown/prose-bearing payloads, preserves financial,
@@ -69,7 +69,7 @@ Original references scope children after parent body removal. It advances only
 to media verification; provider/ephemeral cleanup, policy manifests, completion
 and fresh Return remain required. Retained-data release stays disabled.
 
-Migrations 123–125 bring the inventory to 144 tables, 1,332 columns and 281
+Migrations 123â€“125 bring the inventory to 144 tables, 1,332 columns and 281
 foreign keys. Six-field notification references preserve only original recipient
 life, type, empty-payload qualification and an optional exact threshold episode;
 ten-field removal receipts bind root, full transaction, lease and audit/event.
@@ -77,11 +77,11 @@ No payload, template/dedup text or provider receipt is copied. Historical safety
 facts remain inaccessible to normal notification rendering and delivery.
 System-owned registration response scope includes its typed `context.userId`.
 Own cached response bodies and expired media authority are bounded phase-3
-resources 9–10; current media expiry remains mandatory. Provider receipts and
+resources 9â€“10; current media expiry remains mandatory. Provider receipts and
 global typed operational policy still require their later phases. Retained-data
 release and fresh Return remain disabled.
 
-Migrations 121–122 bring the inventory to 142 tables, 1,316 columns and 276
+Migrations 121â€“122 bring the inventory to 142 tables, 1,316 columns and 276
 foreign keys. Original Match references add only both participant epochs.
 Historical pair uniqueness is scoped to those lives. The ten-field ordinary
 pair removal receipt binds the original Match, root, transaction, lease and
@@ -90,7 +90,7 @@ Active administrator blocks remain safety facts. Historical Unmatch proof can
 survive ordinary pair removal without granting a later-life product action.
 Retained-data release and fresh Return remain disabled.
 
-Migrations 119–120 bring the inventory to 141 tables, 1,304 columns and 273
+Migrations 119â€“120 bring the inventory to 141 tables, 1,304 columns and 273
 foreign keys. Original unlock references retain eight financial identity/life
 fields; audited owned-grant removal retains ten transaction, lease and audit
 bindings. Neither retains grant status, times, revocation prose or administrator
@@ -497,3 +497,15 @@ audit. It stores only those two IDs and a SHA-256 digest. The digest binds origi
 grant provenance, epoch, worker lease and transaction; no bearer is retained. Its
 purpose is independent proof of authority retirement, not account reactivation.
 Release requires approved policy and remains disabled with all retained-data release.
+
+
+Migration 136 retains `identity.account_deletion_ephemeral_pages` as restricted
+original-life lifecycle proof. Fifteen columns bind prepared/observed audits,
+Root, revisions, bounded cursors, resource findings, transitions and predecessor
+digests. Cursors contain only scan positions and physical reference keys; no token,
+message, provider error or job body is copied into proof. Release remains approval
+required and disabled. Global queue diagnostic/log/event copies are ordinary
+transport; canonical money, inbox receipts and security/safety facts remain under
+their independent policies. Current worker queue diagnostics use only coarse codes
+and no stack/cause. A reverified-intent summary is absence evidence, not an invented
+original effect count. Actual operator producer-drain evidence remains external.

@@ -184,7 +184,11 @@ export class PostgresQueueReferenceMigrationAudit {
       throw new Error('queue_migration_observation_unavailable');
     }
   }
+  public async verifyReference(reference: Reference): Promise<void> {
+    await new PostgresOutboxStore(this.database).resolveQueuedEvent(reference);
+  }
   public async reconcile(queueHash: string, reference: Reference): Promise<void> {
+    await this.verifyReference(reference);
     const fingerprint = referenceHash(reference);
     const prepared = await this.database
       .selectFrom('platform.audit_logs')

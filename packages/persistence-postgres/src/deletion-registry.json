@@ -10213,6 +10213,111 @@
           "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
         }
       ]
+    },
+    {
+      "table": "identity.account_deletion_ephemeral_pages",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "original_life_ephemeral_pass_proof",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "revision",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "stage",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "cursor_in",
+          "type": "jsonb",
+          "nullable": false
+        },
+        {
+          "name": "cursor_out",
+          "type": "jsonb",
+          "nullable": false
+        },
+        {
+          "name": "more",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "found",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "pending_found",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "next_stage",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "next_cursor",
+          "type": "jsonb",
+          "nullable": false
+        },
+        {
+          "name": "previous_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "previous_hash",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "proof_hash",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.account_deletion_ephemeral_pages",
+          "definition": "FOREIGN KEY (previous_id) REFERENCES identity.account_deletion_ephemeral_pages(id) ON DELETE RESTRICT"
+        }
+      ]
     }
   ],
   "objectPrefixes": [
