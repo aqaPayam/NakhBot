@@ -51,6 +51,21 @@ export function moderationIntegrityPhaseStatement(
   // Keep complete flags in the scanner; evaluate other aggregate flags only for
   // resolution-valid episodes within this same database statement/snapshot.
   const flags = MODERATION_INTEGRITY_FLAGS[phase];
+  if (phase === 'actions') {
+    // CASE guarantees that already-invalid attempts do not perform expensive
+    // history/notice membership probes. Complete scanner flags remain unchanged;
+    // every entity still contributes exactly one count for any invalid flag.
+    const priority = ['hasAttempt', 'hasAudit', 'hasNotice', 'reportMatches', 'hasAccountHistory'];
+    const order = [...priority, ...flags.filter((flag) => !priority.includes(flag))];
+    return sql<IntegrityRow>`SELECT ${phase}::text AS phase,
+      statement_timestamp() AS "sampledAt", count(*)::text AS count
+      FROM (${MODERATION_INTEGRITY_SOURCES.actions}) probe
+      WHERE CASE ${sql.join(
+        order.map((flag) => sql`WHEN ${sql.ref(`probe.${flag}`)} IS NOT TRUE THEN true`),
+        sql` `,
+      )}
+        ELSE false END`;
+  }
   if (phase === 'episodes') {
     const remaining = flags.filter((flag) => flag !== 'hasResolutionAttempt');
     return sql<IntegrityRow>`

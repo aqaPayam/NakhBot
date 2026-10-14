@@ -40,20 +40,19 @@ function adminAccountHistoryMatches(): RawBuilder<boolean> {
 
 /** Disjoint actor branches keep system restrictions out of administrator attempt/restoration joins.
  * The persisted actor CHECK makes the two branches exhaustive, with one row per action.
- * Narrow audit/notice membership sets preserve every original binding without carrying
- * joined metadata rows through the action history and restoration joins. Null tuples
- * fail closed; physical IDs keep membership equivalent to the original unique joins. */
+ * Audit candidates are narrowed to the exact actor class. Pair-target membership
+ * remains independent, so a wrong audit actor cannot hide valid attempt evidence.
+ * Every original owner/request/command and notice/history binding remains exact. */
 function moderationActionSource(actor: 'system' | 'admin'): RawBuilder<unknown> {
   const isSystem = actor === 'system';
   return sql`
 SELECT action.id, COALESCE(${
     isSystem
-      ? sql`(action.audit_log_id, action.command_id, action.request_id) IN (
-      SELECT audit.id, audit.command_id, audit.request_id FROM platform.audit_logs audit
-      WHERE audit.actor_type = 'system' AND audit.actor_admin_id IS NULL)`
-      : sql`(action.audit_log_id, action.actor_admin_id, action.command_id, action.request_id) IN (
-      SELECT audit.id, audit.actor_admin_id, audit.command_id, audit.request_id
-      FROM platform.audit_logs audit WHERE audit.actor_type = 'admin')`
+      ? sql`action_audit.id IS NOT NULL AND action_audit.actor_admin_id IS NULL
+        AND action_audit.command_id = action.command_id AND action_audit.request_id = action.request_id`
+      : sql`action_audit.id IS NOT NULL
+        AND action_audit.actor_admin_id = action.actor_admin_id
+        AND action_audit.command_id = action.command_id AND action_audit.request_id = action.request_id`
   },false) AS "hasAudit",
     ${
       isSystem
@@ -108,6 +107,8 @@ SELECT action.id, COALESCE(${
           WHERE photo.id = action.target_photo_id AND profile.user_id = source_report.target_user_id))
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
+    LEFT JOIN platform.audit_logs action_audit ON action_audit.id = action.audit_log_id
+      AND action_audit.actor_type = ${actor}
     LEFT JOIN moderation.reports source_report ON source_report.id = action.source_report_id
     ${
       isSystem
@@ -130,42 +131,31 @@ SELECT action.id, COALESCE(${
 `;
 }
 
-export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_candidates AS MATERIALIZED (
-    -- Batch narrow candidates before joining dense attempt evidence. Retain
-    -- invalid candidates through grouping so duplicate evidence never suppresses
-    -- a valid binding or multiplies its owning episode.
+export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_facts AS MATERIALIZED (
+    -- Keep one explicit fact per resolved owner, including failed bindings. An
+    -- indexed existence probe retains every binding without a wide intermediate
+    -- CTE, tuple hash or grouping duplicate attempts per owner.
     SELECT owner.id AS restriction_episode_id,
-      owner.target_user_id AS owner_target_user_id,
-      (resolution.actor_admin_id = owner.resolved_by_admin_id
-        AND resolution.target_user_id = owner.target_user_id
-        AND resolution.reason_code = owner.resolution_reason_code
-        AND resolution.occurred_at = owner.resolved_at) AS owner_binding_valid,
-      resolution.actor_admin_id, resolution.command_id, resolution.request_id,
-      resolution.request_digest
-    FROM moderation.restriction_episodes owner
-    JOIN LATERAL (
-      SELECT actor_admin_id, target_user_id, reason_code, occurred_at,
-        command_id, request_id, request_digest
-      FROM moderation.moderation_actions
-      WHERE restriction_episode_id = owner.id AND restriction_episode_id IS NOT NULL
-        AND actor_type = 'admin' AND action_type = 'unrestrict_user' OFFSET 0
-    ) resolution ON true
-    WHERE owner.status = 'resolved'
-), resolution_facts AS MATERIALIZED (
-    SELECT resolution.restriction_episode_id,
-      bool_or(COALESCE(attempt.id IS NOT NULL
-        AND resolution.owner_binding_valid
-        AND attempt.request_id = resolution.request_id
-        AND attempt.request_digest = resolution.request_digest
-        AND attempt.target_id = resolution.owner_target_user_id,false)) AS valid
-    FROM resolution_candidates resolution
-    LEFT JOIN administration.admin_action_logs attempt ON attempt.admin_user_id = resolution.actor_admin_id
-      AND attempt.command_id = resolution.command_id AND attempt.result = 'succeeded'
-      AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
-    -- Keep invalid candidates through grouping: one explicit validation fact per
-    -- episode avoids a near-zero row estimate and quadratic repeated CTE scans.
-    -- bool_or preserves existence when valid and invalid candidates coexist.
-    GROUP BY resolution.restriction_episode_id
+      EXISTS (
+        SELECT 1 FROM LATERAL (
+          SELECT actor_admin_id, command_id, request_id, request_digest
+          FROM moderation.moderation_actions
+          WHERE restriction_episode_id = owner.id AND restriction_episode_id IS NOT NULL
+            AND actor_type = 'admin' AND action_type = 'unrestrict_user'
+            AND target_user_id = owner.target_user_id
+            AND reason_code = owner.resolution_reason_code AND occurred_at = owner.resolved_at OFFSET 0
+        ) resolution
+        JOIN administration.admin_action_logs attempt
+          ON attempt.admin_user_id = resolution.actor_admin_id
+          AND attempt.command_id = resolution.command_id
+          AND attempt.request_id = resolution.request_id
+          AND attempt.request_digest = resolution.request_digest
+          AND attempt.target_id = owner.target_user_id
+        WHERE resolution.actor_admin_id = owner.resolved_by_admin_id
+          AND attempt.result = 'succeeded'
+          AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
+      ) AS valid
+    FROM moderation.restriction_episodes owner WHERE owner.status = 'resolved'
 )
 `;
 

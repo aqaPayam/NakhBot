@@ -426,6 +426,62 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             .execute();
           expect(await sourceMatches()).toBe(true);
           expect((await store.measure()).counts.episodes).toBe(baseline);
+          const episode = await tx
+            .selectFrom('moderation.restriction_episodes')
+            .selectAll()
+            .where('id', '=', action.restriction_episode_id!)
+            .executeTakeFirstOrThrow();
+          const resolutionValid = async (): Promise<boolean> =>
+            (
+              await sql<{ valid: boolean }>`SELECT probe."hasResolutionAttempt" AS valid
+              FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
+              WHERE probe.id=${episode.id}::uuid`.execute(tx)
+            ).rows[0]!.valid;
+          expect(await resolutionValid()).toBe(true);
+          for (const damage of [
+            { resolved_by_admin_id: randomUUID() },
+            { target_user_id: randomUUID() },
+            { resolution_reason_code: 'different_resolution' },
+            { resolved_at: new Date(episode.resolved_at!.getTime() + 1) },
+          ]) {
+            await tx
+              .updateTable('moderation.restriction_episodes')
+              .set(damage)
+              .where('id', '=', episode.id)
+              .execute();
+            expect(await resolutionValid()).toBe(false);
+            expect((await store.measure()).counts.episodes).toBe(baseline + 1);
+            await tx
+              .updateTable('moderation.restriction_episodes')
+              .set(episode)
+              .where('id', '=', episode.id)
+              .execute();
+            expect(await resolutionValid()).toBe(true);
+          }
+          for (const damage of [
+            { admin_user_id: randomUUID() },
+            { command_id: randomUUID() },
+            { request_id: randomUUID() },
+            { request_digest: '0'.repeat(64) },
+            { target_id: randomUUID() },
+            { result: 'rejected' as const },
+            { command_code: 'moderation.apply-photo-action' },
+            { target_type: 'photo' },
+          ]) {
+            await tx
+              .updateTable('administration.admin_action_logs')
+              .set(damage)
+              .where('id', '=', attempt.id)
+              .execute();
+            expect(await resolutionValid()).toBe(false);
+            expect((await store.measure()).counts.episodes).toBe(baseline + 1);
+            await tx
+              .updateTable('administration.admin_action_logs')
+              .set(attempt)
+              .where('id', '=', attempt.id)
+              .execute();
+            expect(await resolutionValid()).toBe(true);
+          }
           const duplicateCommand = randomUUID(),
             duplicateAttempt = randomUUID();
           await tx

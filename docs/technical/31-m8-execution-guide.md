@@ -1,5 +1,37 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: indexed resolution existence and audit candidates
+
+Commit `3b25802` failed run `38462089620` at the terminal M7 integrity gate:
+1,546.493 ms against the unchanged 1,500 ms limit. All 1,015 native cases in
+125 files passed without skips, including both new real-Redis lifetime tests.
+Quality and all four images passed. Required indexes and one worker were present,
+with no temporary blocks. Support load and backup/restore were skipped after
+the failed gate; this head is not accepted as a complete green run.
+
+Action checks now join the unique physical audit candidate by its primary key
+and retain every original actor, administrator, request and command comparison.
+Candidates are narrowed by exact actor class, while pair-target membership stays
+independent so an invalid audit actor does not suppress otherwise valid attempt
+evidence. No additional audit authority is inferred from existence alone.
+
+Episode resolution retains one explicit validation fact for each resolved owner.
+Its indexed existence probe checks exact episode/administrator/target/reason/time
+bindings and succeeded account-action attempts bound to command, request, digest
+and target. The existing per-owner index lookup is retained; the wide intermediate
+CTE, tuple hash and duplicate grouping are removed while valid/invalid duplicate
+existence and null rejection remain exact. Action aggregation uses
+CASE to short-circuit already-invalid attempts before history/notice probes.
+Complete scanner flags and one violation count per entity are unchanged. An
+initial uncorrelated candidate lost the required resolution index and was rejected
+before acceptance; that index requirement remains mandatory.
+
+All sixteen native integrity/plan regressions passed with both changes, including
+twelve additional single-field owner/attempt corruptions, repaired validity and
+duplicate candidates. Full-volume comparison, full project checks and all six
+exact-head CI jobs remain required. Fixtures, indexes, worker/memory settings,
+limits, retained-data release and Return activation are unchanged.
+
 ## Current increment: original-life Liked By request and opaque ownership
 
 Repair `31b0167` passed all six jobs in run `38453611944`, attempt 2. Its native
