@@ -35,6 +35,7 @@
     "apps/telegram-gateway/src/m8-opaque-runtime.integration.test.ts": 204,
     "apps/telegram-gateway/src/photo-action-life.integration.test.ts": 38,
     "apps/telegram-gateway/src/support-appeal-life.integration.test.ts": 3721,
+    "apps/worker/src/account-deletion-runtime.integration.test.ts": 120000,
     "apps/worker/src/reference-delivery.integration.test.ts": 3043,
     "packages/persistence-postgres/src/account-deletion-checkpoint-store.integration.test.ts": 8751,
     "packages/persistence-postgres/src/account-deletion-ephemeral-store.integration.test.ts": 93766,
@@ -158,6 +159,13 @@
       "failed": 1,
       "overallJobPassed": false,
       "purpose": "Dispatch estimate only; failed coverage never authorizes acceptance."
+    }
+  ],
+  "provisionalEstimates": [
+    {
+      "file": "apps/worker/src/account-deletion-runtime.integration.test.ts",
+      "durationMs": 120000,
+      "basis": "Conservative dispatch budget for two complete native/Redis worker cases; not yet measured in CI. Scheduling only, never acceptance."
     }
   ]
 }

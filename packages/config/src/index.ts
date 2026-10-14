@@ -61,6 +61,13 @@ const ConfigSchema = Type.Object(
       clamavPort: Type.Integer({ minimum: 1, maximum: 65_535 }),
       clamavTimeoutMs: Type.Integer({ minimum: 100, maximum: 120_000 }),
     }),
+    deletion: Type.Object({
+      workerEnabled: Type.Boolean(),
+      cutoverEvidenceHash: Type.String({ pattern: '^(?:|[0-9a-f]{64})$' }),
+      evidenceKeyRingRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      accessKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      secretKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+    }),
     telemetry: Type.Object({
       enabled: Type.Boolean(),
       exporterEndpoint: Type.String({ minLength: 1 }),
@@ -174,6 +181,17 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       clamavPort: integer(env.NAKH_CLAMAV_PORT, 3310),
       clamavTimeoutMs: integer(env.NAKH_CLAMAV_TIMEOUT_MS, 60_000),
     },
+    deletion: {
+      workerEnabled: boolean(env.NAKH_DELETION_WORKER_ENABLED, false),
+      cutoverEvidenceHash: env.NAKH_DELETION_CUTOVER_EVIDENCE_HASH ?? '',
+      evidenceKeyRingRef: required(
+        env,
+        'NAKH_DELETION_EVIDENCE_KEY_RING_REF',
+        'NAKH_DELETION_EVIDENCE_KEYS',
+      ),
+      accessKeyRef: required(env, 'NAKH_DELETION_R2_ACCESS_KEY_REF', 'NAKH_DELETION_R2_ACCESS_KEY'),
+      secretKeyRef: required(env, 'NAKH_DELETION_R2_SECRET_KEY_REF', 'NAKH_DELETION_R2_SECRET_KEY'),
+    },
     telemetry: {
       enabled: boolean(env.NAKH_OTEL_ENABLED, false),
       exporterEndpoint: required(env, 'NAKH_OTEL_EXPORTER_ENDPOINT', 'http://localhost:4318'),
@@ -185,6 +203,14 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   if (!validate(candidate)) {
     throw new Error(`Invalid configuration: ${describeErrors(validate.errors)}`);
   }
+  if (
+    candidate.deletion.workerEnabled &&
+    (!candidate.media.cachePurgeEnabled ||
+      !/^[0-9a-f]{64}$/u.test(candidate.deletion.cutoverEvidenceHash))
+  )
+    throw new Error(
+      'Invalid configuration: deletion worker requires cache purge and recorded producer-drain evidence.',
+    );
   if (
     candidate.media.cachePurgeEnabled &&
     !/^[a-f0-9]{32}$/u.test(candidate.media.cloudflareZoneId)

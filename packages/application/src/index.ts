@@ -21,6 +21,7 @@ export * from './notification/delivery.js';
 export * from './entitlement/paid-action.js';
 export * from './identity/register-telegram-identity.js';
 export * from './identity/account-deletion.js';
+export * from './identity/account-deletion-runtime.js';
 export * from './identity/start-router.js';
 export * from './identity/change-settings.js';
 export * from './identity/signup.js';

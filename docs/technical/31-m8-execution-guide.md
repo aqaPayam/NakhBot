@@ -1,5 +1,54 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
+## Current increment: bounded native and worker deletion composition
+
+Accepted repair `d7d8c2e` passed all six jobs in run `38573877417`: all 1,147
+native cases in 140 files, zero skips; all 27 plans at 20,000 scale, terminal
+integrity 1,310.265 ms; support load, backup/restore and actual collector/privacy
+rehearsal passed. All three saved artifact SHA-256 values match GitHub digests.
+
+The application poller claims one native 120-second lease per poll and prevents
+local overlap. A fixed stage executor composes shared closure, authenticated
+capture/source archival, ordinary product and financial cleanup, media provider
+work, native session and Redis cleanup, pending-policy manifests and final
+verification. Each poll performs at most one effective bounded resource/provider
+operation, plus fixed empty-resource checks. Empty scans never authorize phase
+completion; native independent checkpoint functions still own every transition.
+Missing captures/provider effects wait or retry with a sanitized code and real
+backoff. A response lost after commit cannot undo a checkpoint. Shutdown stops
+polling and drains the current step before closing providers or the database.
+
+The production worker composes real R2, cache-revocation and Redis adapters.
+`NAKH_DELETION_WORKER_ENABLED` defaults to false. Enabling requires cache purge,
+a 64-character `NAKH_DELETION_CUTOVER_EVIDENCE_HASH`, dedicated R2 credential
+references and `NAKH_DELETION_EVIDENCE_KEY_RING_REF`. The hash records a trusted
+operator assertion; its format is not proof that producers were drained. Actual
+drain approval, provider permissions, staging and recovery approvals remain
+external. No deployment or ingress switch is enabled by this implementation.
+
+The key-ring secret is a JSON array of at most 16 entries with exactly `keyId`,
+`keyVersion`, and canonical 32-byte base64url `key`. Preload active and historical
+versions required by retained captures. IDs use the existing report-key grammar;
+duplicate identities, malformed entries and secret-shaped failures are rejected
+without echoing key material. Dedicated deletion R2 credentials need source reads,
+private evidence writes and ordinary-object deletion; private evidence is never
+released by this worker. Verify actual scoped credentials before deployment.
+
+Evidence includes a complete native admission-to-checkpoint-eight workflow,
+local poll overlap/shutdown/authority/privacy tests and key rotation. New real
+Redis worker cases cover complete session/provider composition and twenty
+competing workers; they run in CI, not against a simulated local Redis. The
+native fixture without assets/captures does not certify R2 or producer drain.
+The minimum native inventory increases to 1,150 cases in 141 files. A provisional
+120-second dispatch estimate for the new worker suite is scheduling only, not a
+measurement or acceptance assertion. Existing volumes and all gates remain.
+
+Own HTTP/Telegram deletion and Return ingress, approved fresh Return and later-life
+Redis activation, full entity/interruption/load/telemetry acceptance and external
+operator sign-offs remain M8 work. Retained-data release stays disabled pending
+approved periods. Do not mark M8 complete after this increment.
+
+
 ## Current repair: complete final-verification evidence within existing gates
 
 Commit `27d14dc` passed quality and all four image jobs in run `38567949306`.

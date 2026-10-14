@@ -10,7 +10,11 @@ import {
 import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { ClamdMalwareScanner } from '@nakh/media-clamav';
 import { CloudflareMediaCachePurger } from '@nakh/media-delivery';
-import { AwsR2ObjectClient, R2QuarantineObjectStore } from '@nakh/media-r2';
+import {
+  AwsR2ObjectClient,
+  R2QuarantineObjectStore,
+  R2AccountDeletionMediaObjects,
+} from '@nakh/media-r2';
 import {
   createLogger,
   m6RetryClass,
@@ -29,6 +33,7 @@ import {
   PostgresMediaValidationStore,
   PostgresOutboxStore,
   PostgresQueueReferenceMigrationAudit,
+  PostgresLegacyOpaqueRetirementAudit,
   PostgresPendingNakhSettlementStore,
   PostgresTelegramStarsReceiptStore,
   SystemIdGenerator,
@@ -39,6 +44,7 @@ import {
   createDomainEventWorker,
   createRedisConnection,
   RedisLease,
+  RedisAccountDeletionEphemeralProvider,
   type QueueReferenceMigrationCursor,
 } from '@nakh/queue-redis';
 import { TelegramMediaTransportCipher, TelegramPhotoDownloadAdapter } from '@nakh/telegram';
@@ -48,6 +54,10 @@ import { createTelegramLikedByDeliveryRuntime } from './liked-by-delivery-runtim
 import { SharpPhotoTransformer } from './media/image-transformer.js';
 import { createTelegramNotificationDeliveryRuntime } from './notification-delivery-runtime.js';
 import { PaymentFulfillmentProcessor } from './payment-fulfillment-processor.js';
+import {
+  createAccountDeletionRuntime,
+  loadDeletionEvidenceReaders,
+} from './account-deletion-runtime.js';
 
 function transportKey(reference: string): Uint8Array {
   const encoded = resolveSecretReference(reference);
@@ -189,6 +199,33 @@ const notificationDelivery = createTelegramNotificationDeliveryRuntime({
 const chatMetrics = notificationDelivery === undefined ? undefined : new M6Metrics();
 const mediaOwner = randomUUID();
 const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
+const deletionRuntime = !config.deletion.workerEnabled
+  ? undefined
+  : createAccountDeletionRuntime({
+      database,
+      readers: loadDeletionEvidenceReaders(
+        resolveSecretReference(config.deletion.evidenceKeyRingRef),
+      ),
+      objects: new R2AccountDeletionMediaObjects(
+        new AwsR2ObjectClient({
+          endpoint: config.media.r2Endpoint,
+          bucket: config.media.bucket,
+          accessKeyId: resolveSecretReference(config.deletion.accessKeyRef),
+          secretAccessKey: resolveSecretReference(config.deletion.secretKeyRef),
+        }),
+      ),
+      cache: { purge: (paths) => cachePurger!.purgePaths(paths) },
+      ephemeralProvider: new RedisAccountDeletionEphemeralProvider(
+        publisherConnection,
+        config.redis.queuePrefix,
+        new PostgresLegacyOpaqueRetirementAudit(database),
+        new PostgresQueueReferenceMigrationAudit(database),
+      ),
+      prefix: config.redis.queuePrefix,
+      cutoverEvidenceHash: config.deletion.cutoverEvidenceHash,
+      workerId: randomUUID(),
+      environment: mediaEnvironment,
+    });
 const mediaCipher = config.media.ingestionEnabled
   ? new TelegramMediaTransportCipher(
       mediaEnvironment,
@@ -451,13 +488,26 @@ const sampleLikedByBacklog = async (): Promise<void> => {
   }
 };
 
+const dispatchDeletion = async (): Promise<void> => {
+  if (deletionRuntime === undefined) return;
+  const result = await deletionRuntime.execute();
+  if (!['idle', 'busy', 'closed'].includes(result.outcome))
+    logger.info(
+      { operation: 'account.deletion', outcome: result.outcome, phase: result.phase },
+      'deletion work polled',
+    );
+};
+
 await Promise.all([
   dispatch(),
   dispatchLikedBy(),
   dispatchPaymentFulfillment(),
   sampleLikedByBacklog(),
   dispatchNotification(),
+  dispatchDeletion(),
 ]);
+const deletionTimer =
+  deletionRuntime === undefined ? undefined : setInterval(() => void dispatchDeletion(), 250);
 const timer = setInterval(() => void dispatch(), 250);
 const queueMigrationTimer = setInterval(() => void migrateLegacyQueue(), 5000);
 const paymentFulfillmentTimer = setInterval(() => void dispatchPaymentFulfillment(), 250);
@@ -476,17 +526,20 @@ logger.info(
     operation: 'service.started',
     telegramLikedByDeliveryEnabled: likedByDelivery !== undefined,
     telegramNotificationDeliveryEnabled: notificationDelivery !== undefined,
+    accountDeletionWorkerEnabled: deletionRuntime !== undefined,
   },
   'service started',
 );
 
 const shutdown = async (): Promise<void> => {
+  if (deletionTimer !== undefined) clearInterval(deletionTimer);
   clearInterval(timer);
   clearInterval(queueMigrationTimer);
   clearInterval(paymentFulfillmentTimer);
   if (likedByTimer !== undefined) clearInterval(likedByTimer);
   if (likedByBacklogTimer !== undefined) clearInterval(likedByBacklogTimer);
   if (notificationTimer !== undefined) clearInterval(notificationTimer);
+  await deletionRuntime?.close();
   await eventWorker.close();
   await publisher.close();
   await Promise.all([publisherConnection.quit(), workerConnection.quit()]);

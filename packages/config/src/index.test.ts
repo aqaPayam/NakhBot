@@ -18,6 +18,34 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps deletion polling disabled until explicitly configured with cache revocation and drain evidence', () => {
+    expect(parseConfig(validEnvironment).deletion.workerEnabled).toBe(false);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_DELETION_WORKER_ENABLED: 'true' }),
+    ).toThrow('deletion worker requires');
+    expect(() =>
+      parseConfig({
+        ...validEnvironment,
+        NAKH_DELETION_WORKER_ENABLED: 'true',
+        NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+        NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
+      }),
+    ).toThrow('deletion worker requires');
+    const config = parseConfig({
+      ...validEnvironment,
+      NAKH_DELETION_WORKER_ENABLED: 'true',
+      NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+      NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
+      NAKH_DELETION_CUTOVER_EVIDENCE_HASH: 'b'.repeat(64),
+    });
+    expect(config.deletion).toMatchObject({
+      workerEnabled: true,
+      evidenceKeyRingRef: 'NAKH_DELETION_EVIDENCE_KEYS',
+      accessKeyRef: 'NAKH_DELETION_R2_ACCESS_KEY',
+      secretKeyRef: 'NAKH_DELETION_R2_SECRET_KEY',
+    });
+    expect(Object.isFrozen(config.deletion)).toBe(true);
+  });
   it('parses, defaults, and freezes configuration', () => {
     const config = parseConfig(validEnvironment);
 

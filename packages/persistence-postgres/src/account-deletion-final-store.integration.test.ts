@@ -4,6 +4,13 @@ import { mkdtemp, readdir, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  RunAccountDeletionBatchHandler,
+  ExecuteAccountDeletionMedia,
+  ExecuteAccountDeletionEphemeral,
+  type AccountDeletionMediaObjects,
+  type AccountDeletionBatchResult,
+} from '@nakh/application';
 import type {
   AccountDeletionLease,
   DeletionEphemeralOperation,
@@ -15,6 +22,10 @@ import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createFinalDeletionFixture } from './testing/final-deletion-fixture.js';
 import { PostgresAccountDeletionEphemeralStore } from './account-deletion-ephemeral-store.js';
 import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.js';
+import { PostgresAccountDeletionPhaseExecutor } from './account-deletion-phase-executor.js';
+import { PostgresAccountDeletionMediaStore } from './account-deletion-media-store.js';
+import { PostgresAccountDeletionSessionStore } from './account-deletion-session-store.js';
+import { createDeletionFixture } from './testing/deletion-fixture.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('M8 fresh final verification and atomic completion', () => {
@@ -69,6 +80,82 @@ describe.skipIf(url === undefined)('M8 fresh final verification and atomic compl
       )
     ).rows[0]!;
   }
+  it('runs real admission through every native checkpoint using bounded polls and independent final verification', async () => {
+    const item = await createDeletionFixture(database);
+    const unreachable = (): Promise<never> => {
+      return Promise.reject(
+        new Error('Unexpected media provider call for an account without assets'),
+      );
+    };
+    const objects: AccountDeletionMediaObjects = {
+      list: unreachable,
+      get: unreachable,
+      putPrivate: unreachable,
+      delete: unreachable,
+      head: unreachable,
+    };
+    const media = new ExecuteAccountDeletionMedia(
+      new PostgresAccountDeletionMediaStore(database, 'test'),
+      objects,
+      { purge: unreachable },
+      'test',
+    );
+    // Provider observations are native fixtures; real Redis composition is tested
+    // separately. No production provider absence or operator drain is asserted.
+    const ephemeral = new ExecuteAccountDeletionEphemeral(
+      store,
+      new PostgresAccountDeletionSessionStore(database),
+      {
+        namespaceHash: store.namespaceHash,
+        execute: async (op, guard) => {
+          await guard();
+          return empty(op);
+        },
+      },
+    );
+    const executor = new PostgresAccountDeletionPhaseExecutor(
+      database,
+      {},
+      media,
+      ephemeral,
+      'test',
+    );
+    const handler = new RunAccountDeletionBatchHandler(work, executor, randomUUID());
+    const results: AccountDeletionBatchResult[] = [];
+    try {
+      for (let n = 0; n < 100; n++) {
+        const result = await handler.execute();
+        results.push(result);
+        expect(['progress', 'advanced', 'completed']).toContain(result.outcome);
+        if (result.outcome === 'completed') break;
+      }
+    } finally {
+      await handler.close();
+    }
+    expect(results.at(-1)).toEqual({ outcome: 'completed', phase: 'verification' });
+    expect(results.filter((r) => r.outcome === 'advanced').map((r) => r.phase)).toEqual([
+      'shared_closure',
+      'evidence_capture',
+      'product_data',
+      'media_objects',
+      'ephemeral_access',
+      'retention_manifest',
+    ]);
+    expect(
+      (
+        await sql`SELECT count(*)::integer AS count FROM identity.account_deletion_phase_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ count: 7 }]);
+    expect(
+      (
+        await sql`SELECT phase,checkpoint_version,reactivation_allowed FROM identity.account_deletion_records WHERE id=${item.recordId}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ phase: 'completed', checkpoint_version: 8, reactivation_allowed: false }]);
+  });
   it('requires a second six-stage cycle and preserves original reconciliation bytes and validity', async () => {
     const { lease } = await createFinalDeletionFixture(database);
     const historical = await sql<
