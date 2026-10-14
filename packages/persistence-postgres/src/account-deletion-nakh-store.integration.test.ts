@@ -2455,14 +2455,20 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
       expect(await facts(item.lease)).toEqual(original);
     },
   );
-  it.each([
-    { funding: 'pending_credits', archived: false },
-    { funding: 'pending_credits', archived: true },
-    { funding: 'telegram_stars', archived: false },
-    { funding: 'telegram_stars', archived: true },
-  ] as const)(
-    'requires exact original $funding funding with archived=$archived for archival, reconciliation and replay',
-    async ({ funding, archived }) => {
+  it.each(
+    (
+      [
+        { funding: 'pending_credits', archived: false },
+        { funding: 'pending_credits', archived: true },
+        { funding: 'telegram_stars', archived: false },
+        { funding: 'telegram_stars', archived: true },
+      ] as const
+    ).flatMap((item) =>
+      (['life-and-reference', 'intent-and-credit'] as const).map((batch) => ({ ...item, batch })),
+    ),
+  )(
+    'requires exact original $funding funding with archived=$archived batch=$batch for archival, reconciliation and replay',
+    async ({ funding, archived, batch }) => {
       const item = await scene(0, funding),
         source = await database
           .selectFrom('nakh.nakhes')
@@ -2508,16 +2514,20 @@ describe.skipIf(url === undefined)('M8 bounded original funded Nakh archival', (
       ).rows[0]!.saved;
       if (archived)
         expect(await store.purgeNext(item.lease)).toEqual({ purgedRows: 3, hasMore: false });
-      for (const fault of [
-        'sender-life',
-        'receiver-life',
-        'intent',
-        'missing-anchor',
-        'missing-intent',
-        'intent-status',
-        'intent-expiry',
-        ...(funding === 'pending_credits' ? (['missing-credit-link'] as const) : []),
-      ] as const) {
+      // Bound each case's work without dropping any fault, twenty-way race,
+      // scan or restoration assertion. Each batch starts with sender-life to
+      // preserve the canonical first-observation audit expectation.
+      const faults =
+        batch === 'life-and-reference'
+          ? (['sender-life', 'receiver-life', 'intent', 'missing-anchor'] as const)
+          : ([
+              'sender-life',
+              'missing-intent',
+              'intent-status',
+              'intent-expiry',
+              ...(funding === 'pending_credits' ? (['missing-credit-link'] as const) : []),
+            ] as const);
+      for (const fault of faults) {
         const before = await ordinary(item.nakhId);
         await database.connection().execute(async (connection) => {
           await sql`SET session_replication_role=replica`.execute(connection);

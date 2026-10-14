@@ -288,14 +288,14 @@ describe.skipIf(url === undefined)('M8 fresh final verification and atomic compl
     let { lease } = await createFinalDeletionFixture(database);
     await pages(lease);
     await sql`CREATE SEQUENCE public.final_expiry_probe`.execute(database);
-    await sql`CREATE FUNCTION public.delay_final_proof() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM nextval('public.final_expiry_probe'); PERFORM pg_sleep(1.1); RETURN NEW; END $$`.execute(
+    await sql`CREATE FUNCTION public.delay_final_proof() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM nextval('public.final_expiry_probe'); PERFORM pg_sleep(greatest(0,extract(epoch FROM NEW.lease_expires_at-clock_timestamp()))+0.1); RETURN NEW; END $$`.execute(
       database,
     );
     await sql`CREATE CONSTRAINT TRIGGER aa_final_expiry AFTER INSERT ON identity.account_deletion_phase_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.delay_final_proof()`.execute(
       database,
     );
     await work.release(lease);
-    lease = (await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 1000 }))[0]!;
+    lease = (await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 10000 }))[0]!;
 
     try {
       await expect(store.finish(lease)).rejects.toBeDefined();

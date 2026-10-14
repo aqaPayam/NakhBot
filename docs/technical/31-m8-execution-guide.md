@@ -1,5 +1,37 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
+## Current repair: complete final-verification evidence within existing gates
+
+Commit `27d14dc` passed quality and all four image jobs in run `38567949306`.
+All 140 native files ran: 1,139 cases passed and four failed. The new actual
+Redis/native final-completion case passed, as did 13 of 14 final native cases
+and the populated migration upgrade. The head is not accepted as green.
+
+Two Redis-suite failures came from subsequent setup attempting to mutate already
+completed work. Setup now isolates only unfinished work; a real native probe
+reproduced error 55000 for the old setup and proved the repaired setup preserves
+completed checkpoint eight. The final deferred-expiry probe expired during its
+prechecks before reaching the test trigger. It now uses a ten-second admission
+lease and waits inside that trigger until the actual recorded expiry plus a
+margin. The nontransactional sequence must prove the deferred path was reached;
+rollback and successful recovery remain required, with no fake clock.
+
+One existing pending-credit proof case exceeded its unchanged 60-second case
+limit while combining eight independent faults and all their twenty-way races.
+Two explicit batches retain every fault, scan, restoration and successful replay.
+Each starts with sender-life so canonical first-observation audit checks remain
+identical. This adds four cases and repeats the first fault; it drops none. The
+native floor increases to 1,147 cases in 140 files, zero failures/skips required.
+
+The new final suite took 346,759 ms; its unknown-file dispatch estimate had been
+30,000 ms. That measured duration now informs balancing, with explicit failed-run
+provenance and no acceptance authority. The same three isolated contexts, six
+public jobs, all plan/load/recovery gates and twenty-minute job limit remain.
+The later performance artifacts were absent because native integration failed;
+no downstream acceptance is claimed. Full checks and all six repair-head jobs
+are required before further feature work.
+
+
 ## Current increment: fresh final verification and atomic completion
 
 Accepted base `e50b969` passed all six jobs in run `38560803736`:

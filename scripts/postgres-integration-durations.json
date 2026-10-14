@@ -40,6 +40,7 @@
     "packages/persistence-postgres/src/account-deletion-ephemeral-store.integration.test.ts": 93766,
     "packages/persistence-postgres/src/account-deletion-evidence-checkpoint.integration.test.ts": 7583,
     "packages/persistence-postgres/src/account-deletion-evidence-store.integration.test.ts": 90063,
+    "packages/persistence-postgres/src/account-deletion-final-store.integration.test.ts": 346759,
     "packages/persistence-postgres/src/account-deletion-financial-store.integration.test.ts": 12543,
     "packages/persistence-postgres/src/account-deletion-like-store.integration.test.ts": 14103,
     "packages/persistence-postgres/src/account-deletion-media-store.integration.test.ts": 24555,
@@ -146,5 +147,17 @@
     "packages/queue-redis/src/owned-opaque-state.integration.test.ts": 204,
     "packages/queue-redis/src/queue.integration.test.ts": 142,
     "packages/queue-redis/src/reference-queue.integration.test.ts": 152
-  }
+  },
+  "additionalMeasurements": [
+    {
+      "commit": "27d14dcf367cad8dd5731f640df6856becb9ceb0",
+      "run": 38567949306,
+      "file": "packages/persistence-postgres/src/account-deletion-final-store.integration.test.ts",
+      "durationMs": 346759,
+      "passed": 13,
+      "failed": 1,
+      "overallJobPassed": false,
+      "purpose": "Dispatch estimate only; failed coverage never authorizes acceptance."
+    }
+  ]
 }

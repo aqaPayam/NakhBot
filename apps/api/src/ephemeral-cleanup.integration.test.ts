@@ -66,7 +66,7 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
       await isolated?.destroy();
     });
     beforeEach(async () => {
-      await sql`UPDATE identity.account_deletion_work SET lease_owner=NULL,lease_expires_at=NULL,available_at=clock_timestamp()+interval '1 day'`.execute(
+      await sql`UPDATE identity.account_deletion_work SET lease_owner=NULL,lease_expires_at=NULL,available_at=clock_timestamp()+interval '1 day' WHERE phase<>'completed'`.execute(
         database,
       );
     });
