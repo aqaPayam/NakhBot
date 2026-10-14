@@ -8,9 +8,12 @@ import {
   type PhotoReportSnapshotProtector,
   type ProfileReportSourceStore,
   type ReportTokens,
+  type ReportTokenReferences,
   type OpaqueTokenStore,
 } from '@nakh/application';
 import type { ReportEvidenceType } from '@nakh/contracts';
+import { canSubmitUserReport } from '@nakh/domain';
+import { PostgresUserSessionStore } from './user-session-store.js';
 import type { NakhDatabase } from './database.js';
 import { SystemIdGenerator } from './foundation-store.js';
 import { resolveProfileReportSource } from './profile-report-source-store.js';
@@ -54,7 +57,7 @@ export type ReportEvidenceCapabilities = Readonly<{
 /** Provider-neutral composition. One trusted configuration governs every supported evidence path. */
 export function createPostgresReportServices(
   database: NakhDatabase,
-  reportTokens: ReportTokens,
+  reportTokens: ReportTokens | ReportTokenReferences,
   adminTokens: OpaqueTokenStore,
   adminKey: Uint8Array,
   capabilities: ReportEvidenceCapabilities,
@@ -65,19 +68,24 @@ export function createPostgresReportServices(
   evidenceActions: PostgresGetReportEvidenceActionsHandler;
   reveals: PostgresConfirmedReportEvidenceReveals;
 }> {
-  const sources: Partial<Record<ReportEvidenceType, ProfileReportSourceStore['resolve']>> = {};
+  type SourceResolver = (
+    context: NakhDatabase,
+    actor: string,
+    source: Parameters<ProfileReportSourceStore['resolve']>[1],
+  ) => ReturnType<ProfileReportSourceStore['resolve']>;
+  const sources: Partial<Record<ReportEvidenceType, SourceResolver>> = {};
   const captures: Partial<Record<ReportEvidenceType, SingleReportEvidenceCapture['capture']>> = {};
   const readers: { -readonly [K in keyof ReportEvidenceReaders]: ReportEvidenceReaders[K] } = {};
   const types: (keyof ReportEvidenceReaders)[] = [];
   if (capabilities.message !== undefined) {
-    sources.message = (actor, source) => resolveMessageReportSource(database, actor, source);
+    sources.message = resolveMessageReportSource;
     captures.message = captureMessageReportEvidence;
     readers.message = capabilities.message.reader;
     types.push('message');
   }
   if (capabilities.photo !== undefined) {
     const { protector, reader } = capabilities.photo;
-    sources.photo = (actor, source) => resolvePhotoReportSource(database, actor, source);
+    sources.photo = resolvePhotoReportSource;
     captures.photo = (transaction, write) =>
       capturePhotoReportEvidence(transaction, write, protector);
     readers.photo = reader;
@@ -85,7 +93,7 @@ export function createPostgresReportServices(
   }
   if (capabilities.profile !== undefined) {
     const { protector, reader } = capabilities.profile;
-    sources.profile = (actor, source) => resolveProfileReportSource(database, actor, source);
+    sources.profile = resolveProfileReportSource;
     captures.profile = (transaction, write) =>
       captureProfileReportEvidence(transaction, write, protector);
     readers.profile = reader;
@@ -93,7 +101,7 @@ export function createPostgresReportServices(
   }
   if (capabilities.chat !== undefined) {
     const { protector, reader } = capabilities.chat;
-    sources.chat = (actor, source) => resolveChatReportSource(database, actor, source);
+    sources.chat = resolveChatReportSource;
     captures.chat = (transaction, write) =>
       captureChatReportEvidence(transaction, write, protector);
     readers.chat = reader;
@@ -101,8 +109,7 @@ export function createPostgresReportServices(
   }
   if (capabilities.unmatched_user !== undefined) {
     const { protector, reader } = capabilities.unmatched_user;
-    sources.unmatched_user = (actor, source) =>
-      resolveUnmatchedReportSource(database, actor, source);
+    sources.unmatched_user = resolveUnmatchedReportSource;
     captures.unmatched_user = (transaction, write) =>
       captureUnmatchedReportEvidence(transaction, write, protector);
     readers.unmatched_user = reader;
@@ -112,10 +119,30 @@ export function createPostgresReportServices(
     prepare: new PrepareSingleReportEvidenceHandler(
       reportTokens,
       {
-        resolve: (actor, source, type) =>
-          type === undefined
-            ? Promise.resolve(undefined)
-            : (sources[type]?.(actor, source, type) ?? Promise.resolve(undefined)),
+        resolve: (actor, source, type, authority) =>
+          database.transaction().execute(async (transaction) => {
+            const account = await transaction
+              .selectFrom('identity.accounts')
+              .select(['product_epoch', 'state'])
+              .where('user_id', '=', actor)
+              .forShare()
+              .executeTakeFirst();
+            if (
+              account === undefined ||
+              !canSubmitUserReport(account.state) ||
+              account.product_epoch !== (authority?.productEpoch ?? 0)
+            )
+              return undefined;
+            if (
+              authority?.sessionGrantId !== undefined &&
+              (await new PostgresUserSessionStore(transaction).current(
+                { userId: actor, productEpoch: authority.productEpoch },
+                authority.sessionGrantId,
+              )) === undefined
+            )
+              return undefined;
+            return type === undefined ? undefined : sources[type]?.(transaction, actor, source);
+          }),
       },
       types,
     ),

@@ -55,14 +55,14 @@ class SupportController {
     @Req() request: FastifyRequest,
     @Body() body: unknown,
   ): Promise<UserSupportReceipt> {
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const command = this.boundary.parse<OpenSupportThreadCommand>(
       OpenSupportThreadCommandSchema,
       body,
       actor,
     );
-    return this.boundary.result(UserSupportReceiptSchema, async () =>
-      receipt(await this.open.execute(command)),
+    return this.boundary.userResult(UserSupportReceiptSchema, actor, async () =>
+      receipt(await this.open.execute(command, actor.productEpoch, actor.sessionGrantId)),
     );
   }
   @Post('messages')
@@ -73,14 +73,14 @@ class SupportController {
     @Req() request: FastifyRequest,
     @Body() body: unknown,
   ): Promise<UserSupportReceipt> {
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const command = this.boundary.parse<SendSupportMessageCommand>(
       SendSupportMessageCommandSchema,
       body,
       actor,
     );
-    return this.boundary.result(UserSupportReceiptSchema, async () =>
-      receipt(await this.send.execute(command)),
+    return this.boundary.userResult(UserSupportReceiptSchema, actor, async () =>
+      receipt(await this.send.execute(command, actor.productEpoch, actor.sessionGrantId)),
     );
   }
 }

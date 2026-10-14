@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { M7TotpApiModule, type M7TotpApiOptions } from './m7-totp-api.js';
 import { ApiExceptionFilter } from './app.js';
 
+const sessionGrantId = randomUUID();
 describe('authenticated authenticator HTTP boundary', () => {
   let app: NestFastifyApplication | undefined;
   afterEach(async () => {
@@ -20,7 +21,9 @@ describe('authenticated authenticator HTTP boundary', () => {
     overrides: Partial<M7TotpApiOptions> = {},
   ): Promise<{ options: M7TotpApiOptions; error: ReturnType<typeof vi.fn> }> {
     const options: M7TotpApiOptions = {
-      authenticator: { authenticate: vi.fn(() => Promise.resolve(actor)) },
+      authenticator: {
+        authenticate: vi.fn(() => Promise.resolve({ ...actor, productEpoch: 0, sessionGrantId })),
+      },
       enrollments: {
         begin: vi.fn(() =>
           Promise.resolve({
@@ -67,10 +70,11 @@ describe('authenticated authenticator HTTP boundary', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(options.sessions.issue).toHaveBeenCalledWith({
-      actor,
+      actor: { ...actor, productEpoch: 0, sessionGrantId },
       requestId,
       telegramUserId: '123456789',
       proof: '123456',
+      userSession: { ...actor, productEpoch: 0, sessionGrantId },
     });
     for (const changed of [
       { ...payload, telegramUserId: '987654321' },

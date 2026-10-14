@@ -3,7 +3,11 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Logger } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AesGcmReviewNoteProtector, ReportTokens, type OpaqueTokenStore } from '@nakh/application';
+import {
+  AesGcmReviewNoteProtector,
+  ReportTokenFactory,
+  type OpaqueTokenStore,
+} from '@nakh/application';
 import { createDatabase, type NakhDatabase } from '@nakh/persistence-postgres';
 import { M7HostApiModule } from './m7-host-api.js';
 import { createM7HostOptions } from './m7-host-services.js';
@@ -29,10 +33,10 @@ describe('explicit shared M7 HTTP host', () => {
     const options = createM7HostOptions({
       database,
       authenticator: { authenticate },
-      reportTokens: new ReportTokens(tokens, Buffer.alloc(32, 1)),
+      reportTokens: new ReportTokenFactory({ forLife: () => tokens }, Buffer.alloc(32, 1)),
       adminTokens: tokens,
       adminKey: Buffer.alloc(32, 2),
-      safetyTokens: tokens,
+      safetyTokens: { forLife: () => tokens },
       safetyKey: Buffer.alloc(32, 3),
       capabilities: {},
       reviewNotes: new AesGcmReviewNoteProtector('host-notes', 1, Buffer.alloc(32, 4)),

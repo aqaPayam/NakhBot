@@ -45,10 +45,15 @@ class AppealController {
     @Req() request: FastifyRequest,
     @Body() body: unknown,
   ): Promise<PreparedAppealReference> {
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const query = this.boundary.parse<PrepareAppealQuery>(PrepareAppealQuerySchema, body, actor);
-    return this.boundary.result(PreparedAppealReferenceSchema, async () => ({
-      banActionToken: await this.prepare.execute(actor.userId, query.commandId),
+    return this.boundary.userResult(PreparedAppealReferenceSchema, actor, async () => ({
+      banActionToken: await this.prepare.execute(
+        actor.userId,
+        query.commandId,
+        actor.productEpoch,
+        actor.sessionGrantId,
+      ),
     }));
   }
   @Post()
@@ -59,14 +64,14 @@ class AppealController {
     @Req() request: FastifyRequest,
     @Body() body: unknown,
   ): Promise<UserAppealReceipt> {
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const command = this.boundary.parse<SubmitAppealCommand>(
       SubmitAppealCommandSchema,
       body,
       actor,
     );
-    return this.boundary.result(UserAppealReceiptSchema, async () => {
-      const result = await this.submit.execute(command);
+    return this.boundary.userResult(UserAppealReceiptSchema, actor, async () => {
+      const result = await this.submit.execute(command, actor.productEpoch, actor.sessionGrantId);
       return {
         status: result.status,
         version: result.version,

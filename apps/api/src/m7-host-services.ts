@@ -1,5 +1,5 @@
 import type {
-  OpaqueTokenStore,
+  UserOpaqueTokenStores,
   PhotoDeliveryRevocation,
   ReviewNoteProtector,
 } from '@nakh/application';
@@ -42,7 +42,7 @@ import type { M7TotpApiOptions } from './m7-totp-api.js';
 
 export type M7HostConfiguration = M7ReportHostConfiguration &
   Readonly<{
-    safetyTokens: OpaqueTokenStore;
+    safetyTokens: UserOpaqueTokenStores;
     safetyKey: Uint8Array;
     reviewNotes: ReviewNoteProtector;
     photoDelivery?: PhotoDeliveryRevocation;

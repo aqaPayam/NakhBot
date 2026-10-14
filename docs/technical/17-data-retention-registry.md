@@ -2,6 +2,20 @@
 
 This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M8, with M7 owning moderation/evidence decisions; new migrations must update this file immediately.
 
+## Native user session security facts
+
+Original-life HTTP sessions reuse append-only `platform.audit_logs`; no new
+user-linked table, column or object prefix is introduced. Issuance facts retain
+only the session grant identity, actor/subject, original product epoch, native
+issue/expiry time and command/request identity. Revocation facts reference the
+grant and have empty metadata. No bearer, bearer hash or primary-factor proof is
+retained. These security facts remain subject to the security-audit policy;
+fifteen-minute credential expiry is not approval to purge their audit history.
+Retained-data release stays disabled pending approved periods. Account tombstones
+and epoch changes immediately deny use; bounded Root sweeping and independent
+ephemeral completion evidence remain separate requirements. Workforce grants keep
+their independent MFA/RBAC policy.
+
 ## Executable catalog inventory
 
 Migration 134 adds only a partial covering index for succeeded, user-targeted

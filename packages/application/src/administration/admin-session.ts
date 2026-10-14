@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { ApplicationError, type Actor } from '@nakh/domain';
+import type { UserSessionActor } from '../security/user-session.js';
 
 export type VerifiedAdminMfaProof = Readonly<{
   actorUserId: string;
@@ -37,6 +38,7 @@ export interface AdminSessionStore {
       requestId: string;
       tokenHash: string;
       proof: VerifiedAdminMfaProof;
+      userSession?: UserSessionActor;
     }>,
   ): Promise<CurrentAdminSession | undefined>;
   current(
@@ -62,7 +64,13 @@ export class AdminSessionService {
     private readonly mfa: AdminMfaProofVerifier,
   ) {}
   public async issue(
-    input: Readonly<{ actor: Actor; telegramUserId: string; requestId: string; proof: string }>,
+    input: Readonly<{
+      actor: Actor;
+      telegramUserId: string;
+      requestId: string;
+      proof: string;
+      userSession?: UserSessionActor;
+    }>,
   ): Promise<Readonly<{ adminSessionToken: string; expiresAt: string; mfaExpiresAt: string }>> {
     if (
       input.actor.kind !== 'user' ||
@@ -74,6 +82,7 @@ export class AdminSessionService {
       input.proof.length > 4096
     )
       throw unauthorized();
+    const userSession = input.userSession === undefined ? undefined : { ...input.userSession };
     let proof: VerifiedAdminMfaProof | undefined;
     try {
       proof = await this.mfa.verify({
@@ -106,6 +115,7 @@ export class AdminSessionService {
       requestId: input.requestId,
       tokenHash: hash(adminSessionToken),
       proof,
+      ...(userSession === undefined ? {} : { userSession }),
     });
     if (current === undefined) throw unauthorized();
     return {

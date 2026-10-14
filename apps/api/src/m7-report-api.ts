@@ -55,14 +55,14 @@ class SubmitReportController {
     @Req() request: FastifyRequest,
     @Body() body: unknown,
   ): Promise<ReportSubmissionResult> {
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const command = this.boundary.parse<SubmitReportCommand>(
       SubmitReportCommandSchema,
       body,
       actor,
     );
-    return this.boundary.result(ReportSubmissionResultSchema, () =>
-      this.submit.execute(command, actor),
+    return this.boundary.userResult(ReportSubmissionResultSchema, actor, () =>
+      this.submit.execute(command, actor, actor.productEpoch, actor.sessionGrantId),
     );
   }
 }
@@ -81,14 +81,14 @@ class PrepareReportController {
     @Req() request: FastifyRequest,
     @Body() body: unknown,
   ): Promise<PreparedReportEvidence> {
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const query = this.boundary.parse<PrepareReportEvidenceQuery>(
       PrepareReportEvidenceQuerySchema,
       body,
       actor,
     );
-    return this.boundary.result(PreparedReportEvidenceSchema, () =>
-      this.prepare.execute(query, actor),
+    return this.boundary.userResult(PreparedReportEvidenceSchema, actor, () =>
+      this.prepare.execute(query, actor, actor.productEpoch, actor.sessionGrantId),
     );
   }
 }
@@ -103,10 +103,10 @@ class ReportController {
   @Header('Cache-Control', 'no-store')
   @Header('Pragma', 'no-cache')
   public async catalog(@Req() request: FastifyRequest): Promise<ReportReasonCatalog> {
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     if (actor.kind !== 'user') throw new Error('Invalid authenticated report actor');
     const user = { kind: 'user' as const, userId: actor.userId };
-    return this.boundary.result(ReportReasonCatalogSchema, () =>
+    return this.boundary.userResult(ReportReasonCatalogSchema, actor, () =>
       this.reasons.execute(
         {
           actor: user,

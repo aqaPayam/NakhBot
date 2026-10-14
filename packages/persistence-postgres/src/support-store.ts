@@ -12,6 +12,7 @@ import { ApplicationError, canUseSupport, evaluateSupportMessageAdmission } from
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminCommandStore } from './admin-command-store.js';
 import { SystemIdGenerator } from './foundation-store.js';
+import { PostgresUserSessionStore } from './user-session-store.js';
 
 function unavailable(): ApplicationError {
   return new ApplicationError('conflict', 'error.support.unavailable', 409);
@@ -77,6 +78,7 @@ async function assertSupportAccount(
   database: NakhDatabase,
   userId: string,
   expectedProductEpoch?: number,
+  sessionGrantId?: string,
 ): Promise<number> {
   if (
     expectedProductEpoch !== undefined &&
@@ -93,6 +95,15 @@ async function assertSupportAccount(
     account === undefined ||
     !canUseSupport(account.state) ||
     (expectedProductEpoch !== undefined && account.product_epoch !== expectedProductEpoch)
+  )
+    throw unavailable();
+  if (
+    sessionGrantId !== undefined &&
+    (expectedProductEpoch === undefined ||
+      (await new PostgresUserSessionStore(database).current(
+        { userId, productEpoch: expectedProductEpoch },
+        sessionGrantId,
+      )) === undefined)
   )
     throw unavailable();
   return account.product_epoch;
@@ -195,6 +206,7 @@ export class PostgresSupportStore implements SupportStore<NakhDatabase> {
         transaction,
         write.userId,
         write.expectedProductEpoch,
+        write.sessionGrantId,
       );
       const replay = await replayUserMessage(transaction, write, productEpoch);
       if (replay !== undefined) return replay;
@@ -263,6 +275,7 @@ export class PostgresSupportStore implements SupportStore<NakhDatabase> {
         transaction,
         write.userId,
         write.expectedProductEpoch,
+        write.sessionGrantId,
       );
       const replay = await replayUserMessage(transaction, write, productEpoch);
       if (replay !== undefined) return replay;

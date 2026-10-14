@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { ReportEvidenceType } from '@nakh/contracts';
-import type { OpaqueTokenStore } from '../security/opaque-token.js';
+import type { OpaqueTokenStore, UserOpaqueTokenStores } from '../security/opaque-token.js';
+import { isUserProductLife, type UserProductLife } from '../security/user-session.js';
 
 export type ReportSource = Readonly<{
   kind:
@@ -66,8 +67,38 @@ function intent(value: unknown): value is ReportEvidenceIntent {
 }
 
 /** References establish context, never replace commit-time relationship authorization. */
+export interface ReportTokenReferences {
+  forLife(life: UserProductLife): ReportTokens;
+}
+export class ReportTokenFactory implements ReportTokenReferences {
+  private readonly key: Uint8Array;
+  public constructor(
+    private readonly stores: UserOpaqueTokenStores,
+    key: Uint8Array,
+  ) {
+    if (key.byteLength < 32) throw new Error('Report token key is invalid.');
+    this.key = Uint8Array.from(key);
+  }
+  public forLife(life: UserProductLife): ReportTokens {
+    return ReportTokens.forLife(this.stores.forLife(life), this.key, life);
+  }
+}
 export class ReportTokens {
   private readonly key: Buffer;
+  public static forLife(
+    store: OpaqueTokenStore,
+    key: Uint8Array,
+    life: UserProductLife,
+  ): ReportTokens {
+    if (key.byteLength < 32 || !isUserProductLife(life))
+      throw new Error('Report token life is invalid.');
+    return new ReportTokens(
+      store,
+      createHmac('sha256', key)
+        .update(`report-life-v1\0${life.userId}\0${life.productEpoch}`)
+        .digest(),
+    );
+  }
   public constructor(
     private readonly store: OpaqueTokenStore,
     key: Uint8Array,

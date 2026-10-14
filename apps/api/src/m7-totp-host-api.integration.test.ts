@@ -9,7 +9,7 @@ import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import {
   adminTotpCode,
   adminTotpStep,
-  ReportTokens,
+  ReportTokenFactory,
   AesGcmReviewNoteProtector,
   type OpaqueTokenStore,
 } from '@nakh/application';
@@ -39,10 +39,6 @@ describe.skipIf(url === undefined)(
       resolve: (id: string, version: number): Buffer | undefined =>
         id === encryption.keyId && version === 1 ? Buffer.from(key) : undefined,
     };
-    const users = new Map<string, { kind: 'user'; userId: string }>();
-    const authenticate = vi.fn(({ bearerToken }: { bearerToken: string }) =>
-      Promise.resolve(users.get(bearerToken)),
-    );
     const error = vi.fn();
     let composition: ReturnType<typeof createM7TotpSessionHostOptions>;
     beforeAll(async () => {
@@ -71,12 +67,11 @@ describe.skipIf(url === undefined)(
       };
       composition = createM7TotpSessionHostOptions({
         database,
-        userAuthenticator: { authenticate },
         totpKeys: keys,
-        reportTokens: new ReportTokens(tokens, randomBytes(32)),
+        reportTokens: new ReportTokenFactory({ forLife: () => tokens }, randomBytes(32)),
         adminTokens: tokens,
         adminKey: randomBytes(32),
-        safetyTokens: tokens,
+        safetyTokens: { forLife: () => tokens },
         safetyKey: randomBytes(32),
         capabilities: {},
         reviewNotes: new AesGcmReviewNoteProtector('http-totp-notes', 1, randomBytes(32)),
@@ -112,9 +107,11 @@ describe.skipIf(url === undefined)(
         .select('user_id')
         .where('id', '=', adminId)
         .executeTakeFirstOrThrow();
-      const actor = { kind: 'user' as const, userId: admin.user_id },
-        token = `first-factor-${randomUUID()}`;
-      users.set(token, actor);
+      const actor = { kind: 'user' as const, userId: admin.user_id };
+      const { userSessionToken: token } = await composition.userSessions.issue(
+        { userId: actor.userId, productEpoch: 0 },
+        randomUUID(),
+      );
       const approval = await operator.approve({
         actorUserId: actor.userId,
         requestId: randomUUID(),
@@ -188,7 +185,6 @@ describe.skipIf(url === undefined)(
       const bearer = signIn.json<{ adminSessionToken: string }>().adminSessionToken,
         admin = { ...s.actor, kind: 'admin' as const };
       const adminHeaders = { authorization: `Bearer ${bearer}` };
-      const callsBefore = authenticate.mock.calls.length;
       const health = await app!.inject({
         method: 'POST',
         url: '/v1/admin/moderation/operational-health/prepare',
@@ -196,7 +192,6 @@ describe.skipIf(url === undefined)(
         payload: { actor: admin, requestId: randomUUID() },
       });
       expect(health.statusCode).toBe(200);
-      expect(authenticate.mock.calls).toHaveLength(callsBefore);
       expect((await post('enrollment', s.headers, opening)).statusCode).toBe(401);
       expect(
         (

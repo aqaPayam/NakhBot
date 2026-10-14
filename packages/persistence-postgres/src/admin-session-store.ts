@@ -9,6 +9,7 @@ import {
 import type { NakhDatabase } from './database.js';
 import { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 import { nativeAdminTotpRequired, requireNativeAdminSessions } from './admin-session-policy.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 type Identity = { id: string; user_id: string; telegram_user_id: string; version: number };
 type Session = {
   id: string;
@@ -62,6 +63,8 @@ export class PostgresAdminSessionStore implements AdminSessionStore {
     )
       return undefined;
     return this.database.transaction().execute(async (tx) => {
+      if (input.userSession !== undefined)
+        await requireCurrentUserSession(tx, input.actorUserId, input.userSession);
       const admin = (
         await sql<Identity>`SELECT id,user_id,telegram_user_id::text,version FROM administration.admin_users WHERE user_id=${input.actorUserId}::uuid FOR UPDATE`.execute(
           tx,

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PrepareAppealHandler, SubmitAppealHandler } from '@nakh/application';
 import { M7AppealApiModule } from './m7-appeal-api.js';
 import { ApiExceptionFilter } from './app.js';
+const sessionGrantId = randomUUID();
 describe('actor-bound appeal HTTP', () => {
   let app: NestFastifyApplication | undefined;
   afterEach(async () => {
@@ -27,7 +28,9 @@ describe('actor-bound appeal HTTP', () => {
     );
     app = await NestFactory.create<NestFastifyApplication>(
       M7AppealApiModule.register({
-        authenticator: { authenticate: () => Promise.resolve(actor) },
+        authenticator: {
+          authenticate: () => Promise.resolve({ ...actor, productEpoch: 0, sessionGrantId }),
+        },
         prepare: { execute: prepare },
         submit: { execute: submit },
       }),
@@ -47,7 +50,7 @@ describe('actor-bound appeal HTTP', () => {
       payload: { actor, commandId, requestId },
     });
     expect(prepared.json()).toEqual({ banActionToken: token });
-    expect(prepare).toHaveBeenCalledWith(actor.userId, commandId);
+    expect(prepare).toHaveBeenCalledWith(actor.userId, commandId, 0, sessionGrantId);
     const payload = {
       actor,
       commandId,

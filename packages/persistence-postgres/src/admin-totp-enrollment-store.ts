@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { requireCurrentUserSession } from './user-session-store.js';
 import { sql } from 'kysely';
 import {
   recoverAdminTotpEnrollmentUri,
@@ -122,6 +123,8 @@ export class PostgresAdminTotpEnrollments implements AdminTotpEnrollments {
     this.validate(input);
     return this.safe(() =>
       this.database.transaction().execute(async (tx) => {
+        if (input.userSession !== undefined)
+          await requireCurrentUserSession(tx, input.actor.userId, input.userSession);
         const enrollment = await this.load(tx, input),
           at = await adminTotpDatabaseTime(tx);
         if (enrollment.completed_at !== null || enrollment.expires_at.getTime() <= at.getTime())
@@ -160,6 +163,8 @@ export class PostgresAdminTotpEnrollments implements AdminTotpEnrollments {
     if (!/^[0-9]{6}$/u.test(input.code)) throw unavailable();
     const result = await this.safe(() =>
       this.database.transaction().execute(async (tx) => {
+        if (input.userSession !== undefined)
+          await requireCurrentUserSession(tx, input.actor.userId, input.userSession);
         const enrollment = await this.load(tx, input),
           at = await adminTotpDatabaseTime(tx);
         if (enrollment.completed_at !== null) {

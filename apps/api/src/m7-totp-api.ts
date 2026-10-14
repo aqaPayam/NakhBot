@@ -52,14 +52,14 @@ class TotpController {
     @Body() body: unknown,
   ): ReturnType<AdminTotpEnrollments['begin']> {
     privateResponse(reply);
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const command = this.boundary.parse<Parameters<AdminTotpEnrollments['begin']>[0]>(
       AdminTotpBeginSchema,
       body,
       actor,
     );
-    return this.boundary.result(AdminTotpBeginResultSchema, () =>
-      this.options.enrollments.begin(command),
+    return this.boundary.userResult(AdminTotpBeginResultSchema, actor, () =>
+      this.options.enrollments.begin({ ...command, userSession: actor }),
     );
   }
   @Post('enrollment/confirm')
@@ -70,14 +70,14 @@ class TotpController {
     @Body() body: unknown,
   ): ReturnType<AdminTotpEnrollments['confirm']> {
     privateResponse(reply);
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const command = this.boundary.parse<Parameters<AdminTotpEnrollments['confirm']>[0]>(
       AdminTotpConfirmSchema,
       body,
       actor,
     );
-    return this.boundary.result(AdminTotpConfirmResultSchema, () =>
-      this.options.enrollments.confirm(command),
+    return this.boundary.userResult(AdminTotpConfirmResultSchema, actor, () =>
+      this.options.enrollments.confirm({ ...command, userSession: actor }),
     );
   }
   @Post('sessions')
@@ -88,9 +88,9 @@ class TotpController {
     @Body() body: unknown,
   ): ReturnType<AdminSessionService['issue']> {
     privateResponse(reply);
-    const actor = await this.boundary.actor(request, 'user');
+    const actor = await this.boundary.user(request);
     const command = this.boundary.parse<AdminTotpSignIn>(AdminTotpSignInSchema, body, actor);
-    return this.boundary.result(AdminSessionResultSchema, async () => {
+    return this.boundary.userResult(AdminSessionResultSchema, actor, async () => {
       const telegramUserId = await this.options.telegramIdentity(actor.userId);
       if (telegramUserId === undefined)
         throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
@@ -99,6 +99,7 @@ class TotpController {
         telegramUserId,
         requestId: command.requestId,
         proof: command.code,
+        userSession: actor,
       });
     });
   }

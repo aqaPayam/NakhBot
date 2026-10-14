@@ -6,6 +6,8 @@ import { Redis } from 'ioredis';
 
 import type {
   OpaqueTokenStore,
+  UserOpaqueTokenStores,
+  UserProductLife,
   OutboxPublisher,
   RateLimiterPort,
   RateLimitRequest,
@@ -328,6 +330,16 @@ export type OpaqueStateRevocationBatch = Readonly<{
 /** A native owning caller supplies the original account life. Revocation is
  * permanent until separately verified fresh-return composition authorizes it.
  * Existing unscoped keys require migration/composition before phase completion. */
+export class RedisUserOpaqueTokenStores implements UserOpaqueTokenStores {
+  public constructor(
+    private readonly redis: Redis,
+    private readonly prefix: string,
+  ) {}
+  public forLife(life: UserProductLife): OpaqueTokenStore {
+    return new RedisOwnedOpaqueTokenStore(this.redis, this.prefix, life);
+  }
+}
+
 export class RedisOwnedOpaqueTokenStore extends RedisOpaqueTokenStore {
   private readonly subject: string;
   private readonly epoch: string;

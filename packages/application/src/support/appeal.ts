@@ -137,6 +137,7 @@ export class BanOpaqueReferences {
 export type UserAppealWrite = Readonly<{
   userId: string;
   expectedProductEpoch?: number;
+  sessionGrantId?: string;
   banHistoryId: string;
   appealId: string;
   eventId: string;
@@ -147,7 +148,11 @@ export type UserAppealWrite = Readonly<{
   normalizedText: string;
 }>;
 export interface AppealStore {
-  currentBan(userId: string, expectedProductEpoch?: number): Promise<string | undefined>;
+  currentBan(
+    userId: string,
+    expectedProductEpoch?: number,
+    sessionGrantId?: string,
+  ): Promise<string | undefined>;
   submit(write: UserAppealWrite): Promise<AppealResult>;
 }
 export class PrepareAppealHandler {
@@ -159,8 +164,9 @@ export class PrepareAppealHandler {
     userId: string,
     commandId: string,
     expectedProductEpoch?: number,
+    sessionGrantId?: string,
   ): Promise<string> {
-    const historyId = await this.store.currentBan(userId, expectedProductEpoch);
+    const historyId = await this.store.currentBan(userId, expectedProductEpoch, sessionGrantId);
     if (historyId === undefined)
       throw new ApplicationError('conflict', 'error.appeal.unavailable', 409);
     return this.references.issue(userId, historyId, commandId);
@@ -175,6 +181,7 @@ export class SubmitAppealHandler {
   public async execute(
     command: SubmitAppealCommand,
     expectedProductEpoch?: number,
+    sessionGrantId?: string,
   ): Promise<AppealResult> {
     if (command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
@@ -188,6 +195,7 @@ export class SubmitAppealHandler {
     return this.store.submit({
       userId: command.actor.userId,
       ...(expectedProductEpoch === undefined ? {} : { expectedProductEpoch }),
+      ...(sessionGrantId === undefined ? {} : { sessionGrantId }),
       banHistoryId,
       appealId: this.ids.uuid(),
       eventId: this.ids.uuid(),

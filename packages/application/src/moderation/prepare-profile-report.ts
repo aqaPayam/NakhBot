@@ -4,13 +4,21 @@ import type {
   ReportEvidenceType,
 } from '@nakh/contracts';
 import { ApplicationError, type Actor } from '@nakh/domain';
-import type { ReportEvidenceIntent, ReportSource, ReportTokens } from './report-tokens.js';
+import type {
+  ReportEvidenceIntent,
+  ReportSource,
+  ReportTokens,
+  ReportTokenReferences,
+} from './report-tokens.js';
+
+export type ReportUserAuthority = Readonly<{ productEpoch: number; sessionGrantId?: string }>;
 
 export interface ProfileReportSourceStore {
   resolve(
     actorUserId: string,
     source: ReportSource,
     evidenceType?: ReportEvidenceType,
+    authority?: ReportUserAuthority,
   ): Promise<ReportEvidenceIntent | undefined>;
 }
 export function reportUnavailable(): ApplicationError {
@@ -20,7 +28,8 @@ export function reportUnavailable(): ApplicationError {
 export class PrepareSingleReportEvidenceHandler {
   private readonly evidenceTypes: readonly ReportEvidenceType[];
   public constructor(
-    private readonly tokens: Pick<ReportTokens, 'resolveSource' | 'issueIntent'>,
+    private readonly tokens:
+      Pick<ReportTokens, 'resolveSource' | 'issueIntent'> | ReportTokenReferences,
     private readonly store: ProfileReportSourceStore,
     evidenceTypes: ReportEvidenceType | readonly ReportEvidenceType[],
   ) {
@@ -29,6 +38,8 @@ export class PrepareSingleReportEvidenceHandler {
   public async execute(
     query: PrepareReportEvidenceQuery,
     actor: Actor,
+    productEpoch?: number,
+    sessionGrantId?: string,
   ): Promise<PreparedReportEvidence> {
     if (actor.kind !== 'user' || query.actor.kind !== 'user' || actor.userId !== query.actor.userId)
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
@@ -37,10 +48,24 @@ export class PrepareSingleReportEvidenceHandler {
       !this.evidenceTypes.some((type) => type === query.requestedEvidenceTypes[0])
     )
       throw reportUnavailable();
-    const source = await this.tokens.resolveSource(query.sourceActionToken, actor.userId);
+    const tokens =
+      'forLife' in this.tokens
+        ? productEpoch === undefined
+          ? undefined
+          : this.tokens.forLife({ userId: actor.userId, productEpoch })
+        : this.tokens;
+    if (tokens === undefined) throw reportUnavailable();
+    const source = await tokens.resolveSource(query.sourceActionToken, actor.userId);
     if (source === undefined) throw reportUnavailable();
     const evidenceType = query.requestedEvidenceTypes[0]!;
-    const intent = await this.store.resolve(actor.userId, source, evidenceType);
+    const intent = await this.store.resolve(
+      actor.userId,
+      source,
+      evidenceType,
+      productEpoch === undefined
+        ? undefined
+        : { productEpoch, ...(sessionGrantId === undefined ? {} : { sessionGrantId }) },
+    );
     if (
       intent === undefined ||
       intent.targetUserId === actor.userId ||
@@ -48,7 +73,7 @@ export class PrepareSingleReportEvidenceHandler {
       intent.evidence[0]?.evidenceType !== evidenceType
     )
       throw reportUnavailable();
-    const issued = await this.tokens.issueIntent(actor.userId, intent);
+    const issued = await tokens.issueIntent(actor.userId, intent);
     return {
       evidenceIntentToken: issued.token,
       evidenceTypes: [evidenceType],

@@ -6,10 +6,12 @@ import type {
 } from '@nakh/contracts';
 import { ApplicationError, normalizeReportText, type Actor, type IdGenerator } from '@nakh/domain';
 import { reportUnavailable } from './prepare-profile-report.js';
-import type { ReportEvidenceIntent, ReportTokens } from './report-tokens.js';
+import type { ReportEvidenceIntent, ReportTokens, ReportTokenReferences } from './report-tokens.js';
 
 export type ProfileReportRequest = Readonly<{
   actorUserId: string;
+  productEpoch?: number;
+  sessionGrantId?: string;
   commandId: string;
   requestId: string;
   idempotencyKey: string;
@@ -34,7 +36,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export class SubmitSingleEvidenceReportHandler {
   private readonly evidenceTypes: readonly ReportEvidenceType[];
   public constructor(
-    private readonly tokens: Pick<ReportTokens, 'resolveIntent'>,
+    private readonly tokens: Pick<ReportTokens, 'resolveIntent'> | ReportTokenReferences,
     private readonly store: ProfileReportSubmissionStore,
     private readonly ids: IdGenerator,
     evidenceTypes: ReportEvidenceType | readonly ReportEvidenceType[],
@@ -44,6 +46,8 @@ export class SubmitSingleEvidenceReportHandler {
   public async execute(
     command: SubmitReportCommand,
     actor: Actor,
+    productEpoch?: number,
+    sessionGrantId?: string,
   ): Promise<ReportSubmissionResult> {
     if (
       actor.kind !== 'user' ||
@@ -63,10 +67,19 @@ export class SubmitSingleEvidenceReportHandler {
     )
       throw reportUnavailable();
     const normalizedText = normalizeReportText(command.data.text);
+    const tokens =
+      'forLife' in this.tokens
+        ? productEpoch === undefined
+          ? undefined
+          : this.tokens.forLife({ userId: actor.userId, productEpoch })
+        : this.tokens;
+    if (tokens === undefined) throw reportUnavailable();
     // The immutable opaque intent binds its server-held source, target and ordered references.
     // Digesting the token permits durable replay after the short-lived cache entry is gone.
     const request: ProfileReportRequest = {
       actorUserId: actor.userId,
+      ...(productEpoch === undefined ? {} : { productEpoch }),
+      ...(sessionGrantId === undefined ? {} : { sessionGrantId }),
       commandId: command.commandId,
       requestId: command.requestId,
       idempotencyKey: command.idempotencyKey,
@@ -81,13 +94,16 @@ export class SubmitSingleEvidenceReportHandler {
             command.data.evidenceIntentToken,
             command.data.reasonCode,
             normalizedText ?? null,
+            ...(productEpoch === undefined || productEpoch === 0
+              ? []
+              : ['product-life', productEpoch]),
           ]),
         )
         .digest('hex'),
     };
     const replay = await this.store.replay(request);
     if (replay !== undefined) return replay;
-    const intent = await this.tokens.resolveIntent(command.data.evidenceIntentToken, actor.userId);
+    const intent = await tokens.resolveIntent(command.data.evidenceIntentToken, actor.userId);
     if (
       intent === undefined ||
       intent.targetUserId === actor.userId ||

@@ -15,6 +15,7 @@ import { ApiExceptionFilter } from './app.js';
 import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
 
 const user = { kind: 'user' as const, userId: randomUUID() };
+const sessionGrantId = randomUUID();
 describe('authenticated M7 report HTTP routes', () => {
   let app: NestFastifyApplication | undefined;
   const error = vi.fn();
@@ -39,7 +40,9 @@ describe('authenticated M7 report HTTP routes', () => {
       Promise.resolve({ items: [{ code: 'harassment', labelKey: 'report.reason.harassment' }] }),
     );
     const server = await start({
-      authenticator: { authenticate: () => Promise.resolve(user) },
+      authenticator: {
+        authenticate: () => Promise.resolve({ ...user, productEpoch: 0, sessionGrantId }),
+      },
       reasons: { execute },
     });
     const response = await server.inject({
@@ -81,7 +84,9 @@ describe('authenticated M7 report HTTP routes', () => {
       }),
     );
     const server = await start({
-      authenticator: { authenticate: () => Promise.resolve(user) },
+      authenticator: {
+        authenticate: () => Promise.resolve({ ...user, productEpoch: 0, sessionGrantId }),
+      },
       reasons: { execute: () => Promise.resolve({ items: [] }) },
       prepare: { execute },
     });
@@ -100,7 +105,12 @@ describe('authenticated M7 report HTTP routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(await execute.mock.results[0]!.value);
     expect(response.headers['cache-control']).toBe('no-store');
-    expect(execute).toHaveBeenCalledWith(query, user);
+    expect(execute).toHaveBeenCalledWith(
+      query,
+      { ...user, productEpoch: 0, sessionGrantId },
+      0,
+      sessionGrantId,
+    );
     expect(response.body).not.toContain(user.userId);
     for (const [payload, status] of [
       [{ ...query, actor: { ...user, userId: randomUUID() } }, 401],
@@ -122,7 +132,9 @@ describe('authenticated M7 report HTTP routes', () => {
   });
   it('does not register preparation when its authorized application port is absent', async () => {
     const server = await start({
-      authenticator: { authenticate: () => Promise.resolve(user) },
+      authenticator: {
+        authenticate: () => Promise.resolve({ ...user, productEpoch: 0, sessionGrantId }),
+      },
       reasons: { execute: () => Promise.resolve({ items: [] }) },
     });
     expect(
@@ -141,7 +153,9 @@ describe('authenticated M7 report HTTP routes', () => {
       .mockResolvedValueOnce(receipt)
       .mockResolvedValueOnce({ ...receipt, replayed: true });
     const server = await start({
-      authenticator: { authenticate: () => Promise.resolve(user) },
+      authenticator: {
+        authenticate: () => Promise.resolve({ ...user, productEpoch: 0, sessionGrantId }),
+      },
       reasons: { execute: () => Promise.resolve({ items: [] }) },
       submit: { execute },
     });
@@ -173,8 +187,20 @@ describe('authenticated M7 report HTTP routes', () => {
       expect(response.body).not.toContain(command.data.text!);
       expect(response.body).not.toContain(user.userId);
     }
-    expect(execute).toHaveBeenNthCalledWith(1, command, user);
-    expect(execute).toHaveBeenNthCalledWith(2, command, user);
+    expect(execute).toHaveBeenNthCalledWith(
+      1,
+      command,
+      { ...user, productEpoch: 0, sessionGrantId },
+      0,
+      sessionGrantId,
+    );
+    expect(execute).toHaveBeenNthCalledWith(
+      2,
+      command,
+      { ...user, productEpoch: 0, sessionGrantId },
+      0,
+      sessionGrantId,
+    );
     const forged = await server.inject({
       method: 'POST',
       url: '/v1/reports',
@@ -193,7 +219,9 @@ describe('authenticated M7 report HTTP routes', () => {
       )
       .mockRejectedValueOnce(new Error(privateText));
     const server = await start({
-      authenticator: { authenticate: () => Promise.resolve(user) },
+      authenticator: {
+        authenticate: () => Promise.resolve({ ...user, productEpoch: 0, sessionGrantId }),
+      },
       reasons: { execute },
     });
     for (const status of [409, 500]) {

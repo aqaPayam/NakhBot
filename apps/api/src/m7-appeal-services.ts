@@ -2,8 +2,9 @@ import {
   BanOpaqueReferences,
   PrepareAppealHandler,
   SubmitAppealHandler,
-  type OpaqueTokenStore,
+  type UserOpaqueTokenStores,
 } from '@nakh/application';
+import { ApplicationError } from '@nakh/domain';
 import {
   PostgresAppealStore,
   SystemIdGenerator,
@@ -15,15 +16,35 @@ export function createM7AppealApiOptions(
   input: Readonly<{
     database: NakhDatabase;
     authenticator: M7ApiAuthenticator;
-    tokens: OpaqueTokenStore;
+    tokens: UserOpaqueTokenStores;
     key: Uint8Array;
   }>,
 ): M7AppealApiOptions {
-  const store = new PostgresAppealStore(input.database),
-    references = new BanOpaqueReferences(input.tokens, input.key);
-  return Object.freeze({
+  const store = new PostgresAppealStore(input.database);
+  return Object.freeze<M7AppealApiOptions>({
     authenticator: input.authenticator,
-    prepare: new PrepareAppealHandler(store, references),
-    submit: new SubmitAppealHandler(store, references, new SystemIdGenerator()),
+    prepare: {
+      execute: (userId, commandId, epoch, sessionGrantId) => {
+        if (epoch === undefined || sessionGrantId === undefined)
+          throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+        const life = { userId, productEpoch: epoch };
+        return new PrepareAppealHandler(
+          store,
+          BanOpaqueReferences.forLife(input.tokens.forLife(life), input.key, life),
+        ).execute(userId, commandId, epoch, sessionGrantId);
+      },
+    },
+    submit: {
+      execute: (command, epoch, sessionGrantId) => {
+        if (epoch === undefined || sessionGrantId === undefined)
+          throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+        const life = { userId: command.actor.userId, productEpoch: epoch };
+        return new SubmitAppealHandler(
+          store,
+          BanOpaqueReferences.forLife(input.tokens.forLife(life), input.key, life),
+          new SystemIdGenerator(),
+        ).execute(command, epoch, sessionGrantId);
+      },
+    },
   });
 }

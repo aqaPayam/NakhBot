@@ -5,6 +5,7 @@ import type { AppealResult } from '@nakh/contracts';
 import { ApplicationError } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { PostgresUserSessionStore } from './user-session-store.js';
 
 function unavailable(): ApplicationError {
   return new ApplicationError('conflict', 'error.appeal.unavailable', 409);
@@ -49,7 +50,20 @@ export async function currentBan(
 export class PostgresAppealStore implements AppealStore {
   public constructor(private readonly database: NakhDatabase) {}
 
-  public currentBan(userId: string, expectedProductEpoch?: number): Promise<string | undefined> {
+  public async currentBan(
+    userId: string,
+    expectedProductEpoch?: number,
+    sessionGrantId?: string,
+  ): Promise<string | undefined> {
+    if (
+      sessionGrantId !== undefined &&
+      (expectedProductEpoch === undefined ||
+        (await new PostgresUserSessionStore(this.database).current(
+          { userId, productEpoch: expectedProductEpoch },
+          sessionGrantId,
+        )) === undefined)
+    )
+      return undefined;
     return currentBan(this.database, userId, expectedProductEpoch);
   }
 
@@ -75,6 +89,15 @@ export class PostgresAppealStore implements AppealStore {
           (!Number.isSafeInteger(write.expectedProductEpoch) ||
             write.expectedProductEpoch < 0 ||
             account.product_epoch !== write.expectedProductEpoch))
+      )
+        throw unavailable();
+      if (
+        write.sessionGrantId !== undefined &&
+        (write.expectedProductEpoch === undefined ||
+          (await new PostgresUserSessionStore(database).current(
+            { userId: write.userId, productEpoch: write.expectedProductEpoch },
+            write.sessionGrantId,
+          )) === undefined)
       )
         throw unavailable();
       const replays = await database

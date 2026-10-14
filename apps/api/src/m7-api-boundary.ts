@@ -1,8 +1,10 @@
 import { Ajv2020 as Ajv, type ValidateFunction } from 'ajv/dist/2020.js';
 import * as formatsModule from 'ajv-formats';
 import { ApplicationError, type Actor } from '@nakh/domain';
+import { isUserProductLife, type UserSessionActor } from '@nakh/application';
 
-/** Server-injected verifier: signature/session, expiry, revocation, audience and admin MFA. */
+/** Server-injected verifier: user results must carry ORIGINAL issued productEpoch
+ * and sessionGrantId; sampling the current Account to enrich an old bearer is forbidden. */
 export interface M7ApiAuthenticator {
   authenticate(
     input: Readonly<{ bearerToken: string; audience: 'user' | 'admin' }>,
@@ -17,6 +19,7 @@ const addFormats = formatsModule.default as unknown as (
 export class M7ApiBoundary {
   private readonly ajv = new Ajv({ allErrors: false });
   private readonly validators = new WeakMap<object, ValidateFunction>();
+  private readonly users = new WeakMap<object, string>();
   public constructor(private readonly authenticator: M7ApiAuthenticator) {
     addFormats(this.ajv);
   }
@@ -35,7 +38,52 @@ export class M7ApiBoundary {
     );
     if (actor === undefined || actor.kind !== audience || !UUID.test(actor.userId))
       throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+    if (audience === 'user') {
+      const scoped = actor as Partial<UserSessionActor>;
+      const sessionGrantId = scoped.sessionGrantId;
+      if (
+        !isUserProductLife(scoped) ||
+        typeof sessionGrantId !== 'string' ||
+        !UUID.test(sessionGrantId)
+      )
+        throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+      const user: UserSessionActor = Object.freeze({
+        kind: 'user',
+        userId: scoped.userId,
+        productEpoch: scoped.productEpoch,
+        sessionGrantId,
+      });
+      this.users.set(user, match[1]!);
+      return user;
+    }
     return { kind: actor.kind, userId: actor.userId };
+  }
+  public async user(
+    request: Readonly<{ headers: Readonly<{ authorization?: unknown }> }>,
+  ): Promise<UserSessionActor> {
+    return (await this.actor(request, 'user')) as UserSessionActor;
+  }
+  public async userResult<T>(
+    schema: object,
+    user: UserSessionActor,
+    execute: () => Promise<T>,
+  ): Promise<T> {
+    const bearerToken = this.users.get(user);
+    if (bearerToken === undefined)
+      throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+    return this.result(schema, async () => {
+      const result = await execute();
+      const current = (await this.authenticator.authenticate({ bearerToken, audience: 'user' })) as
+        Partial<UserSessionActor> | undefined;
+      if (
+        current?.kind !== 'user' ||
+        current.userId !== user.userId ||
+        current.productEpoch !== user.productEpoch ||
+        current.sessionGrantId !== user.sessionGrantId
+      )
+        throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+      return result;
+    });
   }
   public parse<T extends { readonly actor: Actor }>(
     schema: object,

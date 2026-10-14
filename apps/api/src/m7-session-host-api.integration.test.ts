@@ -5,7 +5,11 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { AesGcmReviewNoteProtector, ReportTokens, type OpaqueTokenStore } from '@nakh/application';
+import {
+  AesGcmReviewNoteProtector,
+  ReportTokenFactory,
+  type OpaqueTokenStore,
+} from '@nakh/application';
 import { createDatabase, runMigrations, type NakhDatabase } from '@nakh/persistence-postgres';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
 import { createReportFixtureAdmin } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
@@ -62,10 +66,8 @@ describe.skipIf(url === undefined)('native sessions in the shared M7 HTTP host',
         return Promise.resolve(true);
       },
     };
-    const authenticate = vi.fn(() => Promise.resolve(actor));
     const composition = createM7SessionHostOptions({
       database,
-      userAuthenticator: { authenticate },
       mfa: {
         verify: () =>
           Promise.resolve({
@@ -76,10 +78,10 @@ describe.skipIf(url === undefined)('native sessions in the shared M7 HTTP host',
             expiresAt: new Date(Date.now() + 240000),
           }),
       },
-      reportTokens: new ReportTokens(tokens, Buffer.alloc(32, 1)),
+      reportTokens: new ReportTokenFactory({ forLife: () => tokens }, Buffer.alloc(32, 1)),
       adminTokens: tokens,
       adminKey: Buffer.alloc(32, 2),
-      safetyTokens: tokens,
+      safetyTokens: { forLife: () => tokens },
       safetyKey: Buffer.alloc(32, 3),
       capabilities: {},
       reviewNotes: new AesGcmReviewNoteProtector('session-host', 1, Buffer.alloc(32, 4)),
@@ -122,7 +124,6 @@ describe.skipIf(url === undefined)('native sessions in the shared M7 HTTP host',
         })
       ).statusCode,
     ).toBe(401);
-    expect(authenticate).not.toHaveBeenCalled();
     await composition.sessions.revoke({
       actor,
       adminSessionToken: credential.adminSessionToken,

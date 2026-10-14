@@ -5,7 +5,12 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createDatabase, runMigrations, type NakhDatabase } from '@nakh/persistence-postgres';
+import {
+  createDatabase,
+  createPostgresUserSessions,
+  runMigrations,
+  type NakhDatabase,
+} from '@nakh/persistence-postgres';
 import type { OpaqueTokenStore } from '@nakh/application';
 import type { UserAppealReceipt, PreparedAppealReference } from '@nakh/contracts';
 import { createReportUser } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
@@ -63,22 +68,27 @@ describe.skipIf(url === undefined)('exact-ban appeal HTTP to PostgreSQL', () => 
           return Promise.resolve(true);
         },
       };
+    const sessions = createPostgresUserSessions(database, Buffer.alloc(32, 101));
+    const first = await sessions.issue({ userId, productEpoch: 0 }, randomUUID());
+    const second = await sessions.issue({ userId: otherId, productEpoch: 0 }, randomUUID());
     const error = vi.fn();
     app = await NestFactory.create<NestFastifyApplication>(
       M7AppealApiModule.register(
         createM7AppealApiOptions({
           database,
-          tokens,
+          tokens: { forLife: () => tokens },
           key: Buffer.alloc(32, 18),
           authenticator: {
-            authenticate: ({ bearerToken }) =>
-              Promise.resolve(
-                bearerToken === 'appeal-user-credential'
-                  ? { kind: 'user', userId }
-                  : bearerToken === 'appeal-other-credential'
-                    ? { kind: 'user', userId: otherId }
-                    : undefined,
-              ),
+            authenticate: (query) =>
+              sessions.authenticate({
+                ...query,
+                bearerToken:
+                  query.bearerToken === 'appeal-user-credential'
+                    ? first.userSessionToken
+                    : query.bearerToken === 'appeal-other-credential'
+                      ? second.userSessionToken
+                      : query.bearerToken,
+              }),
           },
         }),
       ),

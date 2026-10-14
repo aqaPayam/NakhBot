@@ -16,7 +16,7 @@ import {
   AesGcmUnmatchedReportSnapshotProtector,
   AesGcmUnmatchedReportSnapshotReader,
   IntegrityMessageReportSnapshotReader,
-  ReportTokens,
+  ReportTokenFactory,
   AesGcmReviewNoteProtector,
   type ReportSource,
 } from '@nakh/application';
@@ -29,7 +29,12 @@ import type {
   PreparedAdminConfirmation,
   AdminEvidenceRevealResult,
 } from '@nakh/contracts';
-import { createDatabase, runMigrations, type NakhDatabase } from '@nakh/persistence-postgres';
+import {
+  createDatabase,
+  createPostgresUserSessions,
+  runMigrations,
+  type NakhDatabase,
+} from '@nakh/persistence-postgres';
 // Shared synthetic test fixtures; these imports never enter the production adapter.
 import {
   createReportUser,
@@ -48,19 +53,22 @@ import { confirmationFixture } from '../../../packages/persistence-postgres/src/
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts', () => {
   let database: NakhDatabase, app: NestFastifyApplication, reporter: string;
+  let userSessions: ReturnType<typeof createPostgresUserSessions>, userCredential: string;
   let admin: Awaited<ReturnType<typeof confirmationFixture>>;
   const values = new Map<string, string>(),
     error = vi.fn();
   const reporters: string[] = [],
     key = Buffer.alloc(32, 93);
-  const tokens = new ReportTokens(
+  const tokens = new ReportTokenFactory(
     {
-      get: (id) => Promise.resolve(values.get(id)),
-      putIfAbsent: (id, value) => {
-        if (values.has(id)) return Promise.resolve(false);
-        values.set(id, value);
-        return Promise.resolve(true);
-      },
+      forLife: () => ({
+        get: (id) => Promise.resolve(values.get(id)),
+        putIfAbsent: (id, value) => {
+          if (values.has(id)) return Promise.resolve(false);
+          values.set(id, value);
+          return Promise.resolve(true);
+        },
+      }),
     },
     Buffer.alloc(32, 92),
   );
@@ -86,12 +94,15 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
       })
       .execute();
     admin = await confirmationFixture(database, adminId);
+    userSessions = createPostgresUserSessions(database, Buffer.alloc(32, 95));
+    userCredential = (await userSessions.issue({ userId: reporter, productEpoch: 0 }, randomUUID()))
+      .userSessionToken;
     const options = createM7HostOptions({
       database,
       reportTokens: tokens,
       adminTokens: admin.tokens,
       adminKey: admin.key,
-      safetyTokens: admin.tokens,
+      safetyTokens: { forLife: () => admin.tokens },
       safetyKey: Buffer.alloc(32, 94),
       reviewNotes: new AesGcmReviewNoteProtector('http-review-notes', 1, key),
       capabilities: {
@@ -114,14 +125,12 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
         message: { reader: new IntegrityMessageReportSnapshotReader() },
       },
       authenticator: {
-        authenticate: ({ bearerToken, audience }) =>
-          Promise.resolve(
-            bearerToken === 'http-fixture-credential' && audience === 'user'
-              ? { kind: 'user', userId: reporter }
-              : bearerToken === 'http-admin-credential' && audience === 'admin'
-                ? admin.actor
-                : undefined,
-          ),
+        authenticate: (query) =>
+          query.audience === 'admin'
+            ? Promise.resolve(
+                query.bearerToken === 'http-admin-credential' ? admin.actor : undefined,
+              )
+            : userSessions.authenticate(query),
       },
     });
     app = await NestFactory.create<NestFastifyApplication>(
@@ -164,10 +173,12 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
     const target = await createReportUser(database, true),
       actor = { kind: 'user' as const, userId: reporter };
     const source = await createReportLike(database, reporter, target);
-    const headers = { authorization: 'Bearer http-fixture-credential' };
+    const headers = { authorization: `Bearer ${userCredential}` };
     async function prepare(): Promise<PreparedReportEvidence> {
       const sourceActionToken = (
-        await tokens.issueSource(reporter, { kind: 'received_like', referenceId: source })
+        await tokens
+          .forLife({ userId: reporter, productEpoch: 0 })
+          .issueSource(reporter, { kind: 'received_like', referenceId: source })
       ).token;
       const response = await app.inject({
         method: 'POST',
@@ -276,9 +287,11 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
   });
   it('prepares, captures, confirms, reveals and replays all five evidence types through one HTTP host configuration', async () => {
     reporter = await createReportUser(database);
+    userCredential = (await userSessions.issue({ userId: reporter, productEpoch: 0 }, randomUUID()))
+      .userSessionToken;
     reporters.push(reporter);
     const actor = { kind: 'user' as const, userId: reporter },
-      headers = { authorization: 'Bearer http-fixture-credential' };
+      headers = { authorization: `Bearer ${userCredential}` };
     const profileTarget = await createReportUser(database, true),
       like = await createReportLike(database, reporter, profileTarget);
     const chatTarget = await createReportUser(database),
@@ -314,7 +327,11 @@ describe.skipIf(url === undefined)('M7 HTTP to committed PostgreSQL report facts
     const commands: SubmitReportCommand[] = [],
       ids: string[] = [];
     for (const context of contexts) {
-      const sourceActionToken = (await tokens.issueSource(reporter, context.source)).token;
+      const sourceActionToken = (
+        await tokens
+          .forLife({ userId: reporter, productEpoch: 0 })
+          .issueSource(reporter, context.source)
+      ).token;
       const prepared = await app.inject({
         method: 'POST',
         url: '/v1/reports/prepare',

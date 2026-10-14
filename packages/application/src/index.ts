@@ -31,6 +31,7 @@ export * from './administration/admin-authorization.js';
 export * from './administration/admin-command.js';
 export * from './security/rate-limit.js';
 export * from './security/opaque-token.js';
+export * from './security/user-session.js';
 export * from './profile/profile.js';
 export * from './media/ingestion.js';
 export * from './media/quarantine.js';

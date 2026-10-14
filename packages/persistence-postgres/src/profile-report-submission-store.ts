@@ -19,11 +19,39 @@ import type { NakhDatabase } from './database.js';
 import { SystemIdGenerator } from './foundation-store.js';
 import { resolveProfileReportSource } from './profile-report-source-store.js';
 import { applyModerationThreshold } from './moderation-threshold-store.js';
+import { PostgresUserSessionStore } from './user-session-store.js';
+
+async function assertReportLife(
+  database: NakhDatabase,
+  request: ProfileReportRequest,
+): Promise<void> {
+  const account = await database
+    .selectFrom('identity.accounts')
+    .select(['product_epoch', 'state'])
+    .where('user_id', '=', request.actorUserId)
+    .executeTakeFirst();
+  if (
+    account === undefined ||
+    account.state === 'deleted' ||
+    account.product_epoch !== (request.productEpoch ?? 0)
+  )
+    throw reportUnavailable();
+  if (
+    request.sessionGrantId !== undefined &&
+    (request.productEpoch === undefined ||
+      (await new PostgresUserSessionStore(database).current(
+        { userId: request.actorUserId, productEpoch: request.productEpoch },
+        request.sessionGrantId,
+      )) === undefined)
+  )
+    throw reportUnavailable();
+}
 
 async function replay(
   database: NakhDatabase,
   request: ProfileReportRequest,
 ): Promise<ReportSubmissionResult | undefined> {
+  await assertReportLife(database, request);
   const rows = await database
     .selectFrom('moderation.reports')
     .select(['id', 'reporter_user_id', 'request_digest', 'submitted_at'])
@@ -94,6 +122,21 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
         );
         const previous = await replay(transaction, write);
         if (previous !== undefined) return previous;
+        await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${write.intent.targetUserId}::text, 0))`.execute(
+          transaction,
+        );
+        // Lock both accounts in canonical order so reciprocal reports cannot deadlock.
+        const accounts = await transaction
+          .selectFrom('identity.accounts')
+          .select(['user_id', 'state', 'product_epoch'])
+          .where('user_id', 'in', [write.actorUserId, write.intent.targetUserId])
+          .orderBy('user_id')
+          .forUpdate()
+          .execute();
+        const reporter = accounts.find((row) => row.user_id === write.actorUserId);
+        if (accounts.length !== 2 || reporter === undefined || !canSubmitUserReport(reporter.state))
+          throw reportUnavailable();
+        await assertReportLife(transaction, write);
         const count = await transaction
           .selectFrom('moderation.reports')
           .select((eb) => eb.fn.countAll<string>().as('count'))
@@ -102,20 +145,6 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
           .executeTakeFirstOrThrow();
         if (Number(count.count) >= 10)
           throw new ApplicationError('report_limit_reached', 'error.m7.rate_limited', 429);
-        await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${write.intent.targetUserId}::text, 0))`.execute(
-          transaction,
-        );
-        // Lock both accounts in canonical order so reciprocal reports cannot deadlock.
-        const accounts = await transaction
-          .selectFrom('identity.accounts')
-          .select(['user_id', 'state'])
-          .where('user_id', 'in', [write.actorUserId, write.intent.targetUserId])
-          .orderBy('user_id')
-          .forUpdate()
-          .execute();
-        const reporter = accounts.find((row) => row.user_id === write.actorUserId);
-        if (accounts.length !== 2 || reporter === undefined || !canSubmitUserReport(reporter.state))
-          throw reportUnavailable();
         const captured = await this.capture.capture(transaction, write);
         if (
           captured.targetUserId !== write.intent.targetUserId ||

@@ -17,6 +17,7 @@ describe('authenticated opaque support HTTP', () => {
   it('binds verified identity, projects opaque receipts, and sanitizes private failures', async () => {
     const actor = { kind: 'user' as const, userId: randomUUID() },
       threadId = randomUUID();
+    const sessionGrantId = randomUUID();
     const privateText = 'Private support request';
     const result = {
       supportThreadId: threadId,
@@ -36,7 +37,11 @@ describe('authenticated opaque support HTTP', () => {
       M7SupportApiModule.register({
         authenticator: {
           authenticate: ({ bearerToken }) =>
-            Promise.resolve(bearerToken === 'support-user-credential' ? actor : undefined),
+            Promise.resolve(
+              bearerToken === 'support-user-credential'
+                ? { ...actor, productEpoch: 0, sessionGrantId }
+                : undefined,
+            ),
         },
         open: { execute: open },
         send: { execute: send },
@@ -68,7 +73,7 @@ describe('authenticated opaque support HTTP', () => {
     expect(response.json()).not.toHaveProperty('supportThreadId');
     expect(response.body).not.toContain(threadId);
     expect(response.headers['cache-control']).toBe('no-store');
-    expect(open).toHaveBeenCalledWith(payload);
+    expect(open).toHaveBeenCalledWith(payload, 0, sessionGrantId);
     const spoof = await app.inject({
       method: 'POST',
       url: '/v1/support/threads',

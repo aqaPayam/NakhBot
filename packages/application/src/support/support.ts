@@ -157,6 +157,7 @@ export type StoredSupportResult = Readonly<{
 export type UserSupportWrite = Readonly<{
   userId: string;
   expectedProductEpoch?: number;
+  sessionGrantId?: string;
   supportThreadId: string;
   messageId: string;
   eventId: string;
@@ -200,10 +201,12 @@ function userWrite(
   threadId: string,
   normalizedText: string,
   expectedProductEpoch?: number,
+  sessionGrantId?: string,
 ): UserSupportWrite {
   return {
     userId: command.actor.userId,
     ...(expectedProductEpoch === undefined ? {} : { expectedProductEpoch }),
+    ...(sessionGrantId === undefined ? {} : { sessionGrantId }),
     supportThreadId: threadId,
     messageId: ids.uuid(),
     eventId: ids.uuid(),
@@ -251,12 +254,20 @@ export class OpenSupportThreadHandler {
   public async execute(
     command: OpenSupportThreadCommand,
     expectedProductEpoch?: number,
+    sessionGrantId?: string,
   ): Promise<SupportThreadResult> {
     if (command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const normalizedText = normalizeSupportText(command.data.text);
     const result = await this.store.open(
-      userWrite(command, this.ids, this.ids.uuid(), normalizedText, expectedProductEpoch),
+      userWrite(
+        command,
+        this.ids,
+        this.ids.uuid(),
+        normalizedText,
+        expectedProductEpoch,
+        sessionGrantId,
+      ),
     );
     return present(result, command.actor.userId, command.commandId, this.references);
   }
@@ -272,6 +283,7 @@ export class SendSupportMessageHandler {
   public async execute(
     command: SendSupportMessageCommand,
     expectedProductEpoch?: number,
+    sessionGrantId?: string,
   ): Promise<SupportThreadResult> {
     if (command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
@@ -283,7 +295,7 @@ export class SendSupportMessageHandler {
       throw new ApplicationError('invalid_request', 'error.support.reference_invalid', 400);
     const normalizedText = normalizeSupportText(command.data.text);
     const result = await this.store.send(
-      userWrite(command, this.ids, threadId, normalizedText, expectedProductEpoch),
+      userWrite(command, this.ids, threadId, normalizedText, expectedProductEpoch, sessionGrantId),
     );
     return present(result, command.actor.userId, command.commandId, this.references);
   }

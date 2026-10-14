@@ -1,4 +1,4 @@
-import type { OpaqueTokenStore, ReportTokens } from '@nakh/application';
+import type { OpaqueTokenStore, ReportTokenReferences } from '@nakh/application';
 import {
   createPostgresReportServices,
   PostgresGetReportReasonsHandler,
@@ -16,7 +16,7 @@ import type { M7AdminReportApiOptions } from './m7-admin-report-api.js';
 export type M7ReportHostConfiguration = Readonly<{
   database: NakhDatabase;
   authenticator: M7ApiAuthenticator;
-  reportTokens: ReportTokens;
+  reportTokens: ReportTokenReferences;
   adminTokens: OpaqueTokenStore;
   adminKey: Uint8Array;
   capabilities: ReportEvidenceCapabilities;

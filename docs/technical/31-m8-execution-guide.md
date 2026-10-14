@@ -1,5 +1,56 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: original-life native HTTP sessions
+
+Commit `42a03c9` passed all six jobs in run `38498425380`, attempt 1.
+Its native artifact proves 1,035 cases in 129 files without skips. All 27
+full-volume plans passed; terminal sampling took 940.650 ms against the unchanged
+1,500 ms limit, with the required indexes, one worker and no temporary blocks.
+Support load, backup/restore and the actual collector privacy rehearsal passed.
+
+The native session host now authenticates user credentials against original-life
+session grants. AES-GCM credentials carry only an encrypted grant ID, owner and
+original product epoch; neither bearer nor bearer hash is persisted. Immutable
+security audits establish the fixed fifteen-minute grant and its revocation.
+Twenty issuance retries share one grant and expiry, and twenty revocations append
+one revocation fact. Retrying issuance cannot refresh or revive a revoked grant.
+Issuance is internal to a trusted primary-authentication host which must capture
+the life before asynchronous waits; there is no public mint endpoint or client
+selection of the epoch. Legacy actor-only user verifiers fail closed.
+
+The HTTP boundary retains the authenticated life and exact grant, rejects client
+scope fields and reauthenticates the original bearer before releasing a result.
+Report, support and appeal factories issue owner/life MACs in owned Redis state.
+Native writes validate the captured epoch and live session under their existing
+Account lock protocol before effects. Report preparation locks the reporter's
+Account, while submission preserves canonical two-account lock ordering. Durable
+initial-life report digests remain compatible; later lives cannot replay those
+retained safety receipts. A replacement session in the same life can still replay
+its own business receipt after cache loss.
+
+Authenticator enrollment, confirmation and administrator-session admission also
+recheck the original user first factor under native User/Account locks. Issued
+workforce sessions retain their independent MFA/RBAC policy. The separate audited
+unban permission and retained safety history remain mandatory.
+
+Focused unit evidence covers credential tampering, wrong key/audience, original
+scope capture, revoked-result withholding and transport propagation. Native probes
+cover grant concurrency, actual Root admission, audit rollback/immutability,
+report retry concurrency and stale first-factor denial. Three actual Redis/HTTP
+cases require the full CI service: delayed write revocation, withheld response
+and actual Root fencing, and report-reference owner/life isolation. Privileged
+epoch changes are fault fixtures, not approved Return evidence. The native floor
+is 1,046 cases in 131 files. Full project checks and all six exact-head jobs remain
+required before this candidate is accepted.
+
+No DDL is introduced; schema 134 and the 150-table/1,381-column/298-FK inventory
+are unchanged. This increment does not prove bounded Root session sweeping,
+legacy cache producer drain/physical absence, independent ephemeral completion,
+policy manifests, final lifecycle verification or approved Return. Those M8
+obligations remain. Retained-data release remains disabled until policy periods
+are approved, and actual provider/staging/PITR/DR/security/operator sign-offs
+remain separate.
+
 ## Current increment: original-life safety contact and opaque references
 
 Commit `be0ebe6` passed all six jobs in run `38492388865`, attempt 1. Its native
