@@ -312,6 +312,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       '000137_m8_retention_manifest.sql',
       '000138_m8_final_verification.sql',
       '000139_m8_account_control.sql',
+      '000140_m8_deletion_localization.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database

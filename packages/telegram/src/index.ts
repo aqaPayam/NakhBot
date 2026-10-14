@@ -678,3 +678,5 @@ export * from './admin-retained-photo-delivery.js';
 
 export * from './admin-report-internal-blocks.js';
 export * from './admin-report-block-picker.js';
+
+export * from './account-deletion-adapter.js';

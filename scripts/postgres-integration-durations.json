@@ -149,7 +149,8 @@
     "packages/queue-redis/src/queue.integration.test.ts": 142,
     "packages/queue-redis/src/reference-queue.integration.test.ts": 152,
     "packages/persistence-postgres/src/account-control-session-store.integration.test.ts": 15768,
-    "apps/api/src/m8-account-deletion-api.integration.test.ts": 3697
+    "apps/api/src/m8-account-deletion-api.integration.test.ts": 3697,
+    "apps/telegram-gateway/src/account-deletion-ingress.integration.test.ts": 90000
   },
   "additionalMeasurements": [
     {
@@ -241,6 +242,13 @@
       "failed": 0,
       "overallJobPassed": false,
       "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."
+    }
+  ],
+  "provisionalEstimates": [
+    {
+      "file": "apps/telegram-gateway/src/account-deletion-ingress.integration.test.ts",
+      "durationMs": 90000,
+      "purpose": "Conservative scheduling estimate for new trusted deletion webhook/native composition, not a measured duration or acceptance evidence."
     }
   ]
 }

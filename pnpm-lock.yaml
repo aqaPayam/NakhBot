@@ -256,6 +256,10 @@ importers:
       rxjs:
         specifier: 'catalog:'
         version: 7.8.2
+    devDependencies:
+      kysely:
+        specifier: 'catalog:'
+        version: 0.29.5
 
   apps/worker:
     dependencies:

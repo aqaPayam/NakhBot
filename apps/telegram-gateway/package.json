@@ -24,5 +24,8 @@
     "fastify": "catalog:",
     "reflect-metadata": "catalog:",
     "rxjs": "catalog:"
+  },
+  "devDependencies": {
+    "kysely": "catalog:"
   }
 }

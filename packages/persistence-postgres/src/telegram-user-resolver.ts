@@ -31,4 +31,22 @@ export class PostgresTelegramUserResolver implements TelegramUserResolver {
       ? undefined
       : { userId: identity.user_id, productEpoch: identity.product_epoch };
   }
+  /** Limited controls only: deleted accounts remain eligible for own status.
+   * This method never authorizes product use or replaces resolveProductLife. */
+  public async resolveAccountControlLife(
+    telegramUserId: string,
+  ): Promise<
+    Readonly<{ userId: string; productEpoch: number; accountVersion: number }> | undefined
+  > {
+    if (!/^[1-9][0-9]{0,19}$/u.test(telegramUserId)) return undefined;
+    const row = await this.database
+      .selectFrom('identity.telegram_identities as telegram')
+      .innerJoin('identity.accounts as account', 'account.user_id', 'telegram.user_id')
+      .select(['account.user_id', 'account.product_epoch', 'account.version'])
+      .where('telegram.telegram_user_id', '=', telegramUserId)
+      .executeTakeFirst();
+    return row === undefined
+      ? undefined
+      : { userId: row.user_id, productEpoch: row.product_epoch, accountVersion: row.version };
+  }
 }

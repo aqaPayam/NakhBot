@@ -1,6 +1,59 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
-## Current repair: preserve populated historical admission and deferred expiry evidence
+## Current increment: trusted Telegram own deletion and limited status (migration 140)
+
+Accepted repair `38a3ae1` passed all six exact-head jobs on attempt 1 of run
+`38605992173`: all 1,161 native cases in 143 files, zero skips; all 27 plans at
+20,000 scale, terminal integrity 1,145.615 ms; support load, backup/restore and
+actual collector/privacy rehearsal passed. Native, performance and telemetry ZIP
+hashes match GitHub artifact digests. The original failed `07b54ae` run remains
+preserved and was not replayed. Its image-pull cause remains unknown; the repair's
+collector success does not establish a diagnosis for that earlier failure.
+
+Telegram now composes `/delete`, owner-bound confirm/cancel callbacks and
+`/delete_status` through the native limited account-control grants and deletion
+store. The actual gateway authenticates its provider webhook before routing any
+of these commands. It accepts only private human updates; callback messages must
+come from this configured bot and the same private recipient. Callback data contains
+only a native owner/version-bound confirmation MAC and fits Telegram's 64-byte limit.
+Each exact confirmation action has one stable native command identity across
+repeated clicks, even when Telegram assigns distinct update IDs.
+
+The original life and Account version are captured before limiter/native waits.
+Grant issuance uses a stable bot/update/User origin ID that deliberately omits the
+epoch: a replayed old update cannot acquire a replacement-life grant. A separate
+limited resolver includes tombstoned accounts and never changes the existing
+product resolver. Delivery rechecks the original Telegram ownership, epoch and
+native grant after catalog loading and callback acknowledgment. No ordinary product
+session, Redis owned-action vault or new product authority is restored.
+
+All notices and buttons load from versioned UIText keys. Cancellation describes
+the exact confirmation; a completed replay reports completion instead of stale
+progress. The limited status projection exposes no Root/provider/manifest details
+or retained content. Valid rate-limit and unavailable notices contain only fixed
+generic text. Provider failures are sanitized; retries use the same already
+committed command rather than repeating the tombstone or creating a new Root.
+
+The production flag `NAKH_DELETION_TELEGRAM_ENABLED` defaults OFF and requires
+configured worker readiness. The readiness hash remains an operator assertion,
+not certification of actual producer drain. Local native evidence covers twenty-way
+preparation/confirmation/cancellation, borrowed proof denial, delayed-life and old
+origin denial, grant revocation before delivery, provider failure/recovery, and
+limited status after actual native completion and settings purge with historical
+proof still valid. Privileged epoch changes are negative fixtures, not approved
+Return. Empty-provider fixture observations are not evidence of actual Redis
+absence. The real authenticated gateway/Redis composition case remains mandatory
+in CI; provider send/ack test doubles do not certify actual Telegram delivery.
+
+Migration 140 adds only localization rows; tables, columns, foreign keys and the
+retention catalog remain unchanged. Full checks and all six exact-head jobs remain
+required before another feature. Approved fresh GUEST Return, later-life Redis
+activation and historical proof after real Return, executable controlled retention
+release, M8 telemetry/runbooks and the complete interruption/load/recovery matrix
+remain due. Retained-data release stays OFF until real periods are approved.
+Actual provider/staging/PITR/DR/security/operator sign-offs remain external. No M9.
+
+## Historical repair: preserve populated historical admission and deferred expiry evidence
 
 Feature `07b54ae` is not accepted green. Run `38600724608` passed all four images
 and the quality job's complete project check, then failed the collector image pull

@@ -67,6 +67,10 @@ import {
   createTelegramSupportAppealIngress,
   type TelegramSupportAppealIngressPort,
 } from './support-appeal-ingress.js';
+import {
+  createTelegramAccountDeletionIngress,
+  type TelegramAccountDeletionIngressPort,
+} from './account-deletion-ingress.js';
 import type { TelegramReportIngressPort } from './report-ingress.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
@@ -80,6 +84,7 @@ const PHOTO_MANAGEMENT_ADAPTER = Symbol('PHOTO_MANAGEMENT_ADAPTER');
 const PHOTO_MENU_DELIVERY = Symbol('PHOTO_MENU_DELIVERY');
 const LIKED_BY_INGRESS = Symbol('LIKED_BY_INGRESS');
 const SUPPORT_APPEAL_INGRESS = Symbol('SUPPORT_APPEAL_INGRESS');
+const ACCOUNT_DELETION_INGRESS = Symbol('ACCOUNT_DELETION_INGRESS');
 const REDIS = Symbol('REDIS');
 const M1_METRICS = Symbol('M1_METRICS');
 const M2_METRICS = Symbol('M2_METRICS');
@@ -156,6 +161,8 @@ class TelegramGatewayController {
     private readonly photoManagementAdapter: PhotoManagementAdapter,
     @Inject(PHOTO_MENU_DELIVERY) private readonly photoMenuDelivery: PhotoMenuDelivery,
     @Inject(LIKED_BY_INGRESS) private readonly likedByIngress: TelegramLikedByIngressPort,
+    @Inject(ACCOUNT_DELETION_INGRESS)
+    private readonly accountDeletionIngress: TelegramAccountDeletionIngressPort,
     @Inject(SUPPORT_APPEAL_INGRESS)
     private readonly supportAppealIngress: TelegramSupportAppealIngressPort,
     @Inject(REPORT_INGRESS) private readonly reportIngress: TelegramReportIngressPort,
@@ -222,6 +229,8 @@ class TelegramGatewayController {
       throw error;
     }
     try {
+      if ((await this.accountDeletionIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
       if ((await this.supportAppealIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
       if ((await this.reportIngress.handle(update)) !== 'unhandled') return { accepted: true };
@@ -323,6 +332,11 @@ export class TelegramGatewayModule {
     const identityStore = new PostgresIdentityStore(database);
     const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
     const supportAppealIngress = createTelegramSupportAppealIngress({ config, database, redis });
+    const accountDeletionIngress = createTelegramAccountDeletionIngress({
+      config,
+      database,
+      redis,
+    });
     const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
     const photoAdapter: PhotoAdapter = config.media.ingestionEnabled
       ? (() => {
@@ -432,6 +446,7 @@ export class TelegramGatewayModule {
         { provide: PHOTO_MENU_DELIVERY, useValue: photoMenuDelivery },
         { provide: LIKED_BY_INGRESS, useValue: likedByIngress },
         { provide: SUPPORT_APPEAL_INGRESS, useValue: supportAppealIngress },
+        { provide: ACCOUNT_DELETION_INGRESS, useValue: accountDeletionIngress },
         {
           provide: REPORT_INGRESS,
           useValue: m7.reports ?? { handle: () => Promise.resolve('unhandled') },

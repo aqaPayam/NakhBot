@@ -60,6 +60,22 @@ describe('configuration', () => {
         'Invalid configuration',
       );
   });
+  it('keeps limited Telegram deletion off unless worker readiness is configured', () => {
+    expect(parseConfig(validEnvironment).deletion.telegramEnabled).toBe(false);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_DELETION_TELEGRAM_ENABLED: 'true' }),
+    ).toThrow('deletion Telegram requires');
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_DELETION_TELEGRAM_ENABLED: 'true',
+        NAKH_DELETION_WORKER_ENABLED: 'true',
+        NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+        NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
+        NAKH_DELETION_CUTOVER_EVIDENCE_HASH: 'b'.repeat(64),
+      }).deletion.telegramEnabled,
+    ).toBe(true);
+  });
   it('parses, defaults, and freezes configuration', () => {
     const config = parseConfig(validEnvironment);
 
