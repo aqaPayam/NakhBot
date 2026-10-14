@@ -1,5 +1,34 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
+## Current repair: use the native retention expiry column in worker evidence
+
+Worker feature `6e99523` passed quality and all four images in run `38586825585`.
+Its native job failed in two new worker assertions: both queried `expires_at`
+instead of migration 137's `retention_expires_at`. Both workflows had already
+reached completed checkpoint eight and passed their earlier phase/Account checks.
+This is not accepted complete workflow evidence: the assertions must also pass.
+No later plan, load or recovery acceptance is claimed for the failed run.
+
+Review also corrected a later, previously unreached assertion: the owned-token
+adapter returns `undefined` for unavailable authority, while raw Redis returns
+`null` for a missing physical key. Both contracts are now checked independently.
+The fixtures assert successful token/session admission and final native session
+revocation, preventing an empty fixture from impersonating cleanup evidence.
+
+The repair uses the correct column without changing the asserted retention policy,
+worker behavior, schema, test volume or acceptance limits. An isolated native
+schema probe reproduced error 42703 for the old query and successfully executed
+the corrected query. It proves SQL compatibility only, not actual Redis cleanup.
+Measured native-suite durations from the failed run now replace the provisional
+worker estimate: 35,874 ms for the two failed worker assertions and 396,935 ms
+for the fifteen passing final-verification cases. Provenance explicitly retains
+the failed overall result. These values influence dispatch only and cannot
+certify coverage or replace any acceptance gate.
+
+The exact repair head still requires all 1,150 native cases in 141 files with zero
+skips/failures, full project checks and all six CI jobs before further feature work.
+
+
 ## Current increment: bounded native and worker deletion composition
 
 Accepted repair `d7d8c2e` passed all six jobs in run `38573877417`: all 1,147

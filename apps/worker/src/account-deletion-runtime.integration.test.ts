@@ -64,19 +64,25 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
     async function scene(): Promise<{
       item: Awaited<ReturnType<typeof createDeletionFixture>>;
       prefix: string;
+      grantId: string;
       runtime: () => ReturnType<typeof createAccountDeletionRuntime>;
     }> {
       const prefix = `m8-worker-${randomUUID()}`;
       prefixes.push(prefix);
+      let grantId = '';
       const item = await createDeletionFixture(database, async (userId) => {
-        await new PostgresUserSessionStore(database).issue(
+        const grant = await new PostgresUserSessionStore(database).issue(
           { userId, productEpoch: 0 },
           randomUUID(),
         );
-        await new RedisOwnedOpaqueTokenStore(redis, prefix, {
-          userId,
-          productEpoch: 0,
-        }).putIfAbsent('abcdefghijklmnop', 'PRIVATE OLD BODY', 900);
+        expect(grant).toBeDefined();
+        grantId = grant!.id;
+        expect(
+          await new RedisOwnedOpaqueTokenStore(redis, prefix, {
+            userId,
+            productEpoch: 0,
+          }).putIfAbsent('abcdefghijklmnop', 'PRIVATE OLD BODY', 900),
+        ).toBe(true);
       });
       const unexpected = (): Promise<never> => {
         return Promise.reject(new Error('No media assets exist in this fixture'));
@@ -91,6 +97,7 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
       return {
         item,
         prefix,
+        grantId,
         runtime: () =>
           createAccountDeletionRuntime({
             database,
@@ -134,7 +141,7 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
       ).toEqual([{ count: 7 }]);
       expect(
         (
-          await sql`SELECT count(*)::integer AS count FROM identity.data_retention_records WHERE deletion_record_id=${f.item.recordId}::uuid AND expires_at IS NOT NULL`.execute(
+          await sql`SELECT count(*)::integer AS count FROM identity.data_retention_records WHERE deletion_record_id=${f.item.recordId}::uuid AND retention_expires_at IS NOT NULL`.execute(
             database,
           )
         ).rows,
@@ -144,7 +151,17 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
           userId: f.item.userId,
           productEpoch: 0,
         }).get('abcdefghijklmnop'),
-      ).toBeNull();
+      ).toBeUndefined();
+      expect(
+        (
+          await sql`SELECT identity.user_session_authority_revoked(${f.grantId}::uuid) AS revoked`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([{ revoked: true }]);
+      const scope = `${f.prefix}:owned-action:{${createHash('sha256').update(f.item.userId).digest('hex')}}`;
+      const valueKey = `${scope}:0:value:${createHash('sha256').update('public:abcdefghijklmnop').digest('hex')}`;
+      expect(await redis.get(valueKey)).toBeNull();
       const marker = `${f.prefix}:owned-action:{${createHash('sha256').update(f.item.userId).digest('hex')}}:life`;
       expect(await redis.get(marker)).toBe('blocked:0');
       expect(await redis.pttl(marker)).toBe(-1);
