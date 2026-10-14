@@ -38,18 +38,22 @@ describe.skipIf(url === undefined)('M8 original Photo references and populated u
       lockTimeoutMs: 15000,
     });
     held = await createRetainedReportPhoto(database);
-    await createDeletionFixture(database, async (owner) => {
-      const profile = await database
-        .selectFrom('profile.profiles')
-        .selectAll()
-        .where('user_id', '=', held.target)
-        .executeTakeFirstOrThrow();
-      await database
-        .insertInto('profile.profiles')
-        .values({ ...profile, id: randomUUID(), user_id: owner })
-        .execute();
-      deletedPhoto = await createReportPhoto(database, owner);
-    });
+    await createDeletionFixture(
+      database,
+      async (owner) => {
+        const profile = await database
+          .selectFrom('profile.profiles')
+          .selectAll()
+          .where('user_id', '=', held.target)
+          .executeTakeFirstOrThrow();
+        await database
+          .insertInto('profile.profiles')
+          .values({ ...profile, id: randomUUID(), user_id: owner })
+          .execute();
+        deletedPhoto = await createReportPhoto(database, owner);
+      },
+      'pre_epoch',
+    );
     previousSource = await database
       .selectFrom('media.profile_photos')
       .selectAll()

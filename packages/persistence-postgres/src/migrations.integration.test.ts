@@ -76,20 +76,24 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           lockTimeoutMs: 1000,
         });
         try {
-          const fixture = await createDeletionFixture(legacy, async (userId) => {
-            if (baseline === 135 || baseline === 138) {
-              const grant = (await new PostgresUserSessionStore(legacy).issue(
-                { userId, productEpoch: 0 },
-                randomUUID(),
-              ))!;
-              previousUserSession = {
-                id: grant.id,
-                audit: (
-                  await target!.query('SELECT * FROM platform.audit_logs WHERE id=$1', [grant.id])
-                ).rows,
-              };
-            }
-          });
+          const fixture = await createDeletionFixture(
+            legacy,
+            async (userId) => {
+              if (baseline === 135 || baseline === 138) {
+                const grant = (await new PostgresUserSessionStore(legacy).issue(
+                  { userId, productEpoch: 0 },
+                  randomUUID(),
+                ))!;
+                previousUserSession = {
+                  id: grant.id,
+                  audit: (
+                    await target!.query('SELECT * FROM platform.audit_logs WHERE id=$1', [grant.id])
+                  ).rows,
+                };
+              }
+            },
+            baseline < 100 ? 'pre_epoch' : 'current',
+          );
           if (baseline >= 86) {
             const leases = await new PostgresAccountDeletionWorkStore(legacy).claimDue({
               workerId: randomUUID(),

@@ -265,10 +265,12 @@ describe.skipIf(url === undefined)(
     it('rejects a lease that expires at deferred commit and leaves no partial batch', async () => {
       const original = await scene();
       await work.release(original);
-      const [lease] = await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 1000 });
       await sql`CREATE SEQUENCE public.retention_expiry_probe`.execute(database);
-      await sql`CREATE FUNCTION public.delay_retention_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-      PERFORM nextval('public.retention_expiry_probe'); PERFORM pg_sleep(1.1); RETURN NULL;
+      await sql`CREATE FUNCTION public.delay_retention_commit() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE expiry timestamptz; BEGIN
+      PERFORM nextval('public.retention_expiry_probe');
+      SELECT lease_expires_at INTO expiry FROM identity.data_retention_records WHERE id=(NEW.metadata->>'retentionRecordId')::uuid;
+      IF expiry IS NULL THEN RAISE EXCEPTION 'retention expiry source absent'; END IF;
+      PERFORM pg_sleep(greatest(0,extract(epoch FROM expiry-clock_timestamp()))+0.1); RETURN NULL;
     END $$`.execute(database);
       // Runs before the required audit check. The nontransactional sequence proves
       // the deferred trigger was reached, rather than merely expiring before work.
@@ -276,6 +278,8 @@ describe.skipIf(url === undefined)(
       FOR EACH ROW WHEN (NEW.event_type='account.deletion-retention-recorded.v1') EXECUTE FUNCTION public.delay_retention_commit()`.execute(
         database,
       );
+      const [lease] = await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 10000 });
+      expect(lease?.deletionRecordId).toBe(original.deletionRecordId);
       try {
         await expect(store.recordNext(lease!)).rejects.toMatchObject({ code: '23514' });
         expect(

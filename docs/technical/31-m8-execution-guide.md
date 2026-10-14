@@ -1,6 +1,36 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
-## Current increment: limited own account-deletion controls (migration 139)
+## Current repair: preserve populated historical admission and deferred expiry evidence
+
+Feature `07b54ae` is not accepted green. Run `38600724608` passed all four images
+and the quality job's complete project check, then failed the collector image pull
+with an unknown, nonretryable classification. That original log is preserved;
+no control rerun was requested because native CI also failed. The native inventory
+still included all 1,161 cases in 143 files: 1,134 passed, 19 failed and eight were
+skipped by failed suite setup. Later plan/load/restore gates did not run.
+
+Current production admission correctly requires original epoch columns, but older
+schema-85 through schema-99 populated-upgrade fixtures reused that current store.
+They must seed historical facts through the frozen pre-epoch implementation from
+accepted `bcb634f`, selected explicitly by those historical fixtures. This adapter
+is confined to testing and is not exported by production persistence composition.
+Current admission keeps every credential, native epoch, replay and status fence.
+
+The retention expiry probe previously used a one-second lease that could expire
+before its deferred trigger. It now admits work with a ten-second native lease,
+then waits until the actual stored expiry inside the deferred trigger. The existing
+nontransactional sequence must prove that path ran, and no partial batch may remain.
+Final expiry fixture preparation now uses a separately bounded setup hook; the
+unchanged test timeout covers real expiry, rollback and complete fresh recovery.
+No native proof guard, test volume, performance limit or 20-minute CI cap is relaxed.
+
+All ten new limited-credential/API cases and both complete-worker cases passed
+the original native run. Updated scheduling measurements retain that run's failed
+overall provenance and cannot certify acceptance. Complete checks and all six jobs
+on the repaired head remain mandatory before another feature. Full M8 scope and
+the external retention/provider/operational approvals below remain unchanged.
+
+## Historical increment: limited own account-deletion controls (migration 139)
 
 Accepted repair `bcb634f` passed all six exact-head jobs in run `38590856995`,
 final attempt 2: 1,150 native cases in 141 files, no skips; all 27 plans at

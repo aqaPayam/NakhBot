@@ -4,11 +4,13 @@ import type { RegisterTelegramIdentityWrite } from '@nakh/application';
 import type { NakhDatabase } from '../database.js';
 import { PostgresIdentityStore } from '../identity-store.js';
 import { PostgresAccountDeletionStore } from '../account-deletion-store.js';
+import { PreEpochDeletionFixtureStore } from './pre-epoch-deletion-fixture-store.js';
 
 /** Native lifecycle fixture uses real identity/admission transactions, not fabricated work rows. */
 export async function createDeletionFixture(
   database: NakhDatabase,
   beforeDeletion?: (userId: string) => Promise<void>,
+  admissionSchema: 'current' | 'pre_epoch' = 'current',
 ): Promise<{ userId: string; recordId: string }> {
   const commandId = randomUUID(),
     userId = randomUUID(),
@@ -44,7 +46,9 @@ export async function createDeletionFixture(
     .where('user_id', '=', userId)
     .executeTakeFirstOrThrow();
   const key = randomBytes(32),
-    deletion = new PostgresAccountDeletionStore(database, {
+    deletion = new (
+      admissionSchema === 'pre_epoch' ? PreEpochDeletionFixtureStore : PostgresAccountDeletionStore
+    )(database, {
       activeKeyId: 'm8-work-fixture',
       keys: new Map([['m8-work-fixture', key]]),
     });

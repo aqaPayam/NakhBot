@@ -371,46 +371,55 @@ describe.skipIf(url === undefined)('M8 fresh final verification and atomic compl
       expect(await store.finish(lease)).toEqual({ completed: true });
     },
   );
-  it('rolls back proof when a real native lease expires during deferred commit validation', async () => {
-    let { lease } = await createFinalDeletionFixture(database);
-    await pages(lease);
-    await sql`CREATE SEQUENCE public.final_expiry_probe`.execute(database);
-    await sql`CREATE FUNCTION public.delay_final_proof() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM nextval('public.final_expiry_probe'); PERFORM pg_sleep(greatest(0,extract(epoch FROM NEW.lease_expires_at-clock_timestamp()))+0.1); RETURN NEW; END $$`.execute(
-      database,
-    );
-    await sql`CREATE CONSTRAINT TRIGGER aa_final_expiry AFTER INSERT ON identity.account_deletion_phase_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.delay_final_proof()`.execute(
-      database,
-    );
-    await work.release(lease);
-    lease = (await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 10000 }))[0]!;
+  describe('deferred native expiry with full recovery', () => {
+    let preparedLease: AccountDeletionLease;
+    // Keep the full native fixture in a separately bounded setup hook. The test's
+    // unchanged 60s bound then covers expiry, rollback and fresh recovery, rather
+    // than also counting all preceding phase 1..7 setup under concurrent CI load.
+    beforeEach(async () => {
+      preparedLease = (await createFinalDeletionFixture(database)).lease;
+      await pages(preparedLease);
+    });
+    it('rolls back proof when a real native lease expires during deferred commit validation', async () => {
+      let lease = preparedLease;
+      await sql`CREATE SEQUENCE public.final_expiry_probe`.execute(database);
+      await sql`CREATE FUNCTION public.delay_final_proof() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM nextval('public.final_expiry_probe'); PERFORM pg_sleep(greatest(0,extract(epoch FROM NEW.lease_expires_at-clock_timestamp()))+0.1); RETURN NEW; END $$`.execute(
+        database,
+      );
+      await sql`CREATE CONSTRAINT TRIGGER aa_final_expiry AFTER INSERT ON identity.account_deletion_phase_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.delay_final_proof()`.execute(
+        database,
+      );
+      await work.release(lease);
+      lease = (await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 10000 }))[0]!;
 
-    try {
-      await expect(store.finish(lease)).rejects.toBeDefined();
+      try {
+        await expect(store.finish(lease)).rejects.toBeDefined();
+        expect(
+          (
+            await sql<{
+              is_called: boolean;
+            }>`SELECT is_called FROM public.final_expiry_probe`.execute(database)
+          ).rows[0]!.is_called,
+        ).toBe(true);
+      } finally {
+        await sql`DROP TRIGGER aa_final_expiry ON identity.account_deletion_phase_receipts`.execute(
+          database,
+        );
+        await sql`DROP FUNCTION public.delay_final_proof()`.execute(database);
+        await sql`DROP SEQUENCE public.final_expiry_probe`.execute(database);
+      }
       expect(
         (
           await sql<{
-            is_called: boolean;
-          }>`SELECT is_called FROM public.final_expiry_probe`.execute(database)
-        ).rows[0]!.is_called,
-      ).toBe(true);
-    } finally {
-      await sql`DROP TRIGGER aa_final_expiry ON identity.account_deletion_phase_receipts`.execute(
-        database,
-      );
-      await sql`DROP FUNCTION public.delay_final_proof()`.execute(database);
-      await sql`DROP SEQUENCE public.final_expiry_probe`.execute(database);
-    }
-    expect(
-      (
-        await sql<{
-          count: number;
-        }>`SELECT count(*)::integer AS count FROM identity.account_deletion_phase_receipts WHERE deletion_record_id=${lease.deletionRecordId}::uuid AND completed_phase='verification'`.execute(
-          database,
-        )
-      ).rows[0]!.count,
-    ).toBe(0);
-    lease = (await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 120000 }))[0]!;
-    await pages(lease);
-    expect(await store.finish(lease)).toEqual({ completed: true });
+            count: number;
+          }>`SELECT count(*)::integer AS count FROM identity.account_deletion_phase_receipts WHERE deletion_record_id=${lease.deletionRecordId}::uuid AND completed_phase='verification'`.execute(
+            database,
+          )
+        ).rows[0]!.count,
+      ).toBe(0);
+      lease = (await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 120000 }))[0]!;
+      await pages(lease);
+      expect(await store.finish(lease)).toEqual({ completed: true });
+    });
   });
 });

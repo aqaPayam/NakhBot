@@ -35,13 +35,13 @@
     "apps/telegram-gateway/src/m8-opaque-runtime.integration.test.ts": 204,
     "apps/telegram-gateway/src/photo-action-life.integration.test.ts": 38,
     "apps/telegram-gateway/src/support-appeal-life.integration.test.ts": 3721,
-    "apps/worker/src/account-deletion-runtime.integration.test.ts": 35874,
+    "apps/worker/src/account-deletion-runtime.integration.test.ts": 48371,
     "apps/worker/src/reference-delivery.integration.test.ts": 3043,
     "packages/persistence-postgres/src/account-deletion-checkpoint-store.integration.test.ts": 8751,
     "packages/persistence-postgres/src/account-deletion-ephemeral-store.integration.test.ts": 93766,
     "packages/persistence-postgres/src/account-deletion-evidence-checkpoint.integration.test.ts": 7583,
     "packages/persistence-postgres/src/account-deletion-evidence-store.integration.test.ts": 90063,
-    "packages/persistence-postgres/src/account-deletion-final-store.integration.test.ts": 396935,
+    "packages/persistence-postgres/src/account-deletion-final-store.integration.test.ts": 557801,
     "packages/persistence-postgres/src/account-deletion-financial-store.integration.test.ts": 12543,
     "packages/persistence-postgres/src/account-deletion-like-store.integration.test.ts": 14103,
     "packages/persistence-postgres/src/account-deletion-media-store.integration.test.ts": 24555,
@@ -51,7 +51,7 @@
     "packages/persistence-postgres/src/account-deletion-pair-store.integration.test.ts": 26012,
     "packages/persistence-postgres/src/account-deletion-product-store.integration.test.ts": 11231,
     "packages/persistence-postgres/src/account-deletion-referenced-like-store.integration.test.ts": 15118,
-    "packages/persistence-postgres/src/account-deletion-retention-store.integration.test.ts": 277971,
+    "packages/persistence-postgres/src/account-deletion-retention-store.integration.test.ts": 336433,
     "packages/persistence-postgres/src/account-deletion-sample-store.integration.test.ts": 7067,
     "packages/persistence-postgres/src/account-deletion-session-store.integration.test.ts": 91258,
     "packages/persistence-postgres/src/account-deletion-shared-store.integration.test.ts": 10808,
@@ -99,7 +99,7 @@
     "packages/persistence-postgres/src/media.integration.test.ts": 4380,
     "packages/persistence-postgres/src/message-report-source-store.integration.test.ts": 472,
     "packages/persistence-postgres/src/message-report-submission-store.integration.test.ts": 3567,
-    "packages/persistence-postgres/src/migrations.integration.test.ts": 223115,
+    "packages/persistence-postgres/src/migrations.integration.test.ts": 271515,
     "packages/persistence-postgres/src/moderation-integrity-metrics-store.integration.test.ts": 7354,
     "packages/persistence-postgres/src/moderation-operational-health-store.integration.test.ts": 2736,
     "packages/persistence-postgres/src/moderation-operational-metrics-store.integration.test.ts": 268,
@@ -148,8 +148,8 @@
     "packages/queue-redis/src/owned-opaque-state.integration.test.ts": 204,
     "packages/queue-redis/src/queue.integration.test.ts": 142,
     "packages/queue-redis/src/reference-queue.integration.test.ts": 152,
-    "packages/persistence-postgres/src/account-control-session-store.integration.test.ts": 30000,
-    "apps/api/src/m8-account-deletion-api.integration.test.ts": 10000
+    "packages/persistence-postgres/src/account-control-session-store.integration.test.ts": 15768,
+    "apps/api/src/m8-account-deletion-api.integration.test.ts": 3697
   },
   "additionalMeasurements": [
     {
@@ -181,18 +181,66 @@
       "failed": 0,
       "overallJobPassed": false,
       "purpose": "Dispatch estimate only; failed coverage never authorizes acceptance."
-    }
-  ],
-  "provisionalEstimates": [
-    {
-      "file": "packages/persistence-postgres/src/account-control-session-store.integration.test.ts",
-      "durationMs": 30000,
-      "purpose": "Conservative scheduling estimate for new account-control suites, not a measured duration or acceptance evidence."
     },
     {
+      "commit": "07b54ae4dfd0573f67c7fac4c57face332b1c37e",
+      "run": 38600724608,
+      "file": "packages/persistence-postgres/src/account-deletion-final-store.integration.test.ts",
+      "durationMs": 557801,
+      "passed": 14,
+      "failed": 1,
+      "overallJobPassed": false,
+      "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."
+    },
+    {
+      "commit": "07b54ae4dfd0573f67c7fac4c57face332b1c37e",
+      "run": 38600724608,
+      "file": "packages/persistence-postgres/src/account-deletion-retention-store.integration.test.ts",
+      "durationMs": 336433,
+      "passed": 13,
+      "failed": 1,
+      "overallJobPassed": false,
+      "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."
+    },
+    {
+      "commit": "07b54ae4dfd0573f67c7fac4c57face332b1c37e",
+      "run": 38600724608,
+      "file": "packages/persistence-postgres/src/migrations.integration.test.ts",
+      "durationMs": 271515,
+      "passed": 54,
+      "failed": 15,
+      "overallJobPassed": false,
+      "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."
+    },
+    {
+      "commit": "07b54ae4dfd0573f67c7fac4c57face332b1c37e",
+      "run": 38600724608,
+      "file": "apps/worker/src/account-deletion-runtime.integration.test.ts",
+      "durationMs": 48371,
+      "passed": 2,
+      "failed": 0,
+      "overallJobPassed": false,
+      "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."
+    },
+    {
+      "commit": "07b54ae4dfd0573f67c7fac4c57face332b1c37e",
+      "run": 38600724608,
+      "file": "packages/persistence-postgres/src/account-control-session-store.integration.test.ts",
+      "durationMs": 15768,
+      "passed": 7,
+      "failed": 0,
+      "overallJobPassed": false,
+      "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."
+    },
+    {
+      "commit": "07b54ae4dfd0573f67c7fac4c57face332b1c37e",
+      "run": 38600724608,
       "file": "apps/api/src/m8-account-deletion-api.integration.test.ts",
-      "durationMs": 10000,
-      "purpose": "Conservative scheduling estimate for new account-control suites, not a measured duration or acceptance evidence."
+      "durationMs": 3697,
+      "passed": 3,
+      "failed": 0,
+      "overallJobPassed": false,
+      "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."
     }
   ]
 }

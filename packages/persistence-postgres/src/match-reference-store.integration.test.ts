@@ -39,12 +39,16 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
       lockTimeoutMs: 15000,
     });
     survivor = await createReportUser(database, true);
-    const fixture = await createDeletionFixture(database, async (userId) => {
-      await sql`UPDATE identity.accounts SET state='active',version=version+1,state_changed_at=clock_timestamp() WHERE user_id=${userId}::uuid`.execute(
-        database,
-      );
-      matchId = (await createReportUnmatch(database, survivor, userId)).matchId;
-    });
+    const fixture = await createDeletionFixture(
+      database,
+      async (userId) => {
+        await sql`UPDATE identity.accounts SET state='active',version=version+1,state_changed_at=clock_timestamp() WHERE user_id=${userId}::uuid`.execute(
+          database,
+        );
+        matchId = (await createReportUnmatch(database, survivor, userId)).matchId;
+      },
+      'pre_epoch',
+    );
     owner = fixture.userId;
     originalMatch = await database
       .selectFrom('matching.matches')

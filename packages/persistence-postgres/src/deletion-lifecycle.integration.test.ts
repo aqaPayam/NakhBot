@@ -167,7 +167,7 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
           if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(file) && Number(file.slice(0, 6)) <= 99)
             await copyFile(join(resolve('migrations'), file), join(directory, file));
         await runMigrations(old.url, directory);
-        const item = await createDeletionFixture(legacy),
+        const item = await createDeletionFixture(legacy, undefined, 'pre_epoch'),
           before = await original(item.recordId, legacy);
         const owner = await legacy
           .selectFrom('identity.accounts')
