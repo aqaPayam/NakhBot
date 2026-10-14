@@ -27,5 +27,8 @@
     "pino": "catalog:",
     "reflect-metadata": "catalog:",
     "rxjs": "catalog:"
+  },
+  "devDependencies": {
+    "@nakh/queue-redis": "workspace:*"
   }
 }

@@ -186,6 +186,10 @@ importers:
       rxjs:
         specifier: 'catalog:'
         version: 7.8.2
+    devDependencies:
+      '@nakh/queue-redis':
+        specifier: workspace:*
+        version: link:../../packages/queue-redis
 
   apps/scheduler:
     dependencies:

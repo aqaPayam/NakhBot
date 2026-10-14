@@ -1,5 +1,23 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: explicit HTTP integration dependency
+
+Commit `9e6f875` passed local full checks, GitHub full quality checks and all four
+image builds. Native CI ran 1,043 cases successfully, including the eight new
+native-session cases, but could not import the new three-case HTTP/Redis suite:
+the API package did not declare its test-only Redis workspace adapter. The repair
+adds that explicit development dependency and its exact workspace lockfile link.
+No external dependency version, production authorization, test case or acceptance
+floor changes. A frozen offline install and resolution from the API package verify
+the dependency contract; the repaired head still requires full checks and six CI jobs.
+
+The independent quality failure occurred before metric export, during the pinned
+public collector image pull. Its finite diagnostic was `collector_startup_unknown`;
+the exact provider cause remains unknown. The first failure log is preserved and
+one unchanged completed-quality-job diagnostic rerun was requested. No collector
+assertion, privacy policy, image or retry classification is relaxed. The failed
+native run did not reach plan/load/recovery gates and is not accepted evidence.
+
 ## Current increment: original-life native HTTP sessions
 
 Commit `42a03c9` passed all six jobs in run `38498425380`, attempt 1.
