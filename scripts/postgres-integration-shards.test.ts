@@ -10,6 +10,7 @@ import {
 
 const first = resolve('packages/one.integration.test.ts');
 const second = resolve('apps/two.integration.test.ts');
+const third = resolve('packages/three.integration.test.ts');
 function report(file: string, total = 1): IntegrationShardReport {
   return { success: true, total, passed: total, failed: 0, skipped: 0, files: [file] };
 }
@@ -29,20 +30,24 @@ describe('complete isolated native integration shards', () => {
     expect(planIntegrationShards([...files].reverse(), durations)).toEqual(plan);
     expect(new Set(plan.files.flat())).toEqual(new Set(files));
     expect(plan.files.flat()).toHaveLength(files.length);
-    expect(Math.abs(plan.estimatedMs[0] - plan.estimatedMs[1])).toBeLessThanOrEqual(
+    expect(Math.max(...plan.estimatedMs) - Math.min(...plan.estimatedMs)).toBeLessThanOrEqual(
       Math.max(...Object.values(durations)),
     );
     expect(plan.files.every((shard) => shard.length > 0)).toBe(true);
   });
 
   it('executes unmeasured suites and keeps duration estimates out of coverage authority', () => {
-    const plan = planIntegrationShards([first, second], {});
-    expect(plan.files.flat().sort()).toEqual([first, second].sort());
-    expect(plan.estimatedMs).toEqual([30000, 30000]);
+    const plan = planIntegrationShards([first, second, third], {});
+    expect(plan.files.flat().sort()).toEqual([first, second, third].sort());
+    expect(plan.estimatedMs).toEqual([30000, 30000, 30000]);
     expect(() =>
       verifyIntegrationShardCoverage(
-        [report(plan.files[0][0]!), { ...report(plan.files[1][0]!), skipped: 1 }],
-        [first, second],
+        [
+          report(plan.files[0]![0]!),
+          report(plan.files[1]![0]!),
+          { ...report(plan.files[2]![0]!), skipped: 1 },
+        ],
+        [first, second, third],
         2,
       ),
     ).toThrow('coverage');
@@ -52,12 +57,15 @@ describe('complete isolated native integration shards', () => {
     for (const files of [
       [],
       [first],
-      [first, first],
-      [first, resolve('../outside.integration.test.ts')],
+      [first, second],
+      [first, first, second],
+      [first, second, resolve('../outside.integration.test.ts')],
     ])
       expect(() => planIntegrationShards(files, {})).toThrow('coverage');
     for (const value of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])
-      expect(() => planIntegrationShards([first, second], { [first]: value })).toThrow('coverage');
+      expect(() => planIntegrationShards([first, second, third], { [first]: value })).toThrow(
+        'coverage',
+      );
   });
 
   it('separates the longest suites so a filename partition cannot strand all heavy work together', () => {
@@ -79,22 +87,28 @@ describe('complete isolated native integration shards', () => {
   it('retains every declared file exactly once and accounts for every passed test', () => {
     expect(
       verifyIntegrationShardCoverage(
-        [report(first, 472), report(second, 469)],
-        [first, second],
+        [report(first, 471), report(second, 469), report(third)],
+        [first, second, third],
         941,
       ),
-    ).toEqual({ shards: 2, testFiles: 2, total: 941, passed: 941, skipped: 0 });
+    ).toEqual({ shards: 3, testFiles: 3, total: 941, passed: 941, skipped: 0 });
   });
 
   it('denies an apparently green partial run and duplicate or unexpected files', () => {
     for (const reports of [
-      [report(first), { ...report(second), files: [] }],
-      [report(first), report(first)],
-      [report(first), report(resolve('apps/unexpected.integration.test.ts'))],
+      [report(first), report(second), { ...report(third), files: [] }],
+      [report(first), report(second), report(second)],
+      [report(first), report(second), report(resolve('apps/unexpected.integration.test.ts'))],
     ])
-      expect(() => verifyIntegrationShardCoverage(reports, [first, second], 2)).toThrow('coverage');
+      expect(() => verifyIntegrationShardCoverage(reports, [first, second, third], 3)).toThrow(
+        'coverage',
+      );
     expect(() =>
-      verifyIntegrationShardCoverage([report(first), report(second)], [first, second], 941),
+      verifyIntegrationShardCoverage(
+        [report(first), report(second), report(third)],
+        [first, second, third],
+        941,
+      ),
     ).toThrow('coverage');
   });
 
@@ -102,11 +116,26 @@ describe('complete isolated native integration shards', () => {
     for (const changed of [{ success: false }, { failed: 1 }, { skipped: 1 }, { passed: 0 }])
       expect(() =>
         verifyIntegrationShardCoverage(
-          [report(first), { ...report(second), ...changed }],
-          [first, second],
+          [report(first), report(second), { ...report(third), ...changed }],
+          [first, second, third],
           2,
         ),
       ).toThrow('coverage');
+  });
+
+  it('requires exactly all three native reports before authorizing later gates', () => {
+    for (const reports of [
+      [report(first), report(second)],
+      [
+        report(first),
+        report(second),
+        report(third),
+        report(resolve('packages/four.integration.test.ts')),
+      ],
+    ])
+      expect(() => verifyIntegrationShardCoverage(reports, [first, second, third], 3)).toThrow(
+        'coverage',
+      );
   });
 
   it('accepts only internally consistent finite JSON coverage facts', () => {
@@ -139,6 +168,15 @@ describe('complete isolated native integration shards', () => {
     };
     const one = integrationShardEnvironment(original, 'postgresql://test:private@localhost/one', 1);
     const two = integrationShardEnvironment(original, 'postgresql://test:private@localhost/two', 2);
+    const three = integrationShardEnvironment(
+      original,
+      'postgresql://test:private@localhost/three',
+      3,
+    );
+    expect(new Set([one.PGDATABASE, two.PGDATABASE, three.PGDATABASE]).size).toBe(3);
+    expect(three.PGDATABASE).toBe('three');
+    expect(new URL(three.NAKH_TEST_REDIS_URL!).pathname).toBe('/3');
+    expect(three.NAKH_DATABASE_URL).toBe(three.NAKH_TEST_DATABASE_URL);
     expect(one.PGDATABASE).toBe('one');
     expect(two.PGDATABASE).toBe('two');
     expect(one.NAKH_DATABASE_URL).toBe(one.NAKH_TEST_DATABASE_URL);
@@ -152,9 +190,34 @@ describe('complete isolated native integration shards', () => {
 
   it('denies invalid provider protocols and Redis ranges rather than sharing state', () => {
     expect(() => integrationShardEnvironment({}, 'https://localhost/base', 1)).toThrow('coverage');
-    for (const url of ['https://localhost/0', 'redis://localhost/14', 'redis://localhost/not-a-db'])
+    for (const url of [
+      'https://localhost/0',
+      'redis://localhost/12',
+      'redis://localhost/13',
+      'redis://localhost/14',
+      'redis://localhost/not-a-db',
+    ])
       expect(() =>
         integrationShardEnvironment({ NAKH_TEST_REDIS_URL: url }, 'postgresql://localhost/test', 2),
       ).toThrow('coverage');
+  });
+
+  it('keeps every shard outside the composed fixture database even at the maximum Redis base', () => {
+    const paths = ([1, 2, 3] as const).map(
+      (shard) =>
+        new URL(
+          integrationShardEnvironment(
+            { NAKH_TEST_REDIS_URL: 'redis://localhost/11' },
+            `postgresql://localhost/worker_${shard}`,
+            shard,
+          ).NAKH_TEST_REDIS_URL!,
+        ).pathname,
+    );
+    expect(paths).toEqual(['/12', '/13', '/14']);
+    expect(new Set(paths).size).toBe(3);
+    expect(paths).not.toContain('/15');
+    expect(() =>
+      integrationShardEnvironment({}, 'postgresql://localhost/test', 4 as never),
+    ).toThrow('coverage');
   });
 });

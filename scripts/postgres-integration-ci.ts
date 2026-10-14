@@ -10,10 +10,12 @@ import {
 } from '../packages/persistence-postgres/src/migrations.js';
 import {
   integrationShardEnvironment,
+  NATIVE_SHARDS,
   planIntegrationShards,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
   type IntegrationShardReport,
+  type NativeShard,
 } from './postgres-integration-shards.js';
 import durations from './postgres-integration-durations.json' with { type: 'json' };
 
@@ -36,7 +38,7 @@ if (expectedFiles.length < 139)
 const dispatch = planIntegrationShards(expectedFiles, durations.files);
 
 const temporary = await mkdtemp(join(tmpdir(), 'nakh-native-shards-'));
-const paths = [join(temporary, '1.json'), join(temporary, '2.json')];
+const paths = NATIVE_SHARDS.map((shard) => join(temporary, `${shard}.json`));
 const children = new Set<ReturnType<typeof spawn>>();
 // Preserve a caller's diagnostic engine mode; CI's normal runtime adds no flags.
 const engineArguments = process.execArgv.filter((argument) => argument === '--no-opt');
@@ -46,7 +48,7 @@ function stopChildren(): void {
 process.once('SIGINT', stopChildren);
 process.once('SIGTERM', stopChildren);
 
-async function runShard(shard: 1 | 2): Promise<IntegrationShardReport> {
+async function runShard(shard: NativeShard): Promise<IntegrationShardReport> {
   const database = await createIsolatedTestDatabase(url!, `ci_native_${shard}`);
   try {
     // Match the existing CI service's migrated and verified starting state.
@@ -86,7 +88,7 @@ async function runShard(shard: 1 | 2): Promise<IntegrationShardReport> {
 }
 
 try {
-  const results = await Promise.allSettled([runShard(1), runShard(2)]);
+  const results = await Promise.allSettled(NATIVE_SHARDS.map(runShard));
   if (results.some((result) => result.status === 'rejected'))
     throw new Error('Native integration shards failed; no later acceptance gate is authorized.');
   const reports = results.map((result) => {
@@ -132,7 +134,7 @@ try {
 } finally {
   process.removeListener('SIGINT', stopChildren);
   process.removeListener('SIGTERM', stopChildren);
-  // Remove only the two known files and their newly created empty directory.
+  // Remove only the three known files and their newly created empty directory.
   // Never recursively delete a path supplied through configuration.
   for (const path of paths) await rm(path, { force: true });
   await rmdir(temporary);

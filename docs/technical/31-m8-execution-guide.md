@@ -1,6 +1,35 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
 
+## Current repair: preserve all acceptance work with three isolated native contexts
+
+Run `38554674643` on `d0e724a` passed quality, the actual collector/privacy
+rehearsal and all four image builds. Native integration completed successfully:
+1,127 cases in all 139 files, zero skips, inventory digest
+`b6c3d0db841d17568fff6c51aa021a4f84f1ad323aa271f121087685d0a150d2`.
+The complete native step still took 16 minutes 50 seconds. The job reached its
+unchanged 20-minute limit during M7 query-plan testing; the later support load
+and backup/restore checks did not run. This head is not accepted as green.
+
+The repair retains duration-balanced dispatch and adds a third isolated native
+PostgreSQL/Redis context inside the same reliability job. There are still six
+public CI jobs. Each native child has one worker; performance/load/recovery
+checks still run after all native children finish. The file inventory, minimum
+1,127 cases, zero failed/skipped cases, exact-once complete coverage and all
+existing volumes, indexes, thresholds and the 20-minute cap remain required.
+Two reports cannot authorize completion of a three-context run.
+
+Redis database 15 remains reserved for the composed HTTP/Redis fixture. The
+ordinary three contexts use distinct databases, including at the maximum
+accepted base; configurations that could overlap the reserved database fail
+before execution. Planning estimates now use all 139 actually completed suite
+timings from the failed overall run, explicitly recording that only its native
+coverage passed. They are not performance acceptance and never exclude files.
+The real CLI selection probe covers all 139 files exactly once across the three
+contexts. Full checks and all six exact-head jobs remain required before further
+M8 feature work; no migration or product behavior changes in this repair.
+
+
 ## Current repair: balance complete native dispatch within existing limits
 
 Feature `c186dee` passed local full checks and 89 targeted native cases. In run

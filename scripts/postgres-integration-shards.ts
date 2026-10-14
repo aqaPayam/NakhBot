@@ -1,5 +1,8 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 
+export const NATIVE_SHARDS = [1, 2, 3] as const;
+export type NativeShard = (typeof NATIVE_SHARDS)[number];
+
 export type IntegrationShardReport = Readonly<{
   success: boolean;
   total: number;
@@ -35,11 +38,11 @@ export function planIntegrationShards(
   durations: Readonly<Record<string, number>>,
   directory = process.cwd(),
 ): Readonly<{
-  files: readonly [readonly string[], readonly string[]];
-  estimatedMs: readonly [number, number];
+  files: readonly (readonly string[])[];
+  estimatedMs: readonly number[];
 }> {
   if (
-    files.length < 2 ||
+    files.length < NATIVE_SHARDS.length ||
     new Set(files.map(canonical)).size !== files.length ||
     Object.values(durations).some((value) => !Number.isSafeInteger(value) || value < 1)
   )
@@ -51,16 +54,16 @@ export function planIntegrationShards(
     return { file, key, ms: durations[key] ?? 30000 };
   });
   candidates.sort((a, b) => b.ms - a.ms || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  const buckets: [string[], string[]] = [[], []];
-  const totals: [number, number] = [0, 0];
+  const buckets = NATIVE_SHARDS.map((): string[] => []);
+  const totals = NATIVE_SHARDS.map(() => 0);
   for (const candidate of candidates) {
-    const shard = totals[0] <= totals[1] ? 0 : 1;
-    buckets[shard].push(candidate.file);
-    totals[shard] += candidate.ms;
+    const shard = totals.indexOf(Math.min(...totals));
+    buckets[shard]!.push(candidate.file);
+    totals[shard] = totals[shard]! + candidate.ms;
     if (!Number.isSafeInteger(totals[shard])) invalid();
   }
   return {
-    files: [Object.freeze(buckets[0]), Object.freeze(buckets[1])],
+    files: Object.freeze(buckets.map((bucket) => Object.freeze(bucket))),
     estimatedMs: Object.freeze(totals),
   };
 }
@@ -92,7 +95,12 @@ export function verifyIntegrationShardCoverage(
   expectedFiles: readonly string[],
   minimumTests: number,
 ): Readonly<{ shards: number; testFiles: number; total: number; passed: number; skipped: number }> {
-  if (reports.length !== 2 || expectedFiles.length === 0 || count(minimumTests) < 1) invalid();
+  if (
+    reports.length !== NATIVE_SHARDS.length ||
+    expectedFiles.length === 0 ||
+    count(minimumTests) < 1
+  )
+    invalid();
   const expected = new Set(expectedFiles.map(canonical));
   if (expected.size !== expectedFiles.length) invalid();
   const seen = new Set<string>();
@@ -108,7 +116,7 @@ export function verifyIntegrationShardCoverage(
     total += report.total;
   }
   if (seen.size !== expected.size || total < minimumTests) invalid();
-  return { shards: 2, testFiles: seen.size, total, passed: total, skipped: 0 };
+  return { shards: NATIVE_SHARDS.length, testFiles: seen.size, total, passed: total, skipped: 0 };
 }
 
 /** Give each child its own real databases. Even fixed queue/token names cannot
@@ -116,8 +124,9 @@ export function verifyIntegrationShardCoverage(
 export function integrationShardEnvironment(
   original: NodeJS.ProcessEnv,
   postgresUrl: string,
-  shard: 1 | 2,
+  shard: NativeShard,
 ): NodeJS.ProcessEnv {
+  if (!NATIVE_SHARDS.includes(shard)) invalid();
   const database = new URL(postgresUrl);
   if (!['postgres:', 'postgresql:'].includes(database.protocol)) invalid();
   const environment: NodeJS.ProcessEnv = {
@@ -132,7 +141,9 @@ export function integrationShardEnvironment(
     if (!['redis:', 'rediss:'].includes(redis.protocol)) invalid();
     const base =
       redis.pathname === '' || redis.pathname === '/' ? 0 : Number(redis.pathname.slice(1));
-    if (!Number.isSafeInteger(base) || base < 0 || base > 13) invalid();
+    // DB 15 belongs exclusively to the composed HTTP/Redis fixture. All three
+    // ordinary shard contexts must remain distinct from it and one another.
+    if (!Number.isSafeInteger(base) || base < 0 || base > 11) invalid();
     redis.pathname = `/${base + shard}`;
     environment.NAKH_TEST_REDIS_URL = redis.toString();
     environment.NAKH_REDIS_URL = redis.toString();
