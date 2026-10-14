@@ -9,6 +9,7 @@ const request: TelegramLikedByPageRequest = {
   kind: 'page_request',
   updateId: '42',
   userId: '10000000-0000-4000-8000-000000000000',
+  productEpoch: 0,
   telegramUserId: '12345',
   requestId: '50000000-0000-4000-8000-000000000000',
 };
@@ -38,11 +39,14 @@ describe('Telegram Liked By deferred page processor', () => {
     );
     expect(JSON.stringify(request)).not.toContain('deliveryUrl');
     const screen = await processor.execute(request);
-    expect(page.execute).toHaveBeenCalledWith({
-      actor: { kind: 'user', userId: request.userId },
-      requestId: request.requestId,
-      limit: 5,
-    });
+    expect(page.execute).toHaveBeenCalledWith(
+      {
+        actor: { kind: 'user', userId: request.userId },
+        requestId: request.requestId,
+        limit: 5,
+      },
+      0,
+    );
     expect(screen).toMatchObject({
       title: { key: 'liked_by.title', variables: { count: 1 } },
       cards: [{ blurredPhoto: pageResult.cards[0]!.blurredPhoto }],
@@ -58,6 +62,7 @@ describe('Telegram Liked By deferred page processor', () => {
     await processor.execute({ ...request, callbackQueryId: 'callback-id', cursor });
     expect(page.execute).toHaveBeenCalledWith(
       expect.objectContaining({ cursor, actor: { kind: 'user', userId: request.userId } }),
+      0,
     );
   });
 

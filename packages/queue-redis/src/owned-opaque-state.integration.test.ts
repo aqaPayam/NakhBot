@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createRedisConnection, RedisOwnedOpaqueTokenStore } from './index.js';
+import { LikedByOpaqueReferences } from '@nakh/application';
 
 const url = process.env.NAKH_TEST_REDIS_URL;
 describe.skipIf(url === undefined)('M8 account-life opaque state revocation', () => {
@@ -196,5 +197,67 @@ describe.skipIf(url === undefined)('M8 account-life opaque state revocation', ()
     expect(await drain(owned.store)).toBe(0);
     await expect(owned.store.revokeNext(101)).rejects.toThrow(/invalid/);
     await expect(owned.store.revokeNext(1, '-1')).rejects.toThrow(/invalid/);
+  });
+
+  it('binds real Liked By signatures to owner and life even when logical identities are reused', async () => {
+    const userId = randomUUID(),
+      otherId = randomUUID(),
+      likeId = randomUUID(),
+      requestId = randomUUID();
+    const old = subject(userId, 0),
+      next = subject(userId, 1),
+      other = subject(otherId, 0);
+    const key = new Uint8Array(32).fill(17);
+    const oldReferences = LikedByOpaqueReferences.forLife(old.store, key, {
+      userId,
+      productEpoch: 0,
+    });
+    const oldToken = await oldReferences.issueAction(userId, likeId, requestId);
+    expect(await oldReferences.resolveAction(oldToken, userId)).toBe(likeId);
+    const otherReferences = LikedByOpaqueReferences.forLife(other.store, key, {
+      userId: otherId,
+      productEpoch: 0,
+    });
+    expect(await otherReferences.resolveAction(oldToken, otherId)).toBeUndefined();
+    await drain(old.store);
+    // Privileged Redis fixture only; approved native Return activation is separate.
+    await redis.set(`${old.scope}:life`, 'active:1');
+    const nextReferences = LikedByOpaqueReferences.forLife(next.store, key, {
+      userId,
+      productEpoch: 1,
+    });
+    const nextToken = await nextReferences.issueAction(userId, likeId, requestId);
+    expect(nextToken).not.toBe(oldToken);
+    expect(await nextReferences.resolveAction(oldToken, userId)).toBeUndefined();
+    expect(await nextReferences.resolveAction(nextToken, userId)).toBe(likeId);
+    expect(await oldReferences.resolveAction(nextToken, userId)).toBeUndefined();
+    await drain(next.store);
+    await drain(other.store);
+  });
+
+  it('rejects delayed twenty-way old-life issuance after revocation without touching a new life', async () => {
+    const old = subject(),
+      next = subject(old.userId, 1),
+      key = new Uint8Array(32).fill(18);
+    const frozen = LikedByOpaqueReferences.forLife(old.store, key, {
+      userId: old.userId,
+      productEpoch: 0,
+    });
+    await drain(old.store);
+    await redis.set(`${old.scope}:life`, 'active:1');
+    const current = LikedByOpaqueReferences.forLife(next.store, key, {
+      userId: old.userId,
+      productEpoch: 1,
+    });
+    const likeId = randomUUID(),
+      requestId = randomUUID();
+    const token = await current.issueAction(old.userId, likeId, requestId);
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 20 }, () => frozen.issueAction(old.userId, likeId, requestId)),
+    );
+    expect(outcomes.every((outcome) => outcome.status === 'rejected')).toBe(true);
+    expect(await redis.keys(`${old.values}*`)).toEqual([]);
+    expect(await current.resolveAction(token, old.userId)).toBe(likeId);
+    await drain(next.store);
   });
 });

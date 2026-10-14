@@ -32,13 +32,15 @@ function callback(data: string, chatId = 12345): unknown {
 
 type Fixture = Readonly<{
   adapter: TelegramLikedByAdapter;
-  resolver: Readonly<{ resolveUserId: Mock }>;
+  resolver: Readonly<{ resolveProductLife: Mock }>;
   references: Readonly<{ resolveCursor: Mock; resolveAction: Mock }>;
   limiter: Readonly<{ consume: Mock }>;
 }>;
 
 function fixture(): Fixture {
-  const resolver = { resolveUserId: vi.fn(() => Promise.resolve(viewerId)) };
+  const resolver = {
+    resolveProductLife: vi.fn(() => Promise.resolve({ userId: viewerId, productEpoch: 0 })),
+  };
   const references = {
     resolveCursor: vi.fn(() => Promise.resolve(undefined)),
     resolveAction: vi.fn(() => Promise.resolve(undefined as string | undefined)),
@@ -48,7 +50,7 @@ function fixture(): Fixture {
   };
   const adapter = new TelegramLikedByAdapter(
     resolver,
-    references,
+    { forLife: () => references },
     limiter,
     () => '50000000-0000-4000-8000-000000000000',
   );
@@ -59,7 +61,7 @@ describe('Telegram Liked By ingress', () => {
   it('resolves a private-chat command to a minimal durable request, without querying or minting grants', async () => {
     const parts = fixture();
     const result = await parts.adapter.handle(command());
-    expect(parts.resolver.resolveUserId).toHaveBeenCalledWith('12345');
+    expect(parts.resolver.resolveProductLife).toHaveBeenCalledWith('12345');
     expect(parts.limiter.consume).toHaveBeenCalledWith({
       scope: 'telegram_liked_by',
       subject: viewerId,
@@ -71,6 +73,7 @@ describe('Telegram Liked By ingress', () => {
       kind: 'page_request',
       updateId: '42',
       userId: viewerId,
+      productEpoch: 0,
       telegramUserId: '12345',
       requestId: '50000000-0000-4000-8000-000000000000',
     });
@@ -91,6 +94,7 @@ describe('Telegram Liked By ingress', () => {
       cursor,
       updateId: '43',
       userId: viewerId,
+      productEpoch: 0,
       telegramUserId: '12345',
       requestId: '50000000-0000-4000-8000-000000000000',
     });
@@ -128,7 +132,7 @@ describe('Telegram Liked By ingress', () => {
     await expect(parts.adapter.handle(callback(cursor, 999))).rejects.toMatchObject({
       status: 400,
     });
-    expect(parts.resolver.resolveUserId).not.toHaveBeenCalled();
+    expect(parts.resolver.resolveProductLife).not.toHaveBeenCalled();
   });
 
   it('rate-limits before Redis cursor lookup or a delivery request', async () => {

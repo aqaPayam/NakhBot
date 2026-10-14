@@ -16,12 +16,14 @@ function validate(request: TelegramLikedByPageRequest): void {
   if (typeof request !== 'object' || request === null)
     throw new Error('Invalid Telegram Liked By page request.');
   const keys = Object.keys(request).sort().join(',');
-  const commandKeys = 'handled,kind,requestId,telegramUserId,updateId,userId';
+  const commandKeys = 'handled,kind,productEpoch,requestId,telegramUserId,updateId,userId';
   const callbackKeys =
-    'callbackQueryId,cursor,handled,kind,requestId,telegramUserId,updateId,userId';
+    'callbackQueryId,cursor,handled,kind,productEpoch,requestId,telegramUserId,updateId,userId';
   if (
     request.handled !== true ||
     request.kind !== 'page_request' ||
+    !Number.isSafeInteger(request.productEpoch) ||
+    request.productEpoch < 0 ||
     (keys !== commandKeys && keys !== callbackKeys) ||
     typeof request.userId !== 'string' ||
     !UUID.test(request.userId) ||
@@ -52,12 +54,15 @@ export class TelegramLikedByPageProcessor {
 
   public async execute(request: TelegramLikedByPageRequest): Promise<TelegramLockedLikedByScreen> {
     validate(request);
-    const page = await this.page.execute({
-      actor: { kind: 'user', userId: request.userId },
-      requestId: request.requestId,
-      limit: PAGE_SIZE,
-      ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
-    });
+    const page = await this.page.execute(
+      {
+        actor: { kind: 'user', userId: request.userId },
+        requestId: request.requestId,
+        limit: PAGE_SIZE,
+        ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+      },
+      request.productEpoch,
+    );
     return this.presenter.present(page);
   }
 }

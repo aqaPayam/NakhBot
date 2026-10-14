@@ -11,7 +11,7 @@ import {
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
-  RedisOpaqueTokenStore,
+  RedisOwnedOpaqueTokenStore,
   RedisRateLimiter,
   type createRedisConnection,
 } from '@nakh/queue-redis';
@@ -72,6 +72,7 @@ export class TelegramLikedByIngress implements TelegramLikedByIngressPort {
       botId: this.botId,
       updateId: request.updateId,
       userId: request.userId,
+      productEpoch: request.productEpoch,
       telegramUserId: request.telegramUserId,
       requestId: request.requestId,
       ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
@@ -108,16 +109,21 @@ export function createTelegramLikedByIngress(
   if (match === null || !Number.isSafeInteger(Number(match[1])))
     throw new Error('Telegram bot token is invalid.');
   const identities = new PostgresIdentityStore(input.database);
+  const actionKey = secretKey(input.config.telegram.actionTokenKeyRef, resolve);
   const localization = new PostgresLocalizationStore(input.database);
   const client = new TelegramBotApiMenuClient(botToken);
   return new TelegramLikedByIngress(
     match[1]!,
     new TelegramLikedByAdapter(
       new PostgresTelegramUserResolver(input.database),
-      new LikedByOpaqueReferences(
-        new RedisOpaqueTokenStore(input.redis, input.config.redis.queuePrefix),
-        secretKey(input.config.telegram.actionTokenKeyRef, resolve),
-      ),
+      {
+        forLife: (life) =>
+          LikedByOpaqueReferences.forLife(
+            new RedisOwnedOpaqueTokenStore(input.redis, input.config.redis.queuePrefix, life),
+            actionKey,
+            life,
+          ),
+      },
       new RedisRateLimiter(input.redis, input.config.redis.queuePrefix),
     ),
     new PostgresTelegramLikedByDeliveryStore(

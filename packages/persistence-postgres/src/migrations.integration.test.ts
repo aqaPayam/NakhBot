@@ -22,7 +22,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
   it.each([
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
     78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100,
-    101, 102, 103, 104, 105, 106, 107, 108, 125, 126, 127, 128, 129, 130, 131,
+    101, 102, 103, 104, 105, 106, 107, 108, 125, 126, 127, 128, 129, 130, 131, 132,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -38,6 +38,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       legacyEpisodeId = randomUUID(),
       legacySessionId = randomUUID();
     let previousFactor: Record<string, unknown> | undefined;
+    let previousLikedByRequest: Record<string, unknown> | undefined;
     let previousPayment:
       | {
           payerId: string;
@@ -334,10 +335,71 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
           ).rows[0]!,
         };
       }
+      if (baseline === 132) {
+        const viewer = randomUUID(),
+          request = randomUUID();
+        await target.query(
+          'INSERT INTO identity.users(id,last_activity_at,created_at,updated_at) VALUES($1,now(),now(),now())',
+          [viewer],
+        );
+        await target.query(
+          "INSERT INTO identity.accounts(user_id,state,state_changed_at) VALUES($1,'active',now())",
+          [viewer],
+        );
+        await target.query(
+          `INSERT INTO channel_telegram.liked_by_delivery_requests
+          (id,bot_id,update_id,viewer_user_id,telegram_user_id,request_id,cursor,callback_query_id,available_at,created_at,updated_at)
+          VALUES($1,'12345',123,$2,'123456',$3,'v1.lb.abcdefghijklmnop.ponmlkjihgfedcba','legacy-callback',now(),now(),now())`,
+          [request, viewer, randomUUID()],
+        );
+        previousLikedByRequest = (
+          await target.query<Record<string, unknown>>(
+            'SELECT * FROM channel_telegram.liked_by_delivery_requests WHERE id=$1',
+            [request],
+          )
+        ).rows[0]!;
+        // Ambiguous nonzero legacy ownership must abort before any backfill. This
+        // privileged fixture is not approved Return and never grants that authority.
+        await target.query('BEGIN');
+        await target.query('ALTER TABLE identity.accounts DISABLE TRIGGER USER');
+        await target.query('UPDATE identity.accounts SET product_epoch=1 WHERE user_id=$1', [
+          viewer,
+        ]);
+        await target.query('ALTER TABLE identity.accounts ENABLE TRIGGER USER');
+        await target.query('COMMIT');
+        await expect(runMigrations(targetUrl.toString(), directory)).rejects.toMatchObject({
+          code: '55000',
+        });
+        expect(
+          (
+            await target.query(
+              'SELECT * FROM channel_telegram.liked_by_delivery_requests WHERE id=$1',
+              [request],
+            )
+          ).rows,
+        ).toEqual([previousLikedByRequest]);
+        await target.query('BEGIN');
+        await target.query('ALTER TABLE identity.accounts DISABLE TRIGGER USER');
+        await target.query('UPDATE identity.accounts SET product_epoch=0 WHERE user_id=$1', [
+          viewer,
+        ]);
+        await target.query('ALTER TABLE identity.accounts ENABLE TRIGGER USER');
+        await target.query('COMMIT');
+      }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        132 - baseline,
+        133 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      if (previousLikedByRequest !== undefined) {
+        expect(
+          (
+            await target.query(
+              'SELECT * FROM channel_telegram.liked_by_delivery_requests WHERE id=$1',
+              [previousLikedByRequest.id],
+            )
+          ).rows,
+        ).toEqual([{ ...previousLikedByRequest, product_epoch: 0 }]);
+      }
       if (previousPayment !== undefined) {
         const saved = previousPayment;
         expect(
@@ -670,6 +732,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000130_m8_media_checkpoint.sql',
         '000131_m8_private_photo_parallel_read.sql',
         '000132_m8_sample_source_cleanup.sql',
+        '000133_m8_liked_by_request_life.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -779,7 +842,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000115_m8_terminal_pending_archival.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(132);
+      expect(replay.existing).toHaveLength(133);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

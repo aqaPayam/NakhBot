@@ -106,6 +106,7 @@ export class TelegramLikedByDeliveryProcessor {
         kind: 'page_request',
         updateId: delivery.updateId,
         userId: delivery.viewerUserId,
+        productEpoch: delivery.productEpoch,
         telegramUserId: delivery.telegramUserId,
         requestId: delivery.requestId,
         ...(delivery.cursor === undefined ? {} : { cursor: delivery.cursor }),

@@ -7,6 +7,9 @@ import type { LikedByOpaqueReferences } from './liked-by-tokens.js';
 import type { LikedByReadStore } from './liked-by.js';
 
 type References = Pick<LikedByOpaqueReferences, 'resolveCursor' | 'issueCursor' | 'issueAction'>;
+type ReferenceFactory = Readonly<{
+  forLife(life: Readonly<{ userId: string; productEpoch: number }>): References;
+}>;
 type Blur = Pick<EnsureBlurredPreview, 'execute'>;
 type Grants = Pick<ResolveMediaDeliveryGrantHandler, 'execute'>;
 
@@ -16,21 +19,27 @@ const mediaConcurrency = 4;
 export class GetLockedLikedByPageHandler {
   public constructor(
     private readonly store: LikedByReadStore,
-    private readonly references: References,
+    private readonly references: ReferenceFactory,
     private readonly blur: Blur,
     private readonly grants: Grants,
   ) {}
 
-  public async execute(query: GetLikedByPageQuery): Promise<LockedLikedByPage> {
+  public async execute(
+    query: GetLikedByPageQuery,
+    productEpoch: number,
+  ): Promise<LockedLikedByPage> {
     if (query.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    if (!Number.isSafeInteger(productEpoch) || productEpoch < 0)
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    const references = this.references.forLife({ userId: query.actor.userId, productEpoch });
     const after =
       query.cursor === undefined
         ? undefined
-        : await this.references.resolveCursor(query.cursor, query.actor.userId);
+        : await references.resolveCursor(query.cursor, query.actor.userId);
     if (query.cursor !== undefined && after === undefined)
       throw new ApplicationError('invalid_request', 'error.interaction.cursor_invalid', 400);
-    const page = await this.store.readActionablePage(query, after);
+    const page = await this.store.readActionablePage(query, after, productEpoch);
     const cards: LockedLikedByPage['cards'][number][] = [];
     for (let offset = 0; offset < page.rows.length; offset += mediaConcurrency) {
       const batch = page.rows.slice(offset, offset + mediaConcurrency);
@@ -50,7 +59,7 @@ export class GetLockedLikedByPageHandler {
               blurredPhoto.cachePolicy !== 'no-store'
             )
               throw new ApplicationError('internal_error', 'error.internal', 500);
-            const actionToken = await this.references.issueAction(
+            const actionToken = await references.issueAction(
               query.actor.userId,
               row.likeId,
               query.requestId,
@@ -71,7 +80,7 @@ export class GetLockedLikedByPageHandler {
     if (!page.hasMore) return { totalCount: page.totalCount, cards };
     const last = page.rows.at(-1);
     if (last === undefined) throw new ApplicationError('internal_error', 'error.internal', 500);
-    const nextCursor = await this.references.issueCursor(
+    const nextCursor = await references.issueCursor(
       query.actor.userId,
       { createdAt: last.createdAt, likeId: last.likeId },
       query.requestId,

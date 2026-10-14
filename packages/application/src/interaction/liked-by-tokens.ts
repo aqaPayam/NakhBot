@@ -9,6 +9,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const lifetimeSeconds = 900;
 const queryVersion = 1;
 
+export interface LikedByReferenceFactory {
+  forLife(life: Readonly<{ userId: string; productEpoch: number }>): LikedByOpaqueReferences;
+}
+
 type CursorState = Readonly<{
   version: 1;
   purpose: 'liked_by_cursor';
@@ -71,6 +75,26 @@ function sameReference(left: StoredState, right: StoredState): boolean {
 /** Short, signed, Redis-backed references. Neither Like IDs nor cursor positions reach a client. */
 export class LikedByOpaqueReferences {
   private readonly key: Uint8Array;
+
+  /** Bind signatures as well as physical storage to the trusted original life.
+   * Even deliberately reused logical IDs cannot revive an earlier-life token. */
+  public static forLife(
+    store: OpaqueTokenStore,
+    key: Uint8Array,
+    life: Readonly<{ userId: string; productEpoch: number }>,
+  ): LikedByOpaqueReferences {
+    if (
+      key.byteLength < 32 ||
+      !UUID.test(life.userId) ||
+      !Number.isSafeInteger(life.productEpoch) ||
+      life.productEpoch < 0
+    )
+      throw new Error('Liked By token life is invalid.');
+    const scopedKey = createHmac('sha256', key)
+      .update(`liked-by-life-v1\0${life.userId}\0${life.productEpoch}`)
+      .digest();
+    return new LikedByOpaqueReferences(store, scopedKey);
+  }
 
   public constructor(
     private readonly store: OpaqueTokenStore,

@@ -20,5 +20,6 @@ export interface LikedByReadStore {
   readActionablePage(
     query: GetLikedByPageQuery,
     after?: LikedByKeyset,
+    productEpoch?: number,
   ): Promise<ActionableLikedByPage>;
 }

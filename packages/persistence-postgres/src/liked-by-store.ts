@@ -106,6 +106,7 @@ export class PostgresLikedByStore implements LikedByReadStore {
   public readActionablePage(
     query: GetLikedByPageQuery,
     after?: LikedByKeyset,
+    productEpoch?: number,
   ): Promise<ActionableLikedByPage> {
     if (query.actor.kind !== 'user')
       return Promise.reject(
@@ -124,11 +125,20 @@ export class PostgresLikedByStore implements LikedByReadStore {
           .selectFrom('identity.accounts as account')
           .innerJoin('identity.user_settings as settings', 'settings.user_id', 'account.user_id')
           .innerJoin('profile.profiles as profile', 'profile.user_id', 'account.user_id')
-          .select(['account.state', 'settings.visibility_enabled', 'profile.completion_status'])
+          .select([
+            'account.state',
+            'account.product_epoch',
+            'settings.visibility_enabled',
+            'profile.completion_status',
+          ])
           .where('account.user_id', '=', query.actor.userId)
           .executeTakeFirst();
         if (
           receiver?.state !== 'active' ||
+          (productEpoch !== undefined &&
+            (!Number.isSafeInteger(productEpoch) ||
+              productEpoch < 0 ||
+              receiver.product_epoch !== productEpoch)) ||
           receiver.completion_status !== 'complete' ||
           !receiver.visibility_enabled
         )

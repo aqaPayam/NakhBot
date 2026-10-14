@@ -249,6 +249,7 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
             '000130_m8_media_checkpoint.sql',
             '000131_m8_private_photo_parallel_read.sql',
             '000132_m8_sample_source_cleanup.sql',
+            '000133_m8_liked_by_request_life.sql',
           ]);
           expect(await original(item.recordId, legacy)).toEqual({ ...before, product_epoch: 0 });
           expect(

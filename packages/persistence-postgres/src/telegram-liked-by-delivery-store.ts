@@ -8,6 +8,7 @@ export type TelegramLikedByDeliveryInput = Readonly<{
   botId: string;
   updateId: string;
   userId: string;
+  productEpoch: number;
   telegramUserId: string;
   requestId: string;
   cursor?: string;
@@ -29,6 +30,7 @@ export type ClaimedTelegramLikedByDelivery = Readonly<{
   botId: string;
   updateId: string;
   viewerUserId: string;
+  productEpoch: number;
   telegramUserId: string;
   requestId: string;
   cursor?: string;
@@ -117,6 +119,8 @@ function validate(input: TelegramLikedByDeliveryInput): void {
     !Number.isSafeInteger(Number(input.updateId)) ||
     typeof input.userId !== 'string' ||
     !UUID.test(input.userId) ||
+    !Number.isSafeInteger(input.productEpoch) ||
+    input.productEpoch < 0 ||
     typeof input.telegramUserId !== 'string' ||
     !PROVIDER_ID.test(input.telegramUserId) ||
     !Number.isSafeInteger(Number(input.telegramUserId)) ||
@@ -162,6 +166,7 @@ export class PostgresTelegramLikedByDeliveryStore {
           bot_id: input.botId,
           update_id: input.updateId,
           viewer_user_id: input.userId,
+          product_epoch: input.productEpoch,
           telegram_user_id: input.telegramUserId,
           request_id: input.requestId,
           cursor: input.cursor ?? null,
@@ -180,12 +185,20 @@ export class PostgresTelegramLikedByDeliveryStore {
       if (inserted === undefined) {
         const existing = await transaction
           .selectFrom('channel_telegram.liked_by_delivery_requests')
-          .select(['id', 'viewer_user_id', 'telegram_user_id', 'cursor', 'callback_query_id'])
+          .select([
+            'id',
+            'viewer_user_id',
+            'product_epoch',
+            'telegram_user_id',
+            'cursor',
+            'callback_query_id',
+          ])
           .where('bot_id', '=', input.botId)
           .where('update_id', '=', input.updateId)
           .executeTakeFirstOrThrow();
         if (
           existing.viewer_user_id !== input.userId ||
+          existing.product_epoch !== input.productEpoch ||
           existing.telegram_user_id !== input.telegramUserId ||
           existing.cursor !== (input.cursor ?? null) ||
           existing.callback_query_id !== (input.callbackQueryId ?? null)
@@ -297,6 +310,7 @@ export class PostgresTelegramLikedByDeliveryStore {
         botId: row.bot_id,
         updateId: row.update_id,
         viewerUserId: row.viewer_user_id,
+        productEpoch: row.product_epoch,
         telegramUserId: row.telegram_user_id,
         requestId: row.request_id,
         ...(row.cursor === null ? {} : { cursor: row.cursor }),

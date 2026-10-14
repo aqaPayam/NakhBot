@@ -4,6 +4,14 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 ## Executable catalog inventory
 
+Migration 133 preserves original Liked By delivery ownership through an immutable
+account epoch. The inventory now covers 150 tables, 1,381 columns and 298 foreign
+keys. Native identity resolution freezes that epoch before asynchronous ingress;
+admission rejects a tombstone or mismatched life. Legacy requests are assigned
+zero only when their known owner still has the initial life; ambiguous ownership
+aborts migration. The transport remains subject to bounded cancellation/purge,
+without granting phase completion, retained-data release or approved Return.
+
 Migration 128 changes only product-write lock ordering; the inventory is unchanged.
 Its derived Chat cleanup exemption requires the existing nondeferrable live-Chat FK.
 

@@ -1,5 +1,46 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: original-life Liked By request and opaque ownership
+
+Repair `31b0167` passed all six jobs in run `38453611944`, attempt 2. Its native
+artifact proves 1,006 cases in 124 files, zero skips; the terminal integrity query
+took 1,225.322 ms against the unchanged 1,500 ms limit. Load and backup/restore
+passed. Attempt 1 failed while pulling the pinned collector image before startup
+or metric export. Its finite diagnostic did not identify the registry cause. The
+public manifest was available, and the unchanged failed quality job passed on
+controlled re-execution, including the actual thirteen-metric privacy rehearsal.
+The initial failure remains preserved; no underlying cause is claimed as proven.
+Tracked source count for that accepted repair: 218,673.
+
+The actual Liked By gateway resolves native user and account epoch together before
+rate limiting or token work. It persists that frozen life with the durable request,
+and the claimed worker forwards it to its native page read and reference factory.
+Migration 133 rejects unresolved/nonzero legacy provenance rather than inferring
+an old life from current dates or ownership. Admission locks the original user and
+account and rejects a tombstone or epoch mismatch; owner and epoch are immutable
+through lease claims, retries and delivery. The native page read checks that exact
+epoch in its repeatable-read snapshot.
+
+Gateway and worker reference factories use the account-life Redis provider and a
+signature key derived from both user and epoch. Physical namespaces and signatures
+are therefore bound independently: even deliberately reused logical identities
+cannot revive an earlier-life token. The page handler selects one reference scope
+before awaited media work and retains it through issuance. Later-life issuance
+still requires separately approved native Return activation; no new activation
+method or approval is introduced. Old unscoped callbacks fail closed and require
+a refreshed screen; there is no fallback to their private cached bodies.
+
+Twenty-way native replay, immutable-field corruption, stale admission, exact
+provider identity, real tombstone and delayed-page epoch probes passed, along with
+the existing delivery and catalog suites (21 cases). The populated 132 upgrade
+probe tests rollback on ambiguous ownership and preservation of every old request
+field when the original zero epoch is known. Two actual Redis cases test signature
+isolation under logical-ID reuse and twenty delayed revoked-life issuers. Complete
+project checks, migration evidence and six exact-head CI jobs remain required.
+The native floor is 1,015 cases in 125 files. Other user-token runtime paths,
+legacy-cache absence proof, the complete ephemeral checkpoint, release-disabled
+retention manifests, completion/Return and full saga acceptance remain required.
+
 ## Current repair: separate administrator admission and restoration history
 
 Commit `5e67a46` failed run `38447571466` after all 1,006 native cases in

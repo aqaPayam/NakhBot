@@ -11,6 +11,7 @@ const page: Extract<TelegramLikedByResult, { kind: 'page_request' }> = {
   kind: 'page_request',
   updateId: '42',
   userId: '10000000-0000-4000-8000-000000000000',
+  productEpoch: 0,
   telegramUserId: '123456789',
   requestId: '20000000-0000-4000-8000-000000000000',
   cursor: 'v1.lb.abcdefghijklmnop.abcdefghijklmnop',
@@ -96,6 +97,7 @@ describe('Telegram Liked By durable ingress', () => {
       botId: '987654321',
       updateId: page.updateId,
       userId: page.userId,
+      productEpoch: 0,
       telegramUserId: page.telegramUserId,
       requestId: page.requestId,
       cursor: page.cursor,
@@ -110,6 +112,7 @@ describe('Telegram Liked By durable ingress', () => {
       kind: 'page_request',
       updateId: page.updateId,
       userId: page.userId,
+      productEpoch: 0,
       telegramUserId: page.telegramUserId,
       requestId: page.requestId,
     };
@@ -119,6 +122,7 @@ describe('Telegram Liked By durable ingress', () => {
       botId: '987654321',
       updateId: page.updateId,
       userId: page.userId,
+      productEpoch: 0,
       telegramUserId: page.telegramUserId,
       requestId: page.requestId,
     });

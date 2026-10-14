@@ -305,6 +305,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       '000130_m8_media_checkpoint.sql',
       '000131_m8_private_photo_parallel_read.sql',
       '000132_m8_sample_source_cleanup.sql',
+      '000133_m8_liked_by_request_life.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database
@@ -340,7 +341,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
     const catalog = await readDeletionCatalog(database);
     expect(catalog.tables).toHaveLength(150);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1380);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1381);
     expect(catalog.foreignKeys).toHaveLength(298);
     assertDeletionCatalogCoverage(catalog);
   });

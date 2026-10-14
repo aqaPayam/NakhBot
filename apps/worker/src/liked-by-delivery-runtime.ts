@@ -22,7 +22,7 @@ import {
   SystemIdGenerator,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
-import { RedisOpaqueTokenStore, type createRedisConnection } from '@nakh/queue-redis';
+import { RedisOwnedOpaqueTokenStore, type createRedisConnection } from '@nakh/queue-redis';
 import {
   TelegramLikedByPageProcessor,
   TelegramLockedLikedByMediaRelay,
@@ -82,10 +82,14 @@ export function createTelegramLikedByDeliveryRuntime(
       secretAccessKey: resolve(input.config.media.secretKeyRef),
     }),
   );
-  const references = new LikedByOpaqueReferences(
-    new RedisOpaqueTokenStore(input.redis, input.config.redis.queuePrefix),
-    actionKey,
-  );
+  const references = {
+    forLife: (life: Readonly<{ userId: string; productEpoch: number }>) =>
+      LikedByOpaqueReferences.forLife(
+        new RedisOwnedOpaqueTokenStore(input.redis, input.config.redis.queuePrefix, life),
+        actionKey,
+        life,
+      ),
+  };
   const page = new GetLockedLikedByPageHandler(
     new PostgresLikedByStore(input.database),
     references,

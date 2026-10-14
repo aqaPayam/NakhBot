@@ -1,11 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type {
-  LikedByKeyset,
-  LocalizedIntent,
-  RateLimiterPort,
-  TelegramUserResolver,
-} from '@nakh/application';
+import type { LikedByKeyset, LocalizedIntent, RateLimiterPort } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 
 export interface TelegramLikedByReferences {
@@ -13,11 +8,22 @@ export interface TelegramLikedByReferences {
   resolveAction(token: string, receiverUserId: string): Promise<string | undefined>;
 }
 
+export interface TelegramLikedByLifeResolver {
+  resolveProductLife(
+    telegramUserId: string,
+  ): Promise<Readonly<{ userId: string; productEpoch: number }> | undefined>;
+}
+
+export interface TelegramLikedByReferenceFactory {
+  forLife(life: Readonly<{ userId: string; productEpoch: number }>): TelegramLikedByReferences;
+}
+
 export type TelegramLikedByPageRequest = Readonly<{
   handled: true;
   kind: 'page_request';
   updateId: string;
   userId: string;
+  productEpoch: number;
   telegramUserId: string;
   requestId: string;
   cursor?: string;
@@ -99,8 +105,8 @@ function parseUpdate(update: unknown): ParsedUpdate | undefined {
 /** Fast ingress only. A durable worker must query and mint media grants just before delivery. */
 export class TelegramLikedByAdapter {
   public constructor(
-    private readonly resolver: TelegramUserResolver,
-    private readonly references: TelegramLikedByReferences,
+    private readonly resolver: TelegramLikedByLifeResolver,
+    private readonly references: TelegramLikedByReferenceFactory,
     private readonly limiter: RateLimiterPort,
     private readonly uuid: () => string = randomUUID,
   ) {}
@@ -108,9 +114,11 @@ export class TelegramLikedByAdapter {
   public async handle(update: unknown): Promise<TelegramLikedByResult> {
     const parsed = parseUpdate(update);
     if (parsed === undefined) return { handled: false };
-    const userId = await this.resolver.resolveUserId(parsed.telegramUserId);
-    if (userId === undefined)
+    const life = await this.resolver.resolveProductLife(parsed.telegramUserId);
+    if (life === undefined || !Number.isSafeInteger(life.productEpoch) || life.productEpoch < 0)
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    const { userId, productEpoch } = life;
+    const references = this.references.forLife(life);
     const rate = await this.limiter.consume({
       scope: 'telegram_liked_by',
       subject: userId,
@@ -124,11 +132,11 @@ export class TelegramLikedByAdapter {
     if (parsed.kind === 'callback') {
       const token = parsed.token;
       const validCursor = TOKEN.test(token)
-        ? await this.references.resolveCursor(token, userId)
+        ? await references.resolveCursor(token, userId)
         : undefined;
       if (validCursor === undefined) {
         const validAction = TOKEN.test(token)
-          ? await this.references.resolveAction(token, userId)
+          ? await references.resolveAction(token, userId)
           : undefined;
         return {
           handled: true,
@@ -152,6 +160,7 @@ export class TelegramLikedByAdapter {
       kind: 'page_request',
       updateId: parsed.updateId,
       userId,
+      productEpoch,
       telegramUserId: parsed.telegramUserId,
       requestId: this.uuid(),
       ...(parsed.kind === 'command' ? {} : { cursor: parsed.token }),

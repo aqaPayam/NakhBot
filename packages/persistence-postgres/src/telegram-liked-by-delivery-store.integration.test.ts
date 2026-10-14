@@ -8,6 +8,7 @@ import { SystemClock } from '@nakh/domain';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { SystemIdGenerator } from './foundation-store.js';
 import { runMigrations } from './migrations.js';
+import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import {
   PostgresTelegramLikedByDeliveryStore,
   type TelegramLikedByDeliveryErrorCode,
@@ -26,6 +27,7 @@ function request(index: number): TelegramLikedByDeliveryInput {
     botId,
     updateId: String(updateBase + index),
     userId,
+    productEpoch: 0,
     telegramUserId,
     requestId: randomUUID(),
   };
@@ -33,12 +35,14 @@ function request(index: number): TelegramLikedByDeliveryInput {
 
 describe.skipIf(databaseUrl === undefined)('M3 durable Telegram Liked By handoff', () => {
   let database: NakhDatabase;
+  let isolated: Awaited<ReturnType<typeof createIsolatedTestDatabase>>;
   let store: PostgresTelegramLikedByDeliveryStore;
 
   beforeAll(async () => {
-    await runMigrations(databaseUrl!, resolve(process.cwd(), 'migrations'));
+    isolated = await createIsolatedTestDatabase(databaseUrl!, 'nakh_liked_by_delivery');
+    await runMigrations(isolated.url, resolve(process.cwd(), 'migrations'));
     database = createDatabase({
-      url: databaseUrl!,
+      url: isolated.url,
       poolMax: 10,
       statementTimeoutMs: 10_000,
       lockTimeoutMs: 5_000,
@@ -58,6 +62,10 @@ describe.skipIf(databaseUrl === undefined)('M3 durable Telegram Liked By handoff
         last_seen_at: now,
       })
       .execute();
+    await database
+      .insertInto('identity.accounts')
+      .values({ user_id: userId, state: 'guest', state_reason: null, state_changed_at: now })
+      .execute();
     store = new PostgresTelegramLikedByDeliveryStore(
       database,
       new SystemIdGenerator(),
@@ -66,29 +74,8 @@ describe.skipIf(databaseUrl === undefined)('M3 durable Telegram Liked By handoff
   });
 
   afterAll(async () => {
-    if (database === undefined) return;
-    const deliveries = await database
-      .selectFrom('channel_telegram.liked_by_delivery_requests')
-      .select('id')
-      .where('viewer_user_id', '=', userId)
-      .execute();
-    const ids = deliveries.map((item) => item.id);
-    if (ids.length > 0)
-      await database
-        .deleteFrom('platform.outbox_events')
-        .where('aggregate_type', '=', 'telegram_liked_by_delivery')
-        .where('aggregate_id', 'in', ids)
-        .execute();
-    await database
-      .deleteFrom('channel_telegram.liked_by_delivery_requests')
-      .where('viewer_user_id', '=', userId)
-      .execute();
-    await database
-      .deleteFrom('identity.telegram_identities')
-      .where('user_id', '=', userId)
-      .execute();
-    await database.deleteFrom('identity.users').where('id', '=', userId).execute();
-    await database.destroy();
+    await database?.destroy();
+    await isolated?.destroy();
   });
 
   it('deduplicates simultaneous transport replays into one request and one minimal outbox fact', async () => {

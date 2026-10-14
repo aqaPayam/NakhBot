@@ -57,11 +57,11 @@ describe('GetLockedLikedByPageHandler', () => {
     const parts = fixture();
     const handler = new GetLockedLikedByPageHandler(
       parts.store,
-      parts.references,
+      { forLife: () => parts.references },
       parts.blur,
       parts.grants,
     );
-    const result = await handler.execute(query);
+    const result = await handler.execute(query, 0);
     expect(result).toEqual({
       totalCount: 3,
       cards: rows.map(() => ({
@@ -70,7 +70,7 @@ describe('GetLockedLikedByPageHandler', () => {
       })),
       nextCursor: 'v1.lb.abcdefghijklmnop.abcdefghijklmnop',
     });
-    expect(parts.store.readActionablePage).toHaveBeenCalledWith(query, undefined);
+    expect(parts.store.readActionablePage).toHaveBeenCalledWith(query, undefined, 0);
     expect(parts.blur.execute).toHaveBeenNthCalledWith(1, rows[0]!.assetId);
     expect(parts.blur.execute).toHaveBeenNthCalledWith(2, rows[1]!.assetId);
     expect(parts.grants.execute).toHaveBeenCalledWith({
@@ -105,15 +105,15 @@ describe('GetLockedLikedByPageHandler', () => {
     const parts = fixture();
     const handler = new GetLockedLikedByPageHandler(
       parts.store,
-      parts.references,
+      { forLife: () => parts.references },
       parts.blur,
       parts.grants,
     );
     await expect(
-      handler.execute({ ...query, actor: { ...query.actor, kind: 'admin' } }),
+      handler.execute({ ...query, actor: { ...query.actor, kind: 'admin' } }, 0),
     ).rejects.toMatchObject({ code: 'unauthorized' });
     await expect(
-      handler.execute({ ...query, cursor: 'stale-reference-value' }),
+      handler.execute({ ...query, cursor: 'stale-reference-value' }, 0),
     ).rejects.toMatchObject({
       code: 'invalid_request',
     });
@@ -127,14 +127,14 @@ describe('GetLockedLikedByPageHandler', () => {
     parts.store.readActionablePage.mockResolvedValue({ totalCount: 0, rows: [], hasMore: false });
     const handler = new GetLockedLikedByPageHandler(
       parts.store,
-      parts.references,
+      { forLife: () => parts.references },
       parts.blur,
       parts.grants,
     );
     const withCursor = { ...query, cursor: 'v1.lb.abcdefghijklmnop.ponmlkjihgfedcba' };
-    await expect(handler.execute(withCursor)).resolves.toEqual({ totalCount: 0, cards: [] });
+    await expect(handler.execute(withCursor, 0)).resolves.toEqual({ totalCount: 0, cards: [] });
     expect(parts.references.resolveCursor).toHaveBeenCalledWith(withCursor.cursor, receiverId);
-    expect(parts.store.readActionablePage).toHaveBeenCalledWith(withCursor, after);
+    expect(parts.store.readActionablePage).toHaveBeenCalledWith(withCursor, after, 0);
   });
 
   it('does not issue an action token when the final media authorization fails', async () => {
@@ -147,11 +147,11 @@ describe('GetLockedLikedByPageHandler', () => {
     parts.grants.execute.mockRejectedValue(new Error('denied'));
     const handler = new GetLockedLikedByPageHandler(
       parts.store,
-      parts.references,
+      { forLife: () => parts.references },
       parts.blur,
       parts.grants,
     );
-    await expect(handler.execute(query)).rejects.toThrow('denied');
+    await expect(handler.execute(query, 0)).rejects.toThrow('denied');
     expect(parts.references.issueAction).not.toHaveBeenCalled();
   });
 
@@ -165,11 +165,11 @@ describe('GetLockedLikedByPageHandler', () => {
     parts.grants.execute.mockResolvedValue({ ...grant, variantType: 'thumbnail' });
     const handler = new GetLockedLikedByPageHandler(
       parts.store,
-      parts.references,
+      { forLife: () => parts.references },
       parts.blur,
       parts.grants,
     );
-    await expect(handler.execute(query)).rejects.toMatchObject({ code: 'internal_error' });
+    await expect(handler.execute(query, 0)).rejects.toMatchObject({ code: 'internal_error' });
     expect(parts.references.issueAction).not.toHaveBeenCalled();
   });
 
@@ -197,12 +197,57 @@ describe('GetLockedLikedByPageHandler', () => {
     });
     const handler = new GetLockedLikedByPageHandler(
       parts.store,
-      parts.references,
+      { forLife: () => parts.references },
       parts.blur,
       parts.grants,
     );
-    const result = await handler.execute({ ...query, limit: manyRows.length });
+    const result = await handler.execute({ ...query, limit: manyRows.length }, 0);
     expect(result.cards).toHaveLength(manyRows.length);
     expect(peak).toBe(4);
+  });
+
+  it('freezes one reference scope before awaited media work rather than recapturing a later life', async () => {
+    const parts = fixture();
+    parts.store.readActionablePage.mockResolvedValue({
+      totalCount: 1,
+      rows: rows.slice(0, 1),
+      hasMore: false,
+    });
+    let release: () => void = () => {
+      throw new Error('Missing media barrier');
+    };
+    const mediaBarrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started: () => void = () => {
+      throw new Error('Missing start barrier');
+    };
+    const mediaStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    parts.blur.execute.mockImplementation(async () => {
+      started();
+      await mediaBarrier;
+    });
+    const forLife = vi.fn(() => parts.references);
+    const handler = new GetLockedLikedByPageHandler(
+      parts.store,
+      { forLife },
+      parts.blur,
+      parts.grants,
+    );
+    const result = handler.execute(query, 7);
+    await mediaStarted;
+    expect(forLife).toHaveBeenCalledExactlyOnceWith({ userId: receiverId, productEpoch: 7 });
+    expect(parts.references.issueAction).not.toHaveBeenCalled();
+    release();
+    await result;
+    expect(forLife).toHaveBeenCalledTimes(1);
+    expect(parts.store.readActionablePage).toHaveBeenCalledWith(query, undefined, 7);
+    expect(parts.references.issueAction).toHaveBeenCalledWith(
+      receiverId,
+      rows[0]!.likeId,
+      query.requestId,
+    );
   });
 });
