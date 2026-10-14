@@ -1,5 +1,37 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current repair: shared actor-aware action sampling
+
+Run `38477294295` on `0b6123d` passed quality, all four images and all
+1,016 native cases in 125 files without skips. Terminal integrity sampling took
+1,543.082 ms against the unchanged 1,500 ms limit. The covering index was used,
+but did not resolve the performance failure. This head remains unaccepted.
+
+The action source now scans both persisted actor classes together, sharing report
+and notice membership work. Audit candidates still require the exact actor class,
+administrator, request and command. System actions retain their independent
+history rules and never obtain administrator attempt or restoration authority.
+Administrator attempts, pair-target membership, restoration, notice and Report
+bindings retain their original predicates and one-row-per-action cardinality.
+
+All sixteen focused native integrity tests passed, including corruption,
+restoration, duplicate and concurrent-read evidence. The full project check passed
+formatting, lint, 17 workspace type checks, 1,015 unit tests in 221 files and builds.
+All six exact-head CI jobs remain required. Required
+indexes, fixture volumes, memory/worker settings and time limits are unchanged.
+An isolated parallel-helper hypothesis was discarded: migration 84 already marks
+the helper parallel-safe, so that probe made no meaningful change. No migration
+or retained-data release/Return activation is introduced by this source repair.
+
+On Windows, the unmodified failed-head measurement completed at 2,756.642 ms
+for terminal sampling and 892.740 ms for terminal actions. The candidate completed
+at 2,681.762 ms and 827.722 ms respectively, with the original required indexes,
+one worker and zero temporary blocks. These are diagnostic measurements, not a
+local performance-gate pass or proof of Linux CI acceptance. Two subsequent
+custom module-override control probes failed fixture assertions (operational
+health delta and encrypted capture volume); their cause is unresolved and they
+are excluded from timing evidence. No production assertion was removed or changed.
+
 ## Current repair: covering exact account-action proof
 
 Run `38471167381` on `d637d05` passed quality, all four images and all 1,015

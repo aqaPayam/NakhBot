@@ -38,26 +38,19 @@ function adminAccountHistoryMatches(): RawBuilder<boolean> {
   ) END,false)`;
 }
 
-/** Disjoint actor branches keep system restrictions out of administrator attempt/restoration joins.
- * The persisted actor CHECK makes the two branches exhaustive, with one row per action.
+/** One actor-aware scan shares report and notice membership work across both actors.
+ * System restrictions never gain administrator attempt/restoration authority.
  * Audit candidates are narrowed to the exact actor class. Pair-target membership
  * remains independent, so a wrong audit actor cannot hide valid attempt evidence.
  * Every original owner/request/command and notice/history binding remains exact. */
-function moderationActionSource(actor: 'system' | 'admin'): RawBuilder<unknown> {
-  const isSystem = actor === 'system';
+function moderationActionSource(): RawBuilder<unknown> {
   return sql`
-SELECT action.id, COALESCE(${
-    isSystem
-      ? sql`action_audit.id IS NOT NULL AND action_audit.actor_admin_id IS NULL
-        AND action_audit.command_id = action.command_id AND action_audit.request_id = action.request_id`
-      : sql`action_audit.id IS NOT NULL
-        AND action_audit.actor_admin_id = action.actor_admin_id
-        AND action_audit.command_id = action.command_id AND action_audit.request_id = action.request_id`
-  },false) AS "hasAudit",
-    ${
-      isSystem
-        ? sql`true`
-        : sql`COALESCE(attempt.id IS NOT NULL
+SELECT action.id, COALESCE(action_audit.id IS NOT NULL
+        AND CASE WHEN action.actor_type = 'system' THEN action_audit.actor_admin_id IS NULL
+          ELSE action_audit.actor_admin_id = action.actor_admin_id END
+        AND action_audit.command_id = action.command_id AND action_audit.request_id = action.request_id,
+      false) AS "hasAudit",
+    CASE WHEN action.actor_type = 'system' THEN true ELSE COALESCE(attempt.id IS NOT NULL
         AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
         AND attempt.result = 'succeeded'
         AND ((action.action_type = 'unban_user'
@@ -77,17 +70,12 @@ SELECT action.id, COALESCE(${
             AND attempt.command_code = 'moderation.change-internal-block' AND attempt.target_type = 'user_pair'
             AND attempt.target_id = moderation.admin_pair_target_id(action.target_pair_low_user_id, action.target_pair_high_user_id)
             AND (action.audit_log_id,attempt.target_id) IN (
-              SELECT audit.id,audit.subject_id FROM platform.audit_logs audit WHERE audit.subject_type = 'user_pair'))),false)`
-    } AS "hasAttempt",
-    ${
-      isSystem
-        ? sql`action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-          ${systemAccountHistoryMatches()}`
-        : sql`
+              SELECT audit.id,audit.subject_id FROM platform.audit_logs audit WHERE audit.subject_type = 'user_pair'))),false) END
+      AS "hasAttempt",
       action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user') OR
-      ${adminAccountHistoryMatches()}
-    `
-    } AS "hasAccountHistory",
+      CASE WHEN action.actor_type = 'system' THEN ${systemAccountHistoryMatches()}
+        ELSE ${adminAccountHistoryMatches()} END
+      AS "hasAccountHistory",
     action.action_type NOT IN ('restrict_user','unrestrict_user','ban_user','unban_user')
       OR COALESCE((action.notification_id, action.target_user_id,
         CASE action.action_type WHEN 'restrict_user' THEN 'restriction_warning'
@@ -108,26 +96,22 @@ SELECT action.id, COALESCE(${
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
     LEFT JOIN platform.audit_logs action_audit ON action_audit.id = action.audit_log_id
-      AND action_audit.actor_type = ${actor}
+      AND action_audit.actor_type = action.actor_type
     LEFT JOIN moderation.reports source_report ON source_report.id = action.source_report_id
-    ${
-      isSystem
-        ? sql``
-        : sql`    LEFT JOIN administration.admin_action_logs attempt
-      ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
+    LEFT JOIN administration.admin_action_logs attempt
+      ON action.actor_type = 'admin'
+        AND attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
     -- One latest prior-state lookup per restoration binding; OFFSET 0 preserves the
     -- parameterized relation so repeated target/type/time bindings can be memoized.
     LEFT JOIN LATERAL (
       SELECT prior.previous_state FROM identity.account_state_history prior
-      WHERE action.action_type IN ('unrestrict_user','unban_user')
+      WHERE action.actor_type = 'admin' AND action.action_type IN ('unrestrict_user','unban_user')
         AND prior.user_id = action.target_user_id
         AND prior.next_state = CASE action.action_type WHEN 'unrestrict_user' THEN 'restricted' ELSE 'banned' END
         AND prior.changed_at <= action.occurred_at
         AND (action.action_type <> 'unrestrict_user' OR prior.previous_state <> 'banned')
       ORDER BY prior.changed_at DESC, prior.id DESC LIMIT 1 OFFSET 0
-    ) restoration ON true`
-    }
-    WHERE action.actor_type = ${actor}
+    ) restoration ON true
 `;
 }
 
@@ -291,7 +275,7 @@ SELECT review.id, COALESCE(report.id IS NOT NULL AND (
     FROM moderation.moderation_reviews review
     LEFT JOIN moderation.reports report ON report.id = review.report_id
 `,
-  actions: sql`(${moderationActionSource('system')}) UNION ALL (${moderationActionSource('admin')})`,
+  actions: moderationActionSource(),
   episodes: sql`${MODERATION_EPISODE_RESOLUTION_FACTS}${moderationEpisodeMetadataSource()}`,
   support_threads: sql`
 WITH latest_reply AS MATERIALIZED (
