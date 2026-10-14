@@ -190,9 +190,9 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
       '000112_m8_pending_nakh_references.sql',
     );
     const catalog = await readDeletionCatalog(database);
-    expect(catalog.tables).toHaveLength(150);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1381);
-    expect(catalog.foreignKeys).toHaveLength(298);
+    expect(catalog.tables).toHaveLength(151);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1384);
+    expect(catalog.foreignKeys).toHaveLength(300);
     assertDeletionCatalogCoverage(catalog);
   });
   it.each(['target', 'payer-life'] as const)(

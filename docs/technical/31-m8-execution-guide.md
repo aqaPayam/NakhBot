@@ -2941,3 +2941,14 @@ approval-required policy; retained-data release remains disabled. This component
 does not advance phase 5, authorize Return, or prove cache/queue/provider absence.
 Full ephemeral coordination, retained manifests, final verification, composition
 and remaining M8 acceptance evidence are still required.
+
+
+### Schema-135 CI inventory repair
+
+Commit `4a42d7d` passed quality and all four container builds. Native CI ran
+1,081 cases but four older catalog assertions still expected schema 134; they
+must assert the complete schema-135 inventory: 151 tables, 1,384 columns and
+300 foreign keys. The repair updates all four exact inventories, retaining
+full registry coverage, migration races and original-fact preservation checks.
+The failed head is not accepted: performance, load and restore gates did not
+run. Full checks and all six exact-head jobs are required on the repaired head.
