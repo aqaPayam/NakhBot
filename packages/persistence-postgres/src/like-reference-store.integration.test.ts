@@ -113,6 +113,7 @@ describe.skipIf(url === undefined)(
           '000132_m8_sample_source_cleanup.sql',
           '000133_m8_liked_by_request_life.sql',
           '000134_m7_account_action_proof_index.sql',
+          '000135_m8_deletion_sessions.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');

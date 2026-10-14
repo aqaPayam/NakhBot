@@ -489,3 +489,11 @@ requires current administrator permission and its committed access log. The refe
 product access. Asset identity deliberately has no foreign key so future verified provider cleanup
 can remove ordinary assets; held evidence keeps its independent asset/variant protections.
 This archival does not assert provider absence, release retained data or complete a deletion phase.
+
+
+Migration 135 adds `identity.account_deletion_session_receipts`, retained original-life
+session-revocation proof linked to the governing deletion Root and immutable security
+audit. It stores only those two IDs and a SHA-256 digest. The digest binds original
+grant provenance, epoch, worker lease and transaction; no bearer is retained. Its
+purpose is independent proof of authority retirement, not account reactivation.
+Release requires approved policy and remains disabled with all retained-data release.

@@ -82,12 +82,8 @@ async function revoked(
 ): Promise<boolean> {
   return (
     await sql<{ revoked: boolean }>`SELECT EXISTS(SELECT 1 FROM platform.audit_logs
-    WHERE category='security' AND event_type=${REVOKED} AND actor_type='user'
-      AND actor_user_id=${life.userId}::uuid AND actor_admin_id IS NULL
-      AND subject_type='user_session' AND subject_id=${grantId}::uuid
-      AND result_code='revoked' AND metadata_schema_version=1 AND metadata='{}'::jsonb) AS revoked`.execute(
-      database,
-    )
+    WHERE id=${grantId}::uuid AND actor_user_id=${life.userId}::uuid
+      AND identity.user_session_authority_revoked(id)) AS revoked`.execute(database)
   ).rows[0]!.revoked;
 }
 /** Security grants are canonical append-only audit facts. No bearer or token hash
@@ -165,12 +161,7 @@ export class PostgresUserSessionStore implements UserSessionStore {
         AND issued.actor_type='user' AND issued.actor_user_id=${life.userId}::uuid AND issued.actor_admin_id IS NULL
         AND issued.subject_type='user_session' AND issued.subject_id=issued.id AND issued.result_code='issued'
         AND issued.metadata_schema_version=1 AND account.product_epoch=${life.productEpoch} AND account.state<>'deleted'
-        AND NOT EXISTS(SELECT 1 FROM platform.audit_logs revoked WHERE revoked.category='security'
-          AND revoked.event_type=${REVOKED} AND revoked.actor_type='user' AND revoked.actor_user_id=issued.actor_user_id
-          AND revoked.actor_admin_id IS NULL AND revoked.subject_type='user_session' AND revoked.subject_id=issued.id
-          AND revoked.result_code='revoked' AND revoked.metadata_schema_version=1 AND revoked.metadata='{}'::jsonb)`.execute(
-        this.database,
-      )
+        AND NOT identity.user_session_authority_revoked(issued.id)`.execute(this.database)
     ).rows[0];
     const current = grant(row, life);
     return row !== undefined &&

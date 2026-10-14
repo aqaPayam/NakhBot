@@ -17,6 +17,7 @@ export { PostgresIdentityStore, PostgresLocalizationStore } from './identity-sto
 export { PostgresAdminAuthorizationStore } from './admin-authorization-store.js';
 export { PostgresQueueReferenceMigrationAudit } from './queue-reference-migration-audit.js';
 export { PostgresLegacyOpaqueRetirementAudit } from './legacy-opaque-retirement-audit.js';
+export { PostgresAccountDeletionSessionStore } from './account-deletion-session-store.js';
 export { PostgresAdminCommandStore } from './admin-command-store.js';
 export {
   PostgresModerationReviewStore,

@@ -2919,3 +2919,25 @@ refund completion, cached checkout/invoice denial, epoch/return forgery, a real 
 lock race, current-clock lease expiry after a payer lock wait, expiry at deferred commit and required
 refund/event suppression rollback. The worker's eight unit tests and persistence type check passed.
 The complete local check and all six exact-head CI jobs remain required for this candidate.
+
+
+### Original-life native session retirement (migration 135)
+
+`PostgresAccountDeletionSessionStore` retires at most 100 unexpired grants per
+transaction under the real phase-5 Root lease. Native system security audits bind
+exact original grant IDs, Root command/request, epoch, worker generation and native
+transaction. An immutable digest receipt binds the complete original source facts.
+Mandatory audit/receipt checks revalidate the database-clock lease at commit.
+Concurrent retries serialize and an independent inventory checks session authority;
+a deleted Account alone does not prove the sessions were revoked. User-session
+verification recognizes authenticated Root revocations without changing workforce
+MFA or permissions. Valid immutable grant facts are explicitly classified by the
+older operational checkpoint; malformed provenance still blocks progress.
+
+Deploy migration 135 before this application version. Populated upgrades preserve
+original grant bytes and reject ambiguous grants or unexplained Root revocations
+without inventing history. The receipt is retained lifecycle security proof under
+approval-required policy; retained-data release remains disabled. This component
+does not advance phase 5, authorize Return, or prove cache/queue/provider absence.
+Full ephemeral coordination, retained manifests, final verification, composition
+and remaining M8 acceptance evidence are still required.

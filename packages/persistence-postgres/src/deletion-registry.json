@@ -10176,6 +10176,43 @@
           "definition": "FOREIGN KEY (source_id) REFERENCES platform.sample_reference_anchors(id) ON DELETE RESTRICT"
         }
       ]
+    },
+    {
+      "table": "identity.account_deletion_session_receipts",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "original_life_session_revocation_proof",
+      "subjectScope": "EXISTS (SELECT 1 FROM identity.account_deletion_records governing WHERE governing.id=row.deletion_record_id AND governing.user_id=:userId)",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "proof_hash",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        }
+      ]
     }
   ],
   "objectPrefixes": [
