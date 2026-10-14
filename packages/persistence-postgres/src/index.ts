@@ -239,3 +239,5 @@ export * from './account-deletion-transport-store.js';
 export * from './account-deletion-sample-store.js';
 
 export { PostgresAccountDeletionEphemeralStore } from './account-deletion-ephemeral-store.js';
+
+export { PostgresAccountDeletionRetentionStore } from './account-deletion-retention-store.js';

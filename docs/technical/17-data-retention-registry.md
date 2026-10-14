@@ -509,3 +509,26 @@ transport; canonical money, inbox receipts and security/safety facts remain unde
 their independent policies. Current worker queue diagnostics use only coarse codes
 and no stack/cause. A reverified-intent summary is absence evidence, not an invented
 original effect count. Actual operator producer-drain evidence remains external.
+
+
+## Provisional retention inventory (migration 137)
+
+`identity.data_retention_records` is lifecycle proof with purpose
+`original_life_retention_manifest_pending_policy`. It records descriptors and
+historical presence only, never copies of retained product or provider contents.
+The exact catalog is 153 tables, 1,419 columns and 307 foreign keys. Existing
+registry resource indices are preserved; the new entry is appended.
+
+Records bind original Root/user/life, reviewed type/disposition/purpose, access
+purpose, explicit policy status, registry hash, audit digest and native lease.
+Global typed scopes remain unknown rather than falsely absent. All categories,
+including absent ones, receive a disposition; current ordinary-data obligations
+are independently verified before the phase 6 to 7 checkpoint. This checkpoint
+is not deletion completion, retention approval or fresh Return authorization.
+
+Unknown periods are `pending_approval`, not approved indefinite retention.
+`retention_expires_at`, `indefinite_reason` and `deleted_at` stay null while the
+inventory is provisional. Updates/deletes and retained-data release are disabled.
+Approving finite schedules or justified indefinite policies requires a separate,
+audited implementation and genuine policy approval; no fixture supplies either.
+Existing financial, safety and workforce purpose/access restrictions still apply.

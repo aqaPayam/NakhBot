@@ -504,6 +504,7 @@ describe.skipIf(url === undefined)(
                   '000134_m7_account_action_proof_index.sql',
                   '000135_m8_deletion_sessions.sql',
                   '000136_m8_ephemeral_checkpoint.sql',
+                  '000137_m8_retention_manifest.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -540,6 +541,7 @@ describe.skipIf(url === undefined)(
                   '000134_m7_account_action_proof_index.sql',
                   '000135_m8_deletion_sessions.sql',
                   '000136_m8_ephemeral_checkpoint.sql',
+                  '000137_m8_retention_manifest.sql',
                 ],
           );
           expect(

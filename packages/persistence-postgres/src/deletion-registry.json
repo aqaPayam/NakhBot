@@ -10318,6 +10318,132 @@
           "definition": "FOREIGN KEY (previous_id) REFERENCES identity.account_deletion_ephemeral_pages(id) ON DELETE RESTRICT"
         }
       ]
+    },
+    {
+      "table": "identity.data_retention_records",
+      "owner": "identity",
+      "classification": "lifecycle",
+      "action": "retain_lifecycle_proof",
+      "purpose": "original_life_retention_manifest_pending_policy",
+      "subjectScope": "row.user_id=:userId",
+      "scopeCoverage": "linked_rows",
+      "releasePolicy": "approval_required",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "deletion_record_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "retained_data_type",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "classification",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "disposition",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "legal_or_safety_reason",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "access_policy",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "policy_status",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "retention_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "indefinite_reason",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "observed_present",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "registry_hash",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "audit_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_owner",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "lease_generation",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "transaction_id",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "target": "platform.audit_logs",
+          "definition": "FOREIGN KEY (audit_id) REFERENCES platform.audit_logs(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.account_deletion_records",
+          "definition": "FOREIGN KEY (deletion_record_id) REFERENCES identity.account_deletion_records(id) ON DELETE RESTRICT"
+        },
+        {
+          "target": "identity.users",
+          "definition": "FOREIGN KEY (user_id) REFERENCES identity.users(id) ON DELETE RESTRICT"
+        }
+      ]
     }
   ],
   "objectPrefixes": [

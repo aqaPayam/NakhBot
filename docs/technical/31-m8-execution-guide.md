@@ -1,5 +1,48 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
+
+## Current increment: provisional retention manifest and checkpoint
+
+Commit `5624d53` passed all six jobs in run `38539338959`, attempt 1.
+The native artifact proves 1,112 cases in 138 files with zero skips. All 27
+unchanged 20,000-row plans passed; terminal integrity took 1,157.785 ms against
+1,500 ms, with both required indexes and no temporary blocks. Support load,
+backup/restore and the actual collector privacy rehearsal passed. CloudWatch
+metric delivery and SNS routing remain external evidence, not certified here.
+
+Migration 137 adds `identity.data_retention_records`, bringing exact coverage to
+153 tables, 1,419 columns and 307 foreign keys. Ten categories are inventoried per
+native fenced transaction. The immutable migration snapshot binds every reviewed
+table, column, foreign key, disposition, purpose and subject scope. New or changed
+unclassified schema blocks both admission and the independent checkpoint.
+
+Each descriptor-only record binds the original Root/life, resource category,
+restricted access purpose, historical linked-presence observation (or explicit
+unknown for global typed obligations), registry hash, native clock and exact
+worker generation. An immutable audit digest authenticates every record field.
+The manifest contains no copied messages, payment payloads, credentials, object
+keys or provider bodies. Historical presence is an observation, not a continuing
+absence assertion; the checkpoint independently rechecks current ordinary-data,
+media, session and ephemeral obligations through their native verifiers.
+
+No retention periods have been approved. Affected entries explicitly say
+`pending_approval`; null expiry is not a claim of justified indefinite retention.
+These are provisional inventory records, not approved production retention
+schedules. Existing purpose-specific access controls remain required. Both
+retained-data release and mutation of these records are disabled. Reference-only
+categories are marked separately; no product-deletion proof deletes financial,
+safety, workforce, stable-identity or lifecycle authority.
+
+The separate checkpoint requires the complete authenticated manifest plus all
+prior native proofs, and atomically writes audit, event, receipt, Root and work.
+It advances only phase 6 to phase 7. Deletion remains incomplete, Return remains
+disabled and final verification/service composition/acceptance work is still due.
+Concurrency, interruption/new-generation recovery, suppressed mandatory writes,
+schema drift, immutable policy controls, corrupted history and actual deferred
+lease expiry are covered by native integration cases. Upgrade from populated
+schema 136 preserves existing facts and creates no invented retention records.
+Full project checks and all six exact-head CI jobs remain required for this head.
+
 ## Current increment: durable ephemeral cleanup and checkpoint
 
 Repair `407bd04` passed all six jobs in run `38527306206`, attempt 1. Its native
