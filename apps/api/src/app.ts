@@ -21,6 +21,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sql } from 'kysely';
 import type { Logger } from 'pino';
 import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
+import { createAccountDeletionApi } from './m8-account-deletion-api.js';
 import { M7SupportApiModule, type M7SupportApiOptions } from './m7-support-api.js';
 import { M7AppealApiModule, type M7AppealApiOptions } from './m7-appeal-api.js';
 import { createMediaAuthorityApi } from './m8-media-authority-api.js';
@@ -212,6 +213,7 @@ export class ApiModule {
     return {
       module: ApiModule,
       imports: [
+        ...createAccountDeletionApi(config, database),
         ...createMediaAuthorityApi(config, database),
         ...(reports === undefined ? [] : [M7ReportApiModule.register(reports)]),
         ...(adminReports === undefined ? [] : [M7AdminReportApiModule.register(adminReports)]),

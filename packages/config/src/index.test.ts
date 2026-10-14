@@ -46,6 +46,20 @@ describe('configuration', () => {
     });
     expect(Object.isFrozen(config.deletion)).toBe(true);
   });
+  it('keeps own deletion HTTP off by default and requires configured worker readiness and valid key references', () => {
+    expect(parseConfig(validEnvironment).deletion.apiEnabled).toBe(false);
+    expect(() => parseConfig({ ...validEnvironment, NAKH_DELETION_API_ENABLED: 'true' })).toThrow(
+      'deletion API requires',
+    );
+    for (const setting of [
+      'NAKH_ACCOUNT_CONTROL_KEY_REF',
+      'NAKH_DELETION_CONFIRMATION_KEY_REF',
+      'NAKH_DELETION_CONFIRMATION_KEY_ID',
+    ])
+      expect(() => parseConfig({ ...validEnvironment, [setting]: '../invalid' })).toThrow(
+        'Invalid configuration',
+      );
+  });
   it('parses, defaults, and freezes configuration', () => {
     const config = parseConfig(validEnvironment);
 

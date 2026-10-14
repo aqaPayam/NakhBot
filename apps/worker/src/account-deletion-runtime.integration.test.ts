@@ -10,6 +10,7 @@ import {
   PostgresLegacyOpaqueRetirementAudit,
   PostgresQueueReferenceMigrationAudit,
   PostgresUserSessionStore,
+  PostgresAccountControlSessionStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -65,11 +66,13 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
       item: Awaited<ReturnType<typeof createDeletionFixture>>;
       prefix: string;
       grantId: string;
+      controlGrantId: string;
       runtime: () => ReturnType<typeof createAccountDeletionRuntime>;
     }> {
       const prefix = `m8-worker-${randomUUID()}`;
       prefixes.push(prefix);
-      let grantId = '';
+      let grantId = '',
+        controlGrantId = '';
       const item = await createDeletionFixture(database, async (userId) => {
         const grant = await new PostgresUserSessionStore(database).issue(
           { userId, productEpoch: 0 },
@@ -77,6 +80,12 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
         );
         expect(grant).toBeDefined();
         grantId = grant!.id;
+        const control = await new PostgresAccountControlSessionStore(database).issue(
+          { userId, productEpoch: 0 },
+          randomUUID(),
+        );
+        expect(control).toBeDefined();
+        controlGrantId = control!.id;
         expect(
           await new RedisOwnedOpaqueTokenStore(redis, prefix, {
             userId,
@@ -98,6 +107,7 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
         item,
         prefix,
         grantId,
+        controlGrantId,
         runtime: () =>
           createAccountDeletionRuntime({
             database,
@@ -159,6 +169,18 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
           )
         ).rows,
       ).toEqual([{ revoked: true }]);
+      expect(
+        await new PostgresAccountControlSessionStore(database).current(
+          { userId: f.item.userId, productEpoch: 0 },
+          f.controlGrantId,
+        ),
+      ).toBeDefined();
+      expect(
+        await new PostgresUserSessionStore(database).current(
+          { userId: f.item.userId, productEpoch: 0 },
+          f.controlGrantId,
+        ),
+      ).toBeUndefined();
       const scope = `${f.prefix}:owned-action:{${createHash('sha256').update(f.item.userId).digest('hex')}}`;
       const valueKey = `${scope}:0:value:${createHash('sha256').update('public:abcdefghijklmnop').digest('hex')}`;
       expect(await redis.get(valueKey)).toBeNull();

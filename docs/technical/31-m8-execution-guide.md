@@ -1,6 +1,55 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
-## Current repair: use the native retention expiry column in worker evidence
+## Current increment: limited own account-deletion controls (migration 139)
+
+Accepted repair `bcb634f` passed all six exact-head jobs in run `38590856995`,
+final attempt 2: 1,150 native cases in 141 files, no skips; all 27 plans at
+20,000 scale, terminal integrity 1,005.756 ms; support load (10 accepted,
+90 denied, 100 replayed), backup/restore and the actual collector privacy
+rehearsal passed. Saved native, performance and telemetry artifact digests match
+GitHub. Attempt 1 quality failed before collector startup during image pull,
+classified unknown; the original failure is preserved. One unchanged quality
+control rerun was requested only after the original workflow finished. The cause
+remains unknown; this does not establish a transient-image-pull diagnosis.
+
+Migration 139 adds immutable, original-life account-control grants and revocations
+without changing tables, columns or foreign keys. Opaque `v1.ac` credentials use
+a separate key derivation and authenticated purpose from product `v1.us` sessions.
+Every use checks native owner, original epoch, expiry and revocation. Limited
+controls survive a tombstone in that same epoch; they cannot authorize product
+access. Grant issuance is server-internal, never an HTTP endpoint. No bearer or
+bearer hash is stored. Grant and deletion-effect commit fences use native time.
+Only fully validated immutable grants are classified as retained security facts;
+expiry removes authority without invalidating historical audit classification.
+
+The own HTTP API exposes POST `/v1/account/deletion/prepare`, `/confirm`, `/cancel`
+and `/status`. It injects identity from the verified limited grant, rejects body
+identity/channel/life selectors, projects fixed minimal results, sanitizes errors,
+rechecks the same authority after async waits and sends no-store headers. Native
+transactions lock the original life and bind a deferred commit fence. Status and
+durable command replay cannot cross into a later product life. Ordinary product
+credentials do not authenticate this API. Production composition is OFF by default
+(`NAKH_DELETION_API_ENABLED=false`); enabling it requires configured worker
+readiness, which is an assertion, not evidence of an actual operator drain.
+
+Evidence includes twenty-way grant issuance/revocation, prepare/confirm/cancel
+retries, immediate product denial versus limited status after tombstone, suppressed
+audit rollback, owner/epoch/purpose substitution, real expiry at deferred commit
+with a nontransactional fault-path witness, strict HTTP output/privacy, populated
+schema-138 upgrade and complete-worker fixtures containing both grant purposes.
+Local PostgreSQL cannot certify Redis: complete-worker Redis checks remain
+mandatory in CI. No actual approved Return is exercised by privileged negative
+epoch-corruption fixtures.
+
+This increment does not finish M8. Trusted Telegram ingress/localization, approved
+fresh GUEST Return and later-life Redis activation, historical proof validity after
+real Return, executable controlled retention release, M8 telemetry/runbooks and
+full interruption/load/recovery acceptance remain due. Retention release stays OFF
+until real periods are approved. Provider/staging/PITR/DR/security/operator sign-offs
+remain external. Full local checks and all six exact-head jobs are required before
+the next increment.
+
+## Historical repair: use the native retention expiry column in worker evidence
 
 Worker feature `6e99523` passed quality and all four images in run `38586825585`.
 Its native job failed in two new worker assertions: both queried `expires_at`

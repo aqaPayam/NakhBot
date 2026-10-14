@@ -147,7 +147,9 @@
     "packages/queue-redis/src/legacy-reference-migration.integration.test.ts": 390,
     "packages/queue-redis/src/owned-opaque-state.integration.test.ts": 204,
     "packages/queue-redis/src/queue.integration.test.ts": 142,
-    "packages/queue-redis/src/reference-queue.integration.test.ts": 152
+    "packages/queue-redis/src/reference-queue.integration.test.ts": 152,
+    "packages/persistence-postgres/src/account-control-session-store.integration.test.ts": 30000,
+    "apps/api/src/m8-account-deletion-api.integration.test.ts": 10000
   },
   "additionalMeasurements": [
     {
@@ -179,6 +181,18 @@
       "failed": 0,
       "overallJobPassed": false,
       "purpose": "Dispatch estimate only; failed coverage never authorizes acceptance."
+    }
+  ],
+  "provisionalEstimates": [
+    {
+      "file": "packages/persistence-postgres/src/account-control-session-store.integration.test.ts",
+      "durationMs": 30000,
+      "purpose": "Conservative scheduling estimate for new account-control suites, not a measured duration or acceptance evidence."
+    },
+    {
+      "file": "apps/api/src/m8-account-deletion-api.integration.test.ts",
+      "durationMs": 10000,
+      "purpose": "Conservative scheduling estimate for new account-control suites, not a measured duration or acceptance evidence."
     }
   ]
 }

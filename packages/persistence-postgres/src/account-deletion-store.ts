@@ -1,6 +1,10 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import type { AccountDeletionStore, DeletionConfirmationKeys } from '@nakh/application';
+import type {
+  AccountDeletionStore,
+  DeletionConfirmationKeys,
+  AccountControlActor,
+} from '@nakh/application';
 import type {
   AccountDeletionStatus,
   CancelAccountDeletionCommand,
@@ -13,6 +17,7 @@ import type {
 } from '@nakh/contracts';
 import { ApplicationError, assertAccountTransition, type AccountState } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
+import { requireCurrentAccountControl } from './account-control-session-store.js';
 
 type DeletionCommand = RequestAccountDeletionCommand | CancelAccountDeletionCommand;
 type Confirmation = {
@@ -47,10 +52,13 @@ function digest(command: DeletionCommand): string {
 }
 /** Ingress remains disabled until shared closure, media fences and the complete saga are ready. */
 export class PostgresAccountDeletionStore implements AccountDeletionStore {
+  private readonly control: AccountControlActor | undefined;
   public constructor(
     private readonly database: NakhDatabase,
     private readonly secrets: DeletionConfirmationKeys,
+    control?: AccountControlActor,
   ) {
+    this.control = control === undefined ? undefined : Object.freeze({ ...control });
     if (
       !/^[a-zA-Z0-9_-]{1,80}$/u.test(secrets.activeKeyId) ||
       (secrets.keys.get(secrets.activeKeyId)?.byteLength ?? 0) < 32
@@ -81,7 +89,7 @@ export class PostgresAccountDeletionStore implements AccountDeletionStore {
     database: NakhDatabase,
     userId: string,
     kind: string,
-  ): Promise<{ state: AccountState; version: number }> {
+  ): Promise<{ state: AccountState; version: number; product_epoch: number }> {
     if (kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     // Stable User keys never change. NO KEY UPDATE serializes product writers while
@@ -95,11 +103,13 @@ export class PostgresAccountDeletionStore implements AccountDeletionStore {
     if (user === undefined) throw unavailable();
     const account = await database
       .selectFrom('identity.accounts')
-      .select(['state', 'version'])
+      .select(['state', 'version', 'product_epoch'])
       .where('user_id', '=', userId)
       .forUpdate()
       .executeTakeFirst();
     if (account === undefined) throw unavailable();
+    if (this.control !== undefined)
+      await requireCurrentAccountControl(database, userId, this.control);
     return account;
   }
   private async now(database: NakhDatabase): Promise<Date> {
@@ -155,6 +165,7 @@ export class PostgresAccountDeletionStore implements AccountDeletionStore {
   private async receipt(
     database: NakhDatabase,
     command: DeletionCommand,
+    currentEpoch: number,
   ): Promise<{ deletion_record_id: string | null; account_version: number } | undefined> {
     const rows = (
       await sql<{
@@ -178,6 +189,14 @@ export class PostgresAccountDeletionStore implements AccountDeletionStore {
       receipt.request_digest !== digest(command)
     )
       throw new ApplicationError('idempotency_conflict', 'error.command.idempotency_conflict', 409);
+    const crossed = (
+      await sql<{ crossed: boolean }>`SELECT EXISTS(
+      SELECT 1 FROM identity.account_deletion_records r JOIN identity.deletion_confirmations c ON c.id=(
+        SELECT confirmation_id FROM identity.account_deletion_commands WHERE command_id=${receipt.command_id}::uuid)
+      WHERE r.user_id=${receipt.user_id}::uuid AND r.product_epoch<${currentEpoch} AND r.account_version>c.account_version
+    ) AS crossed`.execute(database)
+    ).rows[0]!.crossed;
+    if (crossed) throw unavailable();
     return receipt;
   }
   private async proof(
@@ -223,7 +242,7 @@ export class PostgresAccountDeletionStore implements AccountDeletionStore {
         tx,
       );
       const account = await this.lock(tx, command.actor.userId, command.actor.kind);
-      const replay = await this.receipt(tx, command);
+      const replay = await this.receipt(tx, command, account.product_epoch);
       if (replay !== undefined) return { cancelled: true, replayed: true };
       const at = await this.now(tx),
         proof = await this.proof(tx, command, at, account.version);
@@ -244,9 +263,10 @@ export class PostgresAccountDeletionStore implements AccountDeletionStore {
         phase: AccountDeletionStatus['phase'];
         requested_at: Date;
         completed_at: Date | null;
-      }>`SELECT phase,requested_at,completed_at FROM identity.account_deletion_records
-       WHERE user_id=${userId}::uuid ${recordId === undefined ? sql`` : sql`AND id=${recordId}::uuid`}
-       ORDER BY requested_at DESC,id DESC LIMIT 1`.execute(database)
+      }>`SELECT r.phase,r.requested_at,r.completed_at FROM identity.account_deletion_records r
+       JOIN identity.accounts a ON a.user_id=r.user_id AND a.product_epoch=r.product_epoch
+       WHERE r.user_id=${userId}::uuid ${recordId === undefined ? sql`` : sql`AND r.id=${recordId}::uuid`}
+       ORDER BY r.requested_at DESC,r.id DESC LIMIT 1`.execute(database)
     ).rows[0];
     if (result === undefined) return undefined;
     if (result.phase === 'completed' && result.completed_at !== null)
@@ -269,6 +289,11 @@ export class PostgresAccountDeletionStore implements AccountDeletionStore {
   ): Promise<AccountDeletionStatus | undefined> {
     if (query.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    if (this.control !== undefined)
+      return this.database.transaction().execute(async (tx) => {
+        await this.lock(tx, query.actor.userId, query.actor.kind);
+        return this.readStatus(tx, query.actor.userId);
+      });
     return this.readStatus(this.database, query.actor.userId);
   }
   public async request(
@@ -280,7 +305,7 @@ export class PostgresAccountDeletionStore implements AccountDeletionStore {
       );
       const userId = command.actor.userId;
       const account = await this.lock(tx, userId, command.actor.kind);
-      const replay = await this.receipt(tx, command);
+      const replay = await this.receipt(tx, command, account.product_epoch);
       if (replay !== undefined && replay.deletion_record_id !== null)
         return {
           status: (await this.readStatus(tx, userId, replay.deletion_record_id))!,

@@ -63,6 +63,10 @@ const ConfigSchema = Type.Object(
     }),
     deletion: Type.Object({
       workerEnabled: Type.Boolean(),
+      apiEnabled: Type.Boolean(),
+      controlKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      confirmationKeyId: Type.String({ pattern: '^[A-Za-z0-9_-]{1,80}$' }),
+      confirmationKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       cutoverEvidenceHash: Type.String({ pattern: '^(?:|[0-9a-f]{64})$' }),
       evidenceKeyRingRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       accessKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
@@ -183,6 +187,14 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     },
     deletion: {
       workerEnabled: boolean(env.NAKH_DELETION_WORKER_ENABLED, false),
+      apiEnabled: boolean(env.NAKH_DELETION_API_ENABLED, false),
+      controlKeyRef: required(env, 'NAKH_ACCOUNT_CONTROL_KEY_REF', 'NAKH_ACCOUNT_CONTROL_KEY'),
+      confirmationKeyId: required(env, 'NAKH_DELETION_CONFIRMATION_KEY_ID', 'delete-v1'),
+      confirmationKeyRef: required(
+        env,
+        'NAKH_DELETION_CONFIRMATION_KEY_REF',
+        'NAKH_DELETION_CONFIRMATION_KEY',
+      ),
       cutoverEvidenceHash: env.NAKH_DELETION_CUTOVER_EVIDENCE_HASH ?? '',
       evidenceKeyRingRef: required(
         env,
@@ -210,6 +222,10 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   )
     throw new Error(
       'Invalid configuration: deletion worker requires cache purge and recorded producer-drain evidence.',
+    );
+  if (candidate.deletion.apiEnabled && !candidate.deletion.workerEnabled)
+    throw new Error(
+      'Invalid configuration: deletion API requires configured deletion worker readiness.',
     );
   if (
     candidate.media.cachePurgeEnabled &&
