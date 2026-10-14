@@ -20,10 +20,11 @@ export type OwnPhotoAction =
   | Readonly<{ type: 'delete'; photoId: string }>;
 
 export interface PhotoManagementStore {
-  listOwn(userId: string): Promise<OwnPhotoCollection>;
+  listOwn(userId: string, expectedProductEpoch?: number): Promise<OwnPhotoCollection>;
   mutateOwn(
     input: Readonly<{
       userId: string;
+      expectedProductEpoch?: number;
       expectedProfileVersion: number;
       action: OwnPhotoAction;
       commandId: string;
@@ -59,8 +60,8 @@ function userId(actor: Actor): string {
 export class ListOwnPhotosHandler {
   public constructor(private readonly store: PhotoManagementStore) {}
 
-  public execute(actor: Actor): Promise<OwnPhotoCollection> {
-    return this.store.listOwn(userId(actor));
+  public execute(actor: Actor, expectedProductEpoch?: number): Promise<OwnPhotoCollection> {
+    return this.store.listOwn(userId(actor), expectedProductEpoch);
   }
 }
 
@@ -74,6 +75,7 @@ export class MutateOwnPhotosHandler {
   public execute(
     input: Readonly<{
       actor: Actor;
+      expectedProductEpoch?: number;
       expectedProfileVersion: number;
       action: OwnPhotoAction;
       commandId: string;
@@ -83,6 +85,9 @@ export class MutateOwnPhotosHandler {
   ): Promise<OwnPhotoCollection> {
     return this.store.mutateOwn({
       userId: userId(input.actor),
+      ...(input.expectedProductEpoch === undefined
+        ? {}
+        : { expectedProductEpoch: input.expectedProductEpoch }),
       expectedProfileVersion: input.expectedProfileVersion,
       action: input.action,
       commandId: input.commandId,

@@ -27,10 +27,60 @@ describe('TelegramPhotoManagementAdapter', () => {
     ],
   };
 
+  it('freezes the native life before a delayed token read and forwards it to mutation', async () => {
+    let epoch = 0,
+      release!: () => void,
+      observed!: () => void;
+    const started = new Promise<void>((resolve) => {
+      observed = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const resolver = vi.fn(() => Promise.resolve({ userId: 'user-1', productEpoch: epoch }));
+    const mutate = vi.fn().mockResolvedValue(collection);
+    const factory = vi.fn(() => ({
+      resolve: async () => {
+        observed();
+        await waiting;
+        return {
+          expectedProfileVersion: 4,
+          action: { type: 'delete' as const, photoId: '40000000-0000-4000-8000-000000000000' },
+        };
+      },
+    }));
+    const adapter = new TelegramPhotoManagementAdapter(
+      { resolveProductLife: resolver },
+      { list: { execute: vi.fn() }, mutate: { execute: mutate } },
+      undefined,
+      undefined,
+      { forLife: factory },
+    );
+    const pending = adapter.handle({
+      update_id: 29,
+      callback_query: {
+        id: 'callback-life',
+        from: { id: 123 },
+        message: { chat: { id: 123, type: 'private' } },
+        data: 'v1.pm.abcdefghijklmnop.83u2A2bTH5JUrFIB',
+      },
+    });
+    await started;
+    epoch = 1;
+    release();
+    expect(await pending).toMatchObject({ handled: true, userId: 'user-1', productEpoch: 0 });
+    expect(resolver).toHaveBeenCalledOnce();
+    expect(factory).toHaveBeenCalledExactlyOnceWith({ userId: 'user-1', productEpoch: 0 });
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ expectedProductEpoch: 0 }));
+  });
+
   it('resolves the actor and lists only the authoritative owner collection', async () => {
     const list = vi.fn().mockResolvedValue(collection);
     const adapter = new TelegramPhotoManagementAdapter(
-      { resolveUserId: (id) => Promise.resolve(id === '123' ? 'user-1' : undefined) },
+      {
+        resolveProductLife: (id) =>
+          Promise.resolve(id === '123' ? { userId: 'user-1', productEpoch: 0 } : undefined),
+      },
       { list: { execute: list }, mutate: { execute: vi.fn() } },
     );
     await expect(
@@ -42,17 +92,18 @@ describe('TelegramPhotoManagementAdapter', () => {
       handled: true,
       action: 'list',
       userId: 'user-1',
+      productEpoch: 0,
       telegramUserId: '123',
       collection,
     });
-    expect(list).toHaveBeenCalledWith({ kind: 'user', userId: 'user-1' });
+    expect(list).toHaveBeenCalledWith({ kind: 'user', userId: 'user-1' }, 0);
   });
 
   it('maps a strict versioned command with stable replay identity', async () => {
     const mutate = vi.fn().mockResolvedValue(collection);
     const ids = ['20000000-0000-4000-8000-000000000000', '30000000-0000-4000-8000-000000000000'];
     const adapter = new TelegramPhotoManagementAdapter(
-      { resolveUserId: () => Promise.resolve('user-1') },
+      { resolveProductLife: () => Promise.resolve({ userId: 'user-1', productEpoch: 0 }) },
       { list: { execute: vi.fn() }, mutate: { execute: mutate } },
       undefined,
       () => ids.shift() ?? 'unexpected',
@@ -70,12 +121,14 @@ describe('TelegramPhotoManagementAdapter', () => {
       handled: true,
       action: 'select_primary',
       userId: 'user-1',
+      productEpoch: 0,
       telegramUserId: '123',
       collection,
     });
     expect(mutate).toHaveBeenCalledWith({
       actor: { kind: 'user', userId: 'user-1' },
       expectedProfileVersion: 3,
+      expectedProductEpoch: 0,
       action: { type: 'select_primary', photoId: '40000000-0000-4000-8000-000000000000' },
       commandId: '20000000-0000-4000-8000-000000000000',
       requestId: '30000000-0000-4000-8000-000000000000',
@@ -101,7 +154,7 @@ describe('TelegramPhotoManagementAdapter', () => {
   ])('maps %s without trusting ownership from the command', async (text, action) => {
     const mutate = vi.fn().mockResolvedValue(collection);
     const adapter = new TelegramPhotoManagementAdapter(
-      { resolveUserId: () => Promise.resolve('user-1') },
+      { resolveProductLife: () => Promise.resolve({ userId: 'user-1', productEpoch: 0 }) },
       { list: { execute: vi.fn() }, mutate: { execute: mutate } },
     );
     await adapter.handle({
@@ -121,7 +174,7 @@ describe('TelegramPhotoManagementAdapter', () => {
   it('rejects malformed, unknown-user, and rate-limited management commands', async () => {
     const useCases = { list: { execute: vi.fn() }, mutate: { execute: vi.fn() } };
     const malformed = new TelegramPhotoManagementAdapter(
-      { resolveUserId: () => Promise.resolve('user-1') },
+      { resolveProductLife: () => Promise.resolve({ userId: 'user-1', productEpoch: 0 }) },
       useCases,
     );
     await expect(
@@ -135,7 +188,7 @@ describe('TelegramPhotoManagementAdapter', () => {
       }),
     ).rejects.toMatchObject({ code: 'invalid_request' });
     const unknown = new TelegramPhotoManagementAdapter(
-      { resolveUserId: () => Promise.resolve(undefined) },
+      { resolveProductLife: () => Promise.resolve(undefined) },
       useCases,
     );
     await expect(
@@ -145,7 +198,7 @@ describe('TelegramPhotoManagementAdapter', () => {
       }),
     ).rejects.toMatchObject({ code: 'unauthorized' });
     const limited = new TelegramPhotoManagementAdapter(
-      { resolveUserId: () => Promise.resolve('user-1') },
+      { resolveProductLife: () => Promise.resolve({ userId: 'user-1', productEpoch: 0 }) },
       useCases,
       { consume: () => Promise.resolve({ allowed: false, remaining: 0, retryAfterSeconds: 10 }) },
     );
@@ -162,7 +215,7 @@ describe('TelegramPhotoManagementAdapter', () => {
   it('rejects photo management outside the authenticated sender private chat', async () => {
     const list = vi.fn();
     const adapter = new TelegramPhotoManagementAdapter(
-      { resolveUserId: () => Promise.resolve('user-1') },
+      { resolveProductLife: () => Promise.resolve({ userId: 'user-1', productEpoch: 0 }) },
       { list: { execute: list }, mutate: { execute: vi.fn() } },
     );
     await expect(
@@ -185,11 +238,11 @@ describe('TelegramPhotoManagementAdapter', () => {
       action: { type: 'delete', photoId: '40000000-0000-4000-8000-000000000000' },
     });
     const adapter = new TelegramPhotoManagementAdapter(
-      { resolveUserId: () => Promise.resolve('user-1') },
+      { resolveProductLife: () => Promise.resolve({ userId: 'user-1', productEpoch: 0 }) },
       { list: { execute: vi.fn() }, mutate: { execute: mutate } },
       undefined,
       () => '20000000-0000-4000-8000-000000000000',
-      { resolve },
+      { forLife: () => ({ resolve }) },
     );
     const token = 'v1.pm.abcdefghijklmnop.83u2A2bTH5JUrFIB';
     await expect(
@@ -213,14 +266,14 @@ describe('TelegramPhotoManagementAdapter', () => {
     );
   });
 
-  it('fails closed for an invalid opaque callback without resolving the user', async () => {
-    const resolveUserId = vi.fn();
+  it('resolves the native life before rejecting an invalid opaque callback', async () => {
+    const resolveProductLife = vi.fn().mockResolvedValue({ userId: 'user-1', productEpoch: 0 });
     const adapter = new TelegramPhotoManagementAdapter(
-      { resolveUserId },
+      { resolveProductLife },
       { list: { execute: vi.fn() }, mutate: { execute: vi.fn() } },
       undefined,
       undefined,
-      { resolve: () => Promise.resolve(undefined) },
+      { forLife: () => ({ resolve: () => Promise.resolve(undefined) }) },
     );
     await expect(
       adapter.handle({
@@ -233,7 +286,7 @@ describe('TelegramPhotoManagementAdapter', () => {
         },
       }),
     ).rejects.toMatchObject({ code: 'invalid_request' });
-    expect(resolveUserId).not.toHaveBeenCalled();
+    expect(resolveProductLife).toHaveBeenCalledOnce();
   });
 });
 

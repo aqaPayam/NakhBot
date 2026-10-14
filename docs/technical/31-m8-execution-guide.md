@@ -1,5 +1,40 @@
 # M8 Execution Guide — Deletion, Retention and Production Hardening
 
+## Current increment: original-life photo management and menu references
+
+Repair `4734bee` passed all six jobs in run `38484860156`, attempt 1. The native
+artifact proves 1,016 cases in 125 files without skips. All 27 full-volume plans
+passed; terminal sampling took 1,311.806 ms against the unchanged 1,500 ms limit,
+with both original required indexes, one worker and zero temporary blocks. Shared
+support load and backup/restore passed. This resolves the preceding failed heads
+before further M8 implementation.
+
+The actual Telegram photo adapter now captures native User and account epoch
+before callback lookup, rate limiting or application waits. List and mutation
+handlers forward that original epoch to the native store. The existing stable
+User/Account lock order checks capability and epoch before receipt lookup or
+Profile/media access. Mutation receipt hashes include the life authorized under
+those locks; old-life replay cannot return a later-life result, and the same
+command identity cannot cross lives. Legacy receipts without a life binding fail
+closed on conflicting replay rather than being reinterpreted as new authority.
+
+Production callback reads and menu issuers use the original-life Redis namespace
+and an independently User/epoch-derived MAC. Delivery freezes the collection's
+original scope before catalog/provider waits and rechecks native identity/life
+before sending. Unscoped old callbacks require a fresh menu. Legacy cache cleanup
+and complete ephemeral phase proofs remain separate obligations; a revoked token
+or this runtime change does not authorize deletion completion or Return.
+
+Thirty-eight focused unit cases and six new native cases passed locally, including
+twenty-way replay, mismatch before required writes, old-life receipt rejection,
+actual lock-wait fencing and an actual deletion tombstone. Two actual Redis cases
+require CI and prove copied logical IDs cannot revive old signatures and twenty
+revoked issuers cannot modify the newer life. Privileged epoch/Redis activation
+fixtures are corruption probes, not approved native Return evidence. No schema
+or inventory change is introduced. The full project check passed formatting, lint,
+all 17 workspace type checks, 1,020 unit tests in 221 files and builds. The native
+floor is 1,024 cases in 127 files; all six exact-head jobs remain required for this candidate.
+
 ## Current repair: shared actor-aware action sampling
 
 Run `38477294295` on `0b6123d` passed quality, all four images and all

@@ -270,6 +270,15 @@ The native worker must supply original lifecycle authority and resume the scan
 cursor. Legacy migration/runtime binding and separately approved fresh-return
 activation remain required before M8 ingress can be enabled.
 
+Photo-management callbacks and menu issuance now use that owning namespace with
+an independent User/epoch-bound signature. The native adapter captures original
+life before asynchronous reads; Profile/media access and command receipts require
+that same life under User/Account locks. Menu delivery retains the collection's
+captured life across catalog/provider waits. Unscoped old callbacks and legacy
+receipts without a life binding fail closed; their physical legacy caches still
+require the independently verified sweep. No new table, retained-data policy,
+release permission, deletion completion or approved Return is introduced.
+
 Production domain-event jobs now contain a bound outbox reference (event ID/type/
 schema and original aggregate type/ID), not the event payload. Consumers validate
 canonical PostgreSQL facts before dispatch and normalize validated legacy bodies

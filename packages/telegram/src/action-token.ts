@@ -61,6 +61,24 @@ function parseState(value: string): StoredState {
 export class TelegramPhotoActionTokens {
   private readonly key: Uint8Array;
 
+  public static forLife(
+    store: OpaqueTokenStore,
+    key: Uint8Array,
+    life: Readonly<{ userId: string; productEpoch: number }>,
+  ): TelegramPhotoActionTokens {
+    if (
+      key.byteLength < 32 ||
+      !UUID.test(life.userId) ||
+      !Number.isSafeInteger(life.productEpoch) ||
+      life.productEpoch < 0
+    )
+      throw new Error('Telegram photo-token life is invalid.');
+    const scopedKey = createHmac('sha256', key)
+      .update(`telegram-photo-life-v1\0${life.userId}\0${life.productEpoch}`)
+      .digest();
+    return new TelegramPhotoActionTokens(store, scopedKey);
+  }
+
   public constructor(
     private readonly store: OpaqueTokenStore,
     key: Uint8Array,

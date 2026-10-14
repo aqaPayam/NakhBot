@@ -1,4 +1,5 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import type { TelegramLikedByLifeResolver } from './liked-by-adapter.js';
 export { TelegramMediaTransportCipher } from './media-cipher.js';
 export {
   TelegramLikedByAdapter,
@@ -443,6 +444,11 @@ type TelegramPhotoActionTokenResolver = Readonly<{
     telegramUserId: string,
   ): Promise<Readonly<{ expectedProfileVersion: number; action: OwnPhotoAction }> | undefined>;
 }>;
+type TelegramPhotoActionTokenFactory = Readonly<{
+  forLife(
+    life: Readonly<{ userId: string; productEpoch: number }>,
+  ): TelegramPhotoActionTokenResolver;
+}>;
 
 export type TelegramPhotoManagementResult =
   | Readonly<{ handled: false }>
@@ -450,6 +456,7 @@ export type TelegramPhotoManagementResult =
       handled: true;
       action: 'list' | OwnPhotoAction['type'];
       userId: string;
+      productEpoch: number;
       telegramUserId: string;
       callbackQueryId?: string;
       collection: OwnPhotoCollection;
@@ -563,19 +570,26 @@ function parsePhotoManagementCallback(update: unknown):
 
 export class TelegramPhotoManagementAdapter {
   public constructor(
-    private readonly resolver: TelegramUserResolver,
+    private readonly resolver: TelegramLikedByLifeResolver,
     private readonly useCases: TelegramPhotoManagementUseCases,
     private readonly rateLimiter?: RateLimiterPort,
     private readonly uuid: () => string = randomUUID,
-    private readonly actionTokens?: TelegramPhotoActionTokenResolver,
+    private readonly actionTokens?: TelegramPhotoActionTokenFactory,
   ) {}
 
   public async handle(update: unknown): Promise<TelegramPhotoManagementResult> {
     let parsed = parsePhotoManagementUpdate(update);
-    if (parsed === undefined) {
-      const callback = parsePhotoManagementCallback(update);
-      if (callback === undefined) return { handled: false };
-      const state = await this.actionTokens?.resolve(callback.token, callback.telegramUserId);
+    const callback = parsed === undefined ? parsePhotoManagementCallback(update) : undefined;
+    if (parsed === undefined && callback === undefined) return { handled: false };
+    const telegramUserId = parsed?.telegramUserId ?? callback!.telegramUserId;
+    // Freeze native identity and life before token lookup, limiter or use-case waits.
+    const life = await this.resolver.resolveProductLife(telegramUserId);
+    if (life === undefined)
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    if (callback !== undefined) {
+      const state = await this.actionTokens
+        ?.forLife(life)
+        .resolve(callback.token, callback.telegramUserId);
       if (state === undefined)
         throw new ApplicationError('invalid_request', 'error.media.telegram_action_invalid', 400);
       parsed = {
@@ -586,9 +600,8 @@ export class TelegramPhotoManagementAdapter {
         expectedProfileVersion: state.expectedProfileVersion,
       };
     }
-    const userId = await this.resolver.resolveUserId(parsed.telegramUserId);
-    if (userId === undefined)
-      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    if (parsed === undefined) throw new Error('Telegram photo update is unavailable.');
+    const { userId, productEpoch } = life;
     const rate = await this.rateLimiter?.consume({
       scope: 'telegram_photo_management',
       subject: userId,
@@ -605,17 +618,20 @@ export class TelegramPhotoManagementAdapter {
         handled: true,
         action: 'list',
         userId,
+        productEpoch,
         telegramUserId: parsed.telegramUserId,
-        collection: await this.useCases.list.execute(actor),
+        collection: await this.useCases.list.execute(actor, productEpoch),
       };
     return {
       handled: true,
       action: parsed.action.type,
       userId,
+      productEpoch,
       telegramUserId: parsed.telegramUserId,
       ...(parsed.callbackQueryId === undefined ? {} : { callbackQueryId: parsed.callbackQueryId }),
       collection: await this.useCases.mutate.execute({
         actor,
+        expectedProductEpoch: productEpoch,
         expectedProfileVersion: parsed.expectedProfileVersion,
         action: parsed.action,
         commandId: this.uuid(),

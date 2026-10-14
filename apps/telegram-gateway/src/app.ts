@@ -39,7 +39,11 @@ import {
   SystemIdGenerator,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
-import { createRedisConnection, RedisOpaqueTokenStore, RedisRateLimiter } from '@nakh/queue-redis';
+import {
+  createRedisConnection,
+  RedisOwnedOpaqueTokenStore,
+  RedisRateLimiter,
+} from '@nakh/queue-redis';
 import {
   TelegramMediaTransportCipher,
   TelegramBotApiMenuClient,
@@ -341,10 +345,7 @@ export class TelegramGatewayModule {
     const photoManagementAdapter: PhotoManagementAdapter = config.media.ingestionEnabled
       ? (() => {
           const store = new PostgresPhotoManagementStore(database);
-          const actionTokens = new TelegramPhotoActionTokens(
-            new RedisOpaqueTokenStore(redis, config.redis.queuePrefix),
-            secretKey(config.telegram.actionTokenKeyRef),
-          );
+          const key = secretKey(config.telegram.actionTokenKeyRef);
           return new TelegramPhotoManagementAdapter(
             new PostgresTelegramUserResolver(database),
             {
@@ -353,23 +354,36 @@ export class TelegramGatewayModule {
             },
             limiter,
             undefined,
-            actionTokens,
+            {
+              forLife: (life) =>
+                TelegramPhotoActionTokens.forLife(
+                  new RedisOwnedOpaqueTokenStore(redis, config.redis.queuePrefix, life),
+                  key,
+                  life,
+                ),
+            },
           );
         })()
       : { handle: () => Promise.resolve({ handled: false as const }) };
     const photoMenuDelivery: PhotoMenuDelivery = config.media.ingestionEnabled
       ? (() => {
-          const actionTokens = new TelegramPhotoActionTokens(
-            new RedisOpaqueTokenStore(redis, config.redis.queuePrefix),
-            secretKey(config.telegram.actionTokenKeyRef),
-          );
-          const presenter = new TelegramPhotoMenuPresenter(actionTokens);
+          const key = secretKey(config.telegram.actionTokenKeyRef);
+          const lifeResolver = new PostgresTelegramUserResolver(database);
           const localization = new PostgresLocalizationStore(database);
           const client = new TelegramBotApiMenuClient(
             resolveSecretReference(config.telegram.botTokenRef),
           );
           return {
             deliver: async (result: HandledPhotoManagementResult): Promise<void> => {
+              const life = { userId: result.userId, productEpoch: result.productEpoch };
+              // Never bind an old collection to a life looked up after delivery waits.
+              const presenter = new TelegramPhotoMenuPresenter(
+                TelegramPhotoActionTokens.forLife(
+                  new RedisOwnedOpaqueTokenStore(redis, config.redis.queuePrefix, life),
+                  key,
+                  life,
+                ),
+              );
               const context = await identityStore.getByUserId(result.userId);
               if (context === undefined) throw new Error('Telegram menu identity is unavailable.');
               const catalog = await localization.loadActiveCatalog(context.uiLocale);
@@ -378,6 +392,12 @@ export class TelegramGatewayModule {
                 catalog.resolvedLocale,
               );
               const model = await presenter.present(result.telegramUserId, result.collection);
+              const currentLife = await lifeResolver.resolveProductLife(result.telegramUserId);
+              if (
+                currentLife?.userId !== life.userId ||
+                currentLife.productEpoch !== life.productEpoch
+              )
+                throw new Error('Telegram menu life is unavailable.');
               const delivery = client.sendMenu(
                 result.telegramUserId,
                 renderTelegramPhotoMenu(model, (intent) =>

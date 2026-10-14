@@ -6,21 +6,29 @@ import type { NakhDatabase } from './database.js';
 export async function requireMediaAccountInTransaction(
   transaction: NakhDatabase,
   userId: string,
-): Promise<void> {
+  expectedProductEpoch?: number,
+): Promise<number> {
+  if (
+    expectedProductEpoch !== undefined &&
+    (!Number.isSafeInteger(expectedProductEpoch) || expectedProductEpoch < 0)
+  )
+    throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
   const account = await transaction
     .selectFrom('identity.accounts')
-    .select('state')
+    .select(['state', 'product_epoch'])
     .where('user_id', '=', userId)
     .forUpdate()
     .executeTakeFirst();
   if (
     account === undefined ||
+    (expectedProductEpoch !== undefined && account.product_epoch !== expectedProductEpoch) ||
     !evaluateCapability(
       { accountState: account.state, profileCompletion: null, visibilityEnabled: false },
       account.state === 'incomplete' ? 'continue_signup' : 'edit_profile',
     ).allowed
   )
     throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+  return account.product_epoch;
 }
 
 /** Resolve immutable ownership without taking an asset lock before the identity.

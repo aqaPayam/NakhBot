@@ -28,6 +28,33 @@ const state = {
 };
 
 describe('TelegramPhotoActionTokens', () => {
+  it('binds signatures to owner and life even when the same stored state is reachable', async () => {
+    const store = new MemoryTokens(),
+      key = new Uint8Array(32).fill(7);
+    const userId = '10000000-0000-4000-8000-000000000001';
+    const old = TelegramPhotoActionTokens.forLife(store, key, { userId, productEpoch: 0 });
+    const token = await old.issue(state);
+    expect(await old.resolve(token, state.telegramUserId)).toEqual(state);
+    const next = TelegramPhotoActionTokens.forLife(store, key, { userId, productEpoch: 1 });
+    expect(await next.resolve(token, state.telegramUserId)).toBeUndefined();
+    const other = TelegramPhotoActionTokens.forLife(store, key, {
+      userId: '10000000-0000-4000-8000-000000000002',
+      productEpoch: 0,
+    });
+    expect(await other.resolve(token, state.telegramUserId)).toBeUndefined();
+  });
+
+  it.each([-1, NaN, 0.5])('rejects invalid photo-token life %s before storage', (productEpoch) => {
+    const store = new MemoryTokens();
+    expect(() =>
+      TelegramPhotoActionTokens.forLife(store, new Uint8Array(32), {
+        userId: '10000000-0000-4000-8000-000000000001',
+        productEpoch,
+      }),
+    ).toThrow(/life is invalid/);
+    expect(store.values.size).toBe(0);
+  });
+
   it('issues a callback-sized opaque token and resolves its server-side state', async () => {
     const store = new MemoryTokens();
     const tokens = new TelegramPhotoActionTokens(

@@ -367,7 +367,7 @@ export async function applyPhotoModeration(
 export class PostgresPhotoManagementStore implements PhotoManagementStore {
   public constructor(private readonly database: NakhDatabase) {}
 
-  public async listOwn(userId: string): Promise<OwnPhotoCollection> {
+  public async listOwn(userId: string, expectedProductEpoch?: number): Promise<OwnPhotoCollection> {
     return this.database.transaction().execute(async (tx) => {
       await tx
         .selectFrom('identity.users')
@@ -375,7 +375,7 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
         .where('id', '=', userId)
         .forNoKeyUpdate()
         .executeTakeFirstOrThrow();
-      await requireMediaAccountInTransaction(tx, userId);
+      await requireMediaAccountInTransaction(tx, userId, expectedProductEpoch);
       const profile = await tx
         .selectFrom('profile.profiles')
         .select(['id', 'version'])
@@ -396,6 +396,7 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
   public async mutateOwn(
     input: Readonly<{
       userId: string;
+      expectedProductEpoch?: number;
       expectedProfileVersion: number;
       action: OwnPhotoAction;
       commandId: string;
@@ -409,14 +410,6 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
   ): Promise<OwnPhotoCollection> {
     if (!Number.isSafeInteger(input.expectedProfileVersion) || input.expectedProfileVersion < 1)
       throw new ApplicationError('invalid_request', 'error.command.version_invalid', 400);
-    const requestHash = createHash('sha256')
-      .update(
-        JSON.stringify({
-          expectedProfileVersion: input.expectedProfileVersion,
-          action: input.action,
-        }),
-      )
-      .digest('hex');
     return this.database.transaction().execute(async (tx) => {
       await tx
         .selectFrom('identity.users')
@@ -424,7 +417,22 @@ export class PostgresPhotoManagementStore implements PhotoManagementStore {
         .where('id', '=', input.userId)
         .forNoKeyUpdate()
         .executeTakeFirstOrThrow();
-      await requireMediaAccountInTransaction(tx, input.userId);
+      const productEpoch = await requireMediaAccountInTransaction(
+        tx,
+        input.userId,
+        input.expectedProductEpoch,
+      );
+      // Bind receipts to the life authorized under the same identity locks.
+      // Delayed old-life work cannot reuse a later-life command receipt.
+      const requestHash = createHash('sha256')
+        .update(
+          JSON.stringify({
+            productEpoch,
+            expectedProfileVersion: input.expectedProfileVersion,
+            action: input.action,
+          }),
+        )
+        .digest('hex');
       const claimed = await tx
         .insertInto('platform.idempotency_records')
         .values({
