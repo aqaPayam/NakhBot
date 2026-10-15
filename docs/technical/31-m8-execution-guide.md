@@ -1,6 +1,44 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
-## Current repair: include the ten deletion texts in the exact English inventory
+## Current repair: independent native runners with source-bound coverage handoff
+
+Repair `9477961` is not accepted green. Run `38616974877` passed every native
+case: 1,170 in 144 files, zero failed or skipped. Its English catalog check passed.
+The three native contexts took 918.99, 1,028.86 and 1,062.32 seconds on one runner;
+the job reached its unchanged 20-minute cap during later plan gates. Full M7
+plan/load/restore acceptance was not reached. Quality independently failed before
+collector startup at image pull with the cause classified unknown. Both original
+logs are preserved. No unchanged quality rerun was requested because another job
+also failed to complete.
+
+The capacity repair retains the same three native partitions, every file and case,
+real PostgreSQL/Redis, all volume/index/performance gates and exactly six job names.
+Three existing container jobs each run one complete native partition on their own
+runner and services. The dependent reliability job starts only after the container
+matrix succeeds, independently discovers the current file inventory and verifies
+all three coverage receipts before running any plan, load or recovery gate. Native
+and reliability jobs keep a 20-minute cap; no gate or asserted workload is reduced.
+Matrix fail-fast is disabled so a failed partition does not cancel its peers.
+
+Receipts contain only coverage facts and portable repository paths, not raw test
+assertions or provider/fixture output. Verification binds the checkout SHA, workflow
+run, successful attempt, complete inventory and exact dispatch plan. It rejects
+missing, duplicate, overlapping, misplaced, failed, skipped, inconsistent and
+wrong-source reports. Same-run successful earlier attempts remain usable for an
+unchanged rerun; the actual job dependency graph also requires all partition jobs
+to succeed. Artifact names include attempts to avoid overwriting another proof.
+The original single-runner CLI remains available, while CI uses the distributed
+mode. Empty evidence fails the actual verification CLI before any acceptance gate.
+
+The native inventory hash remains identical to the original fully passing run.
+Focused boundary tests cover source and manifest substitution, future attempts,
+partial/duplicate file sets, private fields, malformed counts and unsafe paths.
+Full project checks and all six exact-head jobs remain required before acceptance.
+Production M8 behavior and its remaining implementation/external approvals below
+are unchanged; approved Return, retention release controls and the remaining M8
+operational evidence are still due.
+
+## Historical repair: include the ten deletion texts in the exact English inventory
 
 Feature `89d3108` is not accepted green. Run `38612700292` passed quality and all
 four images. Its native inventory covered all 1,170 cases in 144 files with zero
