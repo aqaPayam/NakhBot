@@ -181,3 +181,27 @@ variable "otel_collector_image" {
   type        = string
   default     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.49.0"
 }
+
+variable "account_deletion_monitoring_enabled" {
+  description = "Enable M8 alarms/dashboard only after the deletion worker and actual metric delivery are accepted. Does not enable deletion or retained-data release."
+  type        = bool
+  default     = false
+}
+variable "account_deletion_due_age_seconds" {
+  description = "Operational overdue-work alarm; not an approved retention duration."
+  type        = number
+  default     = 900
+  validation {
+    condition     = var.account_deletion_due_age_seconds >= 60 && var.account_deletion_due_age_seconds <= 604800 && floor(var.account_deletion_due_age_seconds) == var.account_deletion_due_age_seconds
+    error_message = "Deletion due age must be whole seconds between 60 and 604800."
+  }
+}
+variable "account_deletion_oldest_age_seconds" {
+  description = "Operational pending-deletion age alarm; not a legal retention deadline."
+  type        = number
+  default     = 3600
+  validation {
+    condition     = var.account_deletion_oldest_age_seconds >= 60 && var.account_deletion_oldest_age_seconds <= 604800 && floor(var.account_deletion_oldest_age_seconds) == var.account_deletion_oldest_age_seconds
+    error_message = "Deletion oldest age must be whole seconds between 60 and 604800."
+  }
+}

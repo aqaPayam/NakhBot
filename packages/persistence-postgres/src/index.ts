@@ -247,3 +247,5 @@ export * from './account-control-session-store.js';
 export * from './account-return-approval-store.js';
 export * from './account-return-store.js';
 export * from './account-return-activation-store.js';
+
+export * from './account-deletion-health-store.js';

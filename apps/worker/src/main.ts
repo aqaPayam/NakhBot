@@ -22,11 +22,13 @@ import {
   M3Metrics,
   M5Metrics,
   M6Metrics,
+  M8Metrics,
   startTelemetry,
 } from '@nakh/observability';
 import {
   createDatabase,
   PostgresInboxStore,
+  PostgresAccountDeletionHealthStore,
   PostgresMediaCleanupStore,
   PostgresMediaDeliveryPathStore,
   PostgresMediaStore,
@@ -49,6 +51,7 @@ import {
 } from '@nakh/queue-redis';
 import { TelegramMediaTransportCipher, TelegramPhotoDownloadAdapter } from '@nakh/telegram';
 
+import { AccountDeletionTelemetry } from './account-deletion-telemetry.js';
 import { WorkerEventProcessor } from './event-processor.js';
 import { createTelegramLikedByDeliveryRuntime } from './liked-by-delivery-runtime.js';
 import { SharpPhotoTransformer } from './media/image-transformer.js';
@@ -488,9 +491,17 @@ const sampleLikedByBacklog = async (): Promise<void> => {
   }
 };
 
+const deletionTelemetry =
+  deletionRuntime === undefined
+    ? undefined
+    : new AccountDeletionTelemetry(
+        new PostgresAccountDeletionHealthStore(database),
+        new M8Metrics(),
+        (operation) => logger.error({ operation }, 'Deletion operational telemetry unavailable'),
+      );
 const dispatchDeletion = async (): Promise<void> => {
   if (deletionRuntime === undefined) return;
-  const result = await deletionRuntime.execute();
+  const result = await deletionTelemetry!.execute(deletionRuntime);
   if (!['idle', 'busy', 'closed'].includes(result.outcome))
     logger.info(
       { operation: 'account.deletion', outcome: result.outcome, phase: result.phase },
@@ -505,7 +516,12 @@ await Promise.all([
   sampleLikedByBacklog(),
   dispatchNotification(),
   dispatchDeletion(),
+  deletionTelemetry?.sample(),
 ]);
+const deletionHealthTimer =
+  deletionTelemetry === undefined
+    ? undefined
+    : setInterval(() => void deletionTelemetry.sample(), 30000);
 const deletionTimer =
   deletionRuntime === undefined ? undefined : setInterval(() => void dispatchDeletion(), 250);
 const timer = setInterval(() => void dispatch(), 250);
@@ -533,6 +549,7 @@ logger.info(
 
 const shutdown = async (): Promise<void> => {
   if (deletionTimer !== undefined) clearInterval(deletionTimer);
+  if (deletionHealthTimer !== undefined) clearInterval(deletionHealthTimer);
   clearInterval(timer);
   clearInterval(queueMigrationTimer);
   clearInterval(paymentFulfillmentTimer);
@@ -540,6 +557,7 @@ const shutdown = async (): Promise<void> => {
   if (likedByBacklogTimer !== undefined) clearInterval(likedByBacklogTimer);
   if (notificationTimer !== undefined) clearInterval(notificationTimer);
   await deletionRuntime?.close();
+  await deletionTelemetry?.close();
   await eventWorker.close();
   await publisher.close();
   await Promise.all([publisherConnection.quit(), workerConnection.quit()]);

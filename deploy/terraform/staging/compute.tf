@@ -78,14 +78,18 @@ locals {
   ]
 
   m7_telemetry = jsondecode(file("${path.module}/../../telemetry/m7-collector.json"))
+  m8_telemetry = jsondecode(file("${path.module}/../../telemetry/m8-collector.json"))
 
   adot_config = yamlencode({
     receivers = { otlp = { protocols = { http = { endpoint = "0.0.0.0:4318" } } } }
-    processors = merge(local.m7_telemetry.processors, {
+    processors = merge(local.m7_telemetry.processors, local.m8_telemetry.processors, {
       batch          = {}
       memory_limiter = { check_interval = "5s", limit_mib = 192 }
     })
     exporters = {
+      "awsemf/m8" = merge(local.m8_telemetry.exporter, {
+        log_group_name = aws_cloudwatch_log_group.telemetry.name
+      })
       awsxray = {}
       awsemf = {
         namespace      = "Nakh/Platform"
@@ -104,8 +108,13 @@ locals {
         }
         metrics = {
           receivers  = ["otlp"]
-          processors = ["memory_limiter", "filter/non_m7", "batch"]
+          processors = ["memory_limiter", "filter/non_m7", "filter/non_m8", "batch"]
           exporters  = ["awsemf"]
+        }
+        "metrics/m8" = {
+          receivers  = ["otlp"]
+          processors = ["memory_limiter", "resource/m8", "filter/m8", "batch"]
+          exporters  = ["awsemf/m8"]
         }
         "metrics/m7" = {
           receivers  = ["otlp"]
@@ -233,8 +242,8 @@ resource "aws_ecs_cluster" "main" {
 
   lifecycle {
     precondition {
-      condition     = var.otel_collector_image == local.m7_telemetry.collectorImage
-      error_message = "The collector image must match the M7 conversion evidence pin."
+      condition     = var.otel_collector_image == local.m7_telemetry.collectorImage && var.otel_collector_image == local.m8_telemetry.collectorImage
+      error_message = "The collector image must match the M7 and M8 conversion evidence pins."
     }
     precondition {
       condition     = !var.activate_services || (local.dns_enabled && var.image_tag != "bootstrap")

@@ -35,6 +35,15 @@ jobs:
           path: artifacts/m7-telemetry-conversion.json
           if-no-files-found: error
           retention-days: 14
+      - name: M8 pinned collector conversion and privacy rehearsal
+        run: pnpm test:m8-collector
+      - name: Retain privacy-safe M8 collector evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: m8-telemetry-${{ github.sha }}
+          path: artifacts/m8-telemetry-conversion.json
+          if-no-files-found: error
+          retention-days: 14
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.15.9

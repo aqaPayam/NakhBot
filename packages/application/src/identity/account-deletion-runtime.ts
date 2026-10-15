@@ -99,3 +99,20 @@ export class RunAccountDeletionBatchHandler {
     }
   }
 }
+
+/** Operational metadata only; this sample never certifies deletion proof or Return. */
+export type AccountDeletionPhaseHealth = Readonly<{
+  records: number;
+  leased: number;
+  retrying: number;
+  inconsistent: number;
+  oldestAgeSeconds: number;
+  dueAgeSeconds: number;
+}>;
+export type AccountDeletionHealthSample = Readonly<{
+  sampledAt: Date;
+  phases: Readonly<Record<AccountDeletionPhase, AccountDeletionPhaseHealth>>;
+}>;
+export interface AccountDeletionHealthStore {
+  measure(): Promise<AccountDeletionHealthSample>;
+}

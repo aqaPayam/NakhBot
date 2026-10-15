@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "collectorImage": "public.ecr.aws/aws-observability/aws-otel-collector:v0.49.0",
+  "phases": [
+    "shared_closure",
+    "evidence_capture",
+    "product_data",
+    "media_objects",
+    "ephemeral_access",
+    "retention_manifest",
+    "verification",
+    "completed"
+  ],
+  "metricNames": [
+    "nakh.m8.deletion.batches",
+    "nakh.m8.deletion.duration",
+    "nakh.m8.deletion.retries",
+    "nakh.m8.deletion.lease_lost",
+    "nakh.m8.deletion.failures",
+    "nakh.m8.deletion.health.failures",
+    "nakh.m8.deletion.records",
+    "nakh.m8.deletion.leased",
+    "nakh.m8.deletion.retrying",
+    "nakh.m8.deletion.inconsistent",
+    "nakh.m8.deletion.oldest_age",
+    "nakh.m8.deletion.due_age",
+    "nakh.m8.deletion.sampled_at"
+  ],
+  "processors": {
+    "filter/non_m8": {
+      "error_mode": "propagate",
+      "metric_conditions": ["IsMatch(metric.name, \"^nakh\\\\.m8\\\\.\")"]
+    },
+    "resource/m8": {
+      "attributes": [
+        {
+          "pattern": ".*",
+          "action": "delete"
+        }
+      ]
+    },
+    "filter/m8": {
+      "error_mode": "propagate",
+      "metric_conditions": [
+        "scope.name != \"nakh-m8\"",
+        "scope.version != \"\" or Len(scope.attributes) != 0",
+        "not IsMatch(metric.name, \"^(nakh\\\\.m8\\\\.deletion\\\\.batches|nakh\\\\.m8\\\\.deletion\\\\.duration|nakh\\\\.m8\\\\.deletion\\\\.retries|nakh\\\\.m8\\\\.deletion\\\\.lease_lost|nakh\\\\.m8\\\\.deletion\\\\.failures|nakh\\\\.m8\\\\.deletion\\\\.health\\\\.failures|nakh\\\\.m8\\\\.deletion\\\\.records|nakh\\\\.m8\\\\.deletion\\\\.leased|nakh\\\\.m8\\\\.deletion\\\\.retrying|nakh\\\\.m8\\\\.deletion\\\\.inconsistent|nakh\\\\.m8\\\\.deletion\\\\.oldest_age|nakh\\\\.m8\\\\.deletion\\\\.due_age|nakh\\\\.m8\\\\.deletion\\\\.sampled_at)$\")",
+        "IsMatch(metric.name, \"^(nakh\\\\.m8\\\\.deletion\\\\.batches|nakh\\\\.m8\\\\.deletion\\\\.duration)$\") and (Len(datapoint.attributes) != 2 or not IsString(datapoint.attributes[\"phase\"]) or not IsMatch(datapoint.attributes[\"phase\"], \"^(shared_closure|evidence_capture|product_data|media_objects|ephemeral_access|retention_manifest|verification|completed|unknown)$\") or not IsString(datapoint.attributes[\"outcome\"]) or not IsMatch(datapoint.attributes[\"outcome\"], \"^(progress|waiting|advanced|completed|idle|busy|closed|retry_scheduled|lease_lost|failure)$\"))",
+        "IsMatch(metric.name, \"^(nakh\\\\.m8\\\\.deletion\\\\.records|nakh\\\\.m8\\\\.deletion\\\\.leased|nakh\\\\.m8\\\\.deletion\\\\.retrying|nakh\\\\.m8\\\\.deletion\\\\.inconsistent|nakh\\\\.m8\\\\.deletion\\\\.oldest_age|nakh\\\\.m8\\\\.deletion\\\\.due_age)$\") and (Len(datapoint.attributes) != 1 or not IsString(datapoint.attributes[\"phase\"]) or not IsMatch(datapoint.attributes[\"phase\"], \"^(shared_closure|evidence_capture|product_data|media_objects|ephemeral_access|retention_manifest|verification|completed)$\"))",
+        "IsMatch(metric.name, \"^(nakh\\\\.m8\\\\.deletion\\\\.retries|nakh\\\\.m8\\\\.deletion\\\\.lease_lost|nakh\\\\.m8\\\\.deletion\\\\.failures|nakh\\\\.m8\\\\.deletion\\\\.health\\\\.failures|nakh\\\\.m8\\\\.deletion\\\\.sampled_at)$\") and Len(datapoint.attributes) != 0",
+        "IsMatch(metric.name, \"^(nakh\\\\.m8\\\\.deletion\\\\.batches|nakh\\\\.m8\\\\.deletion\\\\.retries|nakh\\\\.m8\\\\.deletion\\\\.lease_lost|nakh\\\\.m8\\\\.deletion\\\\.failures|nakh\\\\.m8\\\\.deletion\\\\.health\\\\.failures)$\") and metric.type != METRIC_DATA_TYPE_SUM",
+        "IsMatch(metric.name, \"^(nakh\\\\.m8\\\\.deletion\\\\.duration)$\") and metric.type != METRIC_DATA_TYPE_HISTOGRAM",
+        "IsMatch(metric.name, \"^(nakh\\\\.m8\\\\.deletion\\\\.records|nakh\\\\.m8\\\\.deletion\\\\.leased|nakh\\\\.m8\\\\.deletion\\\\.retrying|nakh\\\\.m8\\\\.deletion\\\\.inconsistent|nakh\\\\.m8\\\\.deletion\\\\.oldest_age|nakh\\\\.m8\\\\.deletion\\\\.due_age|nakh\\\\.m8\\\\.deletion\\\\.sampled_at)$\") and metric.type != METRIC_DATA_TYPE_GAUGE"
+      ]
+    }
+  },
+  "exporter": {
+    "namespace": "Nakh/Platform",
+    "log_stream_name": "m8-metrics",
+    "dimension_rollup_option": "NoDimensionRollup",
+    "resource_to_telemetry_conversion": {
+      "enabled": false
+    },
+    "retain_initial_value_of_delta_metric": true,
+    "metric_declarations": [
+      {
+        "dimensions": [["phase", "outcome"]],
+        "metric_name_selectors": [
+          "^nakh\\.m8\\.deletion\\.batches$",
+          "^nakh\\.m8\\.deletion\\.duration$"
+        ]
+      },
+      {
+        "dimensions": [["phase"]],
+        "metric_name_selectors": [
+          "^nakh\\.m8\\.deletion\\.records$",
+          "^nakh\\.m8\\.deletion\\.leased$",
+          "^nakh\\.m8\\.deletion\\.retrying$",
+          "^nakh\\.m8\\.deletion\\.inconsistent$",
+          "^nakh\\.m8\\.deletion\\.oldest_age$",
+          "^nakh\\.m8\\.deletion\\.due_age$"
+        ]
+      },
+      {
+        "dimensions": [[]],
+        "metric_name_selectors": [
+          "^nakh\\.m8\\.deletion\\.retries$",
+          "^nakh\\.m8\\.deletion\\.lease_lost$",
+          "^nakh\\.m8\\.deletion\\.failures$",
+          "^nakh\\.m8\\.deletion\\.health\\.failures$",
+          "^nakh\\.m8\\.deletion\\.sampled_at$"
+        ]
+      }
+    ]
+  }
+}

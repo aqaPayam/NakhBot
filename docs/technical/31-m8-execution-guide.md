@@ -4,7 +4,90 @@
 
 
 
-## Current increment: authenticated primary-entry confirmation and opaque activation
+## Current increment: native deletion health, worker telemetry and operations
+
+Accepted `6cbf1a8` passed all six exact-head jobs on attempt 1 of run
+`38701132953`: all 1,228 native cases in 150 files, no skips, including the new
+actual Redis/Webhook activation and response-loss cases. All three source receipts
+match the SHA/run/attempt. All 27 plans passed at 20,000 scale; the terminal
+snapshot took 1,449.073 ms against 1,500 ms, zero workers/spill, both required
+administrator indexes. Support load, backup/restore and actual M7 collector
+privacy/freshness checks passed. All three downloaded ZIP digests match GitHub.
+No external provider or CloudWatch/SNS acceptance is inferred.
+
+The original M8 plan requires deletion dashboards, alerts and operations evidence.
+Inspection found only bounded worker logs and M7-specific metrics. This increment
+adds a native read-only health sample, worker observations, a dedicated strict
+collector route, a gated Terraform dashboard/alarms and an operational runbook.
+No schema, migration, retained-data descriptor, product authority or deletion
+checkpoint is changed.
+
+One native-clock/MVCC statement returns exactly eight finite phases with six
+counts/ages each: durable records, current leases, persisted retry indications,
+queue alignment inconsistencies, total pending age and overdue unleased work age.
+A full Root/work join exposes either missing side. Active work must match the
+original Root phase/checkpoint and current deleted Account/version/epoch. Completed
+Roots check completion/work alignment while allowing a subsequent approved Return;
+these observations do not replace native proof verification or authorize anything.
+Only aggregate values and the sample time leave PostgreSQL.
+
+The enabled worker observes bounded poll outcomes and samples health every 30
+seconds. Reads do not overlap; shutdown drains the current read before database
+and exporter close. A failed sample increments a finite failure counter without
+refreshing the last timestamp. Exporter failure preserves a committed native
+result. No raw exception, failure code, owner, Root, provider or key becomes a
+metric label or new diagnostic field.
+
+All 13 M8 instruments use only fixed phase/outcome labels, with a strict whole-
+sample check before any fresh timestamp. The pinned ADOT M8 route strips resource
+attributes and rejects unknown names, types, scopes/versions/attributes and label
+shapes. Legacy export excludes M8 names, preventing rejected points from escaping
+through a fallback. Existing M7 policy remains independent. The actual collector
+rehearsal requires all instruments, eight drift/clear phases, stale/fresh samples,
+first failure counter, private-marker rejection and preservation of M1/M7 output.
+CI adds this step and its privacy-safe artifact inside the existing quality job;
+there remain exactly six jobs and all existing gates/caps are unchanged.
+
+Terraform monitoring defaults OFF until the enabled producer, actual CloudWatch
+delivery and SNS routing are accepted externally. Queue age thresholds are bounded
+operational settings, not retention periods or release approval. Missing samples
+breach the freshness alarm only when monitoring is enabled. Dashboard gauges use
+Maximum rather than summing replicated global samples. The runbook distinguishes
+lease expiry, response loss, native resumption and observations from authorization;
+retained-data release remains OFF pending approved periods.
+
+Seven focused unit cases passed, including exporter/database outage and close/
+nonoverlap behavior. Five native cases passed: empty sample/privacy, native lease
+expiry/reclaim/retry, missing/orphan work under explicit corruption rollback,
+actual completed deletion followed by separately approved Return, and 20,000
+synthetic metadata rows across all eight phases with a 1,500 ms query budget,
+three repeated samples and complete rollback. Metadata load does not claim mass
+cleanup. Focused lint and worker/observability/persistence types passed. Initial
+checks found a test-parenthesis typo, test helper types and stale built-package
+test resolution; these were corrected. Unit/native test configurations now resolve
+current observability source just like the other workspace adapters. The complete
+native health suite passed again after the privileged corruption fixture was
+expressed as explicit SQL. Staging Terraform validation passed with no warnings.
+The new native file's 90-second dispatch estimate is provisional. Inventory rises
+to 1,233 native cases in 151 files; no older case or workload is removed.
+
+Full project and all six exact-head CI jobs, including the actual pinned collector
+conversion, remain required. Docker is unavailable locally; no local collector
+success is fabricated. Remaining ordinary/product-entry review, Return operator
+composition, policy-controlled release OFF until actual period approval and final
+M8 load/failure/recovery/security acceptance remain open. No M9.
+
+The first full project run stopped at formatting of the new dashboard document;
+that document was formatted and the complete project check rerun passed all
+formatting, lint, workspace types, 1,149 unit cases in 238 files and builds.
+Review also corrected the M7 preservation canary to require its initial event
+while allowing later zero deltas; final focused collector lint/types and formatting
+passed. Exporter-selector checks cover exactly 13 names/eight phases and reject
+unknown names. Final Terraform formatting and staging validation passed with zero
+warnings. These static checks do not substitute for the mandatory actual collector
+rehearsal, all 1,233 native cases without skips and all six exact-head CI jobs.
+
+## Historical increment: authenticated primary-entry confirmation and opaque activation
 
 Accepted `e0206ae` passed all six exact-head jobs on attempt 1 of run
 `38694780666`: all 1,222 native cases in 149 files, no skips, with all three

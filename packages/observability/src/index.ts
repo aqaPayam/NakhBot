@@ -115,3 +115,5 @@ export async function inSpan<T>(name: string, operation: () => Promise<T>): Prom
 
 export const foundationMeter = metrics.getMeter('nakh-foundation');
 export * from './m7-metrics.js';
+
+export * from './m8-metrics.js';
