@@ -4,6 +4,26 @@
 
 
 
+## Current repair: complete schema-146 upgrade matrix
+
+Run `38768137375` for `17d9f26` passed quality and API/Telegram/scheduler jobs,
+but the worker native matrix failed and reliability was skipped. All 74 failed
+cases are the same assertion: the
+upgrade applied migration 146, while the expected number still used
+`145 - baseline`. The explicit migration list and bootstrap replay count already
+included 146. The exact failed worker log, annotations and terminal metadata are
+preserved. All five available ZIP digests match GitHub: three native source
+receipts and both actual collector rehearsals. Partial evidence remains explicitly
+unaccepted; no performance/load/recovery acceptance or unchanged rerun is inferred.
+
+Expect exactly `146 - baseline` migrations and add the previous green schema 145
+to the original upgrade matrix. Keep every earlier baseline and all legacy appeal,
+original-life, financial/session/counter preservation and replay assertions. This
+strengthens the native floor to 1,252 cases in the same 153 files. No production
+migration, source guard, workload, CI cap or performance gate changes. Full local
+matrix, project check and six changed-head successes remain required. Retained-data
+release stays disabled; full M8 remains active and no M9 is started.
+
 ## Current increment: exact original retained-source membership
 
 Accepted `ba166b4` passed all six exact-head jobs on attempt 1 of run
