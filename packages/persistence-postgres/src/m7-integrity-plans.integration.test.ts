@@ -688,6 +688,75 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     ).rejects.toThrow('division by zero');
     await assertClean();
   });
+  it('keeps the combined snapshot serial and restores operator settings after success and failure', async () => {
+    await database.connection().execute(async (connection) => {
+      try {
+        for (const limit of [0, 1, 8]) {
+          await sql`SELECT set_config('max_parallel_workers_per_gather',${String(limit)},false)`.execute(
+            connection,
+          );
+          await withModerationIntegrityRead(
+            connection,
+            async (read) => {
+              expect(
+                (
+                  await sql<{
+                    value: string;
+                  }>`SELECT current_setting('max_parallel_workers_per_gather') AS value`.execute(
+                    read,
+                  )
+                ).rows[0]!.value,
+              ).toBe('0');
+              const sample = await new PostgresModerationIntegrityMetricsStore(read).measure();
+              expect(Object.values(sample.counts)).toEqual(Array.from({ length: 10 }, () => 0));
+            },
+            0,
+          );
+          expect(
+            (
+              await sql<{
+                value: string;
+              }>`SELECT current_setting('max_parallel_workers_per_gather') AS value`.execute(
+                connection,
+              )
+            ).rows[0]!.value,
+          ).toBe(String(limit));
+          await expect(
+            withModerationIntegrityRead(
+              connection,
+              async (read) => {
+                expect(
+                  (
+                    await sql<{
+                      value: string;
+                    }>`SELECT current_setting('max_parallel_workers_per_gather') AS value`.execute(
+                      read,
+                    )
+                  ).rows[0]!.value,
+                ).toBe('0');
+                await sql`SELECT 1 / 0`.execute(read);
+              },
+              0,
+            ),
+          ).rejects.toThrow('division by zero');
+          expect(
+            (
+              await sql<{
+                value: string;
+              }>`SELECT current_setting('max_parallel_workers_per_gather') AS value`.execute(
+                connection,
+              )
+            ).rows[0]!.value,
+          ).toBe(String(limit));
+        }
+      } finally {
+        await sql`SELECT set_config('max_parallel_workers_per_gather',${initialParallelSettings.max_parallel_workers_per_gather!},false)`.execute(
+          connection,
+        );
+      }
+    });
+    await assertClean();
+  });
   it('caps parallel workers, respects disabled/lower operator limits and restores a successful read', async () => {
     await database.connection().execute(async (connection) => {
       try {

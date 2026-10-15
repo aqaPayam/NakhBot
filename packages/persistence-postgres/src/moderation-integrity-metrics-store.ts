@@ -23,13 +23,18 @@ type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; cou
  * relation sizes. Shared parallel hashes can exhaust a container's dynamic shared
  * memory across the combined phases. Use private hash tables within the same
  * per-node work budget. Cap each gather at one worker plus its leader, respecting
- * lower operator limits (including disabled parallelism).
+ * lower operator limits (including disabled parallelism). The combined ten-phase
+ * snapshot uses zero workers: repeated worker launches cost more than its short
+ * membership scans save. Individual phase and health reads retain the one-worker cap.
  * LOCAL settings expire at commit/rollback,
  * including failed reads, and never change the pooled session or database configuration. */
 export async function withModerationIntegrityRead<T>(
   database: NakhDatabase,
   work: (transaction: NakhDatabase) => Promise<T>,
+  maximumParallelWorkers: 0 | 1 = 1,
 ): Promise<T> {
+  if (maximumParallelWorkers !== 0 && maximumParallelWorkers !== 1)
+    throw new Error('M7 integrity read limit is invalid.');
   const read = async (transaction: NakhDatabase): Promise<T> => {
     await sql`SET LOCAL jit = off`.execute(transaction);
     await sql`SET LOCAL work_mem = '16MB'`.execute(transaction);
@@ -37,7 +42,7 @@ export async function withModerationIntegrityRead<T>(
     await sql`SET LOCAL parallel_setup_cost = 250`.execute(transaction);
     await sql`SET LOCAL parallel_tuple_cost = 0.01`.execute(transaction);
     await sql`SELECT set_config('max_parallel_workers_per_gather',
-      LEAST(current_setting('max_parallel_workers_per_gather')::integer,1)::text,true)`.execute(
+      LEAST(current_setting('max_parallel_workers_per_gather')::integer,${maximumParallelWorkers})::text,true)`.execute(
       transaction,
     );
     return work(transaction);
@@ -116,6 +121,7 @@ export class PostgresModerationIntegrityMetricsStore {
     const rows = await withModerationIntegrityRead(
       this.database,
       async (transaction) => (await moderationIntegrityStatement().execute(transaction)).rows,
+      0,
     );
     if (rows.length !== MODERATION_RECONCILIATION_PHASES.length)
       throw new Error('M7 integrity measurement unavailable.');

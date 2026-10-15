@@ -78,7 +78,7 @@ export async function explainM7Queries(
       }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(connection);
     const result =
       name.startsWith('integrity') || name === 'operationalHealth'
-        ? await withModerationIntegrityRead(database, explain)
+        ? await withModerationIntegrityRead(database, explain, name === 'integritySnapshot' ? 0 : 1)
         : await explain(database);
     plans[name] = result.rows[0]?.['QUERY PLAN'];
   }
@@ -115,10 +115,13 @@ async function explainTerminalAppealQueries(
   };
   const plans: Record<string, unknown> = {};
   for (const [name, statement] of Object.entries(statements)) {
-    const result = await withModerationIntegrityRead(database, (connection) =>
-      sql<{ 'QUERY PLAN': unknown }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(
-        connection,
-      ),
+    const result = await withModerationIntegrityRead(
+      database,
+      (connection) =>
+        sql<{
+          'QUERY PLAN': unknown;
+        }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(connection),
+      name === 'terminalIntegritySnapshot' ? 0 : 1,
     );
     plans[name] = result.rows[0]?.['QUERY PLAN'];
   }

@@ -4,7 +4,55 @@
 
 
 
-## Current increment: native-bound monotonic Redis activation after Return
+## Current repair: avoid repeated worker launches in the combined integrity snapshot
+
+Feature `7eb48cb` is not accepted green. Run `38650762285` passed quality and
+all four container/native jobs: 1,207 native cases in 147 files, no failures or
+skips, with all three receipts bound to that exact head/run. The reliability job
+failed only the terminal integrity snapshot: 1,549.745 ms against the unchanged
+1,500 ms limit at 20,000 scale. Both administrator proof indexes were present,
+with one worker, one hash batch and no spill. Support load and backup/restore were
+skipped after that failure. Original logs and ZIP digests are preserved/verified;
+no unchanged replay or later acceptance is claimed.
+
+Two larger history rewrites were slower and rejected; exact-existence/JSON
+predicate experiments also timed out under the existing native statement bound
+and were removed. The repair preserves the original complete SQL predicates.
+A same-fixture diagnostic alternated zero and one worker three times at the full
+20,000 scale: zero-worker samples were 2,534.528/2,551.809/2,551.508 ms; one-worker
+samples were 2,727.304/2,624.995/2,762.882 ms. Every sample retained the required
+indexes and had no spill. These slower Windows measurements establish the paired
+comparison only; they do not satisfy the Linux CI performance acceptance gate.
+
+Only the combined ten-phase integrity snapshot now requests zero read workers,
+avoiding repeated launches for its short membership scans. Individual phase and
+operational-health reads retain their prior one-worker cap. Production sampling
+and both baseline/terminal EXPLAIN scenes use the same bounded read setting.
+The maximum is transaction-local, never exceeds an operator's lower limit, and
+must restore pooled settings after success and actual native query failure.
+All flags, one-entity counts, original proof/history predicates, 27 plans, repeated
+samples, 20,000-row workload, required indexes, 1,500 ms limit, memory budget and
+20-minute CI bounds remain unchanged. The additional native settings case raises
+the inventory floor to 1,208 cases in 147 files. No migration or retained-data
+policy change. Full checks and all six exact-head jobs remain required.
+
+Focused lint and PostgreSQL type checks passed. Both native integrity suites
+passed all 17 cases, including the new serial setting under operator limits 0/1/8,
+restoration after success and actual division-by-zero failure, concurrent ten-phase
+sampling, exact current drift counts, duplicate-history/restoration bindings and
+remaining scanner/aggregate consistency probes. No query-predicate experiment is
+included in the repair. Full project and exact-head CI checks remain required.
+
+The complete local project check passed formatting, lint, all workspace types,
+all 1,117 unit tests in 232 files and all builds. All six exact-head CI jobs remain
+required before accepting the repaired head or starting the next feature.
+
+The full M8 scope remains open: public API/Telegram/localized Return composition,
+controlled retention release (OFF until actual periods are approved), telemetry,
+runbooks and remaining interruption/load/failure/recovery evidence. Actual provider,
+staging/PITR/DR, security review and operator sign-offs remain external. No M9.
+
+## Historical increment: native-bound monotonic Redis activation after Return
 
 Accepted `192f64c` passed all six exact-head jobs on attempt 1 of run
 `38644167739`: 1,193 native cases in 146 files, no skips; all 27 plans at 20,000
