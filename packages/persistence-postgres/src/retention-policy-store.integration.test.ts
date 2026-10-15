@@ -18,7 +18,10 @@ import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createFinalDeletionFixture } from './testing/final-deletion-fixture.js';
 import { createReportFixtureAdmin } from './testing/report-fixture.js';
 import { PostgresAccountDeletionEphemeralStore } from './account-deletion-ephemeral-store.js';
-import { PostgresRetentionPolicyWorkflow } from './retention-policy-store.js';
+import {
+  PostgresRetentionPeriodReviewStore,
+  PostgresRetentionPolicyWorkflow,
+} from './retention-policy-store.js';
 import { createPostgresAdminSessions } from './admin-session-store.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
@@ -150,6 +153,147 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
       )
     ).rows;
   }
+  async function reviewInput(root: { recordId: string; version: number }): Promise<{
+    deletionRecordId: string;
+    retentionRecordId: string;
+    expectedRootVersion: number;
+  }> {
+    const manifest = (
+      await sql<{ id: string }>`SELECT id FROM identity.data_retention_records
+      WHERE deletion_record_id=${root.recordId}::uuid AND retained_data_type='support.support_messages'`.execute(
+        database,
+      )
+    ).rows[0]!;
+    return {
+      deletionRecordId: root.recordId,
+      retentionRecordId: manifest.id,
+      expectedRootVersion: root.version,
+    };
+  }
+  it('reviews only an exact completed Root and manifest with an explicit native-clock period', async () => {
+    const root = await completed(),
+      other = await completed(),
+      id = await admin();
+    const store = new PostgresRetentionPeriodReviewStore(database),
+      input = await reviewInput(root);
+    expect(await store.review(input)).toMatchObject({
+      status: 'pending_policy',
+      policyVersion: 0,
+      approvalId: null,
+      eligibleAfter: null,
+      releaseEnabled: false,
+    });
+    await expect(
+      store.review({ ...input, expectedRootVersion: root.version + 1 }),
+    ).rejects.toThrow();
+    await expect(
+      store.review({ ...input, retentionRecordId: (await reviewInput(other)).retentionRecordId }),
+    ).rejects.toThrow();
+    await expect(store.review({ ...input, deletionRecordId: randomUUID() })).rejects.toThrow();
+    await expect(store.review({ ...input, retentionRecordId: 'not-a-manifest' })).rejects.toThrow();
+    const workflow = new PostgresRetentionPolicyWorkflow(database);
+    const future = approval();
+    if (future.action !== 'approve') throw new Error('fixture');
+    const longPeriod: RetentionPolicyChange = {
+      action: 'approve',
+      policy: { ...future.policy, retentionSeconds: 3155760000 },
+    };
+    expect((await workflow.record(attempt(id, root, longPeriod), longPeriod)).result).toBe(
+      'succeeded',
+    );
+    const pending = await store.review(input);
+    expect(pending).toMatchObject({
+      status: 'waiting_period',
+      policyVersion: 1,
+      releaseEnabled: false,
+    });
+    expect(new Date(pending.eligibleAfter!).getTime()).toBeGreaterThan(
+      new Date(pending.evaluatedAt).getTime(),
+    );
+    const revoke: RetentionPolicyChange = { action: 'revoke', approvalId: pending.approvalId! };
+    expect((await workflow.record(attempt(id, root, revoke), revoke)).result).toBe('succeeded');
+    expect(await store.review(input)).toMatchObject({
+      status: 'policy_revoked',
+      policyVersion: 1,
+      eligibleAfter: null,
+      releaseEnabled: false,
+    });
+    expect((await workflow.record(attempt(id, root, approval(1)), approval(1))).result).toBe(
+      'succeeded',
+    );
+    await sql`SELECT pg_sleep(greatest(0,extract(epoch FROM (completed_at+interval '1 second'-clock_timestamp())))+0.01)
+      FROM identity.account_deletion_records WHERE id=${root.recordId}::uuid`.execute(database);
+    const views = await Promise.all(Array.from({ length: 20 }, () => store.review(input)));
+    expect(
+      views.every(
+        (x) => x.status === 'period_elapsed' && x.policyVersion === 2 && x.releaseEnabled === false,
+      ),
+    ).toBe(true);
+    expect(new Set(views.map((x) => x.approvalId)).size).toBe(1);
+    const completedAt = (
+      await sql<{ completed_at: Date }>`SELECT completed_at FROM identity.account_deletion_records
+        WHERE id=${root.recordId}::uuid`.execute(database)
+    ).rows[0]!.completed_at;
+    expect(new Date(views[0]!.eligibleAfter!).getTime()).toBe(
+      new Date(completedAt).getTime() + 1000,
+    );
+    expect(await policies(other.recordId)).toHaveLength(0);
+    await expect(
+      sql`DELETE FROM identity.data_retention_records WHERE id=${input.retentionRecordId}::uuid`.execute(
+        database,
+      ),
+    ).rejects.toThrow();
+  });
+  it('reads revocation after waiting for its transaction instead of retaining stale policy authority', async () => {
+    const root = await completed(),
+      id = await admin(),
+      workflow = new PostgresRetentionPolicyWorkflow(database);
+    expect((await workflow.record(attempt(id, root), approval())).result).toBe('succeeded');
+    const input = await reviewInput(root),
+      original = { ...input };
+    const revoke: RetentionPolicyChange = {
+      action: 'revoke',
+      approvalId: (await policies(root.recordId))[0]!.id,
+    };
+    await sql`CREATE SEQUENCE identity.test_period_revocation_seen;
+      CREATE FUNCTION identity.test_period_revocation_wait() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.event_type='account.retention-policy-revoked.v1' THEN
+          PERFORM nextval('identity.test_period_revocation_seen'); PERFORM pg_sleep(1);
+        END IF; RETURN NEW; END $$;
+      CREATE TRIGGER test_period_revocation_wait AFTER INSERT ON platform.audit_logs
+      FOR EACH ROW EXECUTE FUNCTION identity.test_period_revocation_wait()`.execute(database);
+    const revocation = workflow.record(attempt(id, root, revoke), revoke);
+    try {
+      for (let n = 0; n < 100; n++) {
+        const row = (
+          await sql<{
+            is_called: boolean;
+          }>`SELECT is_called FROM identity.test_period_revocation_seen`.execute(database)
+        ).rows[0]!;
+        if (row.is_called) break;
+        if (n === 99) throw new Error('revocation did not reach lock-holding barrier');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const reading = new PostgresRetentionPeriodReviewStore(database).review(input);
+      input.deletionRecordId = randomUUID();
+      input.retentionRecordId = randomUUID();
+      input.expectedRootVersion++;
+      expect((await revocation).result).toBe('succeeded');
+      expect(await reading).toMatchObject({
+        deletionRecordId: original.deletionRecordId,
+        retentionRecordId: original.retentionRecordId,
+        status: 'policy_revoked',
+        policyVersion: 1,
+        releaseEnabled: false,
+      });
+    } finally {
+      await revocation;
+      await sql`DROP TRIGGER test_period_revocation_wait ON platform.audit_logs;
+        DROP FUNCTION identity.test_period_revocation_wait(); DROP SEQUENCE identity.test_period_revocation_seen`.execute(
+        database,
+      );
+    }
+  });
   it('commits one immutable original-Root policy under twenty identical retries without releasing anything', async () => {
     const root = await completed(),
       id = await admin(),
@@ -331,6 +475,15 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
         database,
       )
     ).rows;
+    const review = await new PostgresRetentionPeriodReviewStore(database).review(
+      await reviewInput(root),
+    );
+    expect(review).toMatchObject({
+      deletionRecordId: root.recordId,
+      policyVersion: 1,
+      releaseEnabled: false,
+    });
+    expect(['waiting_period', 'period_elapsed']).toContain(review.status);
     const revoke: RetentionPolicyChange = {
       action: 'revoke',
       approvalId: (await policies(root.recordId))[0]!.id,

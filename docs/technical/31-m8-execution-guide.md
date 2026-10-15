@@ -4,7 +4,40 @@
 
 
 
-## Current repair: four complete native groups inside the existing six jobs
+## Current increment: original-manifest retention period review
+
+Accepted `4ed5cac` passed all six exact-head jobs on attempt 1 of run
+`38751129536`: 1,245 native cases across 153 files, zero skips, four matching
+source receipts and all four artifact digests verified. Both actual collector
+rehearsals, support load and backup/restore passed. All 27 plans passed at 20,000
+scale; terminal sampling took 1,404.904 ms under the unchanged 1,500 ms limit,
+with both required administrator indexes and zero workers/spill. Tracked lines
+were 245,961 across four wc totals. The protected Return approval composition
+and preceding CI repairs are now verified. External acceptance remains separate.
+
+The next controlled-release prerequisite evaluates an explicit policy against
+its exact original completed Root and immutable manifest. The internal store
+captures inputs before any wait, locks User/Account/Root in the same order as
+policy mutation and Return, then rechecks Root version and native manifest,
+phase, catalog and completion proof. An absent or foreign manifest and stale
+Root fail closed. Latest approval and revocation proofs remain mandatory.
+
+The database clock compares the explicit approved integer period with the
+original completion time. Missing approval, revoked approval, unelapsed period
+and elapsed period are distinct content-free planning states. Maximum supported
+periods use native interval arithmetic. No app clock, default period, new-life
+subject scan or policy text is used. A later Return does not change the original
+basis. Every result explicitly keeps release disabled; an elapsed period grants
+no deletion permission, row ownership, dependency disposition or release lease.
+
+No schema migration, registry change, period approval, manifest mutation or
+physical retained-data deletion is introduced. The native test floor increases
+to 1,247 cases in the same 153 files. Full check and six exact-head successes
+remain required. Remaining controlled-release execution must separately prove
+exact original-row ownership, dependency/proof handling and current policy at
+the mutation boundary. M8 stays active; no M9.
+
+## Historical repair: four complete native groups inside the existing six jobs
 
 Run `38742409935` for `9b0d740` passed quality, both actual collector rehearsals,
 and API/scheduler/Telegram container jobs. Worker exceeded the unchanged 20-minute

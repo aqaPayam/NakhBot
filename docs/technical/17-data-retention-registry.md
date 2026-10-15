@@ -19,6 +19,17 @@ authority or release receipts. No periods are approved for deployment. Release
 stays disabled and manifest update/deletion guards remain unchanged. Exact
 original-row ownership and dependency/proof preservation remain prerequisites.
 
+## Original-manifest period review
+
+Internal planning checks the exact original completed deletion and manifest,
+serializing with policy revocation and Return. Only the latest valid approval
+and its valid revocation history determine whether a database-clock period has
+elapsed since original completion. Missing approval, revocation and an unelapsed
+period remain distinct. Every result keeps release disabled. This review does
+not select retained rows, resolve dependencies, create a release lease or grant
+permission to mutate retained data. No policy periods are approved or seeded.
+Original ownership and the actual mutation-time policy checks remain required.
+
 ## Opaque cache cutover namespaces
 
 The old global `{prefix}:action:*` namespace has no authenticated ownership index.
