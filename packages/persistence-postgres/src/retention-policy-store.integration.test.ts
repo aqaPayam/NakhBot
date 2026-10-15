@@ -24,6 +24,8 @@ import {
 } from './retention-policy-store.js';
 import { createPostgresAdminSessions } from './admin-session-store.js';
 import { PostgresRetainedSourceForeignKeyStore } from './retained-source-foreign-key-store.js';
+import { PostgresRetainedSupportContentStore } from './retained-support-content-store.js';
+import { PostgresSupportThreadRevealStore } from './support-reveal-store.js';
 import { PostgresSupportStore } from './support-store.js';
 import { PostgresAccountDeletionSupportStore } from './account-deletion-support-store.js';
 import type { AccountDeletionLease, UserSupportWrite } from '@nakh/application';
@@ -47,6 +49,9 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
     await isolated?.destroy();
   });
   beforeEach(async () => {
+    await sql`CREATE OR REPLACE FUNCTION identity.retained_content_release_enabled() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$`.execute(
+      database,
+    );
     await sql`UPDATE identity.account_deletion_work SET lease_owner=NULL,lease_expires_at=NULL,available_at=clock_timestamp()+interval '1 day' WHERE phase<>'completed'`.execute(
       database,
     );
@@ -226,6 +231,288 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
       FROM identity.account_deletion_records WHERE id=${root.recordId}::uuid`.execute(database);
     return change;
   }
+  async function releaseFixture(): Promise<
+    Awaited<ReturnType<typeof retainedSupport>> & {
+      input: {
+        deletionRecordId: string;
+        sourceAuditId: string;
+        approvalId: string;
+        expectedRootVersion: number;
+      };
+    }
+  > {
+    const item = await retainedSupport();
+    const source = await sourceInput(item.root, 'support.support_messages');
+    await approveSource(item.root, 'support.support_messages');
+    const approvalId = (
+      await sql<{ id: string }>`SELECT id FROM platform.audit_logs
+      WHERE subject_id=${item.root.recordId}::uuid AND event_type='account.retention-policy-approved.v1'`.execute(
+        database,
+      )
+    ).rows[0]!.id;
+    return { ...item, input: { ...source, approvalId } };
+  }
+  async function activateSyntheticRelease(): Promise<void> {
+    // Isolated test deployment only. A policy command cannot toggle this switch.
+    await sql`CREATE OR REPLACE FUNCTION identity.retained_content_release_enabled() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$`.execute(
+      database,
+    );
+  }
+  it('keeps real release disabled even with a due approved synthetic policy and rejects malformed inputs', async () => {
+    const { write, input } = await releaseFixture();
+    const store = new PostgresRetainedSupportContentStore(database);
+    await expect(store.release(input)).rejects.toThrow('retained release is disabled');
+    await expect(store.release({ ...input, sourceAuditId: 'bad' })).rejects.toThrow();
+    await expect(store.release({ ...input, expectedRootVersion: -1 })).rejects.toThrow();
+    await expect(
+      sql`UPDATE support.support_messages SET message_text='[retained support content released]' WHERE id=${write.messageId}::uuid`.execute(
+        database,
+      ),
+    ).rejects.toThrow('immutable');
+    expect(
+      (
+        await database
+          .selectFrom('support.support_messages')
+          .select('message_text')
+          .where('id', '=', write.messageId)
+          .executeTakeFirstOrThrow()
+      ).message_text,
+    ).toBe(write.normalizedText);
+  });
+  it('erases one exact body with one receipt under twenty concurrent retries and blocks later audited reveals', async () => {
+    const { root, write, input } = await releaseFixture();
+    const preserved = async (): Promise<unknown> =>
+      (
+        await sql`SELECT to_jsonb(root) AS root,
+      (SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM identity.data_retention_records r WHERE deletion_record_id=root.id) AS manifests,
+      (SELECT jsonb_agg(to_jsonb(r) ORDER BY from_checkpoint_version) FROM identity.account_deletion_phase_receipts r WHERE deletion_record_id=root.id) AS phases,
+      (SELECT jsonb_agg(to_jsonb(r)) FROM billing.credit_epoch_closures r WHERE deletion_record_id=root.id) AS financial,
+      (SELECT jsonb_agg(to_jsonb(r)) FROM support.deletion_thread_closures r WHERE deletion_record_id=root.id) AS closures,
+      (SELECT to_jsonb(a) FROM platform.audit_logs a WHERE id=${input.sourceAuditId}::uuid) AS original_source
+      FROM identity.account_deletion_records root WHERE id=${root.recordId}::uuid`.execute(database)
+      ).rows;
+    const originalFacts = await preserved();
+    const before = await database
+      .selectFrom('support.support_messages')
+      .selectAll()
+      .where('id', '=', write.messageId)
+      .executeTakeFirstOrThrow();
+    await activateSyntheticRelease();
+    const store = new PostgresRetainedSupportContentStore(database);
+    const receipts = await Promise.all(Array.from({ length: 20 }, () => store.release(input)));
+    expect(new Set(receipts.map((x) => x.auditId)).size).toBe(1);
+    const after = await database
+      .selectFrom('support.support_messages')
+      .selectAll()
+      .where('id', '=', write.messageId)
+      .executeTakeFirstOrThrow();
+    expect(after).toEqual({ ...before, message_text: '[retained support content released]' });
+    expect(await preserved()).toEqual(originalFacts);
+    const proof = (
+      await sql<{
+        valid: boolean;
+        metadata: Record<string, unknown>;
+      }>`SELECT support.content_release_valid(a,false) AS valid,metadata FROM platform.audit_logs a WHERE id=${receipts[0]!.auditId}::uuid`.execute(
+        database,
+      )
+    ).rows[0]!;
+    expect(proof.valid).toBe(true);
+    expect(Object.keys(proof.metadata)).toHaveLength(5);
+    expect(JSON.stringify(proof.metadata)).not.toContain(write.normalizedText);
+    expect(
+      (
+        await sql<{
+          n: number;
+        }>`SELECT count(*)::integer AS n FROM platform.audit_logs WHERE subject_id=${root.recordId}::uuid AND event_type='account.support-content-released.v1'`.execute(
+          database,
+        )
+      ).rows[0]!.n,
+    ).toBe(1);
+    const operator = await admin();
+    const version = (
+      await database
+        .selectFrom('support.support_threads')
+        .select('version')
+        .where('id', '=', write.supportThreadId)
+        .executeTakeFirstOrThrow()
+    ).version;
+    const reveal = await new PostgresSupportThreadRevealStore(database).reveal({
+      ...attempt(operator, root),
+      commandCode: 'support.reveal-thread',
+      requiredPermission: 'review_support',
+      targetType: 'support_thread',
+      targetId: write.supportThreadId,
+      expectedTargetVersion: version,
+    });
+    expect(reveal.result).toBe('rejected');
+    expect(reveal.safeCode).toBe('conflict');
+    const revoke: RetentionPolicyChange = { action: 'revoke', approvalId: input.approvalId };
+    expect(
+      (
+        await new PostgresRetentionPolicyWorkflow(database).record(
+          attempt(operator, root, revoke),
+          revoke,
+        )
+      ).result,
+    ).toBe('succeeded');
+    await sql`CREATE OR REPLACE FUNCTION identity.retained_content_release_enabled() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$`.execute(
+      database,
+    );
+    expect(await store.release(input)).toEqual(receipts[0]);
+    await expect(
+      sql`DELETE FROM support.support_messages WHERE id=${write.messageId}::uuid`.execute(database),
+    ).rejects.toThrow('immutable');
+  });
+  it('denies borrowed policy, foreign source, stale Root and changed content without releasing original facts', async () => {
+    const first = await releaseFixture(),
+      second = await releaseFixture();
+    await activateSyntheticRelease();
+    const store = new PostgresRetainedSupportContentStore(database);
+    await expect(
+      store.release({ ...first.input, approvalId: second.input.approvalId }),
+    ).rejects.toThrow();
+    await expect(
+      store.release({ ...first.input, sourceAuditId: second.input.sourceAuditId }),
+    ).rejects.toThrow();
+    await expect(
+      store.release({ ...first.input, expectedRootVersion: first.input.expectedRootVersion + 1 }),
+    ).rejects.toThrow();
+    // Privileged negative corruption fixture, restored before leaving the tx.
+    await database.transaction().execute(async (tx) => {
+      await sql`SET LOCAL session_replication_role='replica'`.execute(tx);
+      await sql`UPDATE support.support_messages SET message_text='changed source' WHERE id=${first.write.messageId}::uuid`.execute(
+        tx,
+      );
+      await sql`SET LOCAL session_replication_role='origin'`.execute(tx);
+    });
+    try {
+      await expect(store.release(first.input)).rejects.toThrow('source changed');
+    } finally {
+      await database.transaction().execute(async (tx) => {
+        await sql`SET LOCAL session_replication_role='replica'`.execute(tx);
+        await sql`UPDATE support.support_messages SET message_text=${first.write.normalizedText} WHERE id=${first.write.messageId}::uuid`.execute(
+          tx,
+        );
+      });
+    }
+    expect(
+      (
+        await sql<{
+          n: number;
+        }>`SELECT count(*)::integer AS n FROM platform.audit_logs WHERE event_type='account.support-content-released.v1' AND subject_id IN (${first.root.recordId}::uuid,${second.root.recordId}::uuid)`.execute(
+          database,
+        )
+      ).rows[0]!.n,
+    ).toBe(0);
+  });
+  it('rolls back suppressed mandatory audits and effects and deactivation before deferred commit', async () => {
+    const { root, write, input } = await releaseFixture();
+    await activateSyntheticRelease();
+    const store = new PostgresRetainedSupportContentStore(database);
+    await sql`CREATE FUNCTION support.test_suppress_release() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF TG_TABLE_NAME='support_messages' THEN RETURN NULL; END IF;
+      IF NEW.event_type='account.support-content-released.v1' THEN RETURN NULL; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER aaa_test_suppress_release BEFORE INSERT ON platform.audit_logs FOR EACH ROW EXECUTE FUNCTION support.test_suppress_release()`.execute(
+      database,
+    );
+    try {
+      await expect(store.release(input)).rejects.toThrow('audit missing');
+    } finally {
+      await sql`DROP TRIGGER aaa_test_suppress_release ON platform.audit_logs`.execute(database);
+    }
+    await sql`CREATE TRIGGER aaa_test_suppress_release BEFORE UPDATE ON support.support_messages FOR EACH ROW EXECUTE FUNCTION support.test_suppress_release()`.execute(
+      database,
+    );
+    try {
+      await expect(store.release(input)).rejects.toThrow('effect missing');
+    } finally {
+      await sql`DROP TRIGGER aaa_test_suppress_release ON support.support_messages; DROP FUNCTION support.test_suppress_release()`.execute(
+        database,
+      );
+    }
+    await expect(
+      database.transaction().execute(async (tx) => {
+        await new PostgresRetainedSupportContentStore(tx).release(input);
+        await sql`CREATE OR REPLACE FUNCTION identity.retained_content_release_enabled() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$`.execute(
+          tx,
+        );
+      }),
+    ).rejects.toThrow('authority unavailable');
+    expect(
+      (
+        await database
+          .selectFrom('support.support_messages')
+          .select('message_text')
+          .where('id', '=', write.messageId)
+          .executeTakeFirstOrThrow()
+      ).message_text,
+    ).toBe(write.normalizedText);
+    expect(
+      (
+        await sql<{
+          n: number;
+        }>`SELECT count(*)::integer AS n FROM platform.audit_logs WHERE event_type='account.support-content-released.v1' AND subject_id=${root.recordId}::uuid`.execute(
+          database,
+        )
+      ).rows[0]!.n,
+    ).toBe(0);
+  });
+  it('rechecks revocation after a User lock wait and captures input before waiting', async () => {
+    const { root, write, input } = await releaseFixture();
+    await activateSyntheticRelease();
+    const operator = await admin(),
+      revoke: RetentionPolicyChange = { action: 'revoke', approvalId: input.approvalId };
+    await sql`CREATE SEQUENCE support.test_release_revocation_seen;
+      CREATE FUNCTION support.test_release_revocation_wait() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.event_type='account.retention-policy-revoked.v1' THEN
+          PERFORM nextval('support.test_release_revocation_seen'); PERFORM pg_sleep(1);
+        END IF; RETURN NEW; END $$;
+      CREATE TRIGGER test_release_revocation_wait AFTER INSERT ON platform.audit_logs
+      FOR EACH ROW EXECUTE FUNCTION support.test_release_revocation_wait()`.execute(database);
+    const revocation = new PostgresRetentionPolicyWorkflow(database).record(
+      attempt(operator, root, revoke),
+      revoke,
+    );
+    try {
+      for (let n = 0; n < 100; n++) {
+        if (
+          (
+            await sql<{
+              is_called: boolean;
+            }>`SELECT is_called FROM support.test_release_revocation_seen`.execute(database)
+          ).rows[0]!.is_called
+        )
+          break;
+        if (n === 99) throw new Error('revocation barrier not reached');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const mutable = { ...input };
+      const pending = new PostgresRetainedSupportContentStore(database)
+        .release(mutable)
+        .catch((error) => error as Error);
+      mutable.sourceAuditId = randomUUID();
+      expect((await revocation).result).toBe('succeeded');
+      expect(await pending).toMatchObject({ message: 'support release authority unavailable' });
+    } finally {
+      await revocation;
+      await sql`DROP TRIGGER test_release_revocation_wait ON platform.audit_logs;
+        DROP FUNCTION support.test_release_revocation_wait(); DROP SEQUENCE support.test_release_revocation_seen`.execute(
+        database,
+      );
+    }
+    expect(
+      (
+        await database
+          .selectFrom('support.support_messages')
+          .select('message_text')
+          .where('id', '=', write.messageId)
+          .executeTakeFirstOrThrow()
+      ).message_text,
+    ).toBe(write.normalizedText);
+    await expect(new PostgresRetainedSupportContentStore(database).release(input)).rejects.toThrow(
+      'authority unavailable',
+    );
+  });
   it('checks exact original support references including the three-column lifecycle FK without releasing anything', async () => {
     const { root } = await retainedSupport(),
       resource = 'support.support_threads';
@@ -777,6 +1064,7 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
       expect((await runMigrations(target.url, resolve('migrations'))).applied).toEqual([
         '000145_m8_retention_policy.sql',
         '000146_m8_retained_source_membership.sql',
+        '000147_m8_support_content_release.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(await snapshot()).toEqual(before);

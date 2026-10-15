@@ -4,6 +4,37 @@
 
 
 
+## Current increment: disabled exact-source support body release
+
+Accepted `8ac13df` passed all six jobs in run `38784824829`: 1,256 native
+cases in 153 files, zero skips, four source receipts, all 27 unchanged plans,
+both actual collectors, support load and backup/restore. Terminal snapshot
+sampling was 963.052 ms at 20,000 scale under the 1,500 ms limit. Both mandatory
+indexes and zero workers/spill passed. Tracked lines were 247,478.
+
+Migration 147 implements one bounded support-body erasure under a native default
+false deployment switch. Policy approval alone cannot activate it; no periods
+are seeded. Exact source audit, original Root/version, closed original-life
+thread, catalog and elapsed unrevoked policy are checked under User/Account/Root
+and thread/message locks. Revocation is reread after waits and at deferred commit.
+The original complete source hash must still match. One unique content-free audit
+and the body replacement commit together; missing or corrupted writes roll back.
+Headers, reply/admission identities, digests, lifecycle closure, manifests and
+financial/safety evidence remain immutable. Original policy/source proofs remain
+historical facts after erasure. Twenty-way retries return the same receipt;
+post-revocation/deactivation replay cannot perform a new effect.
+
+The nonprivate fixed marker satisfies the existing message shape without changing
+catalog or registry hashes. It is never returned as conversation text: an audited
+thread reveal rejects with the existing unavailable outcome if any body has a
+verified release receipt. Thread locks serialize release with an in-flight reveal.
+This is body minimization, not deletion of lifecycle headers or a general release
+executor. Other resources, logical/shared holds and final M8 acceptance remain
+open. Real period/hold approval and a separately reviewed deployment are required
+before activating retained release. Native synthetic activation is isolated test
+evidence only; no provider, staging, PITR/DR, security or operator acceptance is
+claimed. Full check and all six changed-head CI jobs remain mandatory.
+
 ## Current repair: exact administrator-attempt membership in snapshots
 
 Run `38777070405` for `ab2f013` passed quality and all four container/native jobs:

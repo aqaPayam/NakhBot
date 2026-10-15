@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'kysely';
 import {
   ConfirmedSupportReveals,
   type AdminCommandAttempt,
@@ -38,6 +39,11 @@ export class PostgresSupportThreadRevealStore implements SupportThreadRevealStor
           throw new ApplicationError('not_found', 'error.m7.unavailable', 404);
         if (thread.version !== attempt.expectedTargetVersion)
           throw new ApplicationError('version_conflict', 'error.m7.stale_action', 409);
+        const released = await sql<{ released: boolean }>`SELECT EXISTS(
+          SELECT 1 FROM support.support_messages message WHERE message.support_thread_id=${attempt.targetId}::uuid
+          AND support.content_released(message.id)) AS released`.execute(transaction);
+        if (released.rows[0]?.released !== false)
+          throw new ApplicationError('conflict', 'error.support.unavailable', 409);
         const rows = await transaction
           .selectFrom('support.support_messages')
           .select(['sender_type', 'message_text', 'created_at'])
