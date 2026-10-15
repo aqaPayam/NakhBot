@@ -4,6 +4,41 @@
 
 
 
+## Current repair: exact administrator-attempt membership in snapshots
+
+Run `38777070405` for `ab2f013` passed quality and all four container/native jobs:
+1,256 cases in 153 files, zero skips and four SHA/run/attempt-bound source receipts.
+Reliability failed the unchanged M7 terminal integrity snapshot gate at
+1,606.890 ms against 1,500 ms. All 27 plans were produced; both required independent
+indexes were present, with zero workers and no spill. Baseline snapshot sampling
+was 1,255.023 ms. The failed job log, annotations, metadata and all four ZIPs are
+preserved with matching GitHub digests. This partial evidence is unaccepted; later
+load/recovery acceptance is not inferred and the unchanged failed head is not rerun.
+
+The terminal plan repeatedly probed administrator attempts after 20,000 indexed
+resolution lookups. Preserve the owning partial-index lookup and every actor,
+command, request, digest, target, reason and timestamp binding. Aggregate snapshots
+now build the exact succeeded account-command membership set once per statement.
+Null tuples fail closed and duplicate candidates still have existence semantics.
+The paged scanner retains its original indexed point proofs. Neither independent
+index, any phase or fixture population, repeated sample, 16 MiB node work budget,
+zero-worker snapshot cap, 20-minute CI cap nor 20,000-scale/1,500 ms gate changes.
+
+Full-volume comparisons retained the old query on the same isolated fixture.
+The all-resolution-set alternative lost the required episode index and was rejected.
+The selected variant retained both indexes and zero spill/workers; its first local
+terminal observation was 2,469.199 ms versus controls at 2,635.444/2,553.456 ms.
+These Windows diagnostics are not production acceptance or a guarantee of the
+Linux limit. Final paired controls were 2,628.646 / 2,722.711 / 2,580.779 ms;
+candidates were 2,602.965 / 2,526.736 / 2,600.210 ms. Mean local improvement was
+67.408 ms, with one 19.431 ms regression: the gain is modest and variable, not
+proof of the Linux budget. Equal ten-phase counts, both required indexes and zero
+spill/workers passed for every final candidate. Changed-head CI remains decisive.
+All 11 native integrity-plan cases passed, including scanner/snapshot parity across
+every existing corruption/duplicate probe and five added nullable-owner projections.
+Full check and six changed-head successes remain required before M8 advances.
+Retained-data release stays disabled, full M8 remains active, and no M9 is started.
+
 ## Current increment: transactional original-source foreign-key review
 
 Accepted `3e7a90e` passed all six exact-head jobs on attempt 1 of run

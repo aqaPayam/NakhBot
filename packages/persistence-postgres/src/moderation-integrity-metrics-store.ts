@@ -7,7 +7,7 @@ import type { NakhDatabase } from './database.js';
 import {
   MODERATION_INTEGRITY_SOURCES,
   MODERATION_INTEGRITY_FLAGS,
-  MODERATION_EPISODE_RESOLUTION_BINDING,
+  MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING,
   moderationEpisodeMetadataSource,
 } from './moderation-integrity-sources.js';
 
@@ -80,7 +80,7 @@ export function moderationIntegrityPhaseStatement(
         -- already present here. CASE avoids resolution probes for open episodes.
         SELECT owner.id, owner.target_user_id, owner.source_report_id,
           owner.witness_required, owner.distinct_reporter_count, owner.started_at,
-          CASE WHEN owner.status = 'resolved' THEN ${MODERATION_EPISODE_RESOLUTION_BINDING}
+          CASE WHEN owner.status = 'resolved' THEN ${MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING}
             ELSE true END AS resolution_valid
         FROM moderation.restriction_episodes owner
       ), eligible_episodes AS MATERIALIZED (

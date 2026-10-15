@@ -115,27 +115,44 @@ SELECT action.id, COALESCE(action_audit.id IS NOT NULL
 `;
 }
 
-/** Exact existence predicate shared by the scanner and one-pass aggregate.
- * Duplicate attempts do not multiply an episode or change its resolution. */
-export const MODERATION_EPISODE_RESOLUTION_BINDING = sql<boolean>`EXISTS (
-        SELECT 1 FROM LATERAL (
-          SELECT actor_admin_id, command_id, request_id, request_digest
-          FROM moderation.moderation_actions
-          WHERE restriction_episode_id = owner.id AND restriction_episode_id IS NOT NULL
-            AND actor_type = 'admin' AND action_type = 'unrestrict_user'
-            AND target_user_id = owner.target_user_id
-            AND reason_code = owner.resolution_reason_code AND occurred_at = owner.resolved_at OFFSET 0
-        ) resolution
-        JOIN administration.admin_action_logs attempt
-          ON attempt.admin_user_id = resolution.actor_admin_id
-          AND attempt.command_id = resolution.command_id
-          AND attempt.request_id = resolution.request_id
-          AND attempt.request_digest = resolution.request_digest
-          AND attempt.target_id = owner.target_user_id
-        WHERE resolution.actor_admin_id = owner.resolved_by_admin_id
-          AND attempt.result = 'succeeded'
-          AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
-      )`;
+/** The scanner keeps indexed point proofs. The combined snapshot hashes the
+ * same exact administrator/command/request/digest/target membership once, instead
+ * of probing administrator attempts for each episode. The owning resolution
+ * lookup still uses its partial episode index. Null tuples fail closed, and
+ * duplicate candidates retain existence semantics without multiplying counts. */
+function episodeResolutionBinding(attemptMembership: boolean): RawBuilder<boolean> {
+  return sql<boolean>`EXISTS (
+    SELECT 1 FROM LATERAL (
+      SELECT actor_admin_id,command_id,request_id,request_digest
+      FROM moderation.moderation_actions
+      WHERE restriction_episode_id=owner.id AND restriction_episode_id IS NOT NULL
+        AND actor_type='admin' AND action_type='unrestrict_user'
+        AND target_user_id=owner.target_user_id
+        AND reason_code=owner.resolution_reason_code AND occurred_at=owner.resolved_at OFFSET 0
+    ) resolution
+    ${
+      attemptMembership
+        ? sql`
+      WHERE resolution.actor_admin_id=owner.resolved_by_admin_id
+        AND COALESCE((resolution.actor_admin_id,resolution.command_id,resolution.request_id,
+          resolution.request_digest,owner.target_user_id) IN (
+          SELECT attempt.admin_user_id,attempt.command_id,attempt.request_id,attempt.request_digest,attempt.target_id
+          FROM administration.admin_action_logs attempt WHERE attempt.result='succeeded'
+            AND attempt.command_code='moderation.apply-account-action' AND attempt.target_type='user'
+        ),false)
+    `
+        : sql`
+      JOIN administration.admin_action_logs attempt ON attempt.admin_user_id=resolution.actor_admin_id
+        AND attempt.command_id=resolution.command_id AND attempt.request_id=resolution.request_id
+        AND attempt.request_digest=resolution.request_digest AND attempt.target_id=owner.target_user_id
+      WHERE resolution.actor_admin_id=owner.resolved_by_admin_id AND attempt.result='succeeded'
+        AND attempt.command_code='moderation.apply-account-action' AND attempt.target_type='user'
+    `
+    }
+  )`;
+}
+export const MODERATION_EPISODE_RESOLUTION_BINDING = episodeResolutionBinding(false);
+export const MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING = episodeResolutionBinding(true);
 export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_facts AS MATERIALIZED (
     SELECT owner.id AS restriction_episode_id,
       ${MODERATION_EPISODE_RESOLUTION_BINDING} AS valid

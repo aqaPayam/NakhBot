@@ -11,7 +11,11 @@ import { seedM7IntegrityPlans } from './m7-integrity-plan-fixture.js';
 import { seedM7AppealIntegrityPlans } from './m7-appeal-integrity-plan-fixture.js';
 import { seedM7UnrestrictionPlans } from './m7-unrestriction-plan-fixture.js';
 import { scanRestrictionEpisodes } from './moderation-review-reconciliation.js';
-import { MODERATION_INTEGRITY_SOURCES } from './moderation-integrity-sources.js';
+import {
+  MODERATION_INTEGRITY_SOURCES,
+  MODERATION_EPISODE_RESOLUTION_BINDING,
+  MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING,
+} from './moderation-integrity-sources.js';
 import { withM6SyntheticPlanSession } from './m6-query-plans.js';
 import {
   PostgresModerationIntegrityMetricsStore,
@@ -431,12 +435,33 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             .selectAll()
             .where('id', '=', action.restriction_episode_id!)
             .executeTakeFirstOrThrow();
-          const resolutionValid = async (): Promise<boolean> =>
-            (
-              await sql<{ valid: boolean }>`SELECT probe."hasResolutionAttempt" AS valid
-              FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe
+          const resolutionValid = async (): Promise<boolean> => {
+            const row = (
+              await sql<{
+                valid: boolean;
+                membership: boolean;
+              }>`SELECT probe."hasResolutionAttempt" AS valid,
+              owner.status<>'resolved' OR ${MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING} AS membership
+              FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) probe JOIN moderation.restriction_episodes owner ON owner.id=probe.id
               WHERE probe.id=${episode.id}::uuid`.execute(tx)
-            ).rows[0]!.valid;
+            ).rows[0]!;
+            expect(row.membership).toBe(row.valid);
+            return row.valid;
+          };
+          for (const missing of ['id', 'target', 'admin', 'reason', 'at']) {
+            const row = (
+              await sql<{ scanner: boolean; membership: boolean }>`SELECT
+              ${MODERATION_EPISODE_RESOLUTION_BINDING} AS scanner,
+              ${MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING} AS membership FROM (
+                SELECT ${missing === 'id' ? null : episode.id}::uuid AS id,
+                  ${missing === 'target' ? null : episode.target_user_id}::uuid AS target_user_id,
+                  ${missing === 'admin' ? null : episode.resolved_by_admin_id}::uuid AS resolved_by_admin_id,
+                  ${missing === 'reason' ? null : episode.resolution_reason_code}::text AS resolution_reason_code,
+                  ${missing === 'at' ? null : episode.resolved_at}::timestamptz AS resolved_at
+              ) owner`.execute(tx)
+            ).rows[0]!;
+            expect(row).toEqual({ scanner: false, membership: false });
+          }
           expect(await resolutionValid()).toBe(true);
           // Open episodes have no resolution fields. The one-pass aggregate must
           // count their remaining bindings exactly as the full scanner does.
