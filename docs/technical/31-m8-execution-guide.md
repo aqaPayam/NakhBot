@@ -4,7 +4,31 @@
 
 
 
-## Current increment: authenticated Telegram Return and catalog presentation
+## Current repair: synchronize the complete English catalog assertion
+
+Feature `33b72a8` is not accepted green. Run `38667036381` passed quality,
+Telegram build and the API/scheduler native jobs. The worker partition ran 455
+cases: 454 passed and one failed, across 50 files (49 passed, one failed).
+The failure is the older identity catalog assertion expecting 595 English entries;
+migration 143 deliberately adds seven Return entries, making the exact total 602.
+Reliability was skipped, so no later performance/load/backup acceptance is claimed.
+Original worker logs and exact-run metadata are preserved. No unchanged replay.
+
+The repair updates that exact complete catalog count to 602 and explicitly requires
+all seven Return keys, retaining the locked active/inactive locales, fallback,
+existing deletion catalog and every original identity assertion. Production code,
+UI text, migration checksums, native inventory, timeouts, workloads and all
+acceptance gates remain unchanged. The complete identity/localization native suite
+and the full project check must pass before the repair is committed; all six
+exact-head CI jobs are then required before another feature. Full M8 scope remains
+open as recorded below. No M9.
+
+The complete native identity/localization suite passed all nine cases in an
+isolated database, preserving the shared base database. The full local project
+check passed formatting, lint, all workspace types, all 1,134 unit tests in 235
+files and all builds. All six exact-head CI jobs remain required for acceptance.
+
+## Historical increment: authenticated Telegram Return and catalog presentation
 
 Accepted `2798a72` passed all six exact-head jobs on attempt 1 of run
 `38661990188`: 1,211 native cases in 148 files, no failures/skips, all three
