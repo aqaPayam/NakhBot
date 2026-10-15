@@ -316,6 +316,7 @@ describe.skipIf(url === undefined)('native Telegram original-grant approved Retu
       expect((await runMigrations(target.url, resolve('migrations'))).applied).toEqual([
         '000143_m8_return_localization.sql',
         '000144_m8_fresh_entry_localization.sql',
+        '000145_m8_retention_policy.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(

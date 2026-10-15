@@ -17,6 +17,9 @@ type StartupFailureKind =
   | 'tls_verification_failed'
   | 'registry_server_error'
   | 'registry_rate_limited'
+  | 'registry_dns_unavailable'
+  | 'image_integrity_failed'
+  | 'runtime_credentials_failed'
   | 'network_interrupted'
   | 'unknown';
 
@@ -30,10 +33,17 @@ function startupFailureKind(diagnostic: string): StartupFailureKind {
     return 'runtime_storage_exhausted';
   if (/x509:|certificate.*(?:expired|not trusted|unknown authority)/iu.test(diagnostic))
     return 'tls_verification_failed';
+  if (/digest mismatch|checksum mismatch|filesystem layer verification failed/iu.test(diagnostic))
+    return 'image_integrity_failed';
+  if (/error (?:getting|saving|storing) credentials|credentials store.*error/iu.test(diagnostic))
+    return 'runtime_credentials_failed';
   if (/\b(?:500|502|503|504)\b/iu.test(diagnostic)) return 'registry_server_error';
-  if (/\b429\b|too many requests/iu.test(diagnostic)) return 'registry_rate_limited';
+  if (/\b429\b|too\s*many\s*requests|\brate exceeded\b/iu.test(diagnostic))
+    return 'registry_rate_limited';
+  if (/no such host|server misbehaving|temporary failure in name resolution/iu.test(diagnostic))
+    return 'registry_dns_unavailable';
   if (
-    /connection reset|connection refused|connection aborted|network is unreachable|tls handshake timeout|i\/o timeout|operation timed out|timeout awaiting response headers|temporary failure in name resolution|context deadline exceeded|request canceled|\beof\b/iu.test(
+    /connection reset|connection refused|connection aborted|network is unreachable|tls handshake timeout|i\/o timeout|(?:connection|operation) timed out|timeout awaiting response headers|context deadline exceeded|request canceled|\beof\b/iu.test(
       diagnostic,
     )
   )
@@ -61,12 +71,18 @@ export function classifyCollectorStartupFailure(error: unknown): CollectorStartu
   if (kind === 'registry_denied') return { code: 'collector_registry_denied', retryable: false };
   if (kind === 'image_missing' || kind === 'image_platform_unsupported')
     return { code: 'collector_image_missing', retryable: false };
-  if (kind === 'runtime_storage_exhausted' || kind === 'tls_verification_failed')
+  if (
+    kind === 'runtime_storage_exhausted' ||
+    kind === 'tls_verification_failed' ||
+    kind === 'image_integrity_failed' ||
+    kind === 'runtime_credentials_failed'
+  )
     return { code: 'collector_startup_unknown', retryable: false };
   if (
     failure.killed === true ||
     kind === 'registry_server_error' ||
     kind === 'registry_rate_limited' ||
+    kind === 'registry_dns_unavailable' ||
     kind === 'network_interrupted'
   )
     return { code: 'collector_registry_transient', retryable: true };
@@ -82,6 +98,9 @@ export function collectorStartupDiagnostic(error: unknown): Readonly<{
   stdoutPresent: boolean;
   stderrPresent: boolean;
   failureKind: StartupFailureKind;
+  /** Fixed lexical indicators help diagnose an otherwise unknown pre-export
+   * pull failure without retaining any process text, endpoint or credential. */
+  indicators: readonly string[];
 }> {
   const failure =
     typeof error === 'object' && error !== null ? (error as Readonly<Record<string, unknown>>) : {};
@@ -104,7 +123,25 @@ export function collectorStartupDiagnostic(error: unknown): Readonly<{
         .filter((value): value is string => typeof value === 'string')
         .join('\n'),
     ),
+    indicators: startupIndicators(failure),
   };
+}
+
+const STARTUP_INDICATORS = [
+  ['resolve_reference', /failed to resolve (?:reference|source metadata)/iu],
+  ['anonymous_token', /failed to fetch anonymous token/iu],
+  ['unexpected_status', /unexpected (?:http )?status/iu],
+  ['daemon_response', /error response from daemon/iu],
+  ['layer_registration', /failed to (?:register|extract) layer/iu],
+  ['media_type', /unsupported media type|unexpected media type/iu],
+  ['proxy', /proxyconnect|proxy error/iu],
+  ['tls_internal', /tls: internal error|tls: handshake failure/iu],
+] as const;
+function startupIndicators(failure: Readonly<Record<string, unknown>>): readonly string[] {
+  const text = [failure.stderr, failure.stdout]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n');
+  return STARTUP_INDICATORS.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
 }
 
 /** Retry only recognized transient public-image pulls. Container startup and

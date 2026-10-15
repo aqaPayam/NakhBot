@@ -49,3 +49,13 @@ instruments/dimensions, initial failures, drift/clear transitions, stale/fresh t
 existing milestone metric. The collector exports to stdout for this rehearsal: no AWS credentials
 or CloudWatch/SNS delivery are involved. Do not upload raw collector metric payloads or substitute
 this conversion evidence for deployment, alert receipt or operator acceptance.
+
+Public-image startup failures are distinct from metric conversion failures. The
+shared M7/M8 helper reports only fixed classifications, process exit metadata and
+at most eight finite lexical indicators. Unknown, authentication, integrity,
+credential-helper, TLS, missing-image and storage failures stop; only recognized
+transient registry/DNS/transport failures get three attempts with 1/2-second waits.
+Preserve the exact failed run. Metadata availability from a later registry probe
+does not establish the original cause or prove an actual pull. Never publish raw
+Docker output, retry an unchanged failed head as acceptance, bypass conversion,
+change the collector pin, or weaken the six-job gates to work around startup.

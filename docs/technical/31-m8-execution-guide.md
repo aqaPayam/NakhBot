@@ -4,7 +4,71 @@
 
 
 
-## Current increment: original-deletion retention policy attestations
+## Current repair: bounded public collector startup diagnostics
+
+Feature `63f67d6` passed local project checks and 85 native cases, but exact-head
+run `38724551143` failed the M7 collector rehearsal at `image-pull`, before
+container startup or metric export. The preserved quality log reports exit 1,
+stdout/stderr present and an unknown nonretryable startup failure. The original
+Docker response was deliberately not logged, so its exact cause is unavailable;
+no registry throttle or DNS failure is claimed as established fact. A later
+anonymous public-registry probe returned token/manifest HTTP 200 for the same
+v0.49.0 image, which confirms current metadata availability, not the failed pull.
+The failed run and logs remain preserved; no unchanged rerun authorizes progress.
+
+The shared M7/M8 startup helper now recognizes compact `TOOMANYREQUESTS`, explicit
+rate-exceeded, DNS-resolution and connection-timeout variants. Only recognized
+transient public-image failures retain the existing three attempts and 1/2-second
+waits. Image-integrity failures and credential-helper errors are explicitly
+nonretryable even when other text contains a server-error code. Authentication,
+missing image, TLS verification, storage failures and unknown failures still stop.
+
+Unknown startup diagnostics now include at most eight fixed lexical indicators
+for reference resolution, anonymous-token acquisition, unexpected status, daemon
+response, layer registration, media type, proxy and TLS-internal errors. No error
+text, endpoint, credential, metric payload or user-derived value is returned.
+Unknown failures still execute once; this closes an observability gap without
+pretending to reconstruct the lost response. A fresh changed-head CI run must
+complete both actual collector rehearsals, all native cases, performance gates,
+recovery checks and all six jobs. Further startup failure must be diagnosed using
+that run's finite evidence; no image/version/gate/job cap is changed.
+
+The same failed run's worker shard independently exposed an omitted app-level
+upgrade expectation: the schema-142 Telegram Return case expected migrations
+143/144, while the actual upgrade correctly also applied 145. The initial update
+covered persistence tests but missed this app test. Its exact expected list now
+includes 145; all original Root, manifest and proof-preservation assertions remain.
+The failed shard passed 336 other cases. No test is removed or weakened.
+
+GitHub's API-job annotation confirms the unchanged 20-minute job cap cancelled
+its incomplete native shard. Worker completed in 633,638 ms of suite time while
+API had already spent 1,021,287 ms with files remaining; scheduler completed
+956,441 ms. The failure is a dispatch imbalance, not authorization to extend
+the cap or remove tests. Refresh scheduling weights from all 139 completed suite
+lines in these three exact-run logs, stripping ANSI controls; retain the 13
+unmeasured estimates and every prior provenance record. One measured suite failed
+its upgrade expectation, and the overall source run is explicitly failed and
+incomplete: elapsed measurements are scheduling evidence only. The native floor
+remains 1,242 cases/152 files, with three disjoint complete receipts and zero skips
+required on a subsequent accepted head. Both actual collector rehearsals and
+all 27 unchanged 20,000-scale/1,500 ms plans remain mandatory.
+
+All 48 focused startup cases passed, including private-marker rejection, bounded
+known-transient retries, precedence and fail-closed unknown diagnostics. Docker
+is unavailable locally, so no local pull/conversion success is claimed. Full
+project check passed formatting, lint, all workspace types, 1,164 unit tests in
+239 files and every build. An initial lint-only fixture rejection was corrected
+to reject an Error before the successful full rerun. The corrected Telegram
+upgrade case passed; four other cases were deliberately excluded by the focused
+filter and remain mandatory in CI. All 67 focused startup/shard/receipt cases
+passed after refreshing dispatch data. Estimates are now 875,701 / 875,653 /
+875,686 ms across 50/51/51 files; those are scheduling estimates, not acceptance.
+Final failed-run metadata, API timeout annotations and all diagnostic logs are
+preserved, along with the successful shard-3 ZIP whose digest matches GitHub.
+No later performance/recovery or full native acceptance is claimed for that run.
+M8 stays active; all six changed-head CI successes remain required. No M9.
+
+## Historical increment: original-deletion retention policy attestations
 
 Accepted `5aa4116` passed all six exact-head jobs on attempt 1 of run
 `38718515594`: 1,233 native cases in 151 files without skips and three matching

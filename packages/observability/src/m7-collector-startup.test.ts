@@ -7,6 +7,13 @@ import {
 
 describe('privacy-safe bounded collector image startup', () => {
   it.each([
+    ['toomanyrequests: Rate exceeded', 'collector_registry_transient', true],
+    ['Rate exceeded', 'collector_registry_transient', true],
+    ['lookup registry: no such host', 'collector_registry_transient', true],
+    ['lookup registry: server misbehaving', 'collector_registry_transient', true],
+    ['connection timed out', 'collector_registry_transient', true],
+    ['digest mismatch; 503', 'collector_startup_unknown', false],
+    ['error getting credentials; 503', 'collector_startup_unknown', false],
     ['503 Service Unavailable', 'collector_registry_transient', true],
     ['500 Internal Server Error', 'collector_registry_transient', true],
     ['net/http: request canceled', 'collector_registry_transient', true],
@@ -89,6 +96,7 @@ describe('privacy-safe bounded collector image startup', () => {
       stdoutPresent: true,
       stderrPresent: true,
       failureKind: 'unknown',
+      indicators: [],
     });
     expect(JSON.stringify(diagnostic)).not.toContain('private');
     for (const code of [-1, 256, 1.5, Infinity, 'private-code', undefined])
@@ -101,9 +109,14 @@ describe('privacy-safe bounded collector image startup', () => {
       stdoutPresent: false,
       stderrPresent: false,
       failureKind: 'unknown',
+      indicators: [],
     });
   });
   it.each([
+    ['toomanyrequests: Rate exceeded', 'registry_rate_limited'],
+    ['lookup registry: server misbehaving', 'registry_dns_unavailable'],
+    ['digest mismatch; 503', 'image_integrity_failed'],
+    ['error storing credentials; 503', 'runtime_credentials_failed'],
     ['500 Internal Server Error', 'registry_server_error'],
     ['request canceled', 'network_interrupted'],
     ['no space left on device', 'runtime_storage_exhausted'],
@@ -117,6 +130,44 @@ describe('privacy-safe bounded collector image startup', () => {
     });
     expect(result.failureKind).toBe(failureKind);
     expect(JSON.stringify(result)).not.toContain('private');
+  });
+  it('reports only finite indicators while unknown failures still stop after one attempt', async () => {
+    const failure = Object.assign(new Error('startup fixture'), {
+      code: 1,
+      stdout: 'private-output',
+      stderr:
+        'Error response from daemon: failed to resolve reference: failed to fetch anonymous token: unexpected status; ' +
+        'failed to register layer; unsupported media type; proxyconnect; tls: internal error; ' +
+        'Authorization=private-bearer https://private-endpoint/user-body',
+    });
+    const result = collectorStartupDiagnostic(failure);
+    expect(result).toMatchObject({
+      classification: 'collector_startup_unknown',
+      retryable: false,
+      failureKind: 'unknown',
+      indicators: [
+        'resolve_reference',
+        'anonymous_token',
+        'unexpected_status',
+        'daemon_response',
+        'layer_registration',
+        'media_type',
+        'proxy',
+        'tls_internal',
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/private|Authorization|https/u);
+    let attempts = 0;
+    await expect(
+      pullCollectorImage(
+        () => {
+          attempts++;
+          return Promise.reject(failure);
+        },
+        () => Promise.reject(new Error('must not retry')),
+      ),
+    ).rejects.toBe(failure);
+    expect(attempts).toBe(1);
   });
   it('preserves a denial anywhere in buffered process output before retryable transport text', () => {
     expect(
