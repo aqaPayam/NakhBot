@@ -77,6 +77,24 @@ describe('configuration', () => {
       }).deletion.returnApiEnabled,
     ).toBe(true);
   });
+  it('keeps fresh entry off until Return Telegram readiness is configured', () => {
+    expect(parseConfig(validEnvironment).deletion.freshEntryTelegramEnabled).toBe(false);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_FRESH_ENTRY_TELEGRAM_ENABLED: 'true' }),
+    ).toThrow('fresh entry Telegram requires');
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_FRESH_ENTRY_TELEGRAM_ENABLED: 'true',
+        NAKH_RETURN_TELEGRAM_ENABLED: 'true',
+        NAKH_DELETION_TELEGRAM_ENABLED: 'true',
+        NAKH_DELETION_WORKER_ENABLED: 'true',
+        NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+        NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
+        NAKH_DELETION_CUTOVER_EVIDENCE_HASH: 'b'.repeat(64),
+      }).deletion.freshEntryTelegramEnabled,
+    ).toBe(true);
+  });
   it('keeps Return Telegram off unless its limited deletion ingress and worker readiness are configured', () => {
     expect(parseConfig(validEnvironment).deletion.returnTelegramEnabled).toBe(false);
     expect(() =>

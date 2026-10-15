@@ -201,6 +201,14 @@ class TelegramGatewayController {
     if (!this.authenticator.verify(secret)) throw new UnauthorizedException();
     const startedAt = performance.now();
     try {
+      if ((await this.accountDeletionIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
+    } catch (error) {
+      if (error instanceof ApplicationError)
+        throw new HttpException({ code: error.code }, error.status);
+      throw new HttpException({ code: 'internal_error' }, 500);
+    }
+    try {
       const result = await this.startAdapter.handle(update);
       if (result.handled) {
         this.m1Metrics.recordHandler(
@@ -229,8 +237,6 @@ class TelegramGatewayController {
       throw error;
     }
     try {
-      if ((await this.accountDeletionIngress.handle(update)) !== 'unhandled')
-        return { accepted: true };
       if ((await this.supportAppealIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
       if ((await this.reportIngress.handle(update)) !== 'unhandled') return { accepted: true };

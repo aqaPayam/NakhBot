@@ -66,6 +66,7 @@ const ConfigSchema = Type.Object(
       apiEnabled: Type.Boolean(),
       returnApiEnabled: Type.Boolean(),
       returnTelegramEnabled: Type.Boolean(),
+      freshEntryTelegramEnabled: Type.Boolean(),
       telegramEnabled: Type.Boolean(),
       controlKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       confirmationKeyId: Type.String({ pattern: '^[A-Za-z0-9_-]{1,80}$' }),
@@ -193,6 +194,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       apiEnabled: boolean(env.NAKH_DELETION_API_ENABLED, false),
       returnApiEnabled: boolean(env.NAKH_RETURN_API_ENABLED, false),
       returnTelegramEnabled: boolean(env.NAKH_RETURN_TELEGRAM_ENABLED, false),
+      freshEntryTelegramEnabled: boolean(env.NAKH_FRESH_ENTRY_TELEGRAM_ENABLED, false),
       telegramEnabled: boolean(env.NAKH_DELETION_TELEGRAM_ENABLED, false),
       controlKeyRef: required(env, 'NAKH_ACCOUNT_CONTROL_KEY_REF', 'NAKH_ACCOUNT_CONTROL_KEY'),
       confirmationKeyId: required(env, 'NAKH_DELETION_CONFIRMATION_KEY_ID', 'delete-v1'),
@@ -228,6 +230,10 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   )
     throw new Error(
       'Invalid configuration: deletion worker requires cache purge and recorded producer-drain evidence.',
+    );
+  if (candidate.deletion.freshEntryTelegramEnabled && !candidate.deletion.returnTelegramEnabled)
+    throw new Error(
+      'Invalid configuration: fresh entry Telegram requires configured Return Telegram readiness.',
     );
   if (candidate.deletion.returnTelegramEnabled && !candidate.deletion.telegramEnabled)
     throw new Error(

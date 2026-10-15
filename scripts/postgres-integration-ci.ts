@@ -50,7 +50,7 @@ for await (const file of glob(
 ))
   expectedFiles.push(resolve(file));
 expectedFiles.sort();
-if (expectedFiles.length < 149)
+if (expectedFiles.length < 150)
   throw new Error('Native integration file inventory lost baseline coverage.');
 const dispatch = planIntegrationShards(expectedFiles, durations.files);
 
@@ -82,7 +82,7 @@ async function writeAggregate(
   reports: readonly IntegrationShardReport[],
   receipts?: readonly NativeShardReceipt[],
 ): Promise<void> {
-  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 1222);
+  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 1228);
   const evidence = {
     schemaVersion: 1,
     scenario: 'POSTGRES-INTEGRATION-ISOLATED-SHARDS',
@@ -144,7 +144,7 @@ async function verifyDistributed(directory: string): Promise<void> {
     expectedFiles,
     dispatch,
     durationInventorySha256: durationHash,
-    minimumTests: 1222,
+    minimumTests: 1228,
   });
   await writeAggregate(
     verified.receipts.map((r) => r.report),

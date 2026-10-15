@@ -7,6 +7,7 @@
     "overallJobPassed": true
   },
   "files": {
+    "apps/telegram-gateway/src/account-fresh-entry-ingress.integration.test.ts": 180000,
     "apps/telegram-gateway/src/account-return-ingress.integration.test.ts": 150000,
     "apps/api/src/m8-account-return-api.integration.test.ts": 120000,
     "apps/api/src/ephemeral-cleanup.integration.test.ts": 27883,

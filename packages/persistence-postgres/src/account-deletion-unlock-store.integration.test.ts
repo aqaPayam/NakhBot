@@ -130,6 +130,7 @@ describe.skipIf(url === undefined)(
         '000141_m8_return_approval.sql',
         '000142_m8_fresh_account_return.sql',
         '000143_m8_return_localization.sql',
+        '000144_m8_fresh_entry_localization.sql',
       ]);
       expect(await legacyFacts()).toEqual(before);
       expect(

@@ -6,6 +6,7 @@ export const RATE_LIMIT_SCOPES = [
   'telegram_support_appeal',
   'telegram_account_control',
   'telegram_account_return',
+  'telegram_fresh_entry',
   'telegram_report',
   'signup_write',
   'profile_write',

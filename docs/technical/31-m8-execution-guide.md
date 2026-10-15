@@ -4,7 +4,87 @@
 
 
 
-## Current repair: one-pass episode resolution metadata in the integrity snapshot
+## Current increment: authenticated primary-entry confirmation and opaque activation
+
+Accepted `e0206ae` passed all six exact-head jobs on attempt 1 of run
+`38694780666`: all 1,222 native cases in 149 files, no skips, with all three
+source receipts bound to the same SHA/run/attempt. All 27 plans passed at 20,000
+scale. The terminal snapshot took 1,412.264 ms against the unchanged 1,500 ms
+limit, with zero workers/spill and both required administrator indexes. Support
+load, backup/restore and actual collector privacy/freshness checks passed. All
+three artifact ZIP digests match GitHub metadata. The failed feature run remains
+preserved; acceptance follows the diagnosed repair, never an unchanged rerun.
+
+The authenticated webhook now offers returned nonzero-life owners a separate
+private `/start` confirmation before generic first-start handling. An old or
+unprocessed primary text can only prepare a challenge; it never activates the
+namespace. Initial registration and deleted-account routing retain their existing
+paths. The limited grant is issued for the captured current life, with an origin
+ID that omits epoch. Native global per-User request identity prevents a previously
+issued origin from minting replacement-life control authority.
+
+A purpose-separated 128-bit MAC binds the actual bot, sender's stable User,
+action and canonical opaque 128-bit grant reference. Callback data is 51 bytes;
+no User, epoch, Root, old data, product token or provider key is exposed. Callback
+handling only reads the original current-life grant; it never issues another one.
+Old Return scope, retired epochs, foreign/tampered callbacks, expired/revoked
+grants and mismatched verified namespaces cannot authorize activation. Not now
+sends no activation and makes no undo/revocation claim.
+
+Confirmation composes the current-control native authority with the bounded real
+Redis activation adapter. Native User/Account locks span Return/namespace proof
+and the monotonic blocked-predecessor CAS; expiry/revocation are rechecked after
+the effect. An active current marker permits exact retry, while a later blocked
+marker wins. No body is copied, TTL extended, profile restored, credit supplied
+or lifetime preview allowance reset. Provider response loss is an unknown outcome,
+not invented completion. Delivery rechecks actual nondeleted owner/epoch and
+current grant before send and again after callback acknowledgement. The stable
+per-User admission budget does not reset with product epoch.
+
+`NAKH_FRESH_ENTRY_TELEGRAM_ENABLED=false` keeps this composition off by default
+and requires Return Telegram readiness. Migration 144 adds five active English
+texts without changing tables, retention descriptors or another locale. Complete
+English catalog inventory becomes 607 and explicitly includes all new entries.
+All older populated-upgrade lists remain, with schema 143 added to the matrix;
+the completed schema-142 Root upgrade now also traverses migration 144.
+
+Seven unit cases cover explicit confirmation, initial/deleted routing, twenty
+retries, short opaque owner/purpose binding, stale-origin/life denial, captured
+input and rate limits, and sanitized activation failures. One configuration case
+locks the default-off/readiness dependency. Native Telegram coverage adds five
+cases, including twenty confirmations and intact original financial/counter/Root
+facts, wrong namespace and revocation, a real later tombstone during ACK, actual
+authenticated webhook/Redis CAS/budget, lost actual Redis response and a synthetic
+later marker. The latter two real Redis cases are mandatory CI coverage; local
+availability is reported explicitly. Native inventory rises to 1,228 cases in 150
+files; the new file's 180-second dispatch estimate is provisional, not acceptance.
+No workload, index, timeout or acceptance gate is reduced.
+
+Focused unit verification passed 27 cases in four files. Focused gateway types
+passed; initial lint caught missing integration helper return types/mock imports,
+which were repaired before the focused lint passed. Full populated-migration,
+native Telegram, project and exact-head CI verification remain required.
+
+Product-session/ordinary ingress gating, remaining Return administration
+composition, controlled retained-data release OFF pending actual period approval,
+M8 telemetry/runbooks and final failure/recovery acceptance remain required.
+This composition issues no product session and does not by itself complete full
+primary/product admission. No external Telegram send/ACK, protected MFA/drain,
+CloudWatch/SNS, staging/PITR/DR or security/operator sign-off is fabricated. No M9.
+
+The first combined native run passed the exact catalog and both Telegram suites
+but found a stale matrix assertion still expecting `143 - baseline` applied files.
+All 73 upgrade cases therefore reported one extra applied migration (for example,
+99 instead of 98 from schema 45); the bootstrap case passed. That failure log is
+preserved. The assertion was corrected to the exact `144 - baseline`, without
+removing any original upgrade/provenance checks, and the complete matrix rerun
+passed all 74 cases. Native verification in total passed 90 distinct cases; three
+Redis cases were unavailable locally (two new, one original Return) and remain
+mandatory CI coverage. The full project check passed formatting, lint, all
+workspace types, all 1,142 unit tests in 236 files and all builds. All six
+exact-head CI jobs remain required before another feature.
+
+## Historical repair: one-pass episode resolution metadata in the integrity snapshot
 
 Feature `5af605e` is not accepted green. Exact-head run `38690525678` passed
 quality and all four image/native jobs. All 1,222 native cases in 149 files passed

@@ -122,6 +122,7 @@ describe.skipIf(url === undefined)(
           '000141_m8_return_approval.sql',
           '000142_m8_fresh_account_return.sql',
           '000143_m8_return_localization.sql',
+          '000144_m8_fresh_entry_localization.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');
