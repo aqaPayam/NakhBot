@@ -438,6 +438,26 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
               WHERE probe.id=${episode.id}::uuid`.execute(tx)
             ).rows[0]!.valid;
           expect(await resolutionValid()).toBe(true);
+          // Open episodes have no resolution fields. The one-pass aggregate must
+          // count their remaining bindings exactly as the full scanner does.
+          await tx
+            .updateTable('moderation.restriction_episodes')
+            .set({
+              status: 'active',
+              resolved_at: null,
+              resolved_by_admin_id: null,
+              resolution_reason_code: null,
+            })
+            .where('id', '=', episode.id)
+            .execute();
+          expect(await resolutionValid()).toBe(true);
+          expect((await store.measure()).counts.episodes).toBe(baseline);
+          await tx
+            .updateTable('moderation.restriction_episodes')
+            .set(episode)
+            .where('id', '=', episode.id)
+            .execute();
+          expect(await resolutionValid()).toBe(true);
           for (const damage of [
             { resolved_by_admin_id: randomUUID() },
             { target_user_id: randomUUID() },

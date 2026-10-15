@@ -4,7 +4,46 @@
 
 
 
-## Current increment: current-life primary authority for opaque activation
+## Current repair: one-pass episode resolution metadata in the integrity snapshot
+
+Feature `5af605e` is not accepted green. Exact-head run `38690525678` passed
+quality and all four image/native jobs. All 1,222 native cases in 149 files passed
+without skips, and all three source receipts match the SHA/run/attempt. Reliability
+failed its terminal integrity snapshot at 1,578.685 ms against the unchanged
+1,500 ms limit. The other 26 plans passed. Both required administrator indexes
+were present; there were zero workers, one hash batch and no temp/disk spill.
+The original failure log, source receipts, plan artifact and metadata are retained;
+all three downloaded ZIP digests match GitHub. Later load/backup acceptance is
+not claimed for this failed run. No unchanged rerun or feature advance.
+
+The terminal plan spends 398.618 ms in its episode phase. Its resolution facts
+scan the owners, then scan/join the same owners again to recover metadata already
+available during validation. The repair carries those fields through one owning
+scan and reuses the identical indexed resolution-existence predicate in the full
+scanner and aggregate. Open episodes explicitly bypass resolution probing; resolved
+episodes still require every original action/actor/owner/reason/time and successful
+administrator command/request/digest/target binding. Duplicate attempts retain
+existence semantics. Remaining witness, Report, history, audit and notice checks
+are unchanged; every episode still contributes at most one violating count.
+
+A same-fixture local comparison at the full 20,000 scale measured the failed-head
+control at 2,895.412 ms and the candidate at 2,596.651 ms. Both required indexes
+remain, with zero workers and no temp spill. This approximately 10% improvement
+is comparative Windows evidence, not a claim to satisfy the 1,500 ms acceptance
+gate. The actual production sampler, all 27 plans, all repeated/damaged fixtures,
+required indexes, 20,000 workload, memory budget and 20-minute CI caps are retained.
+The complete native integrity suites and full project check must pass before the
+repair is committed. All six new exact-head CI jobs must pass before another
+feature; full M8 remains open, with no M9 or production switch enabled.
+
+Both complete native integrity suites passed all 17 cases, including the added
+open-episode/scanner/aggregate equivalence checks and every original corruption,
+duplicate and pooled-setting restoration case. The full local project check
+passed formatting, lint, all workspace types, all 1,134 unit tests in 235 files
+and all builds. Exact-head CI remains required; no local timing is substituted
+for the unchanged production-shaped gate.
+
+## Historical increment: current-life primary authority for opaque activation
 
 Accepted `b4f717f` passed all six exact-head jobs on attempt 1 of run
 `38670185035`: 1,217 native cases in 149 files, no failures or skips, with all

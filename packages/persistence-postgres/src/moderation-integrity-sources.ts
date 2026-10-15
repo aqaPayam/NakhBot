@@ -115,12 +115,9 @@ SELECT action.id, COALESCE(action_audit.id IS NOT NULL
 `;
 }
 
-export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_facts AS MATERIALIZED (
-    -- Keep one explicit fact per resolved owner, including failed bindings. An
-    -- indexed existence probe retains every binding without a wide intermediate
-    -- CTE, tuple hash or grouping duplicate attempts per owner.
-    SELECT owner.id AS restriction_episode_id,
-      EXISTS (
+/** Exact existence predicate shared by the scanner and one-pass aggregate.
+ * Duplicate attempts do not multiply an episode or change its resolution. */
+export const MODERATION_EPISODE_RESOLUTION_BINDING = sql<boolean>`EXISTS (
         SELECT 1 FROM LATERAL (
           SELECT actor_admin_id, command_id, request_id, request_digest
           FROM moderation.moderation_actions
@@ -138,7 +135,10 @@ export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_facts AS 
         WHERE resolution.actor_admin_id = owner.resolved_by_admin_id
           AND attempt.result = 'succeeded'
           AND attempt.command_code = 'moderation.apply-account-action' AND attempt.target_type = 'user'
-      ) AS valid
+      )`;
+export const MODERATION_EPISODE_RESOLUTION_FACTS = sql`WITH resolution_facts AS MATERIALIZED (
+    SELECT owner.id AS restriction_episode_id,
+      ${MODERATION_EPISODE_RESOLUTION_BINDING} AS valid
     FROM moderation.restriction_episodes owner WHERE owner.status = 'resolved'
 )
 `;

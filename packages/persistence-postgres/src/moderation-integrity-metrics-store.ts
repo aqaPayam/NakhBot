@@ -7,7 +7,7 @@ import type { NakhDatabase } from './database.js';
 import {
   MODERATION_INTEGRITY_SOURCES,
   MODERATION_INTEGRITY_FLAGS,
-  MODERATION_EPISODE_RESOLUTION_FACTS,
+  MODERATION_EPISODE_RESOLUTION_BINDING,
   moderationEpisodeMetadataSource,
 } from './moderation-integrity-sources.js';
 
@@ -74,12 +74,15 @@ export function moderationIntegrityPhaseStatement(
   if (phase === 'episodes') {
     const remaining = flags.filter((flag) => flag !== 'hasResolutionAttempt');
     return sql<IntegrityRow>`
-      ${MODERATION_EPISODE_RESOLUTION_FACTS}, episode_resolution_status AS MATERIALIZED (
-        SELECT episode.id, episode.target_user_id, episode.source_report_id,
-          episode.witness_required, episode.distinct_reporter_count, episode.started_at,
-          (episode.status <> 'resolved' OR COALESCE(binding.valid,false)) AS resolution_valid
-        FROM moderation.restriction_episodes episode
-        LEFT JOIN resolution_facts binding ON binding.restriction_episode_id=episode.id
+      WITH episode_resolution_status AS MATERIALIZED (
+        -- Carry the owning metadata through the same scan that validates its
+        -- resolution. A second episode scan/hash join would only recover columns
+        -- already present here. CASE avoids resolution probes for open episodes.
+        SELECT owner.id, owner.target_user_id, owner.source_report_id,
+          owner.witness_required, owner.distinct_reporter_count, owner.started_at,
+          CASE WHEN owner.status = 'resolved' THEN ${MODERATION_EPISODE_RESOLUTION_BINDING}
+            ELSE true END AS resolution_valid
+        FROM moderation.restriction_episodes owner
       ), eligible_episodes AS MATERIALIZED (
         SELECT * FROM episode_resolution_status WHERE resolution_valid
       )
