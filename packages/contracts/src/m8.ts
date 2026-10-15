@@ -110,3 +110,19 @@ export const RequestAccountDeletionResultSchema = Type.Object(
   { additionalProperties: false },
 );
 export type RequestAccountDeletionResult = Static<typeof RequestAccountDeletionResultSchema>;
+
+export const ReturnAccountCommandSchema = Type.Object(
+  {
+    ...RequestAccountDeletionCommandSchema.properties,
+    commandType: Type.Literal('account.return'),
+    data: Type.Object({ expectedAccountVersion: version }, { additionalProperties: false }),
+  },
+  { additionalProperties: false },
+);
+export type ReturnAccountCommand = Static<typeof ReturnAccountCommandSchema>;
+/** Records this command's completed transition; it is not a product credential. */
+export const ReturnAccountResultSchema = Type.Object(
+  { returned: Type.Literal(true), accountVersion: version, replayed: Type.Boolean() },
+  { additionalProperties: false },
+);
+export type ReturnAccountResult = Static<typeof ReturnAccountResultSchema>;

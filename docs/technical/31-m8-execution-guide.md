@@ -1,7 +1,79 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
 
-## Current increment: separate audited Return approval (migration 141)
+
+## Current increment: separate native approved fresh Return (migration 142)
+
+Accepted `8148703` passed all six exact-head CI jobs on attempt 1 of run
+`38630480765`: 1,180 native cases in 145 files, no failures/skips; all 27 plans
+at 20,000 scale, terminal integrity 1,215.438 ms with both required indexes;
+support load, backup/restore and the actual collector/privacy rehearsal passed.
+All three evidence ZIP hashes match GitHub metadata. Current scheduling now uses
+the complete measured file inventory from that accepted run; the new native suite
+has a provisional scheduling estimate only. No case, workload or limit is reduced.
+
+`identity.return_account` performs a separate own-account command under the stable
+User/Account/original Root locks. It requires one validated immutable administrator
+approval and a current, original-life limited account-control grant. An approval
+alone cannot change an Account. The exact Return command has permanent user-bound
+idempotency proof; retrying a committed command can read its own original receipt
+without acquiring product authority or crossing another life. Changed input,
+borrowed grants, stale epochs/versions, missing approval and retained safety bars
+fail closed. Transport timestamps never grant authority; the native clock is
+checked after lock waits and again at deferred commit.
+
+Only the completed Root's `reactivation_allowed` bit may change, once, in the
+same transaction as its audited deleted-to-guest transition and next epoch/version.
+Every other original Root field remains unchanged. Required immutable history,
+audit and event facts bind the approval, original limited grant and transaction.
+Settings and notification preferences start from public defaults; Profile/signup
+and ordinary product selectors must be empty. The existing verified financial
+cutover supplies the zero-credit next-life projection; Return neither reconstructs
+nor resets any ledger. A native hash proves the lifetime GuestPreviewCounter did
+not change. Suppressed writes or altered defaults/counter must roll back the whole
+Return at commit. No product credential is returned.
+
+Historical financial verification retains the original closed epoch and its exact
+audit/closure facts. Only a valid actual Return receipt permits subsequent changes
+to the next epoch's balance/ledger; that exception never modifies original money
+facts. Retention descriptors/proofs, original provider reconciliation and approval
+history remain independently verifiable after actual Return and new-life activity.
+The Return event has an exact content-free transport shape, and only fully proven
+Return audit facts are classified as immutable lifecycle proof. The migration adds
+no tables, columns, foreign keys or retention descriptors and refuses unexplained
+legacy Return facts. Previous admission/checkpoint guards remain intact around the
+one narrowly authorized transition.
+
+Local native evidence covers twelve Return cases: twenty-way exact command
+replay; missing approval and retained-ban denial; owner/epoch/version/digest
+binding; actual Return followed by fresh preview/signup/credit activity with old
+financial/retention/provider/approval proofs still valid; seven required-write
+suppression/recovery paths; deferred counter/default/ordinary-signup corruption;
+real Account-lock expiry and deferred-commit expiry with a nontransactional
+execution witness; and a populated approved schema-141 upgrade. The original
+eleven cases passed together; the added signup fence and bounded-setup expiry
+case passed independently. The thirteen existing credit/deletion lifecycle cases
+and three focused pending/completed upgrade cases passed too. Synthetic provider
+and protected-factor observations do not certify real Redis absence, producer
+drain or external MFA delivery. Post-Return ledger activity uses a privileged
+activation fixture; it is not complete signup/Photo moderation evidence.
+
+The full local check passed all 1,111 unit tests in 231 files and all workspace
+lint/types/builds. Formatting, a test-only untyped rejection value and missing
+counter-fixture contract references were diagnosed and repaired before commit;
+the corrected historical activity case passed again. No production proof guard,
+case timeout, asserted workload or CI limit was relaxed.
+
+This increment is the native command, not public Return activation. Own status
+continues to report reactivation denied until Return ingress is composed. Monotonic
+later-life Redis activation, API/Telegram/localization Return composition, controlled
+retention release, M8 telemetry/runbooks and the remaining full interruption/load/
+failure/recovery matrix remain required. Retained-data release stays OFF until
+real periods are approved. Actual provider/staging/PITR/DR, security review and
+operator sign-offs remain external. No M9. Full local checks and all six exact-head
+CI jobs remain required before acceptance.
+
+## Historical increment: separate audited Return approval (migration 141)
 
 Accepted `1a37e60` passed all six exact-head jobs on attempt 1 of run
 `38624307758`. The three independent native runners covered all 1,170 cases in

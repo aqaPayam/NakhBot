@@ -9,12 +9,15 @@ import { PostgresAccountDeletionWorkStore } from '../account-deletion-work-store
 
 /** Real native phase 1..7 transitions. Empty provider observations are a native
  * fixture, not evidence of actual Redis absence or operator producer drain. */
-export async function createFinalDeletionFixture(database: NakhDatabase): Promise<{
+export async function createFinalDeletionFixture(
+  database: NakhDatabase,
+  beforeDeletion?: (userId: string) => Promise<void>,
+): Promise<{
   userId: string;
   recordId: string;
   lease: AccountDeletionLease;
 }> {
-  const item = await createEphemeralDeletionFixture(database);
+  const item = await createEphemeralDeletionFixture(database, beforeDeletion);
   await new PostgresAccountDeletionSessionStore(database).revokeNext(item.lease);
   const ephemeral = new PostgresAccountDeletionEphemeralStore(
     database,

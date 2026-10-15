@@ -303,6 +303,7 @@ describe.skipIf(url === undefined)('M8 session authority migration provenance', 
             '000139_m8_account_control.sql',
             '000140_m8_deletion_localization.sql',
             '000141_m8_return_approval.sql',
+            '000142_m8_fresh_account_return.sql',
           ]);
           await verifyMigrations(isolated.url, resolve('migrations/verify'));
           expect(

@@ -21,8 +21,8 @@ BEGIN
       AND indisunique AND indisvalid AND indisready)
     OR NOT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid='identity.deletion_confirmation_pending_user_idx'::regclass
       AND indisunique AND indisvalid AND indisready)
-    OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.account_deletion_records'::regclass
-      AND contype='c' AND pg_get_constraintdef(oid) LIKE '%NOT reactivation_allowed%') THEN
+    OR (to_regprocedure('identity.account_return_completed(uuid)') IS NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.account_deletion_records'::regclass
+      AND contype='c' AND pg_get_constraintdef(oid) LIKE '%NOT reactivation_allowed%')) THEN
     RAISE EXCEPTION 'deletion admission safeguards missing';
   END IF;
 END $$;

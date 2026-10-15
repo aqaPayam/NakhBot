@@ -8,6 +8,8 @@ import {
   PrepareAccountDeletionQuerySchema,
   CancelAccountDeletionCommandSchema,
   RequestAccountDeletionResultSchema,
+  ReturnAccountCommandSchema,
+  ReturnAccountResultSchema,
 } from './m8.js';
 
 const addFormats = formatsModule.default as unknown as (ajv: InstanceType<typeof Ajv>) => void;
@@ -19,6 +21,41 @@ function validator(schema: object): ReturnType<InstanceType<typeof Ajv>['compile
   return ajv.compile(schema);
 }
 describe('M8 own-account deletion contracts', () => {
+  it('keeps Return own-account and exposes no approval, Root, epoch, retained content or product credential', () => {
+    const check = validator(ReturnAccountCommandSchema);
+    const command = {
+      commandId: id,
+      commandType: 'account.return',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId: id },
+      requestId: id,
+      idempotencyKey: 'return-command',
+      occurredAt: at,
+      locale: 'en',
+      data: { expectedAccountVersion: 2 },
+    };
+    expect(check(command)).toBe(true);
+    expect(check({ ...command, actor: { kind: 'admin', userId: id } })).toBe(false);
+    for (const extra of [
+      { userId: id },
+      { deletionRecordId: id },
+      { approvalId: id },
+      { approved: true },
+      { productEpoch: 1 },
+      { controlGrantId: id },
+    ])
+      expect(check({ ...command, data: { ...command.data, ...extra } })).toBe(false);
+    const result = validator(ReturnAccountResultSchema),
+      receipt = { returned: true, accountVersion: 3, replayed: false };
+    expect(result(receipt)).toBe(true);
+    for (const extra of [
+      { approvalId: id },
+      { retainedData: [] },
+      { sessionToken: 'private' },
+      { productEpoch: 1 },
+    ])
+      expect(result({ ...receipt, ...extra })).toBe(false);
+  });
   it('keeps cancellation user-bound and rejects private deletion result fields', () => {
     const cancel = validator(CancelAccountDeletionCommandSchema);
     const command = {
