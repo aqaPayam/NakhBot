@@ -4,7 +4,57 @@
 
 
 
-## Current increment: confirmed administrator Return approval in the protected host
+## Current repair: cold source native execution within unchanged CI caps
+
+Feature `2aa4ce1` passed `pnpm check` and both local three-case native runs, but
+exact-head run `38733318635` did not pass. GitHub annotations confirm scheduler
+and worker exceeded the unchanged 20-minute caps. API passed all 323 cases in
+50 files. Scheduler printed 512 passed cases in 51 files and uploaded its receipt,
+but the job was cancelled; worker completed 29 files before cancellation. Neither
+an unfinished run nor an uploaded receipt overrides a failed job. Preserve all
+three logs, timeout annotations, final metadata and four verified ZIPs (two source
+receipts, both collector rehearsals). Full native/performance/recovery acceptance
+remains unproven on this failed head. No unchanged rerun authorizes progress.
+
+Logs show the native command rebuilt the entire host workspace after its Docker
+image had already built the same workspace, spending 43-59 seconds before native
+execution. Remove that duplicate build from `test:integration:ci`; keep the full
+quality build, all four Docker builds and the reliability job's full build.
+Every source is still compiled/tested; the six jobs and 20-minute caps are intact.
+No native case, 1,245-case/153-file floor, receipt binding, 27 query plans,
+20,000-scale/1,500 ms gate, collector, load or recovery check is removed.
+
+Both Vitest configurations now share one complete code-owned alias map for every
+workspace runtime export, including media-delivery edge/worker before the package
+prefix. This also closes integration aliases that previously fell back to built
+config/queue/media/testkit artifacts. A manifest-derived test checks every real
+export's declared existing source and first-prefix resolution; new exports cannot
+silently escape to dist. Native bootstrap's actual source imports resolve without
+built artifacts; the diagnostic deliberately rejects an unsupported mode and is
+not native acceptance.
+
+A reversible cold proof hid all 17 workspace dist directories, checked bootstrap
+imports, passed all three actual native TOTP/Return approval cases and all 20
+resolver/shard/receipt tests, then restored every directory in a finally block.
+No backup directory remained. Inspection found no direct dist imports in native
+suite files. This validates cold startup and focused cases only; CI must execute
+the entire inventory against actual PostgreSQL/Redis with zero skips.
+
+Refresh scheduling weights from the 130 completed suite observations, retaining
+the maximum old/measured duration for established suites and every unmeasured
+estimate. Replace only the new provisional Return-approval estimate with its
+actual passed 49,576 ms observation. Prior provenance stays intact; the new batch
+is explicitly failed/incomplete and scheduling-only. Build/test workload and
+production safety behavior remain unchanged. The refreshed conservative estimates
+are 1,012,192 / 1,012,257 / 1,012,228 ms across three 51-file groups. Those are
+scheduling evidence only, not a promise of runtime or completed native coverage.
+The full `pnpm check` passed formatting, lint, all workspace types, 1,173 unit
+cases across 242 files and every build. All six changed-head jobs, complete
+1,245-case native coverage without skips, both actual collector rehearsals,
+performance/load and backup/restore remain required before advancing.
+M8 remains active; no M9.
+
+## Historical increment: confirmed administrator Return approval in the protected host
 
 Accepted `2420b89` passed all six exact-head jobs on attempt 1 of run
 `38727587448`: 1,242 native cases in 152 files, zero skips, three matching source

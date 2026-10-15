@@ -122,3 +122,19 @@ their in-memory opaque references and synthetic provider absence are not proof
 of deployed Redis, actual authenticator ownership, producer drain or operator
 sign-off. Retained-data release remains disabled pending separately approved
 periods and the complete controlled-release requirements.
+
+## Native CI timeout diagnosis
+
+Preserve exact-run logs and timeout annotations before changing scheduling. An
+uploaded shard receipt cannot authorize acceptance when its job was cancelled.
+Keep all six jobs, native source bindings, zero-skip inventory, performance gates
+and 20-minute job caps. Completed-file timings from a failed run are dispatch
+evidence only, with explicit failed/incomplete provenance.
+
+Native shards execute current workspace source through the common Vitest alias
+map and no longer repeat the host workspace build. Full quality, Docker and
+reliability builds remain mandatory on that same head. The manifest-derived
+resolver check includes every package runtime export and subpath precedence;
+never substitute stale dist files or omit a suite to recover time. Any new
+bootstrap/import failure stops the shard and requires diagnosis. A focused cold
+run proves startup only; full source-bound PostgreSQL/Redis CI proves acceptance.

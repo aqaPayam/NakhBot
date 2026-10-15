@@ -1,34 +1,9 @@
-import { fileURLToPath } from 'node:url';
-
 import { defineConfig } from 'vitest/config';
+import { WORKSPACE_SOURCE_ALIASES } from './scripts/workspace-source-aliases.js';
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@nakh/observability': fileURLToPath(
-        new URL('./packages/observability/src/index.ts', import.meta.url),
-      ),
-      '@nakh/media-delivery/edge': fileURLToPath(
-        new URL('./packages/media-delivery/src/edge.ts', import.meta.url),
-      ),
-      '@nakh/media-delivery': fileURLToPath(
-        new URL('./packages/media-delivery/src/index.ts', import.meta.url),
-      ),
-      '@nakh/application': fileURLToPath(
-        new URL('./packages/application/src/index.ts', import.meta.url),
-      ),
-      '@nakh/contracts': fileURLToPath(
-        new URL('./packages/contracts/src/index.ts', import.meta.url),
-      ),
-      '@nakh/domain': fileURLToPath(new URL('./packages/domain/src/index.ts', import.meta.url)),
-      '@nakh/localization': fileURLToPath(
-        new URL('./packages/localization/src/index.ts', import.meta.url),
-      ),
-      '@nakh/persistence-postgres': fileURLToPath(
-        new URL('./packages/persistence-postgres/src/index.ts', import.meta.url),
-      ),
-      '@nakh/telegram': fileURLToPath(new URL('./packages/telegram/src/index.ts', import.meta.url)),
-    },
+    alias: WORKSPACE_SOURCE_ALIASES,
   },
   test: {
     include: ['packages/**/*.integration.test.ts', 'apps/**/*.integration.test.ts'],

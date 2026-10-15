@@ -22,7 +22,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:integration": "pnpm build && vitest run --config vitest.integration.config.ts",
-    "test:integration:ci": "pnpm build && tsx scripts/postgres-integration-ci.ts",
+    "test:integration:ci": "tsx scripts/postgres-integration-ci.ts",
     "test:m1-load-smoke": "tsx scripts/m1-load-smoke.ts",
     "test:m3-load-smoke": "tsx scripts/m3-load-smoke.ts",
     "test:m3-query-plan": "tsx scripts/m3-query-plan-gate.ts",
