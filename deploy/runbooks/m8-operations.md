@@ -92,3 +92,33 @@ capacity, provider acceptance, PITR/DR, external security review or operator sig
 Check Terraform formatting and staging validation. Actual deployment, alert
 routing, capacity thresholds and restore/DR acceptance require the external
 operator environment. Do not report them as passed from local or CI fixtures.
+
+## Separate administrator approval and owner Return
+
+The protected native-session or authenticator-app host can explicitly set
+`accountReturnApprovalEnabled: true`; absence keeps administrator Return routes
+unregistered. Supply the same trusted first-factor/TOTP verifier and current
+opaque admin stores. This programmatic opt-in does not deploy or activate a host.
+
+An administrator with current native MFA and `approve_account_return` first posts
+its exact original deletion Root/version to `/v1/admin/account-returns/actions`.
+Use the returned opaque action reference and existing command envelope/reason for
+`approve/prepare`, then submit that same command with the confirmation reference
+to `approve`. All paths are POST, uncached and administrator-authenticated. Later
+stages recheck current authority. Execution returns only a finite audited receipt;
+never log or persist action/confirmation references, bearer credentials or reason
+text in operational diagnostics.
+
+A succeeded approval leaves Account deleted. The owner must separately request
+Return through its existing limited original control channel, then independently
+confirm fresh primary entry. A retained ban/safety bar cannot be bypassed by
+approval. If deletion is pending, the Root version changed, MFA/permissions were
+revoked, or confirmation differs, reacquire authorized current state and inspect
+the recorded receipt; never change the Root or retry with substituted identities.
+Existing exact-command replay remains available under current authority.
+
+CI fixtures exercise actual native TOTP verification and PostgreSQL concurrency;
+their in-memory opaque references and synthetic provider absence are not proof
+of deployed Redis, actual authenticator ownership, producer drain or operator
+sign-off. Retained-data release remains disabled pending separately approved
+periods and the complete controlled-release requirements.

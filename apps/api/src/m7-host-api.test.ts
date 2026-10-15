@@ -110,5 +110,17 @@ describe('explicit shared M7 HTTP host', () => {
       (await app.inject({ method: 'POST', url: '/v1/admin/auth/sessions', headers, payload: {} }))
         .statusCode,
     ).toBe(404);
+    expect(options).not.toHaveProperty('accountReturnApproval');
+    for (const path of ['actions', 'approve/prepare', 'approve'])
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `/v1/admin/account-returns/${path}`,
+            headers,
+            payload: {},
+          })
+        ).statusCode,
+      ).toBe(404);
   });
 });

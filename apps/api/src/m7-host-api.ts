@@ -7,6 +7,7 @@ import { M7AppealApiModule } from './m7-appeal-api.js';
 import { M7OperationalHealthApiModule } from './m7-operational-health-api.js';
 import type { M7HostApiOptions } from './m7-host-services.js';
 import { M7TotpApiModule } from './m7-totp-api.js';
+import { M8AccountReturnApprovalApiModule } from './m8-account-return-approval-api.js';
 /** Explicit opt-in only; ordinary startup does not register this host. */
 @Module({})
 export class M7HostApiModule {
@@ -15,6 +16,9 @@ export class M7HostApiModule {
       module: M7HostApiModule,
       imports: [
         ...(options.totp === undefined ? [] : [M7TotpApiModule.register(options.totp)]),
+        ...(options.accountReturnApproval === undefined
+          ? []
+          : [M8AccountReturnApprovalApiModule.register(options.accountReturnApproval)]),
         M7ReportApiModule.register(options.reports),
         M7AdminReportApiModule.register(options.adminReports),
         M7AdminModerationApiModule.register(options.adminModeration),

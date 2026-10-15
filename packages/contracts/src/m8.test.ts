@@ -10,6 +10,9 @@ import {
   RequestAccountDeletionResultSchema,
   ReturnAccountCommandSchema,
   ReturnAccountResultSchema,
+  SelectAccountReturnApprovalQuerySchema,
+  PrepareAccountReturnApprovalCommandSchema,
+  ApproveAccountReturnCommandSchema,
 } from './m8.js';
 
 const addFormats = formatsModule.default as unknown as (ajv: InstanceType<typeof Ajv>) => void;
@@ -169,5 +172,56 @@ describe('M8 own-account deletion contracts', () => {
       { manifest: [{ reason: 'private' }] },
     ])
       expect(status({ ...result, ...extra })).toBe(false);
+  });
+});
+
+describe('M8 separate administrator Return approval contracts', () => {
+  it('accepts the original Root only at authenticated administrator selection', () => {
+    const check = validator(SelectAccountReturnApprovalQuerySchema),
+      query = {
+        actor: { kind: 'admin', userId: id },
+        requestId: id,
+        deletionRecordId: id,
+        expectedTargetVersion: 2,
+      };
+    expect(check(query)).toBe(true);
+    expect(check({ ...query, actor: { kind: 'user', userId: id } })).toBe(false);
+    expect(check({ ...query, approved: true })).toBe(false);
+    expect(check({ ...query, expectedTargetVersion: 0 })).toBe(false);
+  });
+  it('binds confirmed approval to opaque action/confirmation references without raw target or Return authority', () => {
+    const prepare = validator(PrepareAccountReturnApprovalCommandSchema),
+      apply = validator(ApproveAccountReturnCommandSchema);
+    const command = {
+      commandId: id,
+      commandType: 'account.approve-return',
+      schemaVersion: 1,
+      actor: { kind: 'admin', userId: id },
+      requestId: id,
+      idempotencyKey: 'approval-command',
+      occurredAt: at,
+      locale: 'en',
+      data: {
+        adminActionToken: `v1.ad.${'a'.repeat(16)}.${'b'.repeat(16)}`,
+        expectedTargetVersion: 2,
+        reason: 'synthetic review',
+      },
+    };
+    expect(prepare(command)).toBe(true);
+    expect(apply(command)).toBe(false);
+    const confirmed = {
+      ...command,
+      data: { ...command.data, confirmationToken: `v1.cf.${'c'.repeat(16)}.${'d'.repeat(16)}` },
+    };
+    expect(apply(confirmed)).toBe(true);
+    for (const extra of [
+      { deletionRecordId: id },
+      { userId: id },
+      { approvalId: id },
+      { productEpoch: 1 },
+      { reactivationAllowed: true },
+    ])
+      expect(apply({ ...confirmed, data: { ...confirmed.data, ...extra } })).toBe(false);
+    expect(apply({ ...confirmed, commandType: 'account.return' })).toBe(false);
   });
 });

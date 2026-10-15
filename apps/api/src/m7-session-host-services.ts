@@ -13,6 +13,7 @@ import {
   createPostgresUserSessions,
 } from '@nakh/persistence-postgres';
 import type { M7ApiAuthenticator } from './m7-api-boundary.js';
+import { createM8AccountReturnApprovalOptions } from './m8-account-return-approval-services.js';
 import {
   createM7HostOptions,
   type M7HostConfiguration,
@@ -25,6 +26,7 @@ export function createM7SessionHostOptions(
   input: Omit<M7HostConfiguration, 'authenticator'> &
     Readonly<{
       mfa: AdminMfaProofVerifier;
+      accountReturnApprovalEnabled?: boolean;
     }>,
 ): Readonly<{
   host: M7HostApiOptions;
@@ -39,7 +41,17 @@ export function createM7SessionHostOptions(
       query.audience === 'admin' ? sessions.authenticate(query) : userSessions.authenticate(query),
   };
   return Object.freeze({
-    host: createM7HostOptions({ ...input, authenticator }),
+    host: Object.freeze({
+      ...createM7HostOptions({ ...input, authenticator }),
+      ...(input.accountReturnApprovalEnabled === true
+        ? {
+            accountReturnApproval: createM8AccountReturnApprovalOptions({
+              ...input,
+              authenticator,
+            }),
+          }
+        : {}),
+    }),
     sessions,
     userSessions,
   });
@@ -48,7 +60,8 @@ export function createM7SessionHostOptions(
 /** Actual authenticator-app composition. First-factor authentication is supplied by the trusted
  * host; native TOTP alone provides administrator sessions. Operator capabilities are not exposed. */
 export function createM7TotpSessionHostOptions(
-  input: Omit<M7HostConfiguration, 'authenticator'> & Readonly<{ totpKeys: AdminTotpKeyResolver }>,
+  input: Omit<M7HostConfiguration, 'authenticator'> &
+    Readonly<{ totpKeys: AdminTotpKeyResolver; accountReturnApprovalEnabled?: boolean }>,
 ): Readonly<{
   host: M7HostApiOptions;
   sessions: AdminSessionService;
@@ -75,6 +88,12 @@ export function createM7TotpSessionHostOptions(
           .executeTakeFirst()
       )?.telegram_user_id,
   });
-  const host = Object.freeze({ ...createM7HostOptions({ ...input, authenticator }), totp });
+  const host = Object.freeze({
+    ...createM7HostOptions({ ...input, authenticator }),
+    totp,
+    ...(input.accountReturnApprovalEnabled === true
+      ? { accountReturnApproval: createM8AccountReturnApprovalOptions({ ...input, authenticator }) }
+      : {}),
+  });
   return Object.freeze({ host, sessions, enrollments, userSessions });
 }

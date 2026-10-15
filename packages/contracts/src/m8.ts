@@ -1,5 +1,6 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { ChannelContextSchema, UtcTimestampSchema, UuidSchema } from './shared.js';
+import { ApplyAccountModerationActionCommandSchema } from './m7.js';
 
 const actor = Type.Object(
   { userId: UuidSchema, kind: Type.Literal('user') },
@@ -126,3 +127,50 @@ export const ReturnAccountResultSchema = Type.Object(
   { additionalProperties: false },
 );
 export type ReturnAccountResult = Static<typeof ReturnAccountResultSchema>;
+
+const returnApprovalActor = Type.Object(
+  { kind: Type.Literal('admin'), userId: UuidSchema },
+  { additionalProperties: false },
+);
+/** Only an authenticated, authorized administrator can select the original Root.
+ * Confirmed execution carries its opaque action reference, never a client target. */
+export const SelectAccountReturnApprovalQuerySchema = Type.Object(
+  {
+    actor: returnApprovalActor,
+    requestId: UuidSchema,
+    deletionRecordId: UuidSchema,
+    expectedTargetVersion: version,
+  },
+  { additionalProperties: false },
+);
+export type SelectAccountReturnApprovalQuery = Static<
+  typeof SelectAccountReturnApprovalQuerySchema
+>;
+export const SelectedAccountReturnApprovalSchema = Type.Object(
+  {
+    adminActionToken:
+      ApplyAccountModerationActionCommandSchema.properties.data.properties.adminActionToken,
+    expectedTargetVersion: version,
+  },
+  { additionalProperties: false },
+);
+export type SelectedAccountReturnApproval = Static<typeof SelectedAccountReturnApprovalSchema>;
+export const ApproveAccountReturnCommandSchema = Type.Object(
+  {
+    ...ApplyAccountModerationActionCommandSchema.properties,
+    commandType: Type.Literal('account.approve-return'),
+    data: Type.Omit(ApplyAccountModerationActionCommandSchema.properties.data, ['action']),
+  },
+  { additionalProperties: false },
+);
+export type ApproveAccountReturnCommand = Static<typeof ApproveAccountReturnCommandSchema>;
+export const PrepareAccountReturnApprovalCommandSchema = Type.Object(
+  {
+    ...ApproveAccountReturnCommandSchema.properties,
+    data: Type.Omit(ApproveAccountReturnCommandSchema.properties.data, ['confirmationToken']),
+  },
+  { additionalProperties: false },
+);
+export type PrepareAccountReturnApprovalCommand = Static<
+  typeof PrepareAccountReturnApprovalCommandSchema
+>;

@@ -4,7 +4,65 @@
 
 
 
-## Current repair: bounded public collector startup diagnostics
+## Current increment: confirmed administrator Return approval in the protected host
+
+Accepted `2420b89` passed all six exact-head jobs on attempt 1 of run
+`38727587448`: 1,242 native cases in 152 files, zero skips, three matching source
+receipts and all four ZIP digests verified. Both actual M7/M8 collector rehearsals,
+support load and backup/restore passed. All 27 plans passed at 20,000 scale;
+terminal snapshot 1,480.492 ms against 1,500 ms, zero workers/spill, both required
+administrator indexes. The diagnosed failed feature run remains preserved.
+Tracked lines were 244,265 across four wc totals. CloudWatch/SNS acceptance remains
+external. No staging, actual provider drain, PITR/DR or security sign-off is inferred.
+
+Review found the existing native Return approval workflow had no administrator
+host ingress. Add strict administrator-only Root selection, opaque target action,
+separate command confirmation and audited execution at `/v1/admin/account-returns`.
+Selection requires the exact original Root/version, completed verified deletion,
+no retained safety bar and current `approve_account_return` permission. It captures
+actor/target/version before waits, rechecks Root and native authorization, and
+returns only opaque action metadata. Preparation binds command identity, actor,
+Root/version and reason digest through the existing confirmation boundary.
+
+Execution uses the existing current-native-MFA/RBAC command transaction and
+immutable approval audit. Malformed authenticated attempts must be journalled;
+missing audit authority fails closed. Public results discard internal approval
+identity/epoch and contain only the existing finite administrator receipt.
+Approval alone keeps the account deleted and changes no original Root, manifest,
+phase receipt or financial closure. Only the separate authenticated owner Return
+command can start the new empty life; approval is never a product credential,
+namespace activation or unban.
+
+`accountReturnApprovalEnabled` defaults absent/OFF in both protected native-session
+host factories. An explicit opt-in composes the same authenticator and opaque
+stores with the new module. The ordinary host remains without these routes.
+Authenticator-app TOTP remains the concrete operator path. No SQL migration,
+permission seed, registry descriptor, persisted entity or UI prose changes.
+
+Three native HTTP cases passed with actual TOTP enrollment/next-counter login,
+twenty confirmation retries producing one approval, exact original proof
+preservation, a separate actual owner Return, foreign references, raw-target
+injection/rejection journalling, revoked MFA, stale/incomplete/safety-barred Roots
+and revoked permissions. Native opaque stores are in-memory fixtures; no actual
+Redis/provider/operator approval is inferred. All three native cases passed again
+after the final handler snapshot/recheck changes. Fourteen focused unit cases
+passed; initial focused types/lint found test-fixture literal typing, unsafe-output
+construction and unused bindings, which were corrected without changing gates. The new native file's 150-second scheduling
+estimate is provisional. Inventory becomes 1,245 native cases/153 files; every
+older case and all gates/caps remain mandatory.
+
+The complete `pnpm check` passed formatting, lint, all workspace types, 1,172
+unit cases across 241 files and all builds. Both local native runs passed all
+three new cases; the final run follows the snapshot/authority-order edits.
+GitHub main was rechecked against the accepted starting SHA before commit.
+All six exact-head CI jobs, 1,245 native cases with zero skips, all unchanged
+performance/load/recovery gates and both actual collector rehearsals remain
+required before advancing.
+M8 remains active: controlled retained-data release, final original-requirements
+entry review and load/failure/recovery/security acceptance remain open. No actual
+retention periods have been approved; purging remains disabled. No M9.
+
+## Historical repair: bounded public collector startup diagnostics
 
 Feature `63f67d6` passed local project checks and 85 native cases, but exact-head
 run `38724551143` failed the M7 collector rehearsal at `image-pull`, before

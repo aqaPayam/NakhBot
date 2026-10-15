@@ -39,6 +39,7 @@ import { createM7AppealApiOptions } from './m7-appeal-services.js';
 import type { M7AdminModerationApiOptions } from './m7-admin-moderation-api.js';
 import type { M7OperationalHealthApiOptions } from './m7-operational-health-api.js';
 import type { M7TotpApiOptions } from './m7-totp-api.js';
+import type { M8AccountReturnApprovalApiOptions } from './m8-account-return-approval-api.js';
 
 export type M7HostConfiguration = M7ReportHostConfiguration &
   Readonly<{
@@ -222,4 +223,4 @@ export function createM7HostOptions(input: M7HostConfiguration): Readonly<{
   });
 }
 export type M7HostApiOptions = ReturnType<typeof createM7HostOptions> &
-  Readonly<{ totp?: M7TotpApiOptions }>;
+  Readonly<{ totp?: M7TotpApiOptions; accountReturnApproval?: M8AccountReturnApprovalApiOptions }>;
