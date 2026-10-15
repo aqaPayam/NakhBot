@@ -4,7 +4,63 @@
 
 
 
-## Current repair: confirmed public-registry throttling backoff
+## Current repair: four complete native groups inside the existing six jobs
+
+Run `38742409935` for `9b0d740` passed quality, both actual collector rehearsals,
+and API/scheduler/Telegram container jobs. Worker exceeded the unchanged 20-minute
+job cap after printing 482 passed cases in 51 files; reliability was skipped.
+All 153 files printed 1,245 passed cases, but those outputs cannot override the
+cancelled job or substitute for full source-bound acceptance. Preserve all three
+native logs, worker timeout annotation and final failed metadata. The registry
+throttle repair is verified by quality; this failure is native scheduling.
+
+Exact reconstruction proves the old dispatch matches all three logged file sets.
+Mixed high-water estimates predicted 1,012 seconds per group but actually assigned
+644,263 / 1,052,672 / 768,774 ms. Earlier slow samples inflated the first and third
+groups' estimates and hid the second group's excess. A partial sample or another
+mixed maximum does not correct that measured imbalance.
+
+Use the complete, disjoint set of 153 completed suite durations from this one
+run. No file/case, workload, lease/expiry scenario, receipt binding, performance
+gate, build, collector or 20-minute cap changes. Keep every older provenance
+record, and explicitly label the new source run failed/incomplete for acceptance.
+That fixes the measured three-way imbalance, but the final implementation also
+uses the previously idle native slot in the existing Telegram container job.
+It already starts the same real PostgreSQL/Redis services; no seventh job is added.
+All four container jobs now run one disjoint native group. Each remains sequential
+within its own database/provider context and retains the 20-minute job cap.
+
+The independent verifier now requires all four successful SHA/run/attempt-bound
+receipts before any later gate, with the same complete inventory and strengthened
+1,245-case floor at both verifier stages. Three receipts alone, a missing/duplicate
+fourth partition, cross-head/run/plan proof, skips and failures still reject.
+Ordinary Redis contexts use four distinct databases and reject bases above 10,
+keeping database 15 exclusively reserved for the composed fixture. The actual CI
+uses base zero. Earlier valid contexts and all failure cases remain exercised.
+A workflow-contract test proves one producer per required partition, exactly the
+original six expanded jobs and all original 20-minute caps.
+
+The final four estimated groups are 616,464 / 616,401 / 616,470 / 616,374 ms,
+with 37/39/38/39 files and the identical total workload. These are scheduling
+estimates, not a runtime guarantee. The cancelled run remains
+unaccepted even though its per-file outputs supply complete dispatch observations.
+
+The native floor stays 1,245 cases/153 files and zero skips. The source-only runner
+and all quality/Docker/reliability builds remain intact. A changed-head run must
+pass all six jobs, complete receipts, both actual collector rehearsals, all
+27 unchanged 20,000-scale/1,500 ms plans, load and backup/restore. Full project
+check passed again after the four-group implementation: formatting, lint, all
+workspace types, 1,177 unit cases in 242 files and every build. An initial
+workflow-regex lint style finding was corrected before the successful full rerun.
+All 21 focused resolver/dispatch/receipt cases passed, including explicit absence
+of the fourth receipt, every partition's source/failure mutation, reserved Redis
+isolation and the actual six-job/four-producer/cap contract. No prior case was
+removed. Real four-cohort PostgreSQL/Redis execution remains CI acceptance.
+M8 stays active; retained-data release
+remains disabled pending actual approved periods and remaining controlled-release
+implementation. No M9.
+
+## Historical repair: confirmed public-registry throttling backoff
 
 Exact-head run `38738665048` for `1f325d2` passed the quality project's checks but
 failed the M7 collector rehearsal before collector startup. The preserved fixed

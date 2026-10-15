@@ -105,7 +105,7 @@ export function createNativeShardReceipt(
   if (
     !NATIVE_SHARDS.includes(input.shard) ||
     !/^[a-f0-9]{64}$/u.test(input.durationInventorySha256) ||
-    input.dispatch.files.length !== 3
+    input.dispatch.files.length !== NATIVE_SHARDS.length
   )
     invalid();
   return {
@@ -121,7 +121,7 @@ export function createNativeShardReceipt(
   };
 }
 /** The dependent reliability job independently discovers the current inventory
- * and verifies all three successful source-bound receipts before any later gate.
+ * and verifies all four successful source-bound receipts before any later gate.
  * Earlier successful attempts are usable only in this same unchanged workflow
  * run; dependency success is also required by the actual GitHub job graph. */
 export function verifyNativeShardReceipts(
@@ -142,9 +142,9 @@ export function verifyNativeShardReceipts(
     selected = new Map<NativeShard, NativeShardReceipt>(),
     attempts = new Set<string>();
   if (
-    values.length < 3 ||
-    values.length > 3 * expected.attempt ||
-    input.dispatch.files.length !== 3 ||
+    values.length < NATIVE_SHARDS.length ||
+    values.length > NATIVE_SHARDS.length * expected.attempt ||
+    input.dispatch.files.length !== NATIVE_SHARDS.length ||
     !/^[a-f0-9]{64}$/u.test(input.durationInventorySha256)
   )
     invalid();

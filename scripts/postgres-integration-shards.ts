@@ -1,6 +1,6 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 
-export const NATIVE_SHARDS = [1, 2, 3] as const;
+export const NATIVE_SHARDS = [1, 2, 3, 4] as const;
 export type NativeShard = (typeof NATIVE_SHARDS)[number];
 
 export type IntegrationShardReport = Readonly<{
@@ -141,9 +141,9 @@ export function integrationShardEnvironment(
     if (!['redis:', 'rediss:'].includes(redis.protocol)) invalid();
     const base =
       redis.pathname === '' || redis.pathname === '/' ? 0 : Number(redis.pathname.slice(1));
-    // DB 15 belongs exclusively to the composed HTTP/Redis fixture. All three
+    // DB 15 belongs exclusively to the composed HTTP/Redis fixture. All four
     // ordinary shard contexts must remain distinct from it and one another.
-    if (!Number.isSafeInteger(base) || base < 0 || base > 11) invalid();
+    if (!Number.isSafeInteger(base) || base < 0 || base > 14 - NATIVE_SHARDS.length) invalid();
     redis.pathname = `/${base + shard}`;
     environment.NAKH_TEST_REDIS_URL = redis.toString();
     environment.NAKH_REDIS_URL = redis.toString();

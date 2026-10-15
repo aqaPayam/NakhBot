@@ -138,3 +138,12 @@ resolver check includes every package runtime export and subpath precedence;
 never substitute stale dist files or omit a suite to recover time. Any new
 bootstrap/import failure stops the shard and requires diagnosis. A focused cold
 run proves startup only; full source-bound PostgreSQL/Redis CI proves acceptance.
+
+The native inventory is now divided among all four existing container jobs,
+including Telegram. The overall workflow still has six jobs, all capped at 20
+minutes. Reliability requires four disjoint successful source-bound receipts and
+at least 1,245 cases across the entire 153-file inventory without skips. Missing
+fourth-partition evidence cannot be replaced by an old three-partition report.
+Each cohort retains its own PostgreSQL database and Redis database; ordinary
+Redis bases must be 0-10 so four contexts stay below the reserved fixture DB 15.
+Never point the new cohort at the composed fixture's database or share old scopes.

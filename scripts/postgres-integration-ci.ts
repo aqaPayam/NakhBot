@@ -59,7 +59,7 @@ const args = process.argv.slice(2),
   selected = process.env.NAKH_NATIVE_SHARD;
 if (
   (args.length !== 0 && (args.length !== 2 || args[0] !== '--verify')) ||
-  (selected !== undefined && !/^[123]$/u.test(selected)) ||
+  (selected !== undefined && !/^[1-4]$/u.test(selected)) ||
   (args.length !== 0 && selected !== undefined)
 )
   throw new Error('Native integration mode invalid.');
@@ -121,14 +121,17 @@ async function verifyDistributed(directory: string): Promise<void> {
   if (path === '' || path.startsWith('..') || isAbsolute(path))
     throw new Error('Native receipt directory invalid.');
   const entries = await readdir(root, { withFileTypes: true });
-  if (entries.length < 3 || entries.length > 3 * source.attempt)
+  if (
+    entries.length < NATIVE_SHARDS.length ||
+    entries.length > NATIVE_SHARDS.length * source.attempt
+  )
     throw new Error('Native receipt coverage incomplete.');
   const receipts: unknown[] = [];
   for (const entry of entries) {
     if (
       !entry.isFile() ||
       entry.isSymbolicLink() ||
-      !/^postgres-integration-shard-[123]-[1-9][0-9]*\.json$/u.test(entry.name)
+      !/^postgres-integration-shard-[1-4]-[1-9][0-9]*\.json$/u.test(entry.name)
     )
       throw new Error('Native receipt file invalid.');
     const path = join(root, entry.name);
@@ -144,7 +147,7 @@ async function verifyDistributed(directory: string): Promise<void> {
     expectedFiles,
     dispatch,
     durationInventorySha256: durationHash,
-    minimumTests: 1233,
+    minimumTests: 1245,
   });
   await writeAggregate(
     verified.receipts.map((r) => r.report),

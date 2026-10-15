@@ -14,11 +14,12 @@ function fixture(attempt = 1): Readonly<{
     'packages/a.integration.test.ts',
     'apps/b.integration.test.ts',
     'packages/c.integration.test.ts',
+    'apps/d.integration.test.ts',
   ].map((p) => resolve(p));
   const dispatch = planIntegrationShards(expectedFiles, {}),
     source = { headSha: 'a'.repeat(40), runId: '123', attempt },
     durationInventorySha256 = 'c'.repeat(64);
-  const input = { source, expectedFiles, dispatch, durationInventorySha256, minimumTests: 3 };
+  const input = { source, expectedFiles, dispatch, durationInventorySha256, minimumTests: 4 };
   const receipts = NATIVE_SHARDS.map((shard) =>
     createNativeShardReceipt({
       ...input,
@@ -39,7 +40,7 @@ describe('source-bound independent native runner receipts', () => {
   it('retains only portable coverage facts and independently accounts for every current file', () => {
     const f = fixture(),
       verified = verifyNativeShardReceipts(f.receipts, f.input);
-    expect(verified.coverage).toEqual({ shards: 3, testFiles: 3, total: 3, passed: 3, skipped: 0 });
+    expect(verified.coverage).toEqual({ shards: 4, testFiles: 4, total: 4, passed: 4, skipped: 0 });
     expect(
       f.receipts.flatMap((r) => r.report.files).every((p) => /^(apps|packages)\//u.test(p)),
     ).toBe(true);
@@ -62,19 +63,21 @@ describe('source-bound independent native runner receipts', () => {
       { fileInventorySha256: 'd'.repeat(64) },
       { durationInventorySha256: 'e'.repeat(64) },
       { schemaVersion: 2 },
+      { shard: 5 },
     ]) {
-      expect(() =>
-        verifyNativeShardReceipts(
-          [{ ...f.receipts[0], ...change }, ...f.receipts.slice(1)],
-          f.input,
-        ),
-      ).toThrow('coverage');
+      for (const position of NATIVE_SHARDS.map((shard) => shard - 1)) {
+        const values = f.receipts.map((receipt, index) =>
+          index === position ? { ...receipt, ...change } : receipt,
+        );
+        expect(() => verifyNativeShardReceipts(values, f.input)).toThrow('coverage');
+      }
     }
   });
-  it('requires exactly all three current partitions and rejects overlap, omissions and misplaced files', () => {
+  it('requires exactly all four current partitions and rejects overlap, omissions and misplaced files', () => {
     const f = fixture(2);
     for (const values of [
       f.receipts.slice(0, 2),
+      f.receipts.slice(0, 3),
       [...f.receipts, f.receipts[0]],
       f.receipts.map((r, i) =>
         i === 0 ? { ...r, report: { ...r.report, files: f.receipts[1]!.report.files } } : r,
@@ -82,7 +85,7 @@ describe('source-bound independent native runner receipts', () => {
       f.receipts.map((r, i) => (i === 0 ? { ...r, report: { ...r.report, files: [] } } : r)),
     ])
       expect(() => verifyNativeShardReceipts(values, f.input)).toThrow('coverage');
-    expect(() => verifyNativeShardReceipts(f.receipts, { ...f.input, minimumTests: 4 })).toThrow(
+    expect(() => verifyNativeShardReceipts(f.receipts, { ...f.input, minimumTests: 5 })).toThrow(
       'coverage',
     );
   });
@@ -97,10 +100,12 @@ describe('source-bound independent native runner receipts', () => {
       { total: NaN },
       { passed: Infinity },
     ]) {
-      const values = f.receipts.map((r, i) =>
-        i === 0 ? { ...r, report: { ...r.report, ...change } } : r,
-      );
-      expect(() => verifyNativeShardReceipts(values, f.input)).toThrow('coverage');
+      for (const position of NATIVE_SHARDS.map((shard) => shard - 1)) {
+        const values = f.receipts.map((r, i) =>
+          i === position ? { ...r, report: { ...r.report, ...change } } : r,
+        );
+        expect(() => verifyNativeShardReceipts(values, f.input)).toThrow('coverage');
+      }
     }
   });
   it('rejects private fields and unsafe paths rather than copying them to an artifact', () => {
@@ -123,7 +128,7 @@ describe('source-bound independent native runner receipts', () => {
     const old = fixture(),
       fresh = fixture(2);
     const verified = verifyNativeShardReceipts([...old.receipts, fresh.receipts[0]!], fresh.input);
-    expect(verified.receipts.map((r) => r.source.attempt)).toEqual([2, 1, 1]);
+    expect(verified.receipts.map((r) => r.source.attempt)).toEqual([2, 1, 1, 1]);
     expect(() =>
       verifyNativeShardReceipts(
         [

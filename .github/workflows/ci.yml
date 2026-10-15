@@ -229,7 +229,7 @@ jobs:
           - app: scheduler
             nativeShard: 3
           - app: telegram-gateway
-            nativeShard: 0
+            nativeShard: 4
     services:
       postgres:
         image: postgres:17.11-alpine3.23
