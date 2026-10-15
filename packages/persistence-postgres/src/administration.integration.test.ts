@@ -46,7 +46,7 @@ describe.skipIf(databaseUrl === undefined)('M7 administration schema', () => {
       .selectFrom('administration.admin_role_permissions')
       .select(['role_code', 'permission_code'])
       .execute();
-    expect(mappings.filter((mapping) => mapping.role_code === 'super_admin')).toHaveLength(15);
+    expect(mappings.filter((mapping) => mapping.role_code === 'super_admin')).toHaveLength(16);
     expect(mappings.filter((mapping) => mapping.role_code === 'moderator')).toHaveLength(13);
     expect(
       mappings
@@ -122,7 +122,7 @@ describe.skipIf(databaseUrl === undefined)('M7 administration schema', () => {
       telegramUserId,
     });
     expect(authorized).toMatchObject({ adminUserId, actorUserId: userId, adminActive: true });
-    expect(authorized?.activePermissions).toHaveLength(15);
+    expect(authorized?.activePermissions).toHaveLength(16);
     expect(authorized?.activePermissions).toContain('ban_user');
     expect(authorized?.activePermissions).toContain('unban_user');
     expect(authorized?.activePermissions).toContain('view_reports');

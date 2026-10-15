@@ -186,3 +186,4 @@ export * from './identity/account-deletion-ephemeral.js';
 export * from './identity/account-return-approval.js';
 export * from './identity/account-return.js';
 export * from './identity/account-return-activation.js';
+export * from './identity/retention-policy.js';

@@ -408,6 +408,7 @@ describe.skipIf(url === undefined)('M8 separate native account return approval',
             '000142_m8_fresh_account_return.sql',
             '000143_m8_return_localization.sql',
             '000144_m8_fresh_entry_localization.sql',
+            '000145_m8_retention_policy.sql',
           ]);
           await verifyMigrations(target.url, resolve('migrations/verify'));
           expect(

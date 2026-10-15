@@ -245,6 +245,7 @@ export { PostgresAccountDeletionPhaseExecutor } from './account-deletion-phase-e
 export { PostgresAccountDeletionMediaStore } from './account-deletion-media-store.js';
 export * from './account-control-session-store.js';
 export * from './account-return-approval-store.js';
+export * from './retention-policy-store.js';
 export * from './account-return-store.js';
 export * from './account-return-activation-store.js';
 

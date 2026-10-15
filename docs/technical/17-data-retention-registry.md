@@ -2,6 +2,23 @@
 
 This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M8, with M7 owning moderation/evidence decisions; new migrations must update this file immediately.
 
+## Policy attestations and immutable manifests
+
+Migration 145 reuses append-only administrator and account audits. It changes no
+table/column/foreign-key inventory, original manifest or registry hash. Only super
+administrators with current native MFA can attest an explicit resource's retention
+period for an original completed deletion, or revoke it. The basis is that
+original deletion's completion time; there is no default or seeded period.
+Evidence is a digest of the separately approved policy, never its prose.
+
+Revision, command/request digest, original Root/manifest, session and transaction
+bindings are validated natively. Active policy replacement requires prior
+revocation; history survives a separately approved Return. These minimum lifecycle
+facts follow the existing audit policy and are not product credentials, unban
+authority or release receipts. No periods are approved for deployment. Release
+stays disabled and manifest update/deletion guards remain unchanged. Exact
+original-row ownership and dependency/proof preservation remain prerequisites.
+
 ## Opaque cache cutover namespaces
 
 The old global `{prefix}:action:*` namespace has no authenticated ownership index.

@@ -88,6 +88,7 @@ describe.skipIf(url === undefined)('M8 audited referenced Like source removal', 
         '000142_m8_fresh_account_return.sql',
         '000143_m8_return_localization.sql',
         '000144_m8_fresh_entry_localization.sql',
+        '000145_m8_retention_policy.sql',
       ]);
       expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
       expect(

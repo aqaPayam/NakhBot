@@ -58,6 +58,7 @@ export const M7_PERMISSIONS = [
   'review_support',
   'review_appeals',
   'approve_account_return',
+  'approve_retention_policy',
 ] as const;
 export type M7Permission = (typeof M7_PERMISSIONS)[number];
 

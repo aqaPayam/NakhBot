@@ -4,7 +4,65 @@
 
 
 
-## Current increment: native deletion health, worker telemetry and operations
+## Current increment: original-deletion retention policy attestations
+
+Accepted `5aa4116` passed all six exact-head jobs on attempt 1 of run
+`38718515594`: 1,233 native cases in 151 files without skips and three matching
+source receipts. All 27 plans passed at 20,000 scale; terminal snapshot 976.103 ms
+against the unchanged 1,500 ms limit, zero workers/spill and both required indexes.
+Support load, backup/restore, actual M7 and actual M8 collector checks passed.
+All four downloaded artifact ZIP digests match GitHub. CloudWatch/SNS acceptance
+remains external. Tracked lines: 243,099, summed across four wc totals.
+
+Migration 145 adds no table, column, foreign key or retention descriptor. It adds
+one super-administrator permission and immutable approval/revocation audits, with
+native reciprocal command proof and original Root/manifest binding. Schema 144
+Roots, phase receipts, financial closures and registry hashes must survive exactly.
+All older explicit migration expectations and the baseline upgrade matrix advance.
+
+The trusted workflow requires an explicit resource, integer period, completion-time
+basis, approval-evidence digest and expected policy revision. There is no default
+period or seeded approval. A fixed tuple digest binds every input to the command;
+PostgreSQL recomputes it. Native ownership locks serialize competing reviews.
+An active approval must be revoked before replacement; history is append-only.
+Identical retries return the recorded outcome; changed payloads cannot borrow it.
+
+Both audit and successful-command commits require reciprocal proof. Current native
+MFA, verified administrator identity, active role and credential remain mandatory
+through commit. Historical proof remains valid after session revocation. Policies
+bind the original deletion and resource, including after a separately approved
+Return, without updating that Root, its manifest or a later Account life. Only
+valid policy audits are exempted as lifecycle facts in operational verification.
+
+This increment records policy attestations only. Physical release remains disabled;
+the manifest update/delete guard is unchanged. Exact original-row ownership,
+dependency/proof preservation, current unrevoked policy and an independently
+permission-checked executor remain prerequisites. No actual retention periods have
+been approved. Synthetic one-second test periods are fixtures. Full M8 remains
+active; ordinary/product-entry review, Return operator composition and final
+load/failure/recovery/security acceptance remain open. No M9.
+
+Validation covers original-Root preservation, twenty identical retries, twenty
+competing reviews, revoke/replace/replay, denied MFA/roles/stale versions/reference
+resources/foreign revocations, forged audits, missing mandatory audit rollback,
+post-session historical validity, separately approved Return, schema-144 upgrade
+and MFA expiry at deferred commit. Native inventory rises to 1,242 cases in 152
+files; no older case is removed. The new suite's 240-second dispatch estimate is
+provisional. Full project and all six exact-head CI jobs remain required.
+
+Local validation passed all eight new native cases, including real native
+completion/Return, deferred MFA expiry with an execution witness and schema-144
+upgrade preservation. The complete migration matrix plus administrator schema
+suite passed 77 cases across two files, for 85 distinct local native cases.
+Three focused digest/boundary unit cases passed. The initial native setup failure
+was an exact permission-count verifier that still expected the prior catalog;
+that verifier and authorization assertions now require the added permission.
+A synchronous-input rejection assertion was corrected. Focused persistence types
+passed. The complete `pnpm check` then passed formatting, lint, all workspace
+types, 1,152 unit tests in 239 files and all builds. All six exact-head CI jobs
+remain required before advancing.
+
+## Historical increment: native deletion health, worker telemetry and operations
 
 Accepted `6cbf1a8` passed all six exact-head jobs on attempt 1 of run
 `38701132953`: all 1,228 native cases in 150 files, no skips, including the new

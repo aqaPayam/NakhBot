@@ -7,6 +7,7 @@
     "overallJobPassed": true
   },
   "files": {
+    "packages/persistence-postgres/src/retention-policy-store.integration.test.ts": 240000,
     "packages/persistence-postgres/src/account-deletion-health-store.integration.test.ts": 90000,
     "apps/telegram-gateway/src/account-fresh-entry-ingress.integration.test.ts": 180000,
     "apps/telegram-gateway/src/account-return-ingress.integration.test.ts": 150000,
