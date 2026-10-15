@@ -15,6 +15,7 @@ import {
   TelegramBotApiMenuClient,
   type TelegramAccountDeletionNotice,
 } from '@nakh/telegram';
+import { createTelegramAccountReturnIngress } from './account-return-ingress.js';
 export interface TelegramAccountDeletionIngressPort {
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
 }
@@ -68,7 +69,7 @@ export function createTelegramAccountDeletionIngress(
     activeKeyId: input.config.deletion.confirmationKeyId,
     keys: new Map([[input.config.deletion.confirmationKeyId, key]]),
   };
-  return new TelegramAccountDeletionIngress(
+  const deletion = new TelegramAccountDeletionIngress(
     new TelegramAccountDeletionAdapter(
       match[1]!,
       users,
@@ -130,4 +131,9 @@ export function createTelegramAccountDeletionIngress(
       await client.sendMenu(notice.telegramUserId, menu);
     },
   );
+  const returning = createTelegramAccountReturnIngress(input);
+  return {
+    handle: async (update) =>
+      (await returning.handle(update)) === 'notice' ? 'notice' : deletion.handle(update),
+  };
 }

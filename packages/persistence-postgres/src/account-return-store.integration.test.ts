@@ -470,6 +470,7 @@ describe.skipIf(url === undefined)('M8 native approved fresh guest Return', () =
         ).rows;
       expect((await runMigrations(target.url, resolve('migrations'))).applied).toEqual([
         '000142_m8_fresh_account_return.sql',
+        '000143_m8_return_localization.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(

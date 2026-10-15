@@ -184,6 +184,20 @@ export class PostgresAccountControlSessionStore implements AccountControlSession
       ? current
       : undefined;
   }
+  public async findForReturn(
+    userId: string,
+    grantId: string,
+  ): Promise<AccountControlGrant | undefined> {
+    if (!UUID.test(userId) || !UUID.test(grantId)) return undefined;
+    const row = (
+      await sql<{ epoch: number | null }>`SELECT identity.account_control_epoch(id) AS epoch
+      FROM platform.audit_logs WHERE id=${grantId}::uuid AND actor_user_id=${userId}::uuid`.execute(
+        this.database,
+      )
+    ).rows[0];
+    if (row?.epoch === null || row?.epoch === undefined) return undefined;
+    return this.currentForReturn({ userId, productEpoch: row.epoch }, grantId);
+  }
   public async currentForReturn(
     life: AccountControlLife,
     grantId: string,

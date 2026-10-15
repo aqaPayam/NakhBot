@@ -406,6 +406,7 @@ describe.skipIf(url === undefined)('M8 separate native account return approval',
           expect((await runMigrations(target.url, resolve('migrations'))).applied).toEqual([
             '000141_m8_return_approval.sql',
             '000142_m8_fresh_account_return.sql',
+            '000143_m8_return_localization.sql',
           ]);
           await verifyMigrations(target.url, resolve('migrations/verify'));
           expect(

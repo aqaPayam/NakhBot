@@ -4,7 +4,76 @@
 
 
 
-## Current increment: original-grant own Return HTTP composition
+## Current increment: authenticated Telegram Return and catalog presentation
+
+Accepted `2798a72` passed all six exact-head jobs on attempt 1 of run
+`38661990188`: 1,211 native cases in 148 files, no failures/skips, all three
+source receipts bound to the same SHA/run. All 27 plans passed at 20,000 scale;
+terminal integrity was 1,217.686 ms against 1,500 ms, zero workers, both required
+administrator proof indexes, one hash batch and no spill. Support load,
+backup/restore and actual collector/privacy rehearsal passed. All artifact ZIP
+digests match GitHub. No gate, workload, index or time limit was weakened.
+
+The limited private `/return` path prepares short authenticated callback buttons.
+The opaque reference names one random native grant, with a 128-bit HMAC binding
+bot, actual sender's stable User, action and expected version. Canonical encoding,
+integer bounds, private human sender/chat equality and the configured bot's callback
+message are required. Callback data is at most 59 bytes; no User, product epoch,
+Root, approval, retained data, product credential or provider key is exposed.
+The random grant lookup reference alone is not bearer authority.
+
+Native grant facts supply the original epoch. Callback retries do not issue a new
+grant or re-resolve a replacement product life: they execute the same permanently
+idempotent Return command with the original version. The primary prompt's origin
+ID deliberately omits epoch, so replaying an old text update cannot mint a new-life
+grant. The native command still requires the separately approved completed Root,
+its exact original owner/version and current unrevoked/unexpired grant. Ordinary
+control/product authority remains retired; Return neither restores old data nor
+resets the lifetime GuestPreviewCounter. "Not now" only dismisses presentation
+and sends no Return command; it cannot undo a committed Return.
+
+The production webhook controller authenticates Telegram before the composed
+Return/deletion ingress. Delivery renders catalog intents only, checks the actual
+sender's native original-grant/Return proof before sending, and checks again after
+callback acknowledgment. A later tombstone, expiry, revocation or changed owner
+blocks delivery. Lost provider acknowledgment can be retried against the same
+native receipt. Return's shared per-User Redis admission budget does not reset
+when the product epoch changes. Private provider errors never escape the boundary.
+
+`NAKH_RETURN_TELEGRAM_ENABLED=false` keeps this path off by default. It requires
+configured limited deletion Telegram/worker readiness. Migration 143 adds seven
+English catalog entries (the current active default), without enabling another
+locale or changing a schema/retention descriptor. All older populated-upgrade
+baselines remain; schema 142 is additionally covered, and exact applied lists now
+include migration 143. Coverage rises to 1,217 native cases in 149 files; the new
+native file's dispatch estimate is provisional. No external provider/MFA/drain,
+staging/PITR/DR or operator acceptance is claimed by synthetic fixtures.
+
+Focused verification passed 29 unit cases in four files, lint and gateway type
+checks. Native Telegram verification passed four cases, including the completed
+schema-142 approved Root upgrade, twenty simultaneous confirmations, original-grant
+next-life replay, foreign/tampered callbacks, independent approval denial, lost
+provider response recovery and an actual next-life tombstone during callback
+acknowledgment. That later deletion is an admission/tombstone observation only;
+no second provider cleanup is claimed. All 73 populated-migration cases passed,
+including the newly added schema-142 baseline. The real Redis authenticated webhook
+and persistent admission-budget case is unavailable locally and remains mandatory
+CI coverage; no synthetic Redis success or external send/ack is claimed. Initial
+style/type checks identified type-import syntax and the missing dedicated rate-scope
+enum; both were corrected before these passing checks. Full project and exact-head
+CI verification remain required.
+
+The full local project check passed formatting, lint, all workspace types,
+all 1,134 unit tests in 235 files and all builds. Exact-head CI must still pass
+all six jobs, including the real Redis webhook case with no native skips.
+
+Fresh primary activation/product ingress, remaining Return administration
+composition, controlled retention release (OFF until actual periods are approved),
+M8 telemetry/runbooks and full interruption/load/failure/recovery acceptance remain
+required. Full project checks and all six exact-head jobs are required before
+acceptance. No M9.
+
+## Historical increment: original-grant own Return HTTP composition
 
 Accepted `cde4e3a` passed all six exact-head jobs on attempt 1 of run
 `38657341922`: 1,208 native cases in 147 files, no failures/skips; all 27 plans

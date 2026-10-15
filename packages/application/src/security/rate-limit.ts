@@ -5,6 +5,7 @@ export const RATE_LIMIT_SCOPES = [
   'telegram_liked_by',
   'telegram_support_appeal',
   'telegram_account_control',
+  'telegram_account_return',
   'telegram_report',
   'signup_write',
   'profile_write',
