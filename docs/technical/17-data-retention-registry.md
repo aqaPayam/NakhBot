@@ -19,6 +19,21 @@ authority or release receipts. No periods are approved for deployment. Release
 stays disabled and manifest update/deletion guards remain unchanged. Exact
 original-row ownership and dependency/proof preservation remain prerequisites.
 
+## Incoming foreign-key review before release
+
+One original captured source can be reviewed under the same transaction as its
+current policy. Only an elapsed approved period proceeds to an exact PK row lock
+and complete original hash check. The reviewed current catalog supplies incoming
+FK column pairs, including composite constraints. Any referencing child resource
+is a blocker, independent of its participant/owner or FK delete action. No cascade,
+reference detachment, content copying or retained-row mutation is performed.
+
+The parent lock also fences native FK key-share admission for that transaction.
+A returned observation is not a lease or release permission. Missing FKs do not
+clear logical/shared custody, provider, legal or safety obligations; all remain
+part of the actual release protocol. Release stays disabled and no retention
+period is approved or seeded by these controls.
+
 ## Original retained-source fingerprints
 
 Migration 146 adds no inventory rows or approved periods. During the owning

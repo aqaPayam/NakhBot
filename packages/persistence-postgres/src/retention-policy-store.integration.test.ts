@@ -23,6 +23,10 @@ import {
   PostgresRetentionPolicyWorkflow,
 } from './retention-policy-store.js';
 import { createPostgresAdminSessions } from './admin-session-store.js';
+import { PostgresRetainedSourceForeignKeyStore } from './retained-source-foreign-key-store.js';
+import { PostgresSupportStore } from './support-store.js';
+import { PostgresAccountDeletionSupportStore } from './account-deletion-support-store.js';
+import type { AccountDeletionLease, UserSupportWrite } from '@nakh/application';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)('M8 native retention policy attestations', () => {
@@ -49,8 +53,10 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
   });
   async function completed(
     db: NakhDatabase = database,
+    beforeDeletion?: (userId: string) => Promise<void>,
+    beforeProductCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
   ): Promise<{ userId: string; recordId: string; version: number }> {
-    const item = await createFinalDeletionFixture(db);
+    const item = await createFinalDeletionFixture(db, beforeDeletion, beforeProductCheckpoint);
     const store = new PostgresAccountDeletionEphemeralStore(db, 'm8-native-final', 'a'.repeat(64));
     expect(await store.finish(item.lease)).toEqual({ completed: false });
     for (let n = 0; n < 6; n++) {
@@ -139,6 +145,228 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
       },
     };
   }
+  async function retainedSupport(): Promise<{
+    root: { userId: string; recordId: string; version: number };
+    write: UserSupportWrite;
+  }> {
+    let write: UserSupportWrite | undefined;
+    const root = await completed(
+      database,
+      async (userId) => {
+        const commandId = randomUUID();
+        write = {
+          userId,
+          supportThreadId: randomUUID(),
+          messageId: randomUUID(),
+          eventId: randomUUID(),
+          commandId,
+          requestId: randomUUID(),
+          idempotencyKey: `source-review:${commandId}`,
+          requestDigest: 'e'.repeat(64),
+          normalizedText: 'private original support body',
+        };
+        await new PostgresSupportStore(database).open(write);
+      },
+      async (lease) => {
+        while ((await new PostgresAccountDeletionSupportStore(database).closeNext(lease)).hasMore) {
+          /* bounded */
+        }
+      },
+    );
+    if (write === undefined) throw new Error('support fixture missing');
+    return { root, write };
+  }
+  async function sourceInput(
+    root: { recordId: string; version: number },
+    resource: string,
+  ): Promise<{
+    deletionRecordId: string;
+    sourceAuditId: string;
+    expectedRootVersion: number;
+  }> {
+    const row = (
+      await sql<{
+        id: string;
+      }>`SELECT id FROM platform.audit_logs WHERE subject_id=${root.recordId}::uuid
+      AND event_type='account.retained-source-recorded.v1' AND metadata->>'resource'=${resource} ORDER BY id LIMIT 1`.execute(
+        database,
+      )
+    ).rows[0];
+    if (row === undefined) throw new Error('captured source missing');
+    return {
+      deletionRecordId: root.recordId,
+      sourceAuditId: row.id,
+      expectedRootVersion: root.version,
+    };
+  }
+  async function approveSource(
+    root: { recordId: string; version: number },
+    resource: string,
+  ): Promise<RetentionPolicyChange> {
+    const change: RetentionPolicyChange = {
+      action: 'approve',
+      policy: {
+        resource,
+        retentionSeconds: 1,
+        basis: 'deletion_completed_at',
+        evidenceHash: 'd'.repeat(64),
+        expectedPolicyVersion: 0,
+      },
+    };
+    const id = await admin();
+    expect(
+      (
+        await new PostgresRetentionPolicyWorkflow(database).record(
+          attempt(id, root, change),
+          change,
+        )
+      ).result,
+    ).toBe('succeeded');
+    await sql`SELECT pg_sleep(greatest(0,extract(epoch FROM completed_at+interval '1 second'-clock_timestamp()))+0.01)
+      FROM identity.account_deletion_records WHERE id=${root.recordId}::uuid`.execute(database);
+    return change;
+  }
+  it('checks exact original support references including the three-column lifecycle FK without releasing anything', async () => {
+    const { root } = await retainedSupport(),
+      resource = 'support.support_threads';
+    const input = await sourceInput(root, resource),
+      store = new PostgresRetainedSourceForeignKeyStore(database);
+    expect(await store.review(input)).toMatchObject({
+      period: { status: 'pending_policy' },
+      sourceStatus: 'not_checked',
+      foreignKeysChecked: false,
+      blockers: [],
+      releaseEnabled: false,
+    });
+    await approveSource(root, resource);
+    expect(await store.review(input)).toMatchObject({
+      period: { status: 'period_elapsed' },
+      sourceStatus: 'matches',
+      foreignKeysChecked: true,
+      releaseEnabled: false,
+      blockers: [
+        {
+          resource: 'support.deletion_thread_closures',
+          classification: 'lifecycle',
+          action: 'retain_lifecycle_proof',
+        },
+        {
+          resource: 'support.support_messages',
+          classification: 'retained_compliance',
+          action: 'approved_policy_release',
+        },
+      ],
+    });
+    const other = await completed();
+    await expect(store.review({ ...input, deletionRecordId: other.recordId })).rejects.toThrow();
+    await expect(
+      store.review({ ...input, expectedRootVersion: root.version + 1 }),
+    ).rejects.toThrow();
+    await expect(store.review({ ...input, sourceAuditId: 'raw-source-id' })).rejects.toThrow();
+  });
+  it('repeats leaf FK review without mutation or release authority and freezes input before waiting', async () => {
+    const { root } = await retainedSupport(),
+      resource = 'support.support_messages';
+    await approveSource(root, resource);
+    const input = await sourceInput(root, resource),
+      original = { ...input },
+      store = new PostgresRetainedSourceForeignKeyStore(database);
+    const snapshot = async (): Promise<unknown> =>
+      (
+        await sql`SELECT
+      (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM support.support_threads t WHERE user_id=${root.userId}::uuid) AS threads,
+      (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.id) FROM support.support_messages m JOIN support.support_threads t ON t.id=m.support_thread_id WHERE t.user_id=${root.userId}::uuid) AS messages,
+      (SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM platform.audit_logs a WHERE subject_id=${root.recordId}::uuid) AS audits,
+      (SELECT jsonb_agg(to_jsonb(c)) FROM billing.credit_epoch_closures c WHERE deletion_record_id=${root.recordId}::uuid) AS money`.execute(
+          database,
+        )
+      ).rows;
+    const before = await snapshot();
+    const reading = store.review(input);
+    input.deletionRecordId = randomUUID();
+    input.sourceAuditId = randomUUID();
+    input.expectedRootVersion++;
+    expect(await reading).toMatchObject({
+      sourceAuditId: original.sourceAuditId,
+      sourceStatus: 'matches',
+      foreignKeysChecked: true,
+      blockers: [],
+      releaseEnabled: false,
+    });
+    const views = await Promise.all(Array.from({ length: 20 }, () => store.review(original)));
+    expect(
+      views.every(
+        (view) =>
+          view.sourceStatus === 'matches' &&
+          view.foreignKeysChecked &&
+          view.blockers.length === 0 &&
+          view.releaseEnabled === false,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(views)).not.toContain('private original support body');
+    expect(await snapshot()).toEqual(before);
+  });
+  it('detects a changed original source and rejects schema drift before reporting dependencies cleared', async () => {
+    const { root, write } = await retainedSupport(),
+      resource = 'support.support_messages';
+    await approveSource(root, resource);
+    const input = await sourceInput(root, resource),
+      store = new PostgresRetainedSourceForeignKeyStore(database);
+    await database.transaction().execute(async (tx) => {
+      await sql`SET LOCAL session_replication_role=replica`.execute(tx);
+      await sql`UPDATE support.support_messages SET message_text='changed source body' WHERE id=${write.messageId}::uuid`.execute(
+        tx,
+      );
+    });
+    try {
+      expect(await store.review(input)).toMatchObject({
+        sourceStatus: 'changed',
+        foreignKeysChecked: false,
+        blockers: [],
+        releaseEnabled: false,
+      });
+    } finally {
+      await database.transaction().execute(async (tx) => {
+        await sql`SET LOCAL session_replication_role=replica`.execute(tx);
+        await sql`UPDATE support.support_messages SET message_text=${write.normalizedText} WHERE id=${write.messageId}::uuid`.execute(
+          tx,
+        );
+      });
+    }
+    await sql`CREATE TABLE public.unclassified_release_dependency(value text)`.execute(database);
+    try {
+      await expect(store.review(input)).rejects.toThrow();
+    } finally {
+      await sql`DROP TABLE public.unclassified_release_dependency`.execute(database);
+    }
+    expect((await store.review(input)).sourceStatus).toBe('matches');
+  });
+  it('reuses the policy transaction and keeps the original parent locked against FK admission', async () => {
+    const { root, write } = await retainedSupport(),
+      resource = 'support.support_threads';
+    await approveSource(root, resource);
+    const input = await sourceInput(root, resource);
+    await database.transaction().execute(async (tx) => {
+      const result = await new PostgresRetainedSourceForeignKeyStore(tx).review(input);
+      expect(result.sourceStatus).toBe('matches');
+      await expect(
+        database.transaction().execute(async (other) => {
+          await sql`SELECT id FROM support.support_threads WHERE id=${write.supportThreadId}::uuid FOR KEY SHARE NOWAIT`.execute(
+            other,
+          );
+        }),
+      ).rejects.toMatchObject({ code: '55P03' });
+      expect(
+        (await sql<{ path: string }>`SELECT current_setting('search_path') AS path`.execute(tx))
+          .rows[0]!.path,
+      ).not.toBe('pg_catalog');
+    });
+    await database.transaction().execute(async (tx) => {
+      await sql`SELECT id FROM support.support_threads WHERE id=${write.supportThreadId}::uuid FOR KEY SHARE NOWAIT`.execute(
+        tx,
+      );
+    });
+  });
   async function policies(
     rootId: string,
   ): Promise<readonly { id: string; metadata: Record<string, unknown>; valid: boolean }[]> {

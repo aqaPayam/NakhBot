@@ -4,7 +4,48 @@
 
 
 
-## Current repair: complete schema-146 upgrade matrix
+## Current increment: transactional original-source foreign-key review
+
+Accepted `3e7a90e` passed all six exact-head jobs on attempt 1 of run
+`38771597747`: 1,252 native cases in 153 files, zero skips, four matching source
+receipts and all four artifact digests verified. Both actual collector rehearsals,
+support load and backup/restore passed. All 27 plans passed at 20,000 scale;
+terminal sampling took 1,440.569 ms under the unchanged 1,500 ms limit, with both
+required administrator indexes and zero workers/spill. Tracked lines were 246,893.
+This verifies the original-source membership increment and migration-count repair.
+The prior failed head remains preserved and unaccepted.
+
+The next release precondition reviews one captured original source. It binds the
+explicit original Root, source audit and Root version, then checks the manifest
+and current policy under the same User/Account/Root transaction. Policy review
+can now reuse a native transaction instead of opening a second transaction that
+would wait on its own locks. Pending/revoked/unelapsed periods do not claim source
+or FK verification. Inputs are captured before waits; no client SQL or row key is
+accepted.
+
+For an elapsed period, lock the exact captured native primary-key tuple, then
+verify the complete source hash in the native UTC context. A changed/missing row
+cannot become a different source. The parent FOR UPDATE lock remains held for
+the transaction and blocks FK key-share admission. The complete current catalog
+must match the reviewed inventory. Pair each incoming FK's native columns in
+ordinal order, including composite references; check every child scope, including
+other participants, without cascading, detaching references or modifying rows.
+Return only code-owned resource/classification/action blockers, without contents,
+raw primary keys, constraint SQL or private cardinalities. Restore search_path.
+
+No incoming FKs is only a foreign-key observation. Logical references, shared
+custody, provider objects, legal/safety obligations and the actual mutation-time
+release protocol remain separate requirements. Every result keeps release
+disabled and grants no lease, product credential or permission to delete.
+No policy period, migration or registry change is introduced. Existing immutable
+manifests, financial/safety proof and all old policy tests remain intact.
+The native floor increases to 1,256 cases in the same 153 files. Four focused
+native cases and persistence types passed: real support data with its three-column
+closure FK, twenty unchanged leaf reviews/input capture, changed-row/schema drift
+and a real competing key-share lock. Full policy suite, project check and six
+changed-head jobs remain required. Full M8 stays active; no M9.
+
+## Historical repair: complete schema-146 upgrade matrix
 
 Run `38768137375` for `17d9f26` passed quality and API/Telegram/scheduler jobs,
 but the worker native matrix failed and reliability was skipped. All 74 failed

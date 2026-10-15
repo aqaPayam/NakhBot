@@ -12,12 +12,17 @@ import { PostgresAccountDeletionWorkStore } from '../account-deletion-work-store
 export async function createFinalDeletionFixture(
   database: NakhDatabase,
   beforeDeletion?: (userId: string) => Promise<void>,
+  beforeProductCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
 ): Promise<{
   userId: string;
   recordId: string;
   lease: AccountDeletionLease;
 }> {
-  const item = await createEphemeralDeletionFixture(database, beforeDeletion);
+  const item = await createEphemeralDeletionFixture(
+    database,
+    beforeDeletion,
+    beforeProductCheckpoint,
+  );
   await new PostgresAccountDeletionSessionStore(database).revokeNext(item.lease);
   const ephemeral = new PostgresAccountDeletionEphemeralStore(
     database,

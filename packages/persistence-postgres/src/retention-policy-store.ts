@@ -82,7 +82,7 @@ export class PostgresRetentionPeriodReviewStore {
       expectedRootVersion > 2147483647
     )
       throw new ApplicationError('invalid_request', 'error.deletion.unavailable', 400);
-    return this.database.transaction().execute(async (tx) => {
+    const review = async (tx: NakhDatabase): Promise<RetentionPeriodReview> => {
       const unavailable = (): never => {
         throw new ApplicationError('conflict', 'error.deletion.unavailable', 409);
       };
@@ -162,6 +162,9 @@ export class PostgresRetentionPeriodReviewStore {
         evaluatedAt: evaluatedAt.toISOString(),
         releaseEnabled: false,
       });
-    });
+    };
+    return this.database.isTransaction
+      ? review(this.database)
+      : this.database.transaction().execute(review);
   }
 }
