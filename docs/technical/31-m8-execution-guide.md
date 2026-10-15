@@ -4,7 +4,52 @@
 
 
 
-## Current repair: cold source native execution within unchanged CI caps
+## Current repair: confirmed public-registry throttling backoff
+
+Exact-head run `38738665048` for `1f325d2` passed the quality project's checks but
+failed the M7 collector rehearsal before collector startup. The preserved fixed
+diagnostic now identifies `collector_registry_transient`, `registry_rate_limited`,
+exit 1 and the daemon-response indicator. Unlike the earlier lost unknown response,
+this is direct evidence of registry throttling after the existing quick retries.
+No metric payload or raw Docker diagnostic was printed. Native source shards
+started without bootstrap/import failure and remain separately gated.
+
+Keep exactly three image-pull attempts. Only a recognized rate-limit failure now
+waits 15 then 30 seconds, with independent additive jitter of 0-4,999 ms per wait;
+requested waits total less than 55 seconds. The spread avoids synchronized public
+runner retries. Other recognized transient failures keep 1/2-second waits.
+Rate-limit evidence takes precedence over generic server-status text; denial,
+missing image, TLS/integrity/credential/storage failure and unknown diagnostics
+still stop under their existing rules. Invalid retry randomness fails closed.
+
+No image/version, Docker timeout, startup/SDK/conversion/privacy assertion or
+20-minute job cap changes. Only pre-export image pulls are retried; actual
+collector startup, metric conversion and privacy/freshness checks execute once.
+Persistent throttling still fails after the third pull. Both M7 and M8 use the
+same helper; no alternate image, skip, cached evidence or unchanged rerun is used.
+
+All 51 focused startup cases passed, including confirmed throttle recovery,
+maximum jitter/total wait, invalid-sampler fail-closed/original-error preservation,
+persistent-throttle exhaustion, security precedence,
+unknown fail-closed diagnostics and existing 1/2-second transient backoff.
+The rerun of `pnpm check` passed formatting, lint, all workspace types, 1,176
+unit cases in 242 files and every build. The initial lint finding on the invalid
+sampler branch was fixed by preserving the original pull error; its new case
+proves immediate failure without waiting or hiding that error.
+
+The prior failed head's native jobs and reliability job subsequently passed:
+1,245 cases/153 files, zero skips, three SHA/run/attempt-bound source receipts,
+all 27 plans at unchanged scale/limits, terminal snapshot 1,456.364 ms with both
+required administrator indexes and no workers/spill, plus backup/restore.
+Both downloaded native/performance ZIP digests match GitHub. Its final outcome is
+five successes and the one confirmed image-pull throttle failure; partial evidence
+is explicitly unaccepted and does not stand in for changed-head collector checks.
+
+Docker is unavailable locally; actual pull/conversion success must come from
+changed-head CI. Full project and all six exact-head successes remain required.
+Retained-data release stays disabled; full M8 remains active and no M9 is started.
+
+## Historical repair: cold source native execution within unchanged CI caps
 
 Feature `2aa4ce1` passed `pnpm check` and both local three-case native runs, but
 exact-head run `38733318635` did not pass. GitHub annotations confirm scheduler

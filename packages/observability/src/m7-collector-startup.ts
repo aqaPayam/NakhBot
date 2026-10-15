@@ -37,9 +37,9 @@ function startupFailureKind(diagnostic: string): StartupFailureKind {
     return 'image_integrity_failed';
   if (/error (?:getting|saving|storing) credentials|credentials store.*error/iu.test(diagnostic))
     return 'runtime_credentials_failed';
-  if (/\b(?:500|502|503|504)\b/iu.test(diagnostic)) return 'registry_server_error';
   if (/\b429\b|too\s*many\s*requests|\brate exceeded\b/iu.test(diagnostic))
     return 'registry_rate_limited';
+  if (/\b(?:500|502|503|504)\b/iu.test(diagnostic)) return 'registry_server_error';
   if (/no such host|server misbehaving|temporary failure in name resolution/iu.test(diagnostic))
     return 'registry_dns_unavailable';
   if (
@@ -149,6 +149,7 @@ function startupIndicators(failure: Readonly<Record<string, unknown>>): readonly
 export async function pullCollectorImage(
   pull: () => Promise<unknown>,
   wait: (milliseconds: number) => Promise<unknown>,
+  random: () => number = Math.random,
 ): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -156,7 +157,16 @@ export async function pullCollectorImage(
       return;
     } catch (error) {
       if (attempt === 2 || !classifyCollectorStartupFailure(error).retryable) throw error;
-      await wait(1000 * 2 ** attempt);
+      if (collectorStartupDiagnostic(error).failureKind === 'registry_rate_limited') {
+        // Shared public-registry quotas need time to refill. Add a bounded
+        // spread so simultaneous runners do not all retry together. Still
+        // exactly three pulls; startup and conversion assertions run once.
+        const sample = random();
+        if (!Number.isFinite(sample) || sample < 0 || sample >= 1) throw error;
+        await wait(15000 * 2 ** attempt + Math.floor(sample * 5000));
+      } else {
+        await wait(1000 * 2 ** attempt);
+      }
     }
   }
 }

@@ -54,7 +54,11 @@ Public-image startup failures are distinct from metric conversion failures. The
 shared M7/M8 helper reports only fixed classifications, process exit metadata and
 at most eight finite lexical indicators. Unknown, authentication, integrity,
 credential-helper, TLS, missing-image and storage failures stop; only recognized
-transient registry/DNS/transport failures get three attempts with 1/2-second waits.
+transient registry/DNS/transport failures get at most three attempts. Confirmed
+rate limits wait 15/30 seconds plus 0-4,999 ms additive jitter per wait (less than
+55 seconds total waiting); other recognized transients retain 1/2-second waits.
+Persistent throttling still fails on the third pull. Only image pulls are retried;
+startup, SDK conversion and privacy assertions execute once.
 Preserve the exact failed run. Metadata availability from a later registry probe
 does not establish the original cause or prove an actual pull. Never publish raw
 Docker output, retry an unchanged failed head as acceptance, bypass conversion,

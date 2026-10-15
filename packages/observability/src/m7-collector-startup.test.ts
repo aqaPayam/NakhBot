@@ -6,6 +6,68 @@ import {
 } from './m7-collector-startup.js';
 
 describe('privacy-safe bounded collector image startup', () => {
+  it('preserves the original throttle and stops immediately when a retry sampler is invalid', async () => {
+    for (const sample of [-1, 1, NaN, Infinity]) {
+      const failure = Object.assign(new Error('fixture'), { stderr: '429 Too Many Requests' }),
+        waits: number[] = [];
+      let attempts = 0;
+      await expect(
+        pullCollectorImage(
+          () => {
+            attempts++;
+            return Promise.reject(failure);
+          },
+          (ms) => {
+            waits.push(ms);
+            return Promise.resolve();
+          },
+          () => sample,
+        ),
+      ).rejects.toBe(failure);
+      expect(attempts).toBe(1);
+      expect(waits).toEqual([]);
+    }
+  });
+  it('gives a confirmed registry throttle time to refill while retaining exactly three attempts', async () => {
+    let attempts = 0;
+    const waits: number[] = [];
+    await pullCollectorImage(
+      () =>
+        ++attempts < 3
+          ? Promise.reject(
+              Object.assign(new Error('fixture'), { stderr: 'toomanyrequests: Rate exceeded' }),
+            )
+          : Promise.resolve(),
+      (ms) => {
+        waits.push(ms);
+        return Promise.resolve();
+      },
+      () => 0,
+    );
+    expect(attempts).toBe(3);
+    expect(waits).toEqual([15000, 30000]);
+  });
+  it('bounds throttle jitter and still fails after three persistent throttles without retrying conversion', async () => {
+    const failure = Object.assign(new Error('fixture'), { stderr: '429 toomanyrequests; 503' }),
+      waits: number[] = [];
+    let attempts = 0;
+    await expect(
+      pullCollectorImage(
+        () => {
+          attempts++;
+          return Promise.reject(failure);
+        },
+        (ms) => {
+          waits.push(ms);
+          return Promise.resolve();
+        },
+        () => 0.9999,
+      ),
+    ).rejects.toBe(failure);
+    expect(attempts).toBe(3);
+    expect(waits).toEqual([19999, 34999]);
+    expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeLessThan(55000);
+  });
   it.each([
     ['toomanyrequests: Rate exceeded', 'collector_registry_transient', true],
     ['Rate exceeded', 'collector_registry_transient', true],
