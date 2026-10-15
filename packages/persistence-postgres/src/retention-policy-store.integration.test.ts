@@ -452,6 +452,18 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
       id = await admin(),
       workflow = new PostgresRetentionPolicyWorkflow(database);
     expect((await workflow.record(attempt(id, root), approval())).result).toBe('succeeded');
+    const sourceProofs = async (): Promise<unknown> =>
+      (
+        await sql`SELECT a.id,a.metadata,identity.retained_source_proof_valid(a,false) AS valid,
+      identity.retained_source_matches(a.subject_id,a.metadata->>'resource',a.metadata->>'rowKeyHash',a.metadata->>'rowHash') AS matches
+      FROM platform.audit_logs a WHERE a.subject_id=${root.recordId}::uuid AND a.event_type='account.retained-source-recorded.v1' ORDER BY a.id`.execute(
+          database,
+        )
+      ).rows;
+    const originalSources = await sourceProofs();
+    expect(originalSources).toEqual(
+      expect.arrayContaining([expect.objectContaining({ valid: true, matches: true })]),
+    );
     const { approveAccountReturnFixture } = await import('./testing/account-return-fixture.js');
     await approveAccountReturnFixture(database, root);
     const commandId = randomUUID();
@@ -470,6 +482,12 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
         })
       ).returned,
     ).toBe(true);
+    expect(await sourceProofs()).toEqual(originalSources);
+    await expect(
+      sql`SELECT identity.record_retained_source_batch(${root.recordId}::uuid,${root.userId}::uuid,${randomUUID()}::uuid,1)`.execute(
+        database,
+      ),
+    ).rejects.toThrow();
     const before = (
       await sql`SELECT to_jsonb(a) AS account FROM identity.accounts a WHERE user_id=${root.userId}::uuid`.execute(
         database,
@@ -530,9 +548,22 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
       const before = await snapshot();
       expect((await runMigrations(target.url, resolve('migrations'))).applied).toEqual([
         '000145_m8_retention_policy.sql',
+        '000146_m8_retained_source_membership.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(await snapshot()).toEqual(before);
+      expect(
+        (
+          await sql`SELECT id FROM platform.audit_logs WHERE subject_id=${root.recordId}::uuid AND event_type='account.retained-source-recorded.v1'`.execute(
+            legacy,
+          )
+        ).rows,
+      ).toHaveLength(0);
+      await expect(
+        sql`SELECT identity.record_retained_source_batch(${root.recordId}::uuid,${root.userId}::uuid,${randomUUID()}::uuid,1)`.execute(
+          legacy,
+        ),
+      ).rejects.toThrow();
       expect(
         (
           await sql`SELECT identity.retention_policy_eligible(${root.recordId}::uuid,r.id) AS eligible FROM identity.data_retention_records r

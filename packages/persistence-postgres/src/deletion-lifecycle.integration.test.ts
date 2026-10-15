@@ -262,6 +262,7 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
             '000143_m8_return_localization.sql',
             '000144_m8_fresh_entry_localization.sql',
             '000145_m8_retention_policy.sql',
+            '000146_m8_retained_source_membership.sql',
           ]);
           expect(await original(item.recordId, legacy)).toEqual({ ...before, product_epoch: 0 });
           expect(

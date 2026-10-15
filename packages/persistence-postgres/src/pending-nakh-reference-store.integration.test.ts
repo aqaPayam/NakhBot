@@ -192,6 +192,7 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
       '000143_m8_return_localization.sql',
       '000144_m8_fresh_entry_localization.sql',
       '000145_m8_retention_policy.sql',
+      '000146_m8_retained_source_membership.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);

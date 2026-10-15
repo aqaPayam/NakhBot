@@ -811,6 +811,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000143_m8_return_localization.sql',
         '000144_m8_fresh_entry_localization.sql',
         '000145_m8_retention_policy.sql',
+        '000146_m8_retained_source_membership.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -920,7 +921,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000115_m8_terminal_pending_archival.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(145);
+      expect(replay.existing).toHaveLength(146);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

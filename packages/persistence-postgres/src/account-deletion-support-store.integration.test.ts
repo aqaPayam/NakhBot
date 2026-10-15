@@ -513,6 +513,7 @@ describe.skipIf(url === undefined)(
                   '000143_m8_return_localization.sql',
                   '000144_m8_fresh_entry_localization.sql',
                   '000145_m8_retention_policy.sql',
+                  '000146_m8_retained_source_membership.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -558,6 +559,7 @@ describe.skipIf(url === undefined)(
                   '000143_m8_return_localization.sql',
                   '000144_m8_fresh_entry_localization.sql',
                   '000145_m8_retention_policy.sql',
+                  '000146_m8_retained_source_membership.sql',
                 ],
           );
           expect(

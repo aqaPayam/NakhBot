@@ -19,6 +19,22 @@ authority or release receipts. No periods are approved for deployment. Release
 stays disabled and manifest update/deletion guards remain unchanged. Exact
 original-row ownership and dependency/proof preservation remain prerequisites.
 
+## Original retained-source fingerprints
+
+Migration 146 adds no inventory rows or approved periods. During the owning
+manifest phase, the worker captures at most ten exact source memberships per
+transaction for the 34 approved-policy-release resources. Append-only account
+audits retain only original manifest/registry identity, primary-key and complete
+row hashes, and exact native lease/transaction proof. Raw keys and contents are
+not copied. The checkpoint waits for uncaptured sources, and both insertion and
+deferred commit verify the source and current native fence.
+
+A changed row fails its original fingerprint; history is never refreshed from a
+later life. Completed legacy Roots are not backfilled. Source membership is a
+prerequisite, not a release receipt, approved policy, dependency disposition or
+permission to mutate retained data. Physical release remains disabled and must
+separately recheck policy, ownership, dependencies and preserved proof at mutation.
+
 ## Original-manifest period review
 
 Internal planning checks the exact original completed deletion and manifest,

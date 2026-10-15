@@ -4,7 +4,63 @@
 
 
 
-## Current increment: original-manifest retention period review
+## Current increment: exact original retained-source membership
+
+Accepted `ba166b4` passed all six exact-head jobs on attempt 1 of run
+`38756942083`: 1,247 native cases in 153 files, zero skips, four source-bound
+receipts and all four artifact digests verified. Both actual collector rehearsals,
+support load and backup/restore passed. All 27 plans passed at 20,000 scale;
+terminal sampling took 1,463.025 ms under the unchanged 1,500 ms limit, with both
+required administrator indexes and zero workers/spill. Tracked lines were 246,276.
+
+Migration 146 adds original-life membership for the 34 reviewed resources whose
+disposition is approved-policy release. Existing manifest worker calls now also
+capture at most ten source fingerprints. Each records only hashes of the native
+primary-key tuple and complete original row, exact manifest/registry identity,
+worker lease/generation/expiry and native transaction identity. Single and composite
+primary keys come from the actual catalog; resource identifiers and subject
+predicates come exclusively from the immutable code-owned descriptor. No supplied
+SQL, copied key roster, private row contents or policy duration enters an audit.
+Timestamp hashing has a fixed UTC function context and restores the caller's zone.
+
+User/Account/Root/work locks, current native tombstone/epoch/version and exact lease
+are mandatory. Source existence and both hashes are checked on insertion and
+again at deferred commit, independently of the batch. Suppressing a required audit
+rolls back the batch. A unique original-Root/resource/key index serializes retries.
+The checkpoint rejects uncaptured current sources. The existing public function
+identities are preserved across the migration, including prepared callers.
+
+These append-only facts preserve first-observed original membership. A subsequent
+source change does not rewrite history; it fails the exact current-row match.
+A later Return cannot add new-life rows to an old Root's roster. Existing completed
+Roots/manifests are neither rewritten nor retrospectively assigned ownership.
+Legacy rows without captured membership have no authority for physical release.
+The new audit event is accepted as lifecycle proof only after native validation.
+
+Local probes exposed two twenty-way retry lock timeouts. Empty retries initially
+repeated full manifest/catalog validation and source sweeps during descriptor
+creation. Finish the descriptor inventory first; validate catalog/manifests at the
+first actual capture write, with unchanged independent insert/commit guards and
+checkpoint validation. Isolated retries passed, but a full run with earlier foreign
+source facts reproduced both timeouts; that pass alone was insufficient evidence.
+
+Profiles measured empty store retries at 204-219 ms, native empty source sweeps at
+29-32 ms and initial native descriptor writes at 131-198 ms on a fresh Root. The
+operational audit query could evaluate costly proof functions before its correlated
+owner filter. Materialize exactly the existing owner/actor/original-subject predicate
+before every existing proof and metadata condition. Global inbox/job/reconciliation
+checks remain unchanged. The multi-batch foreign-source fixture and both twenty-way
+retries then passed together. All failed local logs are preserved; no concurrency
+count, fixture, statement/lock/test limit or acceptance guard is relaxed.
+
+No table, column, foreign-key or registry-hash change is introduced. Financial and
+safety sources remain intact; all retained-data release and manifest mutation
+remain disabled. The native floor increases to 1,251 cases in the same 153 files.
+Full check, upgrade evidence and six exact-head successes remain required.
+Actual dependency-aware release execution and final M8 acceptance remain open;
+no M9 and no external policy/provider/staging/security/operator sign-off is claimed.
+
+## Historical increment: original-manifest retention period review
 
 Accepted `4ed5cac` passed all six exact-head jobs on attempt 1 of run
 `38751129536`: 1,245 native cases across 153 files, zero skips, four matching

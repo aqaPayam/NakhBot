@@ -8,7 +8,7 @@ import { assertDeletionCatalogCoverage, readDeletionCatalog } from './deletion-r
 function conflict(): never {
   throw new ApplicationError('conflict', 'error.deletion.checkpoint_conflict', 409);
 }
-/** Durable descriptor-only inventory. Pending policy is neither an approved
+/** Durable descriptors and bounded original-row fingerprint inventory. Pending policy is neither an approved
  * indefinite period nor authority to release data, complete deletion or Return. */
 export class PostgresAccountDeletionRetentionStore {
   private readonly work: PostgresAccountDeletionWorkStore;

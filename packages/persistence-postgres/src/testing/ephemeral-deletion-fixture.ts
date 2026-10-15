@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { AccountDeletionLease } from '@nakh/application';
 import type { NakhDatabase } from '../database.js';
 import { createDeletionFixture } from './deletion-fixture.js';
 import { PostgresAccountDeletionWorkStore } from '../account-deletion-work-store.js';
@@ -11,10 +10,12 @@ import { PostgresAccountDeletionReferencedLikeStore } from '../account-deletion-
 import { PostgresAccountDeletionLikeStore } from '../account-deletion-like-store.js';
 import { PostgresAccountDeletionFinancialStore } from '../account-deletion-financial-store.js';
 import { PostgresAccountDeletionOperationalStore } from '../account-deletion-operational-store.js';
+import type { AccountDeletionLease } from '@nakh/application';
 
 export async function createEphemeralDeletionFixture(
   database: NakhDatabase,
   beforeDeletion?: (userId: string) => Promise<void>,
+  beforeProductCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
 ): Promise<{ userId: string; recordId: string; lease: AccountDeletionLease }> {
   const item = await createDeletionFixture(database, beforeDeletion);
   const work = new PostgresAccountDeletionWorkStore(database),
@@ -48,6 +49,7 @@ export async function createEphemeralDeletionFixture(
   }
   await new PostgresAccountDeletionFinancialStore(database).prepareCreditEpoch(product);
   await new PostgresAccountDeletionOperationalStore(database).cancelNext(product);
+  await beforeProductCheckpoint?.(product);
   if ((await checkpoints.finishProduct(product)).phase !== 'media_objects')
     throw new Error('Product fixture not verified.');
   if ((await checkpoints.finishMedia(await claim())).phase !== 'ephemeral_access')

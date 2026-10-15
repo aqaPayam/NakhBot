@@ -12,6 +12,7 @@ import { PostgresAccountDeletionSessionStore } from './account-deletion-session-
 import { PostgresAccountDeletionRetentionStore } from './account-deletion-retention-store.js';
 import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.js';
 import { DELETION_REGISTRY } from './deletion-registry.js';
+import { PostgresAccountDeletionSampleStore } from './account-deletion-sample-store.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)(
@@ -43,8 +44,30 @@ describe.skipIf(url === undefined)(
         database,
       );
     });
-    async function scene(): Promise<AccountDeletionLease> {
-      const item = await createEphemeralDeletionFixture(database);
+    async function scene(samples = 0): Promise<AccountDeletionLease> {
+      const item = await createEphemeralDeletionFixture(
+        database,
+        async (userId) => {
+          for (let n = 0; n < samples; n++)
+            await database
+              .insertInto('platform.sample_effects')
+              .values({
+                id: randomUUID(),
+                actor_user_id: userId,
+                name: 'private retained-source fixture',
+                created_at: new Date(),
+              })
+              .execute();
+        },
+        async (lease) => {
+          if (samples > 0)
+            while (
+              (await new PostgresAccountDeletionSampleStore(database).purgeNext(lease)).hasMore
+            ) {
+              /* bounded */
+            }
+        },
+      );
       await new PostgresAccountDeletionSessionStore(database).revokeNext(item.lease);
       const ephemeral = new PostgresAccountDeletionEphemeralStore(
         database,
@@ -79,6 +102,224 @@ describe.skipIf(url === undefined)(
         )
       ).rows;
     }
+    async function manifestsOnly(lease: AccountDeletionLease): Promise<void> {
+      for (let n = 0; n < 20; n++) {
+        const row = (
+          await sql<{
+            count: number;
+          }>`SELECT identity.record_retention_manifest_batch(${lease.deletionRecordId}::uuid,${lease.userId}::uuid,${lease.leaseOwner}::uuid,${lease.leaseGeneration}) AS count`.execute(
+            database,
+          )
+        ).rows[0]!;
+        if (row.count === 0) return;
+      }
+      throw new Error('Manifest fixture did not converge');
+    }
+    async function sources(
+      lease: AccountDeletionLease,
+    ): Promise<
+      readonly { id: string; metadata: Record<string, unknown>; valid: boolean; matches: boolean }[]
+    > {
+      return (
+        await sql<{
+          id: string;
+          metadata: Record<string, unknown>;
+          valid: boolean;
+          matches: boolean;
+        }>`SELECT a.id,a.metadata,
+        identity.retained_source_proof_valid(a,false) AS valid,
+        identity.retained_source_matches(a.subject_id,a.metadata->>'resource',a.metadata->>'rowKeyHash',a.metadata->>'rowHash') AS matches
+        FROM platform.audit_logs a WHERE a.subject_id=${lease.deletionRecordId}::uuid AND a.event_type='account.retained-source-recorded.v1' ORDER BY a.id`.execute(
+          database,
+        )
+      ).rows;
+    }
+    it('captures bounded exact original source membership before checkpoint without copying keys or contents', async () => {
+      const lease = await scene(11);
+      await manifestsOnly(lease);
+      expect(await sources(lease)).toHaveLength(0);
+      expect(await store.finish(lease)).toEqual({ completed: false });
+      const before = (
+        await sql`SELECT jsonb_agg(to_jsonb(s) ORDER BY id) AS rows FROM platform.sample_reference_anchors s WHERE actor_user_id=${lease.userId}::uuid`.execute(
+          database,
+        )
+      ).rows;
+      let count = 0;
+      for (let n = 0; n < 10; n++) {
+        const added = (
+          await sql<{
+            count: number;
+          }>`SELECT identity.record_retained_source_batch(${lease.deletionRecordId}::uuid,${lease.userId}::uuid,${lease.leaseOwner}::uuid,${lease.leaseGeneration}) AS count`.execute(
+            database,
+          )
+        ).rows[0]!.count;
+        expect(added).toBeGreaterThanOrEqual(0);
+        expect(added).toBeLessThanOrEqual(10);
+        count += added;
+        if (added === 0) break;
+        if (n === 0) {
+          expect(added).toBe(10);
+          expect(await store.finish(lease)).toEqual({ completed: false });
+        }
+      }
+      const proof = await sources(lease);
+      expect(proof).toHaveLength(count);
+      expect(
+        proof.filter((x) => x.metadata.resource === 'platform.sample_reference_anchors'),
+      ).toHaveLength(11);
+      expect(proof.every((x) => x.valid && x.matches)).toBe(true);
+      expect(JSON.stringify(proof)).not.toContain('private retained-source fixture');
+      expect(Object.keys(proof[0]!.metadata).sort()).toEqual(
+        [
+          'retentionRecordId',
+          'resource',
+          'registryHash',
+          'rowKeyHash',
+          'rowHash',
+          'leaseOwner',
+          'leaseGeneration',
+          'leaseExpiresAtEpoch',
+          'transactionId',
+        ].sort(),
+      );
+      expect(
+        (
+          await sql`SELECT jsonb_agg(to_jsonb(s) ORDER BY id) AS rows FROM platform.sample_reference_anchors s WHERE actor_user_id=${lease.userId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual(before);
+      await database.transaction().execute(async (tx) => {
+        await sql`SET LOCAL TimeZone='Pacific/Auckland'`.execute(tx);
+        const a = proof[0]!;
+        expect(
+          (
+            await sql<{
+              matches: boolean;
+            }>`SELECT identity.retained_source_matches(${lease.deletionRecordId}::uuid,${a.metadata.resource}::text,${a.metadata.rowKeyHash}::text,${a.metadata.rowHash}::text) AS matches`.execute(
+              tx,
+            )
+          ).rows,
+        ).toEqual([{ matches: true }]);
+        expect(
+          (await sql<{ zone: string }>`SELECT current_setting('TimeZone') AS zone`.execute(tx))
+            .rows,
+        ).toEqual([{ zone: 'Pacific/Auckland' }]);
+      });
+      expect(await store.finish(lease)).toEqual({ completed: true });
+      await expect(
+        sql`SELECT identity.record_retained_source_batch(${lease.deletionRecordId}::uuid,${lease.userId}::uuid,${lease.leaseOwner}::uuid,${lease.leaseGeneration})`.execute(
+          database,
+        ),
+      ).rejects.toThrow();
+    });
+    it('serializes source capture retries, rejects foreign ownership and freezes historical fingerprints', async () => {
+      const lease = await scene(1),
+        other = await scene();
+      await manifestsOnly(lease);
+      await expect(
+        sql`SELECT identity.record_retained_source_batch(${lease.deletionRecordId}::uuid,${other.userId}::uuid,${lease.leaseOwner}::uuid,${lease.leaseGeneration})`.execute(
+          database,
+        ),
+      ).rejects.toThrow();
+      await Promise.all(Array.from({ length: 20 }, () => store.recordNext(lease)));
+      const proof = await sources(lease);
+      expect(proof.length).toBeGreaterThan(1);
+      expect(proof.every((x) => x.valid && x.matches)).toBe(true);
+      await Promise.all(Array.from({ length: 20 }, () => store.recordNext(lease)));
+      expect(await sources(lease)).toEqual(proof);
+      const sample = proof.find(
+        (x) => x.metadata.resource === 'platform.sample_reference_anchors',
+      )!;
+      await expect(
+        sql`UPDATE platform.audit_logs SET metadata='{}'::jsonb WHERE id=${sample.id}::uuid`.execute(
+          database,
+        ),
+      ).rejects.toThrow();
+      await expect(
+        sql`DELETE FROM platform.audit_logs WHERE id=${sample.id}::uuid`.execute(database),
+      ).rejects.toThrow();
+      await expect(
+        sql`INSERT INTO platform.audit_logs(id,category,event_type,actor_type,actor_user_id,actor_admin_id,subject_type,subject_id,result_code,metadata_schema_version,metadata,command_id,request_id,occurred_at) SELECT gen_random_uuid(),category,event_type,actor_type,actor_user_id,actor_admin_id,subject_type,subject_id,result_code,metadata_schema_version,
+        metadata||jsonb_build_object('rowKeyHash',${'a'.repeat(64)}),command_id,request_id,clock_timestamp()
+        FROM platform.audit_logs WHERE id=${sample.id}::uuid`.execute(database),
+      ).rejects.toThrow();
+      const anchor = (
+        await sql<{
+          id: string;
+          digest: string;
+        }>`SELECT id,name_digest AS digest FROM platform.sample_reference_anchors WHERE actor_user_id=${lease.userId}::uuid`.execute(
+          database,
+        )
+      ).rows[0]!;
+      await database.transaction().execute(async (tx) => {
+        await sql`SET LOCAL session_replication_role=replica`.execute(tx);
+        await sql`UPDATE platform.sample_reference_anchors SET name_digest=${'b'.repeat(64)} WHERE id=${anchor.id}::uuid`.execute(
+          tx,
+        );
+      });
+      try {
+        expect((await sources(lease)).find((x) => x.id === sample.id)).toMatchObject({
+          valid: true,
+          matches: false,
+        });
+        expect(await sources(other)).toHaveLength(0);
+      } finally {
+        await database.transaction().execute(async (tx) => {
+          await sql`SET LOCAL session_replication_role=replica`.execute(tx);
+          await sql`UPDATE platform.sample_reference_anchors SET name_digest=${anchor.digest} WHERE id=${anchor.id}::uuid`.execute(
+            tx,
+          );
+        });
+      }
+    });
+    it('rolls back the owning batch when its mandatory source audit is suppressed', async () => {
+      const lease = await scene();
+      await manifestsOnly(lease);
+      await sql`CREATE FUNCTION public.suppress_retained_source() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.event_type='account.retained-source-recorded.v1' THEN RETURN NULL; END IF; RETURN NEW; END $$;
+        CREATE TRIGGER aaa_suppress_retained_source BEFORE INSERT ON platform.audit_logs FOR EACH ROW EXECUTE FUNCTION public.suppress_retained_source()`.execute(
+        database,
+      );
+      try {
+        await expect(store.recordNext(lease)).rejects.toThrow('retained source audit missing');
+        expect(await sources(lease)).toHaveLength(0);
+        expect(await store.finish(lease)).toEqual({ completed: false });
+      } finally {
+        await sql`DROP TRIGGER aaa_suppress_retained_source ON platform.audit_logs; DROP FUNCTION public.suppress_retained_source()`.execute(
+          database,
+        );
+      }
+      await complete(lease);
+      expect(await store.finish(lease)).toEqual({ completed: true });
+    });
+    it('rejects source capture that reaches deferred commit after its exact lease expires', async () => {
+      const original = await scene();
+      await manifestsOnly(original);
+      await work.release(original);
+      await sql`CREATE SEQUENCE public.source_expiry_seen;
+        CREATE FUNCTION public.delay_source_expiry() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE expiry timestamptz; BEGIN
+          IF NEW.event_type='account.retained-source-recorded.v1' THEN
+            PERFORM nextval('public.source_expiry_seen');
+            expiry:=to_timestamp((NEW.metadata->>'leaseExpiresAtEpoch')::double precision);
+            PERFORM pg_sleep(greatest(0,extract(epoch FROM expiry-clock_timestamp()))+0.05);
+          END IF; RETURN NULL; END $$;
+        CREATE CONSTRAINT TRIGGER aaa_delay_source_expiry AFTER INSERT ON platform.audit_logs DEFERRABLE INITIALLY DEFERRED
+          FOR EACH ROW EXECUTE FUNCTION public.delay_source_expiry()`.execute(database);
+      const [lease] = await work.claimDue({ workerId: randomUUID(), limit: 1, leaseMs: 10000 });
+      expect(lease?.deletionRecordId).toBe(original.deletionRecordId);
+      try {
+        await expect(store.recordNext(lease!)).rejects.toThrow('retained source proof incomplete');
+        expect(
+          (await sql`SELECT is_called FROM public.source_expiry_seen`.execute(database)).rows,
+        ).toEqual([{ is_called: true }]);
+        expect(await sources(lease!)).toHaveLength(0);
+      } finally {
+        await sql`DROP TRIGGER aaa_delay_source_expiry ON platform.audit_logs; DROP FUNCTION public.delay_source_expiry(); DROP SEQUENCE public.source_expiry_seen`.execute(
+          database,
+        );
+      }
+    });
     it('records every reviewed category in bounded batches, with no invented period or copied contents', async () => {
       const lease = await scene();
       expect(await store.finish(lease)).toEqual({ completed: false });
