@@ -82,7 +82,7 @@ async function writeAggregate(
   reports: readonly IntegrationShardReport[],
   receipts?: readonly NativeShardReceipt[],
 ): Promise<void> {
-  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 1217);
+  const coverage = verifyIntegrationShardCoverage(reports, expectedFiles, 1222);
   const evidence = {
     schemaVersion: 1,
     scenario: 'POSTGRES-INTEGRATION-ISOLATED-SHARDS',
@@ -144,7 +144,7 @@ async function verifyDistributed(directory: string): Promise<void> {
     expectedFiles,
     dispatch,
     durationInventorySha256: durationHash,
-    minimumTests: 1217,
+    minimumTests: 1222,
   });
   await writeAggregate(
     verified.receipts.map((r) => r.report),

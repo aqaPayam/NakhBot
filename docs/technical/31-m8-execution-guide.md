@@ -4,7 +4,55 @@
 
 
 
-## Current repair: synchronize the complete English catalog assertion
+## Current increment: current-life primary authority for opaque activation
+
+Accepted `b4f717f` passed all six exact-head jobs on attempt 1 of run
+`38670185035`: 1,217 native cases in 149 files, no failures or skips, with all
+three source receipts bound to the same SHA/run/attempt. All 27 plans passed at
+20,000 scale; terminal integrity took 1,465.564 ms against the unchanged 1,500 ms
+limit, with zero workers, both required administrator indexes, one hash batch
+and no spill. Support load, backup/restore and actual collector privacy/freshness
+checks passed. All three artifact ZIP digests match GitHub metadata. No external
+CloudWatch/SNS delivery or operator acceptance is inferred.
+
+`PostgresFreshEntryActivationAuthority` requires a distinct, current-life limited
+account-control grant before activating the verified opaque namespace. The old
+control that authorized Return, a Return-only actor, a foreign owner, an unknown
+grant or an expired/revoked grant cannot authorize this operation. Authority is
+captured at construction, checked under canonical User/Account locks and checked
+again after the provider effect. Actual Return proof and the exact verified
+namespace remain mandatory. No product credential, old body, balance or preview
+allowance is issued or restored by this adapter.
+
+Both activation authorities reuse an existing owning transaction when composed.
+This avoids opening a second transaction against locks already held by primary
+entry. An independently opened transaction is still used by standalone callers.
+Provider effects remain subject to the existing Redis deadline and monotonic CAS;
+an unknown external outcome is not interpreted as native product admission.
+
+Five additional native cases cover twenty concurrent confirmations, original/
+foreign/unknown/wrong-scope grant denial, captured-input mutation and wrong
+namespace denial, revocation and real expiry during the effect, and owning-
+transaction rollback/retry. The existing real next-deletion lock race now uses
+fresh primary authority and denies it after the next tombstone. Both complete
+native lifecycles and original financial proof assertions remain. Native coverage
+rises to 1,222 cases in the same 149 files; no workload or time limit is reduced.
+
+This is the native primary-authority boundary. Authenticated primary callback/
+HTTP composition and product-admission gating remain required; this adapter alone
+does not make primary entry complete. Full M8 scope, controlled retention release
+OFF pending approved periods, telemetry/runbooks and final recovery acceptance
+remain open. No production switch is enabled and no M9 work is started.
+
+The final focused native run passed all ten cases in an isolated database, including
+expiry after a provider wait, composed rollback and the fresh-authority deletion
+race. Focused lint/types and the complete project check passed: formatting, lint,
+all workspace types, all 1,134 unit cases in 235 files and all builds. Initial local
+validation found a test-parenthesis typo and a sandbox process-start restriction;
+the typo was fixed and the same native suite then ran with required process access.
+All six exact-head CI jobs remain required before another feature.
+
+## Historical repair: synchronize the complete English catalog assertion
 
 Feature `33b72a8` is not accepted green. Run `38667036381` passed quality,
 Telegram build and the API/scheduler native jobs. The worker partition ran 455

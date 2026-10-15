@@ -22,7 +22,10 @@ import { PostgresAccountDeletionEphemeralStore } from './account-deletion-epheme
 import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.js';
 import { PostgresAccountDeletionPhaseExecutor } from './account-deletion-phase-executor.js';
 import { PostgresAccountReturnStore } from './account-return-store.js';
-import { PostgresAccountReturnActivationAuthority } from './account-return-activation-store.js';
+import {
+  PostgresAccountReturnActivationAuthority,
+  PostgresFreshEntryActivationAuthority,
+} from './account-return-activation-store.js';
 import { PostgresAccountDeletionStore } from './account-deletion-store.js';
 import { PostgresAccountControlSessionStore } from './account-control-session-store.js';
 
@@ -150,6 +153,155 @@ describe.skipIf(url === undefined)('M8 native Return activation authority', () =
       ).rows,
     ).toEqual([{ valid: true }]);
   });
+  const freshControl = async (seconds = 900): Promise<AccountControlActor> => {
+    const grant = await new PostgresAccountControlSessionStore(database, seconds).issue(
+      life(),
+      randomUUID(),
+    );
+    expect(grant).toBeDefined();
+    return { kind: 'user', scope: 'account_control', ...life(), controlGrantId: grant!.id };
+  };
+  it('requires a separate current-life grant and serializes twenty fresh confirmations', async () => {
+    const session = await freshControl();
+    const fresh = new PostgresFreshEntryActivationAuthority(database, session);
+    const before = (
+      await sql`SELECT to_jsonb(a) AS account FROM identity.accounts a WHERE user_id=${fixture.userId}::uuid`.execute(
+        database,
+      )
+    ).rows;
+    let calls = 0;
+    await Promise.all(
+      Array.from({ length: 20 }, () =>
+        fresh.withCurrentReturn(life(), namespaceHash, (proof) => {
+          calls++;
+          expect(proof).toMatchObject({ ...life(), previousProductEpoch: 0 });
+          return Promise.resolve();
+        }),
+      ),
+    );
+    expect(calls).toBe(20);
+    expect(
+      (
+        await sql`SELECT to_jsonb(a) AS account FROM identity.accounts a WHERE user_id=${fixture.userId}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual(before);
+    expect(
+      (
+        await sql`SELECT count(*)::integer AS count FROM platform.audit_logs WHERE event_type='identity.user-session-issued.v1' AND actor_user_id=${fixture.userId}::uuid AND metadata->'productEpoch'='1'::jsonb`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ count: 0 }]);
+  });
+  it('rejects the original Return control, foreign grants, unknown grants and a Return-only scope before provider calls', async () => {
+    const session = await freshControl();
+    let calls = 0;
+    for (const candidate of [
+      fixture.control,
+      { ...session, controlGrantId: fixture.control.controlGrantId },
+      { ...session, userId: randomUUID() },
+      { ...session, controlGrantId: randomUUID() },
+      { ...session, scope: 'account_return' } as unknown as AccountControlActor,
+    ])
+      await expect(
+        new PostgresFreshEntryActivationAuthority(database, candidate).withCurrentReturn(
+          life(),
+          namespaceHash,
+          () => {
+            calls++;
+            return Promise.resolve();
+          },
+        ),
+      ).rejects.toBeDefined();
+    expect(calls).toBe(0);
+  });
+  it('freezes primary authority at construction and validates the actual namespace', async () => {
+    const session = { ...(await freshControl()) };
+    const fresh = new PostgresFreshEntryActivationAuthority(database, session);
+    session.productEpoch = 2;
+    session.controlGrantId = randomUUID();
+    await expect(
+      fresh.withCurrentReturn(life(), namespaceHash, () => Promise.resolve()),
+    ).resolves.toBeUndefined();
+    let calls = 0;
+    await expect(
+      fresh.withCurrentReturn(life(), 'f'.repeat(64), () => {
+        calls++;
+        return Promise.resolve();
+      }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect(calls).toBe(0);
+  });
+  it('denies revoked or expired primary authority without reissuing it', async () => {
+    const session = await freshControl();
+    await new PostgresAccountControlSessionStore(database).revoke(
+      life(),
+      session.controlGrantId,
+      randomUUID(),
+    );
+    let calls = 0;
+    await expect(
+      new PostgresFreshEntryActivationAuthority(database, session).withCurrentReturn(
+        life(),
+        namespaceHash,
+        () => {
+          calls++;
+          return Promise.resolve();
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    const short = await freshControl(1);
+    // Real native time passes while the provider effect is pending; the second
+    // authority check must deny acknowledgement even if that effect succeeded.
+    await expect(
+      new PostgresFreshEntryActivationAuthority(database, short).withCurrentReturn(
+        life(),
+        namespaceHash,
+        async () => {
+          calls++;
+          await sql`SELECT pg_sleep(1.1)`.execute(database);
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(calls).toBe(1);
+  });
+  it('composes inside the owning transaction without a second connection and rolls back a failed effect', async () => {
+    const session = await freshControl();
+    await expect(
+      database.transaction().execute(async (tx) => {
+        await new PostgresFreshEntryActivationAuthority(tx, session).withCurrentReturn(
+          life(),
+          namespaceHash,
+          async () => {
+            const id = randomUUID();
+            await sql`INSERT INTO platform.audit_logs(id,category,event_type,actor_type,actor_user_id,subject_type,subject_id,result_code,metadata_schema_version,metadata,request_id,command_id,occurred_at)
+          VALUES (${id}::uuid,'security','identity.account-control-revoked.v1','user',${fixture.userId}::uuid,'account_control',${session.controlGrantId}::uuid,'revoked',1,'{}'::jsonb,${id}::uuid,${id}::uuid,date_trunc('milliseconds',clock_timestamp()))`.execute(
+              tx,
+            );
+          },
+        );
+      }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(
+      await new PostgresAccountControlSessionStore(database).current(
+        life(),
+        session.controlGrantId,
+      ),
+    ).toBeDefined();
+    await expect(
+      database
+        .transaction()
+        .execute((tx) =>
+          new PostgresFreshEntryActivationAuthority(tx, session).withCurrentReturn(
+            life(),
+            namespaceHash,
+            () => Promise.resolve(),
+          ),
+        ),
+    ).resolves.toBeUndefined();
+  });
   it('holds the original Account through activation, then denies it after a real subsequent tombstone', async () => {
     const grant = await new PostgresAccountControlSessionStore(database).issue(
       life(),
@@ -178,7 +330,8 @@ describe.skipIf(url === undefined)('M8 native Return activation authority', () =
       ready = new Promise<void>((r) => {
         entered = r;
       });
-    const activating = authority.withCurrentReturn(life(), namespaceHash, async () => {
+    const fresh = new PostgresFreshEntryActivationAuthority(database, control);
+    const activating = fresh.withCurrentReturn(life(), namespaceHash, async () => {
       entered();
       await gate;
     });
@@ -227,6 +380,12 @@ describe.skipIf(url === undefined)('M8 native Return activation authority', () =
     let calls = 0;
     await expect(
       authority.withCurrentReturn(life(), namespaceHash, () => {
+        calls++;
+        return Promise.resolve();
+      }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    await expect(
+      fresh.withCurrentReturn(life(), namespaceHash, () => {
         calls++;
         return Promise.resolve();
       }),

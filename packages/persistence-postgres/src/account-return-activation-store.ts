@@ -1,12 +1,14 @@
 import { sql } from 'kysely';
 import {
   isUserProductLife,
+  type AccountControlActor,
   type AccountReturnActivationAuthority,
   type AccountReturnActivationProof,
   type UserProductLife,
 } from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
+import { requireCurrentAccountControl } from './account-control-session-store.js';
 
 function unavailable(): ApplicationError {
   return new ApplicationError('conflict', 'error.deletion.unavailable', 409);
@@ -21,7 +23,7 @@ export class PostgresAccountReturnActivationAuthority implements AccountReturnAc
     if (!isUserProductLife(life) || life.productEpoch < 1 || !/^[0-9a-f]{64}$/u.test(namespaceHash))
       throw unavailable();
     const captured = Object.freeze({ userId: life.userId, productEpoch: life.productEpoch });
-    await this.database.transaction().execute(async (tx) => {
+    const activate = async (tx: NakhDatabase): Promise<void> => {
       await sql`SELECT id FROM identity.users WHERE id=${captured.userId}::uuid FOR NO KEY UPDATE`.execute(
         tx,
       );
@@ -77,6 +79,52 @@ export class PostgresAccountReturnActivationAuthority implements AccountReturnAc
         current.product_epoch !== captured.productEpoch
       )
         throw unavailable();
-    });
+    };
+    // Composition must use the same owning transaction. Opening another one
+    // while a primary-entry guard holds User/Account locks would deadlock.
+    if (this.database.isTransaction) await activate(this.database);
+    else await this.database.transaction().execute(activate);
+  }
+}
+
+/** Fresh primary confirmation uses a current-life limited control, independently
+ * of the old grant that authorized Return. It activates only the verified opaque
+ * namespace; neither Return nor this adapter issues/restores product credentials.
+ * The caller must authenticate the primary event before constructing this port. */
+export class PostgresFreshEntryActivationAuthority implements AccountReturnActivationAuthority {
+  private readonly session: AccountControlActor;
+  public constructor(
+    private readonly database: NakhDatabase,
+    session: AccountControlActor,
+  ) {
+    this.session = Object.freeze({ ...session });
+  }
+  public async withCurrentReturn(
+    life: UserProductLife,
+    namespaceHash: string,
+    effect: (proof: AccountReturnActivationProof) => Promise<void>,
+  ): Promise<void> {
+    if (
+      !isUserProductLife(life) ||
+      life.productEpoch < 1 ||
+      this.session.scope !== 'account_control' ||
+      this.session.userId !== life.userId ||
+      this.session.productEpoch !== life.productEpoch
+    )
+      throw unavailable();
+    const captured = Object.freeze({ userId: life.userId, productEpoch: life.productEpoch });
+    const activate = async (tx: NakhDatabase): Promise<void> => {
+      await requireCurrentAccountControl(tx, captured.userId, this.session);
+      await new PostgresAccountReturnActivationAuthority(tx).withCurrentReturn(
+        captured,
+        namespaceHash,
+        effect,
+      );
+      // A provider wait may consume the grant lifetime or revoke it in this
+      // transaction. Never acknowledge successful entry with retired authority.
+      await requireCurrentAccountControl(tx, captured.userId, this.session);
+    };
+    if (this.database.isTransaction) await activate(this.database);
+    else await this.database.transaction().execute(activate);
   }
 }
