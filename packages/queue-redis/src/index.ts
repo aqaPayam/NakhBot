@@ -400,7 +400,8 @@ export class RedisOwnedOpaqueTokenStore extends RedisOpaqueTokenStore {
         life.userId,
       ) ||
       !Number.isSafeInteger(life.productEpoch) ||
-      life.productEpoch < 0
+      life.productEpoch < 0 ||
+      life.productEpoch > 2147483647
     )
       throw new Error('Opaque state life is invalid.');
     this.subject = createHash('sha256').update(life.userId.toLowerCase()).digest('hex');
@@ -510,7 +511,12 @@ export class RedisOwnedOpaqueTokenStore extends RedisOpaqueTokenStore {
       local active = 'active:' .. ARGV[1]
       local blocked = 'blocked:' .. ARGV[1]
       local state = redis.call('GET', KEYS[1])
-      if (not state and ARGV[1] ~= '0') or (state and state ~= active and state ~= blocked) then return {-1,1,'0'} end
+      -- A returned life may be deleted before its first Redis activation. Its
+      -- native owning worker can advance the permanent predecessor tombstone,
+      -- never initialize an unknown life or overwrite a later marker.
+      local predecessor = 'blocked:' .. tostring(tonumber(ARGV[1])-1)
+      local unactivatedReturn = ARGV[1] ~= '0' and state == predecessor and redis.call('PTTL',KEYS[1]) == -1
+      if (not state and ARGV[1] ~= '0') or (state and state ~= active and state ~= blocked and not unactivatedReturn) then return {-1,1,'0'} end
       redis.call('SET', KEYS[1], blocked)
       local members = redis.call('HRANDFIELD', KEYS[2], tonumber(ARGV[2]))
       -- Validate the complete bounded batch before deleting any value. A damaged
@@ -612,3 +618,4 @@ export class RedisOwnedOpaqueTokenStore extends RedisOpaqueTokenStore {
 }
 
 export { RedisAccountDeletionEphemeralProvider } from './account-deletion-ephemeral-provider.js';
+export { RedisAccountReturnActivation } from './account-return-activation.js';

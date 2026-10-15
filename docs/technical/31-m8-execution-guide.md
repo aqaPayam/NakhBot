@@ -3,7 +3,64 @@
 
 
 
-## Current repair: Return event parity across native and application policy
+
+## Current increment: native-bound monotonic Redis activation after Return
+
+Accepted `192f64c` passed all six exact-head jobs on attempt 1 of run
+`38644167739`: 1,193 native cases in 146 files, no skips; all 27 plans at 20,000
+scale, terminal integrity 1,498.487 ms against 1,500 ms with both required indexes,
+one worker and no spill; support load, backup/restore and actual collector/privacy
+rehearsal passed. Native, performance and telemetry ZIP digests match GitHub.
+The original failed `004ee29` run remains preserved. The performance limit is
+unchanged; the measured terminal sample leaves little margin.
+
+The native activation authority locks the stable User and current Account, then
+derives one immutable actual Return receipt for exactly the requested product life.
+It independently validates the receipt, its original provider reconciliation and
+the exact Redis namespace verified by deletion. Caller-selected proof IDs, epochs
+or namespaces never authorize activation. The bounded provider callback receives
+frozen native facts; the owning Account remains locked throughout and is rechecked
+after the callback. Deleted, initial, stale, future or unverified lives fail closed.
+This internal system port must receive a life frozen by authenticated primary
+composition, never an HTTP body or previously authenticated old-life actor.
+
+Redis performs one atomic `blocked:previous -> active:current` transition. The
+predecessor marker must be permanent, its reverse index empty, and the new index
+absent. Replaying the same already-active life is idempotent and does not copy,
+replace or extend any value. Missing, expiring, malformed, blocked-current or later
+markers fail closed. Physical absence remains proven by the original independent
+provider passes; a reverse index alone is not such proof. No raw identity or native
+proof ID is added to Redis keys, marker values or public results.
+
+Activation waits at most five seconds for the shared Redis client, so its native
+Account lock cannot be held indefinitely by BullMQ's unlimited connection retries.
+Timeout is an unknown provider outcome: a delayed command may still execute. The
+atomic predecessor condition prevents it from reopening a later tombstone or
+changing a newer life. An owning deletion worker can advance only the permanent
+immediate-predecessor tombstone when a returned life is deleted before activation.
+It still cannot initialize an unknown nonzero life, move a marker backward or
+remove another life's values. Redis failure does not roll back the already-audited
+native Return; unchanged activation retry recovers safely from lost acknowledgment.
+
+This increment adds no migration, table, retention descriptor or public Return
+flag. API/Telegram/localization Return composition, controlled retention release,
+M8 telemetry/runbooks and the remaining full interruption/load/failure/recovery
+matrix remain required. Retained-data release stays OFF until real periods are
+approved. Actual provider/staging/PITR/DR, security review and operator sign-offs
+remain external. No M9. Full local checks and all six exact-head CI jobs remain
+required before acceptance.
+
+The full local check passed all 1,117 unit tests in 232 files, formatting, lint,
+workspace type checks and builds. Five focused native activation cases passed,
+including canonical lock serialization and an actual second deletion/Return cycle
+with original financial/Return proof preserved. Queue, worker and PostgreSQL
+focused type checks passed. Real Redis script tests and the complete worker/provider
+cycles remain mandatory CI evidence; no local Redis or synthetic absence is claimed.
+The native inventory floor increases to 1,207 cases in 147 files. The new native
+file and expanded worker suite have provisional scheduling estimates only; no
+acceptance threshold, workload, timeout or existing case is reduced.
+
+## Historical repair: Return event parity across native and application policy
 
 Feature `004ee29` is not accepted green. Run `38639158989` passed quality and
 three container/native jobs, but the API native partition failed one exact policy

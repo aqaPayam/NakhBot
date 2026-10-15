@@ -61,59 +61,11 @@ export async function createAccountReturnFixture(
     options.controlLifetimeSeconds ?? 900,
   ).issue({ userId: item.userId, productEpoch: 0 }, randomUUID());
   if (grant === undefined) throw new Error('Return fixture control unavailable.');
-  if (options.approve !== false) {
-    const id = await createReportFixtureAdmin(database);
-    await database
-      .insertInto('administration.admin_user_roles')
-      .values({
-        admin_user_id: id,
-        role_code: 'super_admin',
-        assigned_by_admin_id: id,
-        revoked_at: null,
-        revoked_by_admin_id: null,
-      })
-      .execute();
-    const admin = await database
-      .selectFrom('administration.admin_users')
-      .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirstOrThrow();
-    await createPostgresAdminSessions(database, {
-      verify: () =>
-        Promise.resolve({
-          actorUserId: admin.user_id,
-          telegramUserId: admin.telegram_user_id,
-          proofId: randomUUID(),
-          verifiedAt: new Date(Date.now() - 1000),
-          expiresAt: new Date(Date.now() + 240000),
-        }),
-    }).issue({
-      actor: { kind: 'user', userId: admin.user_id },
-      telegramUserId: admin.telegram_user_id,
-      requestId: randomUUID(),
-      proof: 'synthetic-protected-factor',
+  if (options.approve !== false)
+    await approveAccountReturnFixture(database, {
+      recordId: item.recordId,
+      version: account.version,
     });
-    const attempt: AdminCommandAttempt = {
-      logId: randomUUID(),
-      adminUserId: id,
-      commandId: randomUUID(),
-      requestId: randomUUID(),
-      requestDigest: 'b'.repeat(64),
-      commandCode: 'account.approve-return',
-      requiredPermission: 'approve_account_return',
-      targetType: 'account_deletion',
-      targetId: item.recordId,
-      expectedTargetVersion: account.version,
-      reasonDigest: 'c'.repeat(64),
-      metadata: {},
-      correlationId: randomUUID(),
-    };
-    if (
-      (await new PostgresAccountReturnApprovalWorkflow(database).approve(attempt)).result !==
-      'succeeded'
-    )
-      throw new Error('Return fixture approval rejected.');
-  }
   return {
     ...item,
     version: account.version,
@@ -125,4 +77,62 @@ export async function createAccountReturnFixture(
       controlGrantId: grant.id,
     },
   };
+}
+
+/** Native audit/RBAC/MFA fixture only; the protected-factor provider is synthetic. */
+export async function approveAccountReturnFixture(
+  database: NakhDatabase,
+  input: Readonly<{ recordId: string; version: number }>,
+): Promise<void> {
+  const id = await createReportFixtureAdmin(database);
+  await database
+    .insertInto('administration.admin_user_roles')
+    .values({
+      admin_user_id: id,
+      role_code: 'super_admin',
+      assigned_by_admin_id: id,
+      revoked_at: null,
+      revoked_by_admin_id: null,
+    })
+    .execute();
+  const admin = await database
+    .selectFrom('administration.admin_users')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirstOrThrow();
+  await createPostgresAdminSessions(database, {
+    verify: () =>
+      Promise.resolve({
+        actorUserId: admin.user_id,
+        telegramUserId: admin.telegram_user_id,
+        proofId: randomUUID(),
+        verifiedAt: new Date(Date.now() - 1000),
+        expiresAt: new Date(Date.now() + 240000),
+      }),
+  }).issue({
+    actor: { kind: 'user', userId: admin.user_id },
+    telegramUserId: admin.telegram_user_id,
+    requestId: randomUUID(),
+    proof: 'synthetic-protected-factor',
+  });
+  const attempt: AdminCommandAttempt = {
+    logId: randomUUID(),
+    adminUserId: id,
+    commandId: randomUUID(),
+    requestId: randomUUID(),
+    requestDigest: 'b'.repeat(64),
+    commandCode: 'account.approve-return',
+    requiredPermission: 'approve_account_return',
+    targetType: 'account_deletion',
+    targetId: input.recordId,
+    expectedTargetVersion: input.version,
+    reasonDigest: 'c'.repeat(64),
+    metadata: {},
+    correlationId: randomUUID(),
+  };
+  if (
+    (await new PostgresAccountReturnApprovalWorkflow(database).approve(attempt)).result !==
+    'succeeded'
+  )
+    throw new Error('Return fixture approval rejected.');
 }

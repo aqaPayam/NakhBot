@@ -11,15 +11,20 @@ import {
   PostgresQueueReferenceMigrationAudit,
   PostgresUserSessionStore,
   PostgresAccountControlSessionStore,
+  PostgresAccountReturnStore,
+  PostgresAccountReturnActivationAuthority,
+  PostgresAccountDeletionStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
   createRedisConnection,
   RedisAccountDeletionEphemeralProvider,
   RedisOwnedOpaqueTokenStore,
+  RedisAccountReturnActivation,
 } from '@nakh/queue-redis';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
 import { createDeletionFixture } from '../../../packages/persistence-postgres/src/testing/deletion-fixture.js';
+import { approveAccountReturnFixture } from '../../../packages/persistence-postgres/src/testing/account-return-fixture.js';
 import { createAccountDeletionRuntime } from './account-deletion-runtime.js';
 
 const dbUrl = process.env.NAKH_TEST_DATABASE_URL,
@@ -188,6 +193,203 @@ describe.skipIf(dbUrl === undefined || redisUrl === undefined)(
       expect(await redis.get(marker)).toBe('blocked:0');
       expect(await redis.pttl(marker)).toBe(-1);
     }
+    async function runComplete(f: Awaited<ReturnType<typeof scene>>): Promise<void> {
+      const runtime = f.runtime();
+      let outcome = '';
+      try {
+        for (let n = 0; n < 100; n++) {
+          const result = await runtime.execute();
+          expect(['progress', 'advanced', 'completed']).toContain(result.outcome);
+          outcome = result.outcome;
+          if (outcome === 'completed') break;
+        }
+      } finally {
+        await runtime.close();
+      }
+      expect(outcome).toBe('completed');
+    }
+    async function returnLife(f: Awaited<ReturnType<typeof scene>>, epoch: number): Promise<void> {
+      const root = (
+        await sql<{
+          id: string;
+          account_version: number;
+        }>`SELECT id,account_version FROM identity.account_deletion_records WHERE user_id=${f.item.userId}::uuid AND product_epoch=${epoch}`.execute(
+          database,
+        )
+      ).rows[0]!;
+      await approveAccountReturnFixture(database, {
+        recordId: root.id,
+        version: root.account_version,
+      });
+      const grant = await new PostgresAccountControlSessionStore(database).issue(
+        { userId: f.item.userId, productEpoch: epoch },
+        randomUUID(),
+      );
+      const id = randomUUID();
+      await new PostgresAccountReturnStore(database, {
+        kind: 'user',
+        scope: 'account_control',
+        userId: f.item.userId,
+        productEpoch: epoch,
+        controlGrantId: grant!.id,
+      }).return({
+        commandId: id,
+        commandType: 'account.return',
+        schemaVersion: 1,
+        actor: { kind: 'user', userId: f.item.userId },
+        requestId: randomUUID(),
+        idempotencyKey: id,
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: { expectedAccountVersion: root.account_version },
+      });
+    }
+    it('activates actual approved Return after real provider cleanup and recovers a lost Redis acknowledgment under twenty retries', async () => {
+      const f = await scene();
+      await runComplete(f);
+      await completed(f);
+      await returnLife(f, 0);
+      const authority = new PostgresAccountReturnActivationAuthority(database),
+        life = { userId: f.item.userId, productEpoch: 1 };
+      const before = (
+        await sql`SELECT to_jsonb(a) AS proof FROM platform.audit_logs a WHERE event_type='account.returned.v1' AND subject_id=${f.item.recordId}::uuid`.execute(
+          database,
+        )
+      ).rows;
+      const failAfter = new RedisAccountReturnActivation(
+        {
+          eval: async (script, count, ...args) => {
+            await redis.eval(script, count, ...args);
+            throw new Error('private acknowledgment loss');
+          },
+        },
+        f.prefix,
+        authority,
+      );
+      await expect(failAfter.activate(life)).rejects.toThrow(
+        'Opaque state activation is unavailable.',
+      );
+      const fresh = new RedisOwnedOpaqueTokenStore(redis, f.prefix, life),
+        old = new RedisOwnedOpaqueTokenStore(redis, f.prefix, {
+          userId: life.userId,
+          productEpoch: 0,
+        });
+      await fresh.putIfAbsent('abcdefghijklmnop', 'FRESH LIFE BODY', 900);
+      const activate = new RedisAccountReturnActivation(redis, f.prefix, authority);
+      await Promise.all(Array.from({ length: 20 }, () => activate.activate(life)));
+      await expect(old.putIfAbsent('oldoldoldoldold1', 'OLD DELAYED BODY', 900)).rejects.toThrow(
+        'unavailable',
+      );
+      await expect(old.revokeNext()).rejects.toThrow('unavailable');
+      expect(await old.get('abcdefghijklmnop')).toBeUndefined();
+      expect(await fresh.get('abcdefghijklmnop')).toBe('FRESH LIFE BODY');
+      await expect(
+        new RedisAccountReturnActivation(redis, `${f.prefix}-foreign`, authority).activate(life),
+      ).rejects.toThrow('unavailable');
+      expect(
+        (
+          await sql`SELECT to_jsonb(a) AS proof FROM platform.audit_logs a WHERE event_type='account.returned.v1' AND subject_id=${f.item.recordId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual(before);
+      expect(
+        (
+          await sql`SELECT balance,product_epoch FROM billing.credit_accounts WHERE user_id=${life.userId}::uuid`.execute(
+            database,
+          )
+        ).rows,
+      ).toEqual([{ balance: '0', product_epoch: 1 }]);
+    });
+    it('fences a timed-out late activation through actual next-life deletion and a second independently approved Return', async () => {
+      const f = await scene();
+      await runComplete(f);
+      await returnLife(f, 0);
+      const authority = new PostgresAccountReturnActivationAuthority(database),
+        life = { userId: f.item.userId, productEpoch: 1 };
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let queued: Promise<unknown> | undefined;
+      const delayed = new RedisAccountReturnActivation(
+        {
+          eval: (script, count, ...args) => {
+            queued = gate.then(() => redis.eval(script, count, ...args));
+            return Promise.reject(new Error('private timed-out request'));
+          },
+        },
+        f.prefix,
+        authority,
+      );
+      await expect(delayed.activate(life)).rejects.toThrow(
+        'Opaque state activation is unavailable.',
+      );
+      try {
+        const grant = await new PostgresAccountControlSessionStore(database).issue(
+          life,
+          randomUUID(),
+        );
+        const deletion = new PostgresAccountDeletionStore(
+          database,
+          { activeKeyId: 'worker-return', keys: new Map([['worker-return', Buffer.alloc(32, 8)]]) },
+          { kind: 'user', scope: 'account_control', ...life, controlGrantId: grant!.id },
+        );
+        const version = (
+          await database
+            .selectFrom('identity.accounts')
+            .select('version')
+            .where('user_id', '=', life.userId)
+            .executeTakeFirstOrThrow()
+        ).version;
+        const proof = await deletion.prepare({
+            actor: { kind: 'user', userId: life.userId },
+            requestId: randomUUID(),
+            expectedAccountVersion: version,
+          }),
+          id = randomUUID();
+        await deletion.request({
+          commandId: id,
+          commandType: 'account.delete',
+          schemaVersion: 1,
+          actor: { kind: 'user', userId: life.userId },
+          requestId: randomUUID(),
+          idempotencyKey: id,
+          occurredAt: new Date().toISOString(),
+          locale: 'en',
+          data: { expectedAccountVersion: version, confirmationToken: proof.confirmationToken },
+        });
+        await runComplete(f);
+        const marker = `${f.prefix}:owned-action:{${createHash('sha256').update(life.userId).digest('hex')}}:life`;
+        expect(await redis.get(marker)).toBe('blocked:1');
+        release();
+        expect(await queued).toBe(-1);
+        await expect(
+          new RedisAccountReturnActivation(redis, f.prefix, authority).activate(life),
+        ).rejects.toThrow('unavailable');
+        await returnLife(f, 1);
+        const current = { userId: life.userId, productEpoch: 2 };
+        await new RedisAccountReturnActivation(redis, f.prefix, authority).activate(current);
+        const fresh = new RedisOwnedOpaqueTokenStore(redis, f.prefix, current),
+          old = new RedisOwnedOpaqueTokenStore(redis, f.prefix, life);
+        await fresh.putIfAbsent('abcdefghijklmnop', 'SECOND FRESH BODY', 900);
+        await expect(old.revokeNext()).rejects.toThrow('unavailable');
+        await expect(old.putIfAbsent('oldoldoldoldold1', 'OLD LIFE ONE', 900)).rejects.toThrow(
+          'unavailable',
+        );
+        expect(await fresh.get('abcdefghijklmnop')).toBe('SECOND FRESH BODY');
+        expect(
+          (
+            await sql`SELECT identity.account_return_completed(${f.item.recordId}::uuid) AS original,billing.deletion_credit_cutover_valid(${f.item.recordId}::uuid) AS financial`.execute(
+              database,
+            )
+          ).rows,
+        ).toEqual([{ original: true, financial: true }]);
+      } finally {
+        release();
+        await queued;
+      }
+    });
     it('composes real sessions, ordinary purge, provider passes, manifest and final completion', async () => {
       const f = await scene(),
         runtime = f.runtime(),

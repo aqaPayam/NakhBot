@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createRedisConnection, RedisOwnedOpaqueTokenStore } from './index.js';
-import { LikedByOpaqueReferences } from '@nakh/application';
+import {
+  createRedisConnection,
+  RedisOwnedOpaqueTokenStore,
+  RedisAccountReturnActivation,
+} from './index.js';
+import { LikedByOpaqueReferences, type AccountReturnActivationAuthority } from '@nakh/application';
 
 const url = process.env.NAKH_TEST_REDIS_URL;
 describe.skipIf(url === undefined)('M8 account-life opaque state revocation', () => {
@@ -30,6 +34,19 @@ describe.skipIf(url === undefined)('M8 account-life opaque state revocation', ()
     };
   }
   const token = (index: number): string => index.toString(16).padStart(16, '0');
+  // Script-boundary fixture only. Actual native approval/Return/namespace
+  // authorization is exercised with the real worker in its composition suite.
+  function activation(): RedisAccountReturnActivation {
+    const authority: AccountReturnActivationAuthority = {
+      withCurrentReturn: async (life, _hash, effect) =>
+        effect({
+          ...life,
+          previousProductEpoch: life.productEpoch - 1,
+          returnAuditId: randomUUID(),
+        }),
+    };
+    return new RedisAccountReturnActivation(redis, prefix, authority);
+  }
   async function drain(store: RedisOwnedOpaqueTokenStore, limit = 100): Promise<number> {
     let cursor = '0',
       removed = 0;
@@ -60,6 +77,135 @@ describe.skipIf(url === undefined)('M8 account-life opaque state revocation', ()
     expect(await drain(first.store)).toBe(1);
     expect(await second.store.get(token(1))).toBe('second private state');
     await drain(second.store);
+  });
+  it('activates exactly the predecessor under twenty retries and refuses all delayed old-life allocations', async () => {
+    const old = subject(),
+      current = subject(old.userId, 1),
+      activate = activation();
+    await old.store.putIfAbsent(token(1), 'old private', 900);
+    await drain(old.store);
+    await Promise.all(
+      Array.from({ length: 20 }, () => activate.activate({ userId: old.userId, productEpoch: 1 })),
+    );
+    await current.store.putIfAbsent(token(1), 'fresh private', 900);
+    const rejected = await Promise.allSettled(
+      Array.from({ length: 20 }, () => old.store.putIfAbsent(token(2), 'late old private', 900)),
+    );
+    expect(rejected.every((r) => r.status === 'rejected')).toBe(true);
+    await expect(old.store.revokeNext()).rejects.toThrow('unavailable');
+    expect(await current.store.get(token(1))).toBe('fresh private');
+    expect(await old.store.get(token(1))).toBeUndefined();
+    expect(await redis.get(`${old.scope}:life`)).toBe('active:1');
+    expect(await redis.pttl(`${old.scope}:life`)).toBe(-1);
+    expect(await redis.keys(`${old.values}*`)).toEqual([]);
+    await drain(current.store);
+  });
+  it('rejects missing, malformed, expiring, initial-active and later markers without changing them', async () => {
+    const old = subject(),
+      activate = activation(),
+      life = { userId: old.userId, productEpoch: 1 },
+      marker = `${old.scope}:life`;
+    await expect(activate.activate(life)).rejects.toThrow('unavailable');
+    expect(await redis.get(marker)).toBeNull();
+    for (const value of ['active:0', 'blocked:00', 'blocked:2', 'active:2', 'private marker']) {
+      await redis.set(marker, value);
+      await expect(activate.activate(life)).rejects.toThrow('unavailable');
+      expect(await redis.get(marker)).toBe(value);
+    }
+    await redis.set(marker, 'blocked:0', 'PX', 5000);
+    await expect(activate.activate(life)).rejects.toThrow('unavailable');
+    expect(await redis.get(marker)).toBe('blocked:0');
+    expect(await redis.pttl(marker)).toBeGreaterThan(0);
+    await redis.set(marker, 'blocked:0');
+  });
+  it('requires the old reverse index to be empty and never copies an old body', async () => {
+    const old = subject(),
+      activate = activation();
+    await old.store.putIfAbsent(token(1), 'old one', 900);
+    await old.store.putIfAbsent(token(2), 'old two', 900);
+    await old.store.revokeNext(1);
+    expect(await redis.hlen(old.index)).toBe(1);
+    await expect(activate.activate({ userId: old.userId, productEpoch: 1 })).rejects.toThrow(
+      'unavailable',
+    );
+    expect(await redis.get(`${old.scope}:life`)).toBe('blocked:0');
+    await drain(old.store);
+    await activate.activate({ userId: old.userId, productEpoch: 1 });
+    expect(await redis.keys(`${old.values}*`)).toEqual([]);
+    expect(await redis.keys(`${old.scope}:1:value:*`)).toEqual([]);
+    await drain(subject(old.userId, 1).store);
+  });
+  it('rejects a preexisting new-life index and leaves foreign data untouched', async () => {
+    const old = subject(),
+      next = subject(old.userId, 1),
+      other = subject();
+    await drain(old.store);
+    await other.store.putIfAbsent(token(1), 'foreign private', 900);
+    const [foreign] = await redis.keys(`${other.values}*`);
+    await redis.hset(next.index, foreign!, '1');
+    await expect(activation().activate({ userId: old.userId, productEpoch: 1 })).rejects.toThrow(
+      'unavailable',
+    );
+    expect(await redis.get(`${old.scope}:life`)).toBe('blocked:0');
+    expect(await other.store.get(token(1))).toBe('foreign private');
+    await redis.del(next.index);
+    await drain(other.store);
+  });
+  it('lets a native owning cleanup fence a returned life before activation and never reopens that tombstone', async () => {
+    const old = subject(),
+      one = subject(old.userId, 1),
+      two = subject(old.userId, 2),
+      activate = activation();
+    await drain(old.store);
+    expect(await drain(one.store)).toBe(0);
+    expect(await redis.get(`${old.scope}:life`)).toBe('blocked:1');
+    await expect(activate.activate({ userId: old.userId, productEpoch: 1 })).rejects.toThrow(
+      'unavailable',
+    );
+    await activate.activate({ userId: old.userId, productEpoch: 2 });
+    await two.store.putIfAbsent(token(1), 'life two', 900);
+    await expect(activate.activate({ userId: old.userId, productEpoch: 1 })).rejects.toThrow(
+      'unavailable',
+    );
+    await expect(one.store.revokeNext()).rejects.toThrow('unavailable');
+    expect(await redis.get(`${old.scope}:life`)).toBe('active:2');
+    expect(await two.store.get(token(1))).toBe('life two');
+    await drain(two.store);
+  });
+  it('recovers from a lost activation acknowledgment without replacing new-life state or extending its TTL', async () => {
+    const old = subject(),
+      next = subject(old.userId, 1);
+    await drain(old.store);
+    const authority: AccountReturnActivationAuthority = {
+      withCurrentReturn: async (life, _hash, effect) =>
+        effect({ ...life, previousProductEpoch: 0, returnAuditId: randomUUID() }),
+    };
+    const failed = new RedisAccountReturnActivation(
+      {
+        eval: async (script, count, ...args) => {
+          await redis.eval(script, count, ...args);
+          throw new Error('private transport failure');
+        },
+      },
+      prefix,
+      authority,
+    );
+    await expect(failed.activate({ userId: old.userId, productEpoch: 1 })).rejects.toThrow(
+      'Opaque state activation is unavailable.',
+    );
+    await next.store.putIfAbsent(token(1), 'new private', 900);
+    const [key] = await redis.keys(`${next.values}*`),
+      ttl = await redis.pttl(key!);
+    await activation().activate({ userId: old.userId, productEpoch: 1 });
+    expect(await next.store.get(token(1))).toBe('new private');
+    expect(await redis.pttl(key!)).toBeLessThanOrEqual(ttl);
+    await drain(next.store);
+  });
+  it('rejects non-native epoch ranges before issuing any Redis operation', () => {
+    for (const productEpoch of [-1, 2147483648, NaN, Infinity])
+      expect(
+        () => new RedisOwnedOpaqueTokenStore(redis, prefix, { userId: randomUUID(), productEpoch }),
+      ).toThrow('Opaque state life is invalid.');
   });
 
   it('preserves the first allocation body and physical TTL on a replay', async () => {

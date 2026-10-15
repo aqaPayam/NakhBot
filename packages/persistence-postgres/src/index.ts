@@ -246,3 +246,4 @@ export { PostgresAccountDeletionMediaStore } from './account-deletion-media-stor
 export * from './account-control-session-store.js';
 export * from './account-return-approval-store.js';
 export * from './account-return-store.js';
+export * from './account-return-activation-store.js';
