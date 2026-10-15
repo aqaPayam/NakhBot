@@ -7,7 +7,7 @@ import {
 } from './account-control-session.js';
 
 type SessionMocks = {
-  [K in keyof AccountControlSessionStore]: Mock<AccountControlSessionStore[K]>;
+  [K in keyof AccountControlSessionStore]-?: Mock<NonNullable<AccountControlSessionStore[K]>>;
 };
 function fixture(): {
   life: { userId: string; productEpoch: number };
@@ -27,12 +27,80 @@ function fixture(): {
   const store: SessionMocks = {
     issue: vi.fn<AccountControlSessionStore['issue']>(() => Promise.resolve(grant)),
     current: vi.fn<AccountControlSessionStore['current']>(() => Promise.resolve(grant)),
+    currentForReturn: vi.fn<NonNullable<AccountControlSessionStore['currentForReturn']>>(() =>
+      Promise.resolve(grant),
+    ),
     revoke: vi.fn<AccountControlSessionStore['revoke']>(() => Promise.resolve()),
   };
   const key = Buffer.alloc(32, 103);
   return { life, grant, store, key, service: new AccountControlSessionService(store, key) };
 }
 describe('opaque limited original-life account controls', () => {
+  it('authenticates only original Return scope while ordinary control remains retired', async () => {
+    const f = fixture(),
+      token = (await f.service.issue(f.life, randomUUID())).accountControlToken;
+    f.store.current.mockResolvedValue(undefined);
+    expect(
+      await f.service.authenticate({ bearerToken: token, audience: 'account_control' }),
+    ).toBeUndefined();
+    const actor = await f.service.authenticateReturn({
+      bearerToken: token,
+      audience: 'account_return',
+    });
+    expect(actor).toEqual({
+      ...f.life,
+      kind: 'user',
+      scope: 'account_return',
+      controlGrantId: f.grant.id,
+    });
+    expect(Object.isFrozen(actor)).toBe(true);
+    f.store.currentForReturn.mockResolvedValue(undefined);
+    expect(
+      await f.service.authenticateReturn({ bearerToken: token, audience: 'account_return' }),
+    ).toBeUndefined();
+    const oldStore = { issue: f.store.issue, current: f.store.current, revoke: f.store.revoke };
+    expect(
+      await new AccountControlSessionService(oldStore, f.key).authenticateReturn({
+        bearerToken: token,
+        audience: 'account_return',
+      }),
+    ).toBeUndefined();
+  });
+  it('denies Return ciphertext/audience changes and native identity, epoch or grant substitutions', async () => {
+    const f = fixture(),
+      token = (await f.service.issue(f.life, randomUUID())).accountControlToken;
+    for (const bearerToken of [token + '=', token.replace('v1.ac.', 'v1.us.'), 'invalid'])
+      expect(
+        await f.service.authenticateReturn({ bearerToken, audience: 'account_return' }),
+      ).toBeUndefined();
+    expect(
+      await f.service.authenticateReturn({
+        bearerToken: token,
+        audience: 'account_control' as 'account_return',
+      }),
+    ).toBeUndefined();
+    expect(f.store.currentForReturn).not.toHaveBeenCalled();
+    for (const change of [{ userId: randomUUID() }, { productEpoch: 1 }, { id: randomUUID() }]) {
+      f.store.currentForReturn.mockResolvedValue({ ...f.grant, ...change });
+      expect(
+        await f.service.authenticateReturn({ bearerToken: token, audience: 'account_return' }),
+      ).toBeUndefined();
+    }
+  });
+  it('retains the ciphertext original epoch across a native Return authentication wait', async () => {
+    const f = fixture(),
+      token = (await f.service.issue(f.life, randomUUID())).accountControlToken;
+    let resolve!: (grant: AccountControlGrant) => void;
+    f.store.currentForReturn.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    const result = f.service.authenticateReturn({ bearerToken: token, audience: 'account_return' });
+    f.life.productEpoch = 1;
+    resolve(f.grant);
+    expect((await result)?.productEpoch).toBe(0);
+  });
   it('requires a native grant for every use and never exposes owner or grant in the credential', async () => {
     const f = fixture();
     const issued = await f.service.issue(f.life, randomUUID());

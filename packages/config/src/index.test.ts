@@ -60,6 +60,23 @@ describe('configuration', () => {
         'Invalid configuration',
       );
   });
+  it('keeps Return HTTP disabled unless deletion API and worker readiness are configured', () => {
+    expect(parseConfig(validEnvironment).deletion.returnApiEnabled).toBe(false);
+    expect(() => parseConfig({ ...validEnvironment, NAKH_RETURN_API_ENABLED: 'true' })).toThrow(
+      'Return API requires',
+    );
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_RETURN_API_ENABLED: 'true',
+        NAKH_DELETION_API_ENABLED: 'true',
+        NAKH_DELETION_WORKER_ENABLED: 'true',
+        NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+        NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
+        NAKH_DELETION_CUTOVER_EVIDENCE_HASH: 'b'.repeat(64),
+      }).deletion.returnApiEnabled,
+    ).toBe(true);
+  });
   it('keeps limited Telegram deletion off unless worker readiness is configured', () => {
     expect(parseConfig(validEnvironment).deletion.telegramEnabled).toBe(false);
     expect(() =>

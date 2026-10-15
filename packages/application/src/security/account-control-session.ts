@@ -10,9 +10,16 @@ export type AccountControlGrant = AccountControlLife &
   }>;
 export type AccountControlActor = AccountControlLife &
   Readonly<{ kind: 'user'; scope: 'account_control'; controlGrantId: string }>;
+/** Attempt/replay authority only; never usable by ordinary deletion/product ports. */
+export type AccountReturnActor = AccountControlLife &
+  Readonly<{ kind: 'user'; scope: 'account_return'; controlGrantId: string }>;
 export interface AccountControlSessionStore {
   issue(life: AccountControlLife, requestId: string): Promise<AccountControlGrant | undefined>;
   current(life: AccountControlLife, grantId: string): Promise<AccountControlGrant | undefined>;
+  currentForReturn?(
+    life: AccountControlLife,
+    grantId: string,
+  ): Promise<AccountControlGrant | undefined>;
   revoke(life: AccountControlLife, grantId: string, requestId: string): Promise<void>;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -116,6 +123,30 @@ export class AccountControlSessionService {
     return Object.freeze({
       kind: 'user',
       scope: 'account_control',
+      userId: original.userId,
+      productEpoch: original.productEpoch,
+      controlGrantId: original.grantId,
+    });
+  }
+  /** Revalidates original native grant authority, including only its proven next-life
+   * Return receipt. This never retags the ciphertext or authenticates a product life. */
+  public async authenticateReturn(
+    input: Readonly<{ bearerToken: string; audience: 'account_return' }>,
+  ): Promise<AccountReturnActor | undefined> {
+    if (input.audience !== 'account_return') return undefined;
+    const original = this.decode(input.bearerToken);
+    if (original === undefined || original.productEpoch >= 2147483647) return undefined;
+    const current = await this.store.currentForReturn?.(original, original.grantId);
+    if (
+      current === undefined ||
+      current.userId !== original.userId ||
+      current.productEpoch !== original.productEpoch ||
+      current.id !== original.grantId
+    )
+      return undefined;
+    return Object.freeze({
+      kind: 'user',
+      scope: 'account_return',
       userId: original.userId,
       productEpoch: original.productEpoch,
       controlGrantId: original.grantId,

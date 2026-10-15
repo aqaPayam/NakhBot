@@ -44,6 +44,9 @@ import {
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 
+import { M8AccountReturnApiModule } from './m8-account-return-api.js';
+import { PostgresAccountReturnStore } from '@nakh/persistence-postgres';
+
 export interface M8AccountDeletionApiOptions {
   readonly controls: Pick<AccountControlSessionService, 'authenticate'>;
   readonly store: (actor: AccountControlActor) => AccountDeletionStore;
@@ -243,5 +246,13 @@ export function createAccountDeletionApi(
       controls,
       store: (actor) => new PostgresAccountDeletionStore(database, secrets, actor),
     }),
+    ...(config.deletion.returnApiEnabled
+      ? [
+          M8AccountReturnApiModule.register({
+            controls,
+            store: (actor) => new PostgresAccountReturnStore(database, actor),
+          }),
+        ]
+      : []),
   ];
 }

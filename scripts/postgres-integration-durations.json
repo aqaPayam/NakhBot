@@ -7,6 +7,7 @@
     "overallJobPassed": true
   },
   "files": {
+    "apps/api/src/m8-account-return-api.integration.test.ts": 120000,
     "apps/api/src/ephemeral-cleanup.integration.test.ts": 27883,
     "apps/api/src/legacy-opaque-retirement.integration.test.ts": 2583,
     "apps/api/src/m7-admin-appeal-api.integration.test.ts": 957,

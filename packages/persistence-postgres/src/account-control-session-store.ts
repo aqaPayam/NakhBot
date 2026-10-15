@@ -184,6 +184,36 @@ export class PostgresAccountControlSessionStore implements AccountControlSession
       ? current
       : undefined;
   }
+  public async currentForReturn(
+    life: AccountControlLife,
+    grantId: string,
+  ): Promise<AccountControlGrant | undefined> {
+    if (!isAccountControlLife(life) || life.productEpoch >= 2147483647 || !UUID.test(grantId))
+      return undefined;
+    const row = (
+      await sql<GrantRow>`SELECT issued.id,issued.actor_user_id AS "userId",
+      issued.occurred_at AS "issuedAt",issued.metadata,clock_timestamp() AS now
+      FROM platform.audit_logs issued JOIN identity.accounts account ON account.user_id=issued.actor_user_id
+      WHERE issued.id=${grantId}::uuid AND issued.actor_user_id=${life.userId}::uuid
+        AND identity.account_return_grant_valid(issued.id,${life.userId}::uuid,${life.productEpoch}::integer,clock_timestamp(),true)
+        AND ((account.product_epoch=${life.productEpoch} AND account.state='deleted')
+          OR (account.product_epoch=${life.productEpoch + 1} AND account.state<>'deleted' AND EXISTS (
+            SELECT 1 FROM platform.audit_logs returned WHERE returned.event_type='account.returned.v1'
+              AND returned.actor_user_id=${life.userId}::uuid AND returned.metadata->>'controlGrantId'=${grantId}
+              AND returned.metadata->'fromEpoch'=to_jsonb(${life.productEpoch}::integer)
+              AND returned.metadata->'toEpoch'=to_jsonb(${life.productEpoch + 1}::integer)
+              AND identity.account_return_proof_valid(returned,true)
+              AND account.version>=(returned.metadata->>'toVersion')::integer
+          )))`.execute(this.database)
+    ).rows[0];
+    const current = grant(row, life);
+    return row !== undefined &&
+      current !== undefined &&
+      current.issuedAt <= row.now &&
+      current.expiresAt > row.now
+      ? current
+      : undefined;
+  }
   public async revoke(life: AccountControlLife, grantId: string, requestId: string): Promise<void> {
     if (!isAccountControlLife(life) || !UUID.test(grantId) || !UUID.test(requestId))
       throw unauthorized();

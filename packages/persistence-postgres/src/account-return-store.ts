@@ -1,15 +1,19 @@
 import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
-import type { AccountControlActor, AccountReturnStore } from '@nakh/application';
+import type {
+  AccountControlActor,
+  AccountReturnActor,
+  AccountReturnStore,
+} from '@nakh/application';
 import type { ReturnAccountCommand, ReturnAccountResult } from '@nakh/contracts';
 import { ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
 
 export class PostgresAccountReturnStore implements AccountReturnStore {
-  private readonly control: AccountControlActor;
+  private readonly control: AccountControlActor | AccountReturnActor;
   public constructor(
     private readonly database: NakhDatabase,
-    control: AccountControlActor,
+    control: AccountControlActor | AccountReturnActor,
   ) {
     this.control = Object.freeze({ ...control });
   }
@@ -19,6 +23,7 @@ export class PostgresAccountReturnStore implements AccountReturnStore {
       command.schemaVersion !== 1 ||
       !Number.isSafeInteger(command.data.expectedAccountVersion) ||
       command.data.expectedAccountVersion < 1 ||
+      command.data.expectedAccountVersion > 2147483647 ||
       typeof command.idempotencyKey !== 'string' ||
       command.idempotencyKey.length < 8 ||
       command.idempotencyKey.length > 128
@@ -26,7 +31,7 @@ export class PostgresAccountReturnStore implements AccountReturnStore {
       throw new ApplicationError('invalid_request', 'error.deletion.unavailable', 400);
     if (
       this.control.kind !== 'user' ||
-      this.control.scope !== 'account_control' ||
+      (this.control.scope !== 'account_control' && this.control.scope !== 'account_return') ||
       command.actor.kind !== 'user' ||
       command.actor.userId !== this.control.userId
     )

@@ -4,7 +4,69 @@
 
 
 
-## Current repair: avoid repeated worker launches in the combined integrity snapshot
+## Current increment: original-grant own Return HTTP composition
+
+Accepted `cde4e3a` passed all six exact-head jobs on attempt 1 of run
+`38657341922`: 1,208 native cases in 147 files, no failures/skips; all 27 plans
+at 20,000 scale. Terminal integrity was 1,450.626 ms against the unchanged 1,500 ms
+limit, with zero workers, both administrator proof indexes, one hash batch and no
+spill. Support load, backup/restore and actual collector/privacy rehearsal passed.
+All three artifact ZIP digests match GitHub. Failed `7eb48cb` evidence remains
+preserved; no acceptance limit or workload was weakened to obtain this result.
+
+`POST /v1/account/return/confirm` accepts only the caller's command envelope and
+expected Account version. Identity comes from the original opaque limited-control
+credential; actor, epoch, grant, Root, approval and channel selectors are rejected.
+The dedicated `account_return` actor can attempt/replay this native command only.
+Ordinary control authentication still rejects the old epoch after Return, and this
+scope cannot authenticate a product session or authorize deletion. The native
+Return function independently requires the original unexpired/unrevoked grant,
+separate approved completed Root, exact owner/epoch/version and permanent command
+and idempotency bindings under canonical locks and at commit.
+
+Return-only authentication accepts a deleted original life, or the one immediately
+following nondeleted life with this exact grant's independently verified Return
+receipt. It never retags an old credential to the new epoch. The boundary freezes
+the original actor and captures the input before native waits, then rechecks the
+same grant after execution. Expiry, revocation, substitution and a later tombstone
+fail closed; changed replay input remains a native idempotency conflict. The safe
+receipt has only returned/version/replayed fields and no credential. Unexpected
+response fields and private failure details are rejected before serialization.
+HTTP has no credential issuer. Redis activation and fresh product entry remain
+separate authenticated primary-composition work.
+
+`NAKH_RETURN_API_ENABLED=false` keeps the new route absent by default. Enabling it
+requires the existing configured deletion API/worker readiness and uses the
+existing control key; it neither approves Return nor enables retained-data release.
+Deploy schema 142 before enabling this adapter. There is no migration, new table,
+retention descriptor or provider claim. The new native HTTP file raises coverage
+to 1,211 cases in 148 files; its scheduling estimate is provisional only.
+
+Focused verification passed 29 unit cases in four files, all three native HTTP
+cases, lint and API type checks. Native evidence includes twenty concurrent exact
+retries, one audit/transition, unchanged lifetime preview facts and original financial
+proof, ordinary-control retirement, actual product-token denial, modified replay
+conflicts, independent approval admission, native revocation/expiry, different-grant
+receipt denial and rejection after a later own tombstone. The first native attempt
+identified fixture work from that deliberately pending tombstone being claimed by
+the next case; isolating its availability restored all cases without changing the
+production worker or claiming a completed second cleanup. Provider/factor/drain
+observations in these HTTP fixtures remain synthetic; actual Redis/worker Return
+cycles were accepted separately at `cde4e3a`. Versions are bounded to the native
+signed-integer range before execution. Full project and exact-head CI checks remain
+required for this candidate.
+
+The full local project check passed formatting, lint, all workspace types,
+all 1,125 unit tests in 233 files and all builds. Exact-head CI remains required
+before accepting this candidate or advancing another feature.
+
+Public Telegram/localized Return, fresh primary activation/product ingress, controlled
+retention release (OFF until real periods are approved), M8 telemetry/runbooks and
+remaining interruption/load/failure/recovery evidence remain required. Actual
+producer drain/provider/staging/PITR/DR, security review and operator sign-offs
+remain external. No M9. Full checks and all six exact-head jobs remain required.
+
+## Historical repair: avoid repeated worker launches in the combined integrity snapshot
 
 Feature `7eb48cb` is not accepted green. Run `38650762285` passed quality and
 all four container/native jobs: 1,207 native cases in 147 files, no failures or

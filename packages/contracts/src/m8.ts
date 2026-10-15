@@ -5,7 +5,7 @@ const actor = Type.Object(
   { userId: UuidSchema, kind: Type.Literal('user') },
   { additionalProperties: false },
 );
-const version = Type.Integer({ minimum: 1 });
+const version = Type.Integer({ minimum: 1, maximum: 2147483647 });
 const confirmation = Type.String({ minLength: 32, maxLength: 256, pattern: '^[A-Za-z0-9_-]+$' });
 const pendingDeletionPhaseSchema = Type.Union([
   Type.Literal('shared_closure'),
