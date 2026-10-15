@@ -133,6 +133,7 @@ export const M7PermissionSchema = Type.Union([
   Type.Literal('review_change_requests'),
   Type.Literal('review_support'),
   Type.Literal('review_appeals'),
+  Type.Literal('approve_account_return'),
 ]);
 export type M7Permission = Static<typeof M7PermissionSchema>;
 

@@ -1,6 +1,62 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
-## Current repair: independent native runners with source-bound coverage handoff
+
+## Current increment: separate audited Return approval (migration 141)
+
+Accepted `1a37e60` passed all six exact-head jobs on attempt 1 of run
+`38624307758`. The three independent native runners covered all 1,170 cases in
+144 files with zero skips; their source-bound aggregate was accepted before the
+unchanged later gates. All 27 M7 plans passed at 20,000 scale; terminal integrity
+was 1,304.75 ms against 1,500 ms with both required admin-proof indexes, one
+worker, one hash batch and no temporary/disk spill. Support load, backup/restore
+and actual collector/privacy rehearsal passed. Native, performance and telemetry
+ZIP digests match GitHub metadata. The original failed runs remain preserved.
+
+The next native increment records a separate immutable `account.return-approved.v1`
+fact for one completed deletion and its original account version/product epoch.
+The dedicated `approve_account_return` permission is seeded only to `super_admin`.
+The existing administrator command boundary records successful, rejected and
+failed reviews. A current native MFA session is mandatory; host TOTP requirements
+remain monotonic. Original User, Account and Root locks serialize concurrent
+reviewers; exact command replay retains one outcome, while distinct reviews can
+share the single Root approval and retain their individual audit attempts.
+
+The native deferred proof binds the approval to its exact successful command log,
+original Root, administrator, session and transaction. It rechecks the native
+clock, active identity/permission, original account, completed checkpoint chain,
+retained safety bar and independent deletion verifier. Suppressed or forged proof
+must not commit success. No private reason text or provider data is copied into
+the approval fact. Migration upgrades preserve original history and add no tables,
+columns, foreign keys or retention descriptors; the exact permission inventory
+now distinguishes historical schema 50 from schema 141.
+
+This approval does not execute Return or set `reactivation_allowed`; completed
+Roots remain byte-for-byte unchanged and the existing native Return prohibition
+remains in force. Own status continues to report reactivation denied until the
+separate safe Return command and ingress composition are implemented. Approved
+fresh GUEST Return, monotonic later-life Redis activation, historical proof after
+actual Return, executable controlled retention release, M8 telemetry/runbooks and
+the full interruption/load/failure/recovery matrix remain required. Retained-data
+release stays OFF until real periods are approved. Actual provider/staging/PITR/DR,
+security review and operator sign-offs remain external. No M9 is included.
+
+Local verification passed all nine native approval cases, including twenty-way
+same-command replay, distinct reviews with identical-command retry after native
+transaction conflicts, missing/forged audit denial, native MFA absence/expiry,
+expiry after an actual Account lock wait, deferred-commit expiry with a
+nontransactional execution witness, unchanged completed Root/phase bytes and
+both populated schema-140 upgrade paths. The separate schema-140 pending upgrade
+and permission-seed checks passed too. Initial local failures identified the old
+exact permission verifier, an unclassified new audit fact and fixture ordering;
+all were diagnosed and repaired before commit. The validated approval is now
+explicitly classified as immutable lifecycle proof; malformed facts still block
+verification. Synthetic protected-factor fixtures do not certify external MFA
+provider delivery. The full local check passed 1,110 unit tests and all workspace
+types/builds, with final lint/format checks on the added evidence.
+
+Full project checks and all six exact-head jobs are required before acceptance.
+
+## Historical repair: independent native runners with source-bound coverage handoff
 
 Repair `9477961` is not accepted green. Run `38616974877` passed every native
 case: 1,170 in 144 files, zero failed or skipped. Its English catalog check passed.

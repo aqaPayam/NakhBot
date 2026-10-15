@@ -183,3 +183,4 @@ export * from './administration/admin-totp-enrollment.js';
 export * from './identity/account-deletion-media.js';
 
 export * from './identity/account-deletion-ephemeral.js';
+export * from './identity/account-return-approval.js';

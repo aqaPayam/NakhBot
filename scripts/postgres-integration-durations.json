@@ -19,8 +19,10 @@
     "apps/api/src/m7-session-host-api.integration.test.ts": 2502,
     "apps/api/src/m7-support-api.integration.test.ts": 581,
     "apps/api/src/m7-totp-host-api.integration.test.ts": 3911,
+    "apps/api/src/m8-account-deletion-api.integration.test.ts": 3697,
     "apps/api/src/m8-media-authority-api.integration.test.ts": 3236,
     "apps/api/src/user-session-life.integration.test.ts": 3283,
+    "apps/telegram-gateway/src/account-deletion-ingress.integration.test.ts": 17206,
     "apps/telegram-gateway/src/admin-appeal-review-ingress.integration.test.ts": 884,
     "apps/telegram-gateway/src/admin-appeal-unban-ingress.integration.test.ts": 4043,
     "apps/telegram-gateway/src/admin-evidence-delivery.integration.test.ts": 4497,
@@ -37,6 +39,7 @@
     "apps/telegram-gateway/src/support-appeal-life.integration.test.ts": 3721,
     "apps/worker/src/account-deletion-runtime.integration.test.ts": 48371,
     "apps/worker/src/reference-delivery.integration.test.ts": 3043,
+    "packages/persistence-postgres/src/account-control-session-store.integration.test.ts": 15768,
     "packages/persistence-postgres/src/account-deletion-checkpoint-store.integration.test.ts": 8751,
     "packages/persistence-postgres/src/account-deletion-ephemeral-store.integration.test.ts": 93766,
     "packages/persistence-postgres/src/account-deletion-evidence-checkpoint.integration.test.ts": 7583,
@@ -60,6 +63,7 @@
     "packages/persistence-postgres/src/account-deletion-unlock-store.integration.test.ts": 24282,
     "packages/persistence-postgres/src/account-deletion-work-store.integration.test.ts": 8242,
     "packages/persistence-postgres/src/account-moderation-store.integration.test.ts": 628,
+    "packages/persistence-postgres/src/account-return-approval-store.integration.test.ts": 90000,
     "packages/persistence-postgres/src/admin-command-store.integration.test.ts": 533,
     "packages/persistence-postgres/src/admin-ingress-rejection-store.integration.test.ts": 323,
     "packages/persistence-postgres/src/admin-pair-parallel.integration.test.ts": 2811,
@@ -147,10 +151,7 @@
     "packages/queue-redis/src/legacy-reference-migration.integration.test.ts": 390,
     "packages/queue-redis/src/owned-opaque-state.integration.test.ts": 204,
     "packages/queue-redis/src/queue.integration.test.ts": 142,
-    "packages/queue-redis/src/reference-queue.integration.test.ts": 152,
-    "packages/persistence-postgres/src/account-control-session-store.integration.test.ts": 15768,
-    "apps/api/src/m8-account-deletion-api.integration.test.ts": 3697,
-    "apps/telegram-gateway/src/account-deletion-ingress.integration.test.ts": 17206
+    "packages/queue-redis/src/reference-queue.integration.test.ts": 152
   },
   "additionalMeasurements": [
     {

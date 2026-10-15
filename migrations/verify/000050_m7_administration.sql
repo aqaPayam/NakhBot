@@ -18,7 +18,8 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO permission_count FROM administration.admin_permissions;
-  IF permission_count <> 14
+  IF permission_count <> (14 + CASE
+      WHEN to_regprocedure('identity.account_return_reviewable(uuid)') IS NULL THEN 0 ELSE 1 END)
     OR (SELECT count(*) FROM administration.admin_role_permissions
         WHERE role_code = 'super_admin') <> permission_count
     OR (SELECT count(*) FROM administration.admin_role_permissions
