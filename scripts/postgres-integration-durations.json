@@ -64,7 +64,7 @@
     "packages/persistence-postgres/src/account-deletion-work-store.integration.test.ts": 7837,
     "packages/persistence-postgres/src/account-moderation-store.integration.test.ts": 636,
     "packages/persistence-postgres/src/account-return-approval-store.integration.test.ts": 143202,
-    "packages/persistence-postgres/src/account-return-store.integration.test.ts": 180000,
+    "packages/persistence-postgres/src/account-return-store.integration.test.ts": 308739,
     "packages/persistence-postgres/src/admin-command-store.integration.test.ts": 441,
     "packages/persistence-postgres/src/admin-ingress-rejection-store.integration.test.ts": 297,
     "packages/persistence-postgres/src/admin-pair-parallel.integration.test.ts": 2113,
@@ -251,6 +251,16 @@
       "file": "apps/telegram-gateway/src/account-deletion-ingress.integration.test.ts",
       "durationMs": 17206,
       "passed": 8,
+      "failed": 0,
+      "overallJobPassed": false,
+      "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."
+    },
+    {
+      "commit": "004ee29ffbf998420ca26282c5cb266dda427ad7",
+      "run": 38639158989,
+      "file": "packages/persistence-postgres/src/account-return-store.integration.test.ts",
+      "durationMs": 308739,
+      "passed": 12,
       "failed": 0,
       "overallJobPassed": false,
       "purpose": "Dispatch estimate only; failed or incomplete coverage never authorizes acceptance."

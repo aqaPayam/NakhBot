@@ -2,7 +2,41 @@
 
 
 
-## Current increment: separate native approved fresh Return (migration 142)
+
+## Current repair: Return event parity across native and application policy
+
+Feature `004ee29` is not accepted green. Run `38639158989` passed quality and
+three container/native jobs, but the API native partition failed one exact policy
+parity assertion. Across all three partitions the inventory remained 1,193 cases
+in 146 files: 1,192 passed, one failed, no skips. All twelve new actual Return cases
+passed in the worker partition. The reliability job was skipped, so later plan,
+load and backup/restore acceptance was not reached on this failed head. Original
+native logs and final status are preserved; no control replay was requested.
+
+Migration 142 correctly adds the exact content-free `account.returned.v1` native
+shape (`userId accountVersion`), but its reviewed TypeScript policy omitted that
+same entry. The repair adds the identical entry and keeps the complete native
+policy/catalog equality assertion. A focused boundary case rejects private fields,
+approval/epoch additions, malformed identifiers/versions and other schema versions.
+This classification authorizes neither restoration nor event admission. It keeps
+the existing account-lifecycle proof class; transport publication/expiry and the
+immutable native Return receipt remain separate concerns.
+No migration checksum, original proof guard, test volume or acceptance limit changes.
+
+The full local check passed all 1,112 unit tests in 231 files and all workspace
+lint/types/builds. All 22 native operational-policy cases passed, preserving the
+exact complete policy/catalog comparison and cancellation failures/races. The
+focused policy unit suite passed all 32 cases. Its first new positive expectation
+incorrectly used the ordinary-product transport class; correcting that test to the
+existing account-lifecycle class preserved production semantics before commit.
+
+The new Return suite's measured 308,739 ms replaces its provisional scheduling
+estimate, retaining explicit failed-overall provenance. All existing accepted-file
+measurements remain bound to the prior green run. Full project checks and all six
+exact-head jobs remain required on the repair before another feature. The full M8
+implementation scope and external approvals below remain unchanged.
+
+## Historical increment: separate native approved fresh Return (migration 142)
 
 Accepted `8148703` passed all six exact-head CI jobs on attempt 1 of run
 `38630480765`: 1,180 native cases in 145 files, no failures/skips; all 27 plans

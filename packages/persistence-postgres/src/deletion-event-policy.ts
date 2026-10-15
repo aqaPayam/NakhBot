@@ -10,6 +10,7 @@ export type DeletionEventDisposition =
 
 type Shape = Readonly<{ required: string; optional?: string }>;
 const shapes: Readonly<Record<string, Shape | readonly Shape[]>> = Object.freeze({
+  'account.returned.v1': { required: 'userId accountVersion' },
   'identity.telegram-identity-registered.v1': { required: 'userId accountState' },
   'telegram.start-route-requested.v1': { required: 'userId entryRoute uiLocale' },
   'identity.signup-started.v1': { required: 'userId currentStep draftVersion' },

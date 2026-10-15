@@ -3,6 +3,21 @@ import { classifyDeletionEvent } from './deletion-event-policy.js';
 
 const id = '10000000-0000-4000-8000-000000000001';
 describe('M8 typed operational event disposition', () => {
+  it('classifies only the exact content-free Return transport shape without granting restoration authority', () => {
+    const payload = { userId: id, accountVersion: 3 };
+    expect(classifyDeletionEvent('account.returned.v1', 1, payload)).toBe('lifecycle_proof');
+    for (const invalid of [
+      { ...payload, profileSnapshot: 'private' },
+      { ...payload, productEpoch: 1 },
+      { ...payload, approvalId: id },
+      { ...payload, accountVersion: -1 },
+      { ...payload, accountVersion: 1.5 },
+      { ...payload, userId: 'invalid' },
+      { userId: id },
+    ])
+      expect(classifyDeletionEvent('account.returned.v1', 1, invalid)).toBe('unclassified');
+    expect(classifyDeletionEvent('account.returned.v1', 2, payload)).toBe('unclassified');
+  });
   it.each([
     [
       'telegram.start-route-requested.v1',
