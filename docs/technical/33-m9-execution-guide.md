@@ -57,6 +57,18 @@ before a usable canary. Existing M8 Return/fresh-entry controls run first in the
 webhook and retain their separate confirmation protocol. Rendering tests use
 synthetic Telegram delivery; they do not establish real provider acceptance.
 
+Public signup composition must pass its original native `UserSessionActor` to
+`PostgresSignupStore` and `PostgresProfileStore`. Their bound mode captures the
+actor and write before waits, locks the stable User then Account, and checks the
+same current product epoch/grant before reads, mutation or cached replies. All
+writers take User/Account locks before claiming idempotency, including trusted
+internal retries, so these paths share one serialization order. Stable User
+locks use `NO KEY UPDATE` to permit foreign-key readers while serializing
+deletion, Return and session revocation. Unbound construction remains for
+trusted internal use and existing migration fixtures; public ingress must not
+use it. Native store tests are prerequisites for the signup UI and do not prove
+deployed primary entry, external provider acceptance or fresh Redis activation.
+
 Retained-data erasure stays disabled pending approved policies. Completing all
 34 retained-resource erasure adapters is outside the agreed closure scope. No
 policy period, security approval, provider result or operator sign-off is seeded

@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 
-import type { SaveSignupStepWrite, SignupStore, StartSignupWrite } from '@nakh/application';
+import type {
+  SaveSignupStepWrite,
+  SignupStore,
+  StartSignupWrite,
+  UserSessionActor,
+} from '@nakh/application';
 import type { SignupState } from '@nakh/contracts';
 import {
   ApplicationError,
@@ -11,6 +16,7 @@ import {
 } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 type SignupWrite = StartSignupWrite | SaveSignupStepWrite;
 const draftSteps = new Set([
@@ -160,7 +166,27 @@ function decodeDraft(
 }
 
 export class PostgresSignupStore implements SignupStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  /** Public ingress must bind its original native product grant. Undefined is
+   * retained for trusted internal callers and legacy migration fixtures. */
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
+
+  private async readOwned<T>(
+    userId: string,
+    read: (database: NakhDatabase) => Promise<T>,
+  ): Promise<T> {
+    const owner = this.owner;
+    if (owner === undefined) return read(this.database);
+    return this.database.transaction().execute(async (transaction) => {
+      await requireCurrentUserSession(transaction, userId, owner);
+      return read(transaction);
+    });
+  }
 
   private async claim(
     database: NakhDatabase,
@@ -215,8 +241,19 @@ export class PostgresSignupStore implements SignupStore {
       .executeTakeFirstOrThrow();
   }
 
-  public async getSignupState(userId: string): Promise<SignupState | undefined> {
-    const row = await this.database
+  public getSignupState(userId: string): Promise<SignupState | undefined> {
+    return this.readOwned(userId, (database) => this.readSignupState(database, userId));
+  }
+
+  public getCatalogSnapshot(userId: string): Promise<SignupCatalogSnapshot> {
+    return this.readOwned(userId, (database) => this.catalogs(database));
+  }
+
+  private async readSignupState(
+    database: NakhDatabase,
+    userId: string,
+  ): Promise<SignupState | undefined> {
+    const row = await database
       .selectFrom('identity.signup_progress as progress')
       .innerJoin('identity.signup_drafts as draft', 'draft.user_id', 'progress.user_id')
       .select([
@@ -234,17 +271,16 @@ export class PostgresSignupStore implements SignupStore {
   }
 
   public async startSignup(write: StartSignupWrite): Promise<SignupState> {
+    if (this.owner !== undefined) write = structuredClone(write);
     if (write.command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const userId = write.command.actor.userId;
     return this.database.transaction().execute(async (transaction) => {
-      const replay = await this.claim(transaction, write);
-      if (replay !== undefined) return replay;
       const user = await transaction
         .selectFrom('identity.users')
         .select('id')
         .where('id', '=', userId)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirst();
       if (user === undefined)
         throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
@@ -254,6 +290,10 @@ export class PostgresSignupStore implements SignupStore {
         .where('user_id', '=', userId)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, userId, this.owner);
+      const replay = await this.claim(transaction, write);
+      if (replay !== undefined) return replay;
       if (account.state !== 'guest' && account.state !== 'incomplete')
         throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
       if (
@@ -447,17 +487,16 @@ export class PostgresSignupStore implements SignupStore {
   }
 
   public async saveSignupStep(write: SaveSignupStepWrite): Promise<SignupState> {
+    if (this.owner !== undefined) write = structuredClone(write);
     if (write.command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const userId = write.command.actor.userId;
     return this.database.transaction().execute(async (transaction) => {
-      const replay = await this.claim(transaction, write);
-      if (replay !== undefined) return replay;
       await transaction
         .selectFrom('identity.users')
         .select('id')
         .where('id', '=', userId)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirstOrThrow();
       const account = await transaction
         .selectFrom('identity.accounts')
@@ -465,6 +504,10 @@ export class PostgresSignupStore implements SignupStore {
         .where('user_id', '=', userId)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, userId, this.owner);
+      const replay = await this.claim(transaction, write);
+      if (replay !== undefined) return replay;
       if (account.state !== 'incomplete')
         throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
       const progress = await transaction

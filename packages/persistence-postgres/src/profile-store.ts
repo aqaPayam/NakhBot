@@ -6,6 +6,7 @@ import type {
   ConfirmationMediaSelection,
   ProfileStore,
   UpdateProfileWrite,
+  UserSessionActor,
 } from '@nakh/application';
 import type { ConfirmSignupCommand, ConfirmSignupResult, OwnProfile } from '@nakh/contracts';
 import {
@@ -19,6 +20,7 @@ import {
 import type { NakhDatabase } from './database.js';
 import { lockEligibleMedia, profilePhotosAreEligible } from './media-eligibility.js';
 import { SystemIdGenerator } from './foundation-store.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 type Json = Readonly<Record<string, unknown>>;
 type CompleteDraft = Readonly<{
@@ -105,14 +107,46 @@ function hash(write: Pick<ConfirmSignupWrite | UpdateProfileWrite, 'command'>): 
 }
 
 export class PostgresProfileStore implements ProfileStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
 
-  public async getConfirmationReplay(
+  private async readOwned<T>(
+    userId: string,
+    read: (database: NakhDatabase) => Promise<T>,
+  ): Promise<T> {
+    const owner = this.owner;
+    if (owner === undefined) return read(this.database);
+    return this.database.transaction().execute(async (transaction) => {
+      await requireCurrentUserSession(transaction, userId, owner);
+      return read(transaction);
+    });
+  }
+
+  public getConfirmationReplay(
+    command: ConfirmSignupCommand,
+  ): Promise<ConfirmSignupResult | undefined> {
+    command = structuredClone(command);
+    return this.readOwned(command.actor.userId, (database) =>
+      this.readConfirmationReplay(database, command),
+    );
+  }
+
+  public getConfirmationMedia(userId: string): Promise<ConfirmationMediaSelection> {
+    return this.readOwned(userId, (database) => this.readConfirmationMedia(database, userId));
+  }
+
+  private async readConfirmationReplay(
+    database: NakhDatabase,
     command: ConfirmSignupCommand,
   ): Promise<ConfirmSignupResult | undefined> {
     if (command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
-    const existing = await this.database
+    const existing = await database
       .selectFrom('platform.idempotency_records')
       .select(['request_hash', 'status', 'response_json'])
       .where('actor_user_id', '=', command.actor.userId)
@@ -126,8 +160,11 @@ export class PostgresProfileStore implements ProfileStore {
     return { ...(existing.response_json as unknown as ConfirmSignupResult), replayed: true };
   }
 
-  public async getConfirmationMedia(userId: string): Promise<ConfirmationMediaSelection> {
-    const row = await this.database
+  private async readConfirmationMedia(
+    database: NakhDatabase,
+    userId: string,
+  ): Promise<ConfirmationMediaSelection> {
+    const row = await database
       .selectFrom('identity.signup_drafts as draft')
       .innerJoin('identity.signup_progress as progress', 'progress.user_id', 'draft.user_id')
       .select(['draft.draft_data', 'draft.schema_version', 'progress.current_step'])
@@ -266,17 +303,16 @@ export class PostgresProfileStore implements ProfileStore {
   }
 
   public async confirmSignup(write: ConfirmSignupWrite): Promise<ConfirmSignupResult> {
+    if (this.owner !== undefined) write = structuredClone(write);
     if (write.command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const userId = write.command.actor.userId;
     return this.database.transaction().execute(async (transaction) => {
-      const replay = await this.claim(transaction, write);
-      if (replay !== undefined) return replay;
       await transaction
         .selectFrom('identity.users')
         .select('id')
         .where('id', '=', userId)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirstOrThrow();
       const account = await transaction
         .selectFrom('identity.accounts')
@@ -284,6 +320,10 @@ export class PostgresProfileStore implements ProfileStore {
         .where('user_id', '=', userId)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, userId, this.owner);
+      const replay = await this.claim(transaction, write);
+      if (replay !== undefined) return replay;
       const progress = await transaction
         .selectFrom('identity.signup_progress')
         .select(['current_step', 'version'])
@@ -641,21 +681,20 @@ export class PostgresProfileStore implements ProfileStore {
     };
   }
   public getOwnProfile(userId: string): Promise<OwnProfile | undefined> {
-    return this.readProfile(this.database, userId);
+    return this.readOwned(userId, (database) => this.readProfile(database, userId));
   }
 
   public async updateOwnProfile(write: UpdateProfileWrite): Promise<OwnProfile> {
+    if (this.owner !== undefined) write = structuredClone(write);
     if (write.command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const userId = write.command.actor.userId;
     return this.database.transaction().execute(async (transaction) => {
-      const replay = await this.claimUpdate(transaction, write);
-      if (replay !== undefined) return replay;
       await transaction
         .selectFrom('identity.users')
         .select('id')
         .where('id', '=', userId)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirstOrThrow();
       const account = await transaction
         .selectFrom('identity.accounts')
@@ -663,6 +702,10 @@ export class PostgresProfileStore implements ProfileStore {
         .where('user_id', '=', userId)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, userId, this.owner);
+      const replay = await this.claimUpdate(transaction, write);
+      if (replay !== undefined) return replay;
       const settings = await transaction
         .selectFrom('identity.user_settings')
         .select('visibility_enabled')
