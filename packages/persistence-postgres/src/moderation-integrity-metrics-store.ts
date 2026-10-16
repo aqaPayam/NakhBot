@@ -6,6 +6,7 @@ import {
 import type { NakhDatabase } from './database.js';
 import {
   MODERATION_INTEGRITY_SOURCES,
+  moderationAppealMetadataSource,
   MODERATION_INTEGRITY_FLAGS,
   MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING,
   moderationEpisodeMetadataSource,
@@ -98,7 +99,7 @@ export function moderationIntegrityPhaseStatement(
   }
   return sql<{ phase: ModerationReconciliationPhase; sampledAt: Date; count: string }>`
       SELECT ${phase}::text AS phase, statement_timestamp() AS "sampledAt", count(*)::text AS count
-      FROM (${MODERATION_INTEGRITY_SOURCES[phase]}) probe
+      FROM (${phase === 'appeals' ? moderationAppealMetadataSource(true) : MODERATION_INTEGRITY_SOURCES[phase]}) probe
       WHERE ${sql.join(
         flags.map((flag) => sql`${sql.ref(`probe.${flag}`)} IS NOT TRUE`),
         sql` OR `,

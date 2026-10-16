@@ -1,8 +1,47 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
+## Current repair: narrow aggregate unban proof candidates
 
+Run `38811412702` for `7157b10` passed quality and all four native/container
+jobs: 1,262 native cases in 153 files, zero skips, four bound source receipts.
+Both actual collectors passed: M7 acquired the reviewed immutable official mirror;
+M8 reused the verified native configuration. Conversion, privacy, freshness and
+first-counter checks passed, and all four ZIP digests match. Reliability failed
+only terminal snapshot timing: 1,577.867 ms against 1,500 ms. The other 26 plans
+passed, both required indexes were present, with zero snapshot workers/spill.
+Later load/recovery acceptance is not inferred. Failed logs, annotations, plans
+and source-bound evidence are preserved; the unchanged failed head is not rerun.
 
+Reject action-attempt staging, complete action membership, indexed episode
+ranges, global join preferences, windowed ban populations and blocked-pair
+membership: their paired timings regressed. The unscoped join trial contaminated
+a later fixture read and timed out; it supplies no valid paired plan evidence.
+The scoped trial restored settings but regressed. No rejected source or reader
+setting is retained.
 
+The selected aggregate-only appeal reader narrows three subordinate unban joins
+by constants already required in their validity flag: unban action, banned prior
+state, and succeeded appeal-unban command/target class. Physical IDs and every
+owner/actor/command/target/time binding remain exact. The owning unban row is never
+filtered out: wrong or missing subordinate proof still fails its Appeal instead
+of becoming an accepted Appeal without an unban. Scanner joins stay unchanged.
+No migration, test inventory, fixture, repeated sample, index requirement,
+16 MiB work budget, zero-worker snapshot cap or 20-minute CI cap changes.
+
+All ten phase counts matched at full 20,000 scale. Controls took
+2,429.430/2,421.117/2,425.945 ms; selected candidates took
+2,410.313/2,418.782/2,402.070 ms. Both required indexes and zero workers/spill
+passed. The mean local gain is only 15.109 ms: diagnostic evidence, not a Linux
+latency guarantee. Native regression coverage compares complete Appeal flags and
+aggregate counts with the unchanged scanner under wrong constants, missing proof,
+review/target/restoration drift and duplicate audits. All 11 native integrity
+cases passed locally, including the five wrong-constant and three missing-proof
+probes; the existing inventory floor remains 1,262 cases in 153 files.
+
+Full check and all six changed-head successes remain mandatory before M8 advances.
+Retained release stays disabled and periods remain unapproved. Other retained
+resources and final independent M8 acceptance remain open. No external provider,
+staging, PITR/DR, security, CloudWatch/SNS or operator acceptance is claimed.
 
 ## Current repair: verified acquisition of the unchanged collector image
 

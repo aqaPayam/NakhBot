@@ -13,6 +13,8 @@ import { seedM7UnrestrictionPlans } from './m7-unrestriction-plan-fixture.js';
 import { scanRestrictionEpisodes } from './moderation-review-reconciliation.js';
 import {
   MODERATION_INTEGRITY_SOURCES,
+  MODERATION_INTEGRITY_FLAGS,
+  moderationAppealMetadataSource,
   moderationEpisodeMetadataSource,
   MODERATION_EPISODE_RESOLUTION_BINDING,
   MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING,
@@ -261,15 +263,94 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             store = new PostgresModerationIntegrityMetricsStore(tx);
           await seedM7IntegrityPlans(tx, prefix, 1000, at);
           await analyzeM7QueryTables(tx);
-          const baseline = await store.measure();
+          const measureAppeals = async (): ReturnType<typeof store.measure> => {
+            const sample = await store.measure();
+            const proof = (
+              await sql<{ flags: number; count: string }>`SELECT
+              (SELECT count(*)::integer FROM (${MODERATION_INTEGRITY_SOURCES.appeals}) scanner
+                FULL JOIN (${moderationAppealMetadataSource(true)}) aggregate ON aggregate.id=scanner.id
+                WHERE to_jsonb(scanner) IS DISTINCT FROM to_jsonb(aggregate)) AS flags,
+              (SELECT count(*)::text FROM (${MODERATION_INTEGRITY_SOURCES.appeals}) probe
+                WHERE ${sql.join(
+                  MODERATION_INTEGRITY_FLAGS.appeals.map(
+                    (flag) => sql`${sql.ref(`probe.${flag}`)} IS NOT TRUE`,
+                  ),
+                  sql` OR `,
+                )}) AS count`.execute(tx)
+            ).rows[0]!;
+            expect(proof.flags).toBe(0);
+            expect(sample.counts.appeals).toBe(Number(proof.count));
+            return sample;
+          };
+          const baseline = await measureAppeals();
           await seedM7AppealIntegrityPlans(tx, prefix, 1000, at);
           await analyzeM7QueryTables(tx);
-          expect((await store.measure()).counts).toEqual(baseline.counts);
+          expect((await measureAppeals()).counts).toEqual(baseline.counts);
+          for (const [table, column, broken, original, suffix] of [
+            [
+              'moderation.moderation_actions',
+              'action_type',
+              'unrestrict_user',
+              'unban_user',
+              'terminal-unban-action4',
+            ],
+            [
+              'identity.account_state_history',
+              'previous_state',
+              'active',
+              'banned',
+              'terminal-unban-history4',
+            ],
+            [
+              'administration.admin_action_logs',
+              'result',
+              'rejected',
+              'succeeded',
+              'terminal-unban-attempt4',
+            ],
+            [
+              'administration.admin_action_logs',
+              'command_code',
+              'moderation.apply-account-action',
+              'moderation.unban-appeal',
+              'terminal-unban-attempt4',
+            ],
+            [
+              'administration.admin_action_logs',
+              'target_type',
+              'user',
+              'user_appeal',
+              'terminal-unban-attempt4',
+            ],
+          ] as const) {
+            await sql`UPDATE ${sql.table(table)} SET ${sql.id(column)}=${broken} WHERE id=md5(${prefix}||${suffix})::uuid`.execute(
+              tx,
+            );
+            expect((await measureAppeals()).counts.appeals).toBe(baseline.counts.appeals + 1);
+            await sql`UPDATE ${sql.table(table)} SET ${sql.id(column)}=${original} WHERE id=md5(${prefix}||${suffix})::uuid`.execute(
+              tx,
+            );
+            expect((await measureAppeals()).counts).toEqual(baseline.counts);
+          }
+          for (const [table, suffix] of [
+            ['moderation.moderation_actions', 'terminal-unban-action4'],
+            ['identity.account_state_history', 'terminal-unban-history4'],
+            ['administration.admin_action_logs', 'terminal-unban-attempt4'],
+          ] as const) {
+            await sql`SAVEPOINT missing_appeal_proof`.execute(tx);
+            await sql`DELETE FROM ${sql.table(table)} WHERE id=md5(${prefix}||${suffix})::uuid`.execute(
+              tx,
+            );
+            expect((await measureAppeals()).counts.appeals).toBe(baseline.counts.appeals + 1);
+            await sql`ROLLBACK TO SAVEPOINT missing_appeal_proof`.execute(tx);
+            await sql`RELEASE SAVEPOINT missing_appeal_proof`.execute(tx);
+            expect((await measureAppeals()).counts).toEqual(baseline.counts);
+          }
           // Both accepted-without-unban and rejected decisions require their own review audit.
           for (const n of [1, 2]) {
             await sql`UPDATE platform.audit_logs SET request_id = ${randomUUID()}::uuid
               WHERE id = md5(${prefix} || 'terminal-review-audit' || ${n}::text)::uuid`.execute(tx);
-            const broken = await store.measure();
+            const broken = await measureAppeals();
             expect(broken.counts.appeals).toBe(baseline.counts.appeals + 1);
             expect(broken.counts.actions).toBe(baseline.counts.actions);
             await sql`UPDATE platform.audit_logs SET request_id = md5(${prefix} || 'terminal-review-request' || ${n}::text)::uuid
@@ -277,22 +358,22 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           }
           await sql`UPDATE administration.admin_action_logs SET target_id = md5(${prefix} || 'terminal-appeal2')::uuid
             WHERE id = md5(${prefix} || 'terminal-unban-attempt4')::uuid`.execute(tx);
-          const wrongTarget = await store.measure();
+          const wrongTarget = await measureAppeals();
           expect(wrongTarget.counts.appeals).toBe(baseline.counts.appeals + 1);
           expect(wrongTarget.counts.actions).toBe(baseline.counts.actions + 1);
           await sql`UPDATE administration.admin_action_logs SET target_id = md5(${prefix} || 'terminal-appeal4')::uuid
             WHERE id = md5(${prefix} || 'terminal-unban-attempt4')::uuid`.execute(tx);
           await sql`UPDATE identity.account_state_history SET next_state = 'active'
             WHERE id = md5(${prefix} || 'terminal-unban-history4')::uuid`.execute(tx);
-          expect((await store.measure()).counts.actions).toBe(baseline.counts.actions + 1);
+          expect((await measureAppeals()).counts.actions).toBe(baseline.counts.actions + 1);
           await sql`UPDATE identity.account_state_history SET next_state = 'restricted'
             WHERE id = md5(${prefix} || 'terminal-unban-history4')::uuid`.execute(tx);
           await sql`UPDATE identity.account_state_history SET user_id = md5(${prefix} || 'terminal-user1')::uuid
             WHERE id = md5(${prefix} || 'terminal-ban2')::uuid`.execute(tx);
-          expect((await store.measure()).counts.appeals).toBe(baseline.counts.appeals + 1);
+          expect((await measureAppeals()).counts.appeals).toBe(baseline.counts.appeals + 1);
           await sql`UPDATE identity.account_state_history SET user_id = md5(${prefix} || 'terminal-user2')::uuid
             WHERE id = md5(${prefix} || 'terminal-ban2')::uuid`.execute(tx);
-          expect((await store.measure()).counts).toEqual(baseline.counts);
+          expect((await measureAppeals()).counts).toEqual(baseline.counts);
           // A second matching metadata audit retains EXISTS cardinality: one Appeal.
           const duplicateAudit = randomUUID();
           await sql`INSERT INTO platform.audit_logs
@@ -303,7 +384,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             FROM platform.audit_logs WHERE id=md5(${prefix} || 'terminal-review-audit1')::uuid`.execute(
             tx,
           );
-          for (const sample of await Promise.all(Array.from({ length: 5 }, () => store.measure())))
+          for (const sample of await Promise.all(Array.from({ length: 5 }, () => measureAppeals())))
             expect(sample.counts).toEqual(baseline.counts);
           await sql`DELETE FROM platform.audit_logs WHERE id=${duplicateAudit}::uuid`.execute(tx);
           throw new FixtureRollback();

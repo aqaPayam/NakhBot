@@ -238,6 +238,61 @@ export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilde
 `;
 }
 
+/** Aggregate joins can discard candidates with a wrong required constant
+ * before hashing their proof fields. The outer unban row remains present and
+ * every exact binding remains in its flag. Scanner joins stay unchanged. */
+export function moderationAppealMetadataSource(filteredProofs = false): RawBuilder<unknown> {
+  return sql`
+WITH unban_facts AS MATERIALIZED (
+    -- Evaluate the uniquely owned link/effect facts once, independently of Appeal joins.
+    SELECT unban.appeal_id, action.target_user_id,
+      COALESCE(action.id IS NOT NULL AND action.action_type = 'unban_user'
+        AND history.id IS NOT NULL AND history.user_id = action.target_user_id
+        AND history.previous_state = 'banned' AND history.actor_admin_id = action.actor_admin_id
+        AND history.changed_at = action.occurred_at
+        AND attempt.id IS NOT NULL AND attempt.admin_user_id = action.actor_admin_id
+        AND attempt.command_id = action.command_id AND attempt.command_code = 'moderation.unban-appeal'
+        AND attempt.target_type = 'user_appeal' AND attempt.target_id = unban.appeal_id
+        AND attempt.result = 'succeeded',false) AS valid
+    FROM moderation.appeal_unbans unban
+    -- Each immutable primary key gives one candidate. Check every owner/effect
+    -- binding in the fact instead of carrying wide compound keys through hashes.
+    LEFT JOIN moderation.moderation_actions action ON action.id = unban.action_id
+      ${filteredProofs ? sql`AND action.action_type='unban_user'` : sql``}
+    LEFT JOIN identity.account_state_history history ON history.id = unban.unban_history_id
+      ${filteredProofs ? sql`AND history.previous_state='banned'` : sql``}
+    LEFT JOIN administration.admin_action_logs attempt ON attempt.id = unban.admin_action_log_id
+      ${filteredProofs ? sql`AND attempt.result='succeeded' AND attempt.command_code='moderation.unban-appeal' AND attempt.target_type='user_appeal'` : sql``}
+)
+SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
+    ban.id IS NOT NULL AS "banMatches",
+    appeal.status NOT IN ('accepted','rejected') OR COALESCE(
+      (appeal.id,appeal.reviewed_by_admin_id,appeal.version - 1,
+        CASE appeal.status WHEN 'accepted' THEN 'appeal_accepted' ELSE 'appeal_rejected' END) IN (
+        -- Exact tuple membership retains EXISTS semantics for duplicate attempts/audits
+        -- without sorting and grouping both terminal outcomes for every review.
+        SELECT attempt.target_id,attempt.admin_user_id,attempt.expected_target_version,audit.result_code
+        FROM administration.admin_action_logs attempt JOIN platform.audit_logs audit
+          ON audit.command_id = attempt.command_id AND audit.actor_admin_id = attempt.admin_user_id
+          AND audit.subject_type = 'user_appeal' AND audit.subject_id = attempt.target_id
+          AND audit.event_type = 'moderation.appeal-reviewed.v1' AND audit.request_id = attempt.request_id
+        WHERE attempt.target_type = 'user_appeal' AND attempt.command_code = 'moderation.review-appeal'
+          AND attempt.result = 'succeeded'
+      ),false) AS "hasReview",
+    unban.appeal_id IS NULL OR COALESCE(appeal.status = 'accepted'
+      AND unban.target_user_id = appeal.user_id AND unban.valid,false) AS "unbanMatches"
+    FROM moderation.user_appeals appeal
+    -- Non-null ban IDs and unique row IDs make count = 1 equivalent to no other
+    -- Appeal for this event. One grouped fact avoids two probes per Appeal.
+    JOIN (SELECT ban_state_history_id, count(*) AS "count" FROM moderation.user_appeals
+      GROUP BY ban_state_history_id) ban_population ON ban_population.ban_state_history_id = appeal.ban_state_history_id
+    -- The one-unban-per-Appeal primary key and effect primary keys retain one row.
+    LEFT JOIN unban_facts unban ON unban.appeal_id = appeal.id
+    LEFT JOIN identity.account_state_history ban ON ban.id = appeal.ban_state_history_id
+      AND ban.user_id = appeal.user_id AND ban.next_state = 'banned'
+`;
+}
+
 /** Owning metadata predicates shared by paged reconciliation and live aggregate sampling.
  * No prose, ciphertext, snapshot bodies, credentials or object keys leave these queries. */
 export const MODERATION_INTEGRITY_SOURCES = {
@@ -341,52 +396,7 @@ SELECT thread.id, thread.status <> 'open' OR COALESCE(unanswered.count,0) <= 2 A
     LEFT JOIN deletion_closures ON deletion_closures.support_thread_id = thread.id
       AND deletion_closures.source_version = thread.version - 1
 `,
-  appeals: sql`
-WITH unban_facts AS MATERIALIZED (
-    -- Evaluate the uniquely owned link/effect facts once, independently of Appeal joins.
-    SELECT unban.appeal_id, action.target_user_id,
-      COALESCE(action.id IS NOT NULL AND action.action_type = 'unban_user'
-        AND history.id IS NOT NULL AND history.user_id = action.target_user_id
-        AND history.previous_state = 'banned' AND history.actor_admin_id = action.actor_admin_id
-        AND history.changed_at = action.occurred_at
-        AND attempt.id IS NOT NULL AND attempt.admin_user_id = action.actor_admin_id
-        AND attempt.command_id = action.command_id AND attempt.command_code = 'moderation.unban-appeal'
-        AND attempt.target_type = 'user_appeal' AND attempt.target_id = unban.appeal_id
-        AND attempt.result = 'succeeded',false) AS valid
-    FROM moderation.appeal_unbans unban
-    -- Each immutable primary key gives one candidate. Check every owner/effect
-    -- binding in the fact instead of carrying wide compound keys through hashes.
-    LEFT JOIN moderation.moderation_actions action ON action.id = unban.action_id
-    LEFT JOIN identity.account_state_history history ON history.id = unban.unban_history_id
-    LEFT JOIN administration.admin_action_logs attempt ON attempt.id = unban.admin_action_log_id
-)
-SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
-    ban.id IS NOT NULL AS "banMatches",
-    appeal.status NOT IN ('accepted','rejected') OR COALESCE(
-      (appeal.id,appeal.reviewed_by_admin_id,appeal.version - 1,
-        CASE appeal.status WHEN 'accepted' THEN 'appeal_accepted' ELSE 'appeal_rejected' END) IN (
-        -- Exact tuple membership retains EXISTS semantics for duplicate attempts/audits
-        -- without sorting and grouping both terminal outcomes for every review.
-        SELECT attempt.target_id,attempt.admin_user_id,attempt.expected_target_version,audit.result_code
-        FROM administration.admin_action_logs attempt JOIN platform.audit_logs audit
-          ON audit.command_id = attempt.command_id AND audit.actor_admin_id = attempt.admin_user_id
-          AND audit.subject_type = 'user_appeal' AND audit.subject_id = attempt.target_id
-          AND audit.event_type = 'moderation.appeal-reviewed.v1' AND audit.request_id = attempt.request_id
-        WHERE attempt.target_type = 'user_appeal' AND attempt.command_code = 'moderation.review-appeal'
-          AND attempt.result = 'succeeded'
-      ),false) AS "hasReview",
-    unban.appeal_id IS NULL OR COALESCE(appeal.status = 'accepted'
-      AND unban.target_user_id = appeal.user_id AND unban.valid,false) AS "unbanMatches"
-    FROM moderation.user_appeals appeal
-    -- Non-null ban IDs and unique row IDs make count = 1 equivalent to no other
-    -- Appeal for this event. One grouped fact avoids two probes per Appeal.
-    JOIN (SELECT ban_state_history_id, count(*) AS "count" FROM moderation.user_appeals
-      GROUP BY ban_state_history_id) ban_population ON ban_population.ban_state_history_id = appeal.ban_state_history_id
-    -- The one-unban-per-Appeal primary key and effect primary keys retain one row.
-    LEFT JOIN unban_facts unban ON unban.appeal_id = appeal.id
-    LEFT JOIN identity.account_state_history ban ON ban.id = appeal.ban_state_history_id
-      AND ban.user_id = appeal.user_id AND ban.next_state = 'banned'
-`,
+  appeals: moderationAppealMetadataSource(),
   admins: sql`
 SELECT admin.id, NOT admin.is_active OR (admin.identity_verified_at IS NOT NULL AND EXISTS (
       SELECT 1 FROM identity.telegram_identities identity WHERE identity.user_id = admin.user_id
