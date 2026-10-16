@@ -18,6 +18,16 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('requires explicit activation of private start delivery', () => {
+    expect(parseConfig(validEnvironment).telegram.startDeliveryEnabled).toBe(false);
+    expect(
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true' }).telegram
+        .startDeliveryEnabled,
+    ).toBe(true);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'yes' }),
+    ).toThrow('true or false');
+  });
   it('keeps deletion polling disabled until explicitly configured with cache revocation and drain evidence', () => {
     expect(parseConfig(validEnvironment).deletion.workerEnabled).toBe(false);
     expect(() =>

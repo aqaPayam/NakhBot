@@ -42,6 +42,21 @@ services through actual process entry points before claiming usable canaries.
 Exercise the running host, rather than substituting direct store calls or
 programmatically composed test-only modules for this launch evidence.
 
+`NAKH_TELEGRAM_START_DELIVERY_ENABLED` now connects the ordinary gateway's
+startup response to the active localization catalog. It remains false by
+default. Enabled delivery accepts authenticated private starts only, checks
+ownership/lifecycle before registration and again after catalog waits, and
+re-reads the current route instead of displaying a replayed registration's
+historical route. Provider failure permits retry of the original business
+update; delivery is at least once, while registration remains idempotent.
+
+This first runtime connection sends the public route title only. It issues no
+session or action grants and exposes no nonfunctional buttons. Signup, product
+navigation and the post-Return activation-to-menu bridge still need wiring
+before a usable canary. Existing M8 Return/fresh-entry controls run first in the
+webhook and retain their separate confirmation protocol. Rendering tests use
+synthetic Telegram delivery; they do not establish real provider acceptance.
+
 Retained-data erasure stays disabled pending approved policies. Completing all
 34 retained-resource erasure adapters is outside the agreed closure scope. No
 policy period, security approval, provider result or operator sign-off is seeded

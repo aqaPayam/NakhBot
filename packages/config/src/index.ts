@@ -35,6 +35,7 @@ const ConfigSchema = Type.Object(
       likedByDeliveryEnabled: Type.Boolean(),
       notificationDeliveryEnabled: Type.Boolean(),
       supportAppealEnabled: Type.Boolean(),
+      startDeliveryEnabled: Type.Boolean(),
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
@@ -151,6 +152,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       likedByDeliveryEnabled: boolean(env.NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED, false),
       notificationDeliveryEnabled: boolean(env.NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED, false),
       supportAppealEnabled: boolean(env.NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED, false),
+      startDeliveryEnabled: boolean(env.NAKH_TELEGRAM_START_DELIVERY_ENABLED, false),
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),

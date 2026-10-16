@@ -72,6 +72,7 @@ import {
   type TelegramAccountDeletionIngressPort,
 } from './account-deletion-ingress.js';
 import type { TelegramReportIngressPort } from './report-ingress.js';
+import { createTelegramStartDelivery } from './start-delivery.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const REPORT_INGRESS = Symbol('REPORT_INGRESS');
@@ -155,7 +156,7 @@ function likedByReason(error: ApplicationError): M3TelegramReasonCode {
 class TelegramGatewayController {
   public constructor(
     @Inject(AUTHENTICATOR) private readonly authenticator: TelegramWebhookAuthenticator,
-    @Inject(START_ADAPTER) private readonly startAdapter: TelegramStartAdapter,
+    @Inject(START_ADAPTER) private readonly startAdapter: Pick<TelegramStartAdapter, 'handle'>,
     @Inject(PHOTO_ADAPTER) private readonly photoAdapter: PhotoAdapter,
     @Inject(PHOTO_MANAGEMENT_ADAPTER)
     private readonly photoManagementAdapter: PhotoManagementAdapter,
@@ -467,7 +468,11 @@ export class TelegramGatewayModule {
         },
         {
           provide: START_ADAPTER,
-          useValue: TelegramStartAdapter.withStore(identityStore, limiter),
+          useValue: createTelegramStartDelivery({
+            config,
+            database,
+            adapter: TelegramStartAdapter.withStore(identityStore, limiter),
+          }),
         },
         DatabaseLifecycle,
       ],
