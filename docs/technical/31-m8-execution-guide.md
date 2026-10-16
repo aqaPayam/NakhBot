@@ -3,6 +3,34 @@
 
 
 
+
+## Current repair: measure the expanded retention suite before dispatch
+
+Run `38835282900` for `10f4a47` passed quality and three complete native/image
+jobs. The legacy fixture failures are fixed. API reached the unchanged 20-minute
+cap after 28 passing suites; reliability was skipped. Its 24-case retention suite
+passed in 704,664 ms, while the last fully green 19-case cohort estimated 359,441
+ms. The expanded suite was substantially underweighted. No new full acceptance
+or later performance/recovery evidence is inferred. Timeout logs/annotations and
+all five available ZIPs are preserved with matching GitHub digests; the failed
+head is not rerun unchanged.
+
+Collect the four exact-head logs and accept only completed passing-suite lines.
+Exactly 144 unique known suites reported 1,252 passing cases; ten files remain
+unmeasured. Replace those 144 dispatch estimates with their observations and
+retain all ten unmeasured estimates and every prior provenance record. Mark the
+new measurement batch explicitly incomplete and overall/native acceptance false.
+Timing data never authorizes missing coverage or source receipts.
+
+The existing greedy planner now naturally assigns the measured 704,664-ms
+retention suite alone to one shard, and 51 files to each of the other three:
+estimated totals 704,664 / 606,957 / 606,949 / 606,906 ms. This is a planning
+observation, not a future runtime guarantee. No file, fixture, assertion, crypto
+or concurrency sample is removed. All 1,280 cases in 154 files, four bound source
+receipts, every performance/load/recovery gate and all 20-minute job caps remain.
+Full project check and all six changed-head successes remain mandatory. Retained
+release stays disabled; full M8 remains active and no M9 is started.
+
 ## Current repair: preserve pre-epoch Report fixtures
 
 Run `38832718242` for `39cedfb` passed quality and built all four images, but
