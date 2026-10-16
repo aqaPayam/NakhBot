@@ -704,6 +704,11 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             .where('id', '=', duplicateAttempt)
             .execute();
           expect((await store.measure()).counts.episodes).toBe(baseline);
+          // A rejected original plus a valid duplicate must remain one valid
+          // episode in every concurrent fresh snapshot. Batch membership must
+          // neither pick the first candidate nor multiply the owning entity.
+          for (const sample of await Promise.all(Array.from({ length: 20 }, () => store.measure())))
+            expect(sample.counts.episodes).toBe(baseline);
           const systemAction = await tx
             .selectFrom('moderation.moderation_actions')
             .selectAll()

@@ -4,6 +4,67 @@
 
 
 
+## Current repair: one real bounded episode-resolution index read
+
+Run `38838595686` for `091591a` passed quality and all four native/image jobs:
+1,280 cases in 154 files, zero skips and four exact-head source receipts. This
+verifies the legacy-fixture and dispatch repairs. Reliability failed the M7
+terminal integrity snapshot at 1,516.887 ms against the unchanged 1,500 ms limit.
+All 27 plans were produced, both required indexes remained and the snapshot had
+zero workers/spill. The failed log, annotations and four artifact ZIPs are
+preserved with verified GitHub digests. Later load/restore acceptance is not
+inferred and this failed head is not rerun unchanged.
+
+The episode phase opens 20,000 individual covering-index resolution probes.
+The aggregate now bounds one real index range by the lowest/highest resolved
+owner IDs in this same statement snapshot. Every candidate then needs exact
+administrator/command/request/digest/target attempt membership; every owning
+episode independently needs its complete ID/target/administrator/reason/time
+tuple. Nulls fail closed, duplicates retain existence semantics and unrelated
+in-range actions cannot authorize an owner. Open episodes still bypass only
+resolution validation. The scanner and all remaining metadata flags are unchanged.
+
+The bounds come from actual resolved owners; there is no fabricated index touch,
+new index, schema change or planner setting. The range boundary preserves the
+covering-index path without reopening it for each owner. All original fixture
+sizes, crypto/concurrency samples, repeated reads, 16 MiB budget, zero-worker
+snapshot cap, 20-minute CI caps and 20,000-scale/1,500-ms gates remain unchanged.
+Native coverage stays at 1,280 cases in 154 files. The existing duplicate-resolution
+case gains twenty concurrent snapshot assertions with its original rejected
+candidate plus a valid duplicate; no original probe or deadline is removed.
+
+Reject audit-only membership (inconsistent gain), scalar restoration subqueries
+(regression), combined result/command narrowing (small native fixture timeout),
+command-only narrowing (slower combined snapshot), and owner-first grouped
+resolution facts (negligible phase gain). The expanded command-filter control
+passed all 21 temporary cases; none of those candidate filters is shipped.
+Direct bulk resolution membership is faster but loses the mandatory resolution
+index and is also rejected. Experiment sources/logs remain private diagnostics.
+
+Selected same-fixture controls were 2,494.387 / 2,465.545 / 2,407.351 ms;
+bounded candidates were 2,378.381 / 2,386.417 / 2,389.977 ms: a modest 70.836-ms
+mean local gain, with both required indexes and zero workers/spill in every
+sample. Windows diagnostics are not proof of the Linux limit. Measured/shipped
+SQL and parameters, native corruption/duplicate/concurrency checks, full project
+checks and all six changed-head jobs remain required before advancing M8.
+
+The selected query's executable SQL and parameters match the measured candidate.
+All 17 native integrity/plan cases now pass, including the twenty added duplicate
+snapshots. Earlier experiment logs are diagnostic only. Full project checks and
+six changed-head CI successes remain mandatory before any further feature.
+
+## Agreed M8 closure scope
+
+The owner selected completion of the original M8 requirements and final
+verification, with retained-data erasure disabled pending approved policies.
+Completing every one of the 34 retained-resource erasure adapters is outside
+this closure scope. Ordinary product deletion, private retained manifests,
+safe separately approved fresh Return and original primary-entry activation
+remain required. The existing support-body release stays disabled. No real
+period, production activation, provider/staging/PITR/DR exercise, external
+security review or operator acceptance is invented. The original checklist in
+implementation plan section M8 remains the completion authority; M9 is excluded.
+
 ## Current repair: measure the expanded retention suite before dispatch
 
 Run `38835282900` for `10f4a47` passed quality and three complete native/image

@@ -8,7 +8,6 @@ import {
   MODERATION_INTEGRITY_SOURCES,
   moderationAppealMetadataSource,
   MODERATION_INTEGRITY_FLAGS,
-  MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING,
   moderationEpisodeMetadataSource,
 } from './moderation-integrity-sources.js';
 
@@ -76,12 +75,33 @@ export function moderationIntegrityPhaseStatement(
     const remaining = flags.filter((flag) => flag !== 'hasResolutionAttempt');
     return sql<IntegrityRow>`
       WITH episode_resolution_status AS MATERIALIZED (
-        -- Carry the owning metadata through the same scan that validates its
-        -- resolution. A second episode scan/hash join would only recover columns
-        -- already present here. CASE avoids resolution probes for open episodes.
+        -- Resolved owner bounds batch the real covering-index read instead of
+        -- opening one index probe per episode. Exact owner/actor/reason/time and
+        -- attempt tuples remain independent membership proofs; duplicates cannot
+        -- multiply an owner or combine fields across different resolutions.
+        -- CASE leaves open episodes outside resolution validation.
         SELECT owner.id, owner.target_user_id, owner.source_report_id,
           owner.witness_required, owner.distinct_reporter_count, owner.started_at,
-          CASE WHEN owner.status = 'resolved' THEN ${MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING}
+          CASE WHEN owner.status = 'resolved' THEN COALESCE((owner.id,owner.target_user_id,owner.resolved_by_admin_id,
+          owner.resolution_reason_code,owner.resolved_at) IN (
+          SELECT resolution.restriction_episode_id,resolution.target_user_id,resolution.actor_admin_id,
+            resolution.reason_code,resolution.occurred_at
+          FROM (
+            SELECT min(id::text COLLATE "C")::uuid AS first_id,max(id::text COLLATE "C")::uuid AS last_id
+            FROM moderation.restriction_episodes WHERE status='resolved'
+          ) bounds CROSS JOIN LATERAL (
+            SELECT restriction_episode_id,target_user_id,actor_admin_id,reason_code,occurred_at,
+              command_id,request_id,request_digest
+            FROM moderation.moderation_actions
+            WHERE restriction_episode_id IS NOT NULL AND actor_type='admin' AND action_type='unrestrict_user'
+              AND restriction_episode_id>=bounds.first_id AND restriction_episode_id<=bounds.last_id OFFSET 0
+          ) resolution WHERE COALESCE((resolution.actor_admin_id,resolution.command_id,resolution.request_id,
+          resolution.request_digest,resolution.target_user_id) IN (
+          SELECT attempt.admin_user_id,attempt.command_id,attempt.request_id,attempt.request_digest,attempt.target_id
+          FROM administration.admin_action_logs attempt WHERE attempt.result='succeeded'
+            AND attempt.command_code='moderation.apply-account-action' AND attempt.target_type='user'
+        ),false)
+        ),false)
             ELSE true END AS resolution_valid
         FROM moderation.restriction_episodes owner
       ), eligible_episodes AS MATERIALIZED (
