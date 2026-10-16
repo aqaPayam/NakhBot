@@ -105,6 +105,18 @@ approved Return. Unbound construction remains for trusted workers and fixtures.
 These boundaries are prerequisites for the remaining discovery UI and do not
 claim delivered profile cards or real provider acceptance.
 
+The combined moderation snapshot permits expression compilation above the
+server's existing cost threshold, with LLVM inlining and expensive optimization
+disabled. Phase and operational-health reads retain interpreted execution.
+Settings remain local to the read transaction and restore after success or
+failure. The combined snapshot retains zero workers and the 16 MiB work budget;
+the 20,000-row population, all 27 plans, both independent indexes, zero-spill
+evidence and 1,500 ms limit remain required. Servers without a JIT provider use
+interpreted execution; local settings tests do not prove Linux compilation or
+performance. Those results require the exact-source CI plan artifact.
+The compilation controls follow PostgreSQL's documented
+[JIT cost settings](https://www.postgresql.org/docs/17/runtime-config-query.html#GUC-JIT-INLINE-ABOVE-COST).
+
 Retained-data erasure stays disabled pending approved policies. Completing all
 34 retained-resource erasure adapters is outside the agreed closure scope. No
 policy period, security approval, provider result or operator sign-off is seeded

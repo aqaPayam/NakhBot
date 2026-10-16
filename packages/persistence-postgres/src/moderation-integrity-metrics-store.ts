@@ -16,8 +16,10 @@ export type ModerationIntegritySample = Readonly<{
   counts: Readonly<Record<ModerationReconciliationPhase, number>>;
 }>;
 type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; count: string };
-/** Periodic metadata reads are short, not analytical workloads. Avoid compiling the many
- * correlated safety branches on every sample. A fixed 16 MiB per-node work budget avoids
+/** Phase reads avoid compilation. The combined CPU-heavy snapshot may compile
+ * expressions above the server's existing cost threshold, with LLVM inlining and
+ * expensive optimization disabled. Servers without JIT retain interpreted reads.
+ * A fixed 16 MiB per-node work budget avoids
  * spilling ordinary metadata joins; it is not a total connection/process memory bound.
  * Dense metadata joins can benefit from parallel reads without reducing minimum
  * relation sizes. Shared parallel hashes can exhaust a container's dynamic shared
@@ -32,11 +34,23 @@ export async function withModerationIntegrityRead<T>(
   database: NakhDatabase,
   work: (transaction: NakhDatabase) => Promise<T>,
   maximumParallelWorkers: 0 | 1 = 1,
+  compilation: 'off' | 'expressions' = 'off',
 ): Promise<T> {
   if (maximumParallelWorkers !== 0 && maximumParallelWorkers !== 1)
     throw new Error('M7 integrity read limit is invalid.');
+  if (
+    (compilation !== 'off' && compilation !== 'expressions') ||
+    (compilation === 'expressions' && maximumParallelWorkers !== 0)
+  )
+    throw new Error('M7 integrity compilation mode is invalid.');
   const read = async (transaction: NakhDatabase): Promise<T> => {
-    await sql`SET LOCAL jit = off`.execute(transaction);
+    await sql`SELECT set_config('jit',${compilation === 'expressions' ? 'on' : 'off'},true)`.execute(
+      transaction,
+    );
+    if (compilation === 'expressions') {
+      await sql`SET LOCAL jit_inline_above_cost = -1`.execute(transaction);
+      await sql`SET LOCAL jit_optimize_above_cost = -1`.execute(transaction);
+    }
     await sql`SET LOCAL work_mem = '16MB'`.execute(transaction);
     await sql`SET LOCAL enable_parallel_hash = off`.execute(transaction);
     await sql`SET LOCAL parallel_setup_cost = 250`.execute(transaction);
@@ -146,6 +160,7 @@ export class PostgresModerationIntegrityMetricsStore {
       this.database,
       async (transaction) => (await moderationIntegrityStatement().execute(transaction)).rows,
       0,
+      'expressions',
     );
     if (rows.length !== MODERATION_RECONCILIATION_PHASES.length)
       throw new Error('M7 integrity measurement unavailable.');

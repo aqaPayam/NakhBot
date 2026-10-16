@@ -78,7 +78,12 @@ export async function explainM7Queries(
       }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(connection);
     const result =
       name.startsWith('integrity') || name === 'operationalHealth'
-        ? await withModerationIntegrityRead(database, explain, name === 'integritySnapshot' ? 0 : 1)
+        ? await withModerationIntegrityRead(
+            database,
+            explain,
+            name === 'integritySnapshot' ? 0 : 1,
+            name === 'integritySnapshot' ? 'expressions' : 'off',
+          )
         : await explain(database);
     plans[name] = result.rows[0]?.['QUERY PLAN'];
   }
@@ -122,6 +127,7 @@ async function explainTerminalAppealQueries(
           'QUERY PLAN': unknown;
         }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(connection),
       name === 'terminalIntegritySnapshot' ? 0 : 1,
+      name === 'terminalIntegritySnapshot' ? 'expressions' : 'off',
     );
     plans[name] = result.rows[0]?.['QUERY PLAN'];
   }
