@@ -1365,9 +1365,16 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
         lockTimeoutMs: 15000,
       });
       const root = await completed(legacy);
-      const snapshot = async (): Promise<unknown> =>
+      type Snapshot = {
+        root: unknown;
+        hash: string;
+        manifests: unknown;
+        phases: unknown;
+        financial: unknown;
+      };
+      const snapshot = async (): Promise<readonly Snapshot[]> =>
         (
-          await sql`SELECT to_jsonb(root) AS root,identity.retention_registry_hash() AS hash,
+          await sql<Snapshot>`SELECT to_jsonb(root) AS root,identity.retention_registry_hash() AS hash,
         (SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM identity.data_retention_records r WHERE deletion_record_id=root.id) AS manifests,
         (SELECT jsonb_agg(to_jsonb(r) ORDER BY from_checkpoint_version) FROM identity.account_deletion_phase_receipts r WHERE deletion_record_id=root.id) AS phases,
         (SELECT jsonb_agg(to_jsonb(r)) FROM billing.credit_epoch_closures r WHERE deletion_record_id=root.id) AS financial
@@ -1376,7 +1383,17 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
           )
         ).rows;
       const before = await snapshot();
-      expect((await runMigrations(target.url, resolve('migrations'))).applied).toEqual([
+      // Preserve the original M8 invariant through its unchanged schema inventory.
+      for (const file of await readdir(resolve('migrations')))
+        if (
+          /^\d{6}_[a-z0-9_]+\.sql$/u.test(file) &&
+          Number(file.slice(0, 6)) > 144 &&
+          Number(file.slice(0, 6)) <= 152
+        ) {
+          await copyFile(join(resolve('migrations'), file), join(directory, file));
+          copied.push(file);
+        }
+      expect((await runMigrations(target.url, directory)).applied).toEqual([
         '000145_m8_retention_policy.sql',
         '000146_m8_retained_source_membership.sql',
         '000147_m8_support_content_release.sql',
@@ -1385,10 +1402,27 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
         '000150_m8_batched_photo_sources.sql',
         '000151_m8_minimal_review_response_receipts.sql',
         '000152_m9_signup_presentation.sql',
+      ]);
+      expect(await snapshot()).toEqual(before);
+      expect((await runMigrations(target.url, resolve('migrations'))).applied).toEqual([
         '000153_m9_candidate_media_authority.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
-      expect(await snapshot()).toEqual(before);
+      const after = await snapshot();
+      expect(after.map((row) => [row.root, row.manifests, row.phases, row.financial])).toEqual(
+        before.map((row) => [row.root, row.manifests, row.phases, row.financial]),
+      );
+      expect(after).toHaveLength(1);
+      expect(after[0]!.hash).toMatch(/^[0-9a-f]{64}$/u);
+      expect(after[0]!.hash).not.toBe(before[0]!.hash);
+      expect(
+        (
+          await sql<{ valid: boolean }>`SELECT bool_and(identity.retention_record_valid(r)) AS valid
+        FROM identity.data_retention_records r WHERE deletion_record_id=${root.recordId}::uuid`.execute(
+            legacy,
+          )
+        ).rows,
+      ).toEqual([{ valid: true }]);
       expect(
         (
           await sql`SELECT id FROM platform.audit_logs WHERE subject_id=${root.recordId}::uuid AND event_type='account.retained-source-recorded.v1'`.execute(
