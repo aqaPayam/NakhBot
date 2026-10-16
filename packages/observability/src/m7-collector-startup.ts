@@ -163,7 +163,7 @@ export async function pullCollectorImage(
         // exactly three pulls; startup and conversion assertions run once.
         const sample = random();
         if (!Number.isFinite(sample) || sample < 0 || sample >= 1) throw error;
-        await wait(15000 * 2 ** attempt + Math.floor(sample * 5000));
+        await wait(60000 * 2 ** attempt + Math.floor(sample * 15000));
       } else {
         await wait(1000 * 2 ** attempt);
       }

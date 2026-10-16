@@ -4,6 +4,25 @@
 
 
 
+## Current repair: registry throttle refill budget
+
+Run `38791617799` for `9bd0bf2` passed the full project check and production
+security audit, then failed the M7 collector image pull with the finite
+`registry_rate_limited` diagnostic after all three attempts. No collector ran
+and no conversion evidence is claimed. Its failed log and annotations are
+preserved; the unchanged head is not rerun. The other five jobs passed: 1,262
+native cases in 153 files, zero skips, four bound source receipts, all 27 plans
+(terminal 1,439.195 ms), support load and backup/restore. All six available ZIP
+digests match. Collector evidence is absent and full acceptance remains false.
+
+Only confirmed throttles now wait 60/120 seconds plus bounded 0..14,999 ms
+jitter. Exactly three pulls remain; the total wait is at most 209,998 ms.
+Other transients retain 1/2-second waits; unknown, authorization, TLS and digest
+failures still fail closed. Image/version, actual conversion/privacy assertions
+and the 20-minute CI caps are unchanged. Fake-wait tests cover the exact delay
+and maximum jitter without sleeping. Full check and six changed-head successes
+remain required before any next M8 feature.
+
 ## Current increment: disabled exact-source support body release
 
 Accepted `8ac13df` passed all six jobs in run `38784824829`: 1,256 native

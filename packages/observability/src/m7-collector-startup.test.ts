@@ -45,7 +45,7 @@ describe('privacy-safe bounded collector image startup', () => {
       () => 0,
     );
     expect(attempts).toBe(3);
-    expect(waits).toEqual([15000, 30000]);
+    expect(waits).toEqual([60000, 120000]);
   });
   it('bounds throttle jitter and still fails after three persistent throttles without retrying conversion', async () => {
     const failure = Object.assign(new Error('fixture'), { stderr: '429 toomanyrequests; 503' }),
@@ -61,12 +61,12 @@ describe('privacy-safe bounded collector image startup', () => {
           waits.push(ms);
           return Promise.resolve();
         },
-        () => 0.9999,
+        () => 1 - Number.EPSILON,
       ),
     ).rejects.toBe(failure);
     expect(attempts).toBe(3);
-    expect(waits).toEqual([19999, 34999]);
-    expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeLessThan(55000);
+    expect(waits).toEqual([74999, 134999]);
+    expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeLessThan(210000);
   });
   it.each([
     ['toomanyrequests: Rate exceeded', 'collector_registry_transient', true],
