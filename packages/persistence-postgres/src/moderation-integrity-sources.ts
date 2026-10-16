@@ -40,17 +40,18 @@ function adminAccountHistoryMatches(): RawBuilder<boolean> {
 
 /** One actor-aware scan shares report and notice membership work across both actors.
  * System restrictions never gain administrator attempt/restoration authority.
- * Audit candidates are narrowed to the exact actor class. Pair-target membership
+ * Audit candidates use their unique ID; the flag still binds the exact actor class. Pair-target membership
  * remains independent, so a wrong audit actor cannot hide valid attempt evidence.
  * Every original owner/request/command and notice/history binding remains exact. */
 function moderationActionSource(): RawBuilder<unknown> {
   return sql`
 SELECT action.id, COALESCE(action_audit.id IS NOT NULL
+        AND action_audit.actor_type = action.actor_type
         AND CASE WHEN action.actor_type = 'system' THEN action_audit.actor_admin_id IS NULL
           ELSE action_audit.actor_admin_id = action.actor_admin_id END
         AND action_audit.command_id = action.command_id AND action_audit.request_id = action.request_id,
       false) AS "hasAudit",
-    CASE WHEN action.actor_type = 'system' THEN true ELSE COALESCE(attempt.id IS NOT NULL
+    CASE WHEN action.actor_type = 'system' THEN true ELSE COALESCE(action.actor_type='admin' AND attempt.id IS NOT NULL
         AND attempt.request_id = action.request_id AND attempt.request_digest = action.request_digest
         AND attempt.result = 'succeeded'
         AND ((action.action_type = 'unban_user'
@@ -96,11 +97,9 @@ SELECT action.id, COALESCE(action_audit.id IS NOT NULL
     ) AS "reportMatches"
     FROM moderation.moderation_actions action
     LEFT JOIN platform.audit_logs action_audit ON action_audit.id = action.audit_log_id
-      AND action_audit.actor_type = action.actor_type
     LEFT JOIN moderation.reports source_report ON source_report.id = action.source_report_id
     LEFT JOIN administration.admin_action_logs attempt
-      ON action.actor_type = 'admin'
-        AND attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
+      ON attempt.admin_user_id = action.actor_admin_id AND attempt.command_id = action.command_id
     -- One latest prior-state lookup per restoration binding; OFFSET 0 preserves the
     -- parameterized relation so repeated target/type/time bindings can be memoized.
     LEFT JOIN LATERAL (
@@ -228,11 +227,14 @@ export function moderationEpisodeMetadataSource(eligibleOnly = false): RawBuilde
     ) expected_audit ON true
     -- Primary keys give one candidate each. Validate every metadata/content-free binding
     -- in its flag instead of hashing wide tuples and rebuilding expected JSON in join keys.
-    -- Unique physical references identify candidates; validate all safety fields
-    -- in the flags above. Selective constants here can underestimate candidates
-    -- and cause a repeated materialized audit scan for each episode.
+    -- Single-field event/title filters narrow dense aggregate candidates. Avoid
+    -- multiplying correlated constant selectivities: that can choose a repeated
+    -- materialized scan. Every predicate remains independently checked in its flag.
+    -- Paged scanners retain their original primary-key candidates.
     LEFT JOIN platform.audit_logs restriction_audit ON restriction_audit.id = action.audit_log_id
+      ${eligibleOnly ? sql`AND restriction_audit.event_type='moderation.threshold-restriction.v1'` : sql``}
     LEFT JOIN notification.notifications restriction_notice ON restriction_notice.id = action.notification_id
+      ${eligibleOnly ? sql`AND restriction_notice.title_key='notification.restriction_warning.title'` : sql``}
     LEFT JOIN (SELECT DISTINCT notification_id FROM notification.notification_deliveries WHERE channel = 'telegram')
       telegram_delivery ON telegram_delivery.notification_id = restriction_notice.id
 `;
@@ -265,7 +267,7 @@ WITH unban_facts AS MATERIALIZED (
       ${filteredProofs ? sql`AND attempt.result='succeeded' AND attempt.command_code='moderation.unban-appeal' AND attempt.target_type='user_appeal'` : sql``}
 )
 SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
-    ban.id IS NOT NULL AS "banMatches",
+    ${filteredProofs ? sql`COALESCE(ban.id IS NOT NULL AND ban.user_id=appeal.user_id,false)` : sql`ban.id IS NOT NULL`} AS "banMatches",
     appeal.status NOT IN ('accepted','rejected') OR COALESCE(
       (appeal.id,appeal.reviewed_by_admin_id,appeal.version - 1,
         CASE appeal.status WHEN 'accepted' THEN 'appeal_accepted' ELSE 'appeal_rejected' END) IN (
@@ -289,7 +291,7 @@ SELECT appeal.id, ban_population."count" = 1 AS "uniqueBan",
     -- The one-unban-per-Appeal primary key and effect primary keys retain one row.
     LEFT JOIN unban_facts unban ON unban.appeal_id = appeal.id
     LEFT JOIN identity.account_state_history ban ON ban.id = appeal.ban_state_history_id
-      AND ban.user_id = appeal.user_id AND ban.next_state = 'banned'
+      ${filteredProofs ? sql`` : sql`AND ban.user_id = appeal.user_id`} AND ban.next_state = 'banned'
 `;
 }
 
@@ -430,6 +432,7 @@ SELECT attempt.id, CASE
     -- The physical unique command key gives at most one candidate. Compare every
     -- owner/request/digest binding after lookup rather than hashing the wide tuple.
     LEFT JOIN moderation.moderation_actions effect ON effect.command_id = attempt.command_id
+      AND effect.actor_admin_id IS NOT NULL
 `,
   internal_blocks: sql`
 SELECT pair.user_low_id AS "lowId", pair.user_high_id AS "highId",

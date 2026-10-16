@@ -517,6 +517,7 @@ describe.skipIf(url === undefined)(
                   '000147_m8_support_content_release.sql',
                   '000148_m8_protected_profile_change_lives.sql',
                   '000149_m8_live_retained_safety_holds.sql',
+                  '000150_m8_batched_photo_sources.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -566,6 +567,7 @@ describe.skipIf(url === undefined)(
                   '000147_m8_support_content_release.sql',
                   '000148_m8_protected_profile_change_lives.sql',
                   '000149_m8_live_retained_safety_holds.sql',
+                  '000150_m8_batched_photo_sources.sql',
                 ],
           );
           expect(

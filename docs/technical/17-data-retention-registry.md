@@ -4,6 +4,16 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 
 
+## Equivalent photo custody reads (migration 150)
+
+Only `media.report_photo_source_facts` evaluation changes. A statement-wide
+membership set preserves all live asset/provider/absence/lease checks. Verified
+private-copy evidence IDs exclude ordinary fallback without null poisoning;
+the private branch and its original cryptographic/audit proof stay unchanged.
+No table/column/FK classification, registry hash, source fingerprint, retained
+body, policy period or provider state is changed. This is no release authority.
+Retained erasure remains disabled pending actual approved policies.
+
 ## Live safety holds on retained support release
 
 Migration 149 changes no table/column/FK classification, registry hash, retained

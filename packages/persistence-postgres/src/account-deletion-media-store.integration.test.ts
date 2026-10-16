@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -520,6 +521,46 @@ describe.skipIf(url === undefined)('M8 owning account media provider work', () =
         )
       ).rows,
     ).toEqual([{ valid: true }]);
+    // Genuine native private custody survives an equivalent populated-view
+    // upgrade after the public objects/rows are gone. Compare hashes only so a
+    // failing assertion cannot print provider keys. DDL rollback restores the
+    // current view if any assertion fails; no source row or proof is rewritten.
+    const legacyMigration = await readFile(
+      resolve('migrations/000129_m8_account_media_provider_work.sql'),
+      'utf8',
+    );
+    const legacyStart = legacyMigration.indexOf('CREATE VIEW media.report_photo_source_facts AS');
+    const legacyEnd = legacyMigration.indexOf(
+      'CREATE OR REPLACE FUNCTION media.guard_photo_evidence_asset_cleanup',
+      legacyStart,
+    );
+    const legacyView = legacyMigration
+      .slice(legacyStart, legacyEnd)
+      .replace('CREATE VIEW', 'CREATE OR REPLACE VIEW');
+    const currentView = (
+      await sql<{
+        definition: string;
+      }>`SELECT pg_get_viewdef('media.report_photo_source_facts'::regclass,true) AS definition`.execute(
+        database,
+      )
+    ).rows[0]!.definition;
+    await database.transaction().execute(async (tx) => {
+      const sourceHash = async (): Promise<readonly { fingerprint: string }[]> =>
+        (
+          await sql<{ fingerprint: string }>`
+        SELECT encode(sha256(convert_to(to_jsonb(fact)::text,'UTF8')),'hex') AS fingerprint
+        FROM media.report_photo_source_facts fact WHERE report_evidence_id=${capture.evidenceId}::uuid`.execute(
+            tx,
+          )
+        ).rows;
+      await sql.raw(legacyView).execute(tx);
+      const original = await sourceHash();
+      expect(original).toHaveLength(1);
+      await sql
+        .raw('CREATE OR REPLACE VIEW media.report_photo_source_facts AS ' + currentView)
+        .execute(tx);
+      expect(await sourceHash()).toEqual(original);
+    });
     await database.transaction().execute(async (tx) => {
       await sql`SET LOCAL session_replication_role=replica`.execute(tx);
       await sql`UPDATE identity.account_deletion_media_operations SET verified_sha256=repeat('f',64)

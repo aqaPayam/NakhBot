@@ -4,6 +4,55 @@
 
 
 
+## Current repair: batch equivalent live-photo custody checks
+
+Run `38846686842` for `2aed0b1` passed quality and all four native/image jobs:
+1,280 native cases in 154 files, zero skips and four bound source receipts.
+Reliability failed the terminal snapshot at 1,547.315 ms against 1,500 ms;
+the other 26 plans passed. Both required indexes remained, with zero workers
+or spill. The bounded resolution read reduced episode work but supplied too
+little margin. Failed logs/annotations and all four ZIPs are preserved with
+verified GitHub digests. Later load/restore acceptance is not inferred.
+
+Reject a shared normalized operator-proof set: its complete ten-phase counts
+match, but both variants regress every paired full-volume sample by about
+200–280 ms. No such proof pipeline is shipped. Small physical-key and candidate
+filter variants also preserve all counts, with only a modest combined gain.
+
+Migration 150 keeps every photo source field and native custody condition.
+The live branch builds the exact valid asset-ID membership once, including
+validation, provider, physical absence and cleanup-lease checks. Its verified
+private-copy exclusion uses a non-null evidence-ID set; malformed verified
+private custody still cannot fall back to ordinary storage. The private branch
+is unchanged. No source row, capture, provider effect, policy, table/column/FK,
+registry hash, source fingerprint or retention period is rewritten or added.
+
+The selected source predicates use unique physical candidates, retaining actor
+and owner equality in their original flags. A single event/title condition may
+narrow aggregate threshold candidates; every original metadata predicate remains.
+Avoid compounded correlated filters and keep paged episode candidates unchanged.
+Admin effect candidates with null actors cannot satisfy the existing non-null
+attempt-owner equality. Every flag and one-count-per-entity behavior is preserved.
+
+On the same complete 20,000-scale fixture, controls were 2,392.493 / 2,398.852 /
+2,387.521 ms; selected combined reads 2,267.916 / 2,265.806 / 2,260.519 ms: a
+128.208-ms mean local gain. Every one of the ten phase counts matches, as does
+the complete source-fact fingerprint across all 15,000 returned photo sources.
+The asset scan runs once, replacing 17,500 point lookups; verified-copy set reads
+run once rather than 15,000 absence probes. Both required indexes remain, with
+zero workers/spill. These Windows diagnostics do not prove the Linux limit.
+
+The existing native private-custody case now compares hashed complete source
+rows under the legacy/current views after all public objects and raw media
+rows are gone. Its authentication, damaged-copy/no-fallback, quarantine and
+original capture-fingerprint assertions remain. All old upgrade cases remain;
+schema 149 is added to the populated matrix (80 cases), and every latest list
+includes migration 150. Native floor becomes 1,281 cases in 154 files.
+Full native/project checks and all six changed-head jobs remain mandatory.
+All 20,000-scale populations, crypto/concurrency cases, repeated samples, 16 MiB
+budget, zero-worker snapshot cap, both indexes, 1,500-ms limit and 20-minute CI
+caps stay. Retained release stays disabled; M8 remains active and M9 is excluded.
+
 ## Current repair: one real bounded episode-resolution index read
 
 Run `38838595686` for `091591a` passed quality and all four native/image jobs:
