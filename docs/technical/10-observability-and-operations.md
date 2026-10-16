@@ -127,3 +127,18 @@ Track cost per DAU and per successful signup across compute, PostgreSQL, Redis, 
 ## 9. Release health
 
 Every deployment annotates dashboards and runs synthetic checks for start/signup routing, discovery, Like-to-Match, Nakh funding in test provider mode, chat authorization, media grant, report, and deletion initiation. Progressive rollout automatically stops on SLO burn, payment mismatch, authorization failure, migration error, or queue-age regression.
+
+## Protected Profile change deletion and Return checks
+
+For migration 148, confirm pending protected changes close in the accepted
+original deletion transaction and that retained values/reasons/review notes
+remain intact. A valid content-free native life/closure fact may bypass the
+ordinary metadata blocker; malformed proof must still block. Never recreate
+missing provenance, rewrite old source fingerprints or infer a later Profile
+for an ambiguous legacy request. Old request reads, decisions and transport
+replays must fail after Return; a new request requires the new trusted product
+grant captured before pool/lock waits. Legacy construction only serves epoch-zero
+users without an issued product grant. Review authorization remains separate.
+Missing proof must roll back the complete operation, not leave a partial review
+or deletion. Retained release is still disabled, and no approved policy period
+or deployed provider/operator acceptance is implied by native fixtures.

@@ -16,6 +16,7 @@ export async function createEphemeralDeletionFixture(
   database: NakhDatabase,
   beforeDeletion?: (userId: string) => Promise<void>,
   beforeProductCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
+  beforeEvidenceCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
 ): Promise<{ userId: string; recordId: string; lease: AccountDeletionLease }> {
   const item = await createDeletionFixture(database, beforeDeletion);
   const work = new PostgresAccountDeletionWorkStore(database),
@@ -31,7 +32,9 @@ export async function createEphemeralDeletionFixture(
     /* bounded */
   }
   await checkpoints.finishShared(shared);
-  await checkpoints.finishEvidence(await claim());
+  const evidence = await claim();
+  await beforeEvidenceCheckpoint?.(evidence);
+  await checkpoints.finishEvidence(evidence);
   const product = await claim();
   while ((await new PostgresAccountDeletionProductStore(database).purgeNext(product)).hasMore) {
     /* bounded */

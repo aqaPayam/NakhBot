@@ -1,5 +1,57 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
+
+## Current increment: protected changes belong to their original Profile and life
+
+Commit `7cbe7df` passed all six jobs in run `38819795783`: 1,262 native cases
+in 153 files, zero skips, four bound receipts, all 27 plans at 20,000 scale,
+terminal 1,430.410 ms, both required indexes and zero snapshot workers/spill.
+Support load, backup/restore and both actual collector rehearsals passed; all
+four ZIP digests match. This verifies that repair, not external acceptance.
+
+A native reproduction then found that pending protected Profile changes survived
+actual deletion and approved Return, exposed old values through the store getter,
+blocked a fresh request and allowed an authorized review to update the new Profile.
+No deployed public route for this older store is inferred. Migration 148 adds
+mandatory content-free native birth facts tying each request to its original
+Profile anchor, product epoch, original requested audit and immutable body hash.
+It adds no table, column, foreign key, policy period or retention registry hash.
+The original source fingerprints and completed Roots/manifests are not rewritten.
+
+Deletion admission cancels at most the two pending fields in its own transaction,
+with exact before/after hashes and a mandatory closure audit. Private values,
+reason and administrative notes remain retained. Missing or corrupt proof rolls
+back admission; terminal requests cannot be reopened. Reviews require a current
+original life and their actual review row, status and original audit in the same
+transaction. Permanent request/review command fences outlive transport receipts.
+
+Owner operations capture a trusted product-session principal before any pool or
+lock wait, then verify the current native grant, Account and original Profile.
+A later Return or caller mutation cannot refresh that captured authority. Legacy
+construction serves only epoch-zero users who have never issued a product grant;
+it cannot bypass modern revocation or authorize returned lives. A future host
+must bind its authenticated primary-entry principal explicitly. Administrative
+review retains its separate authorization; no deployed MFA acceptance is claimed.
+
+Upgrade binds only unambiguous first-life history with a single original requested
+audit and no prior deletion. Ambiguous pending rows close with an explicit unbound
+receipt; no later Profile or epoch is guessed. Terminal ambiguous history stays
+retained and unavailable. Historical source membership remains valid even when a
+legitimate closure changes the current row fingerprint. Controlled release for
+these records is still a separate remaining increment and stays disabled.
+
+Native evidence covers twenty-way request/review retries, actual deletion and
+approved Return, two-field closure, missing/corrupt admission/closure/review proof,
+caller mutation after native lock barriers, a stale principal waiting for a pool
+connection, borrowed/revoked grants, permanent command reuse and a populated
+147-to-148 upgrade with byte-preserved source audits, Roots and manifests. Fixtures
+use privileged Profile activation and synthetic provider/MFA observations; they
+are not full signup, actual external provider or operator acceptance. Existing
+migration baselines remain, with 147 added. The native floor rises to 1,274 cases
+in 154 files. Full check and all six exact-head jobs must pass before advancing.
+Retained periods remain unapproved. Other retained release adapters and final
+independent M8 acceptance remain open; no M9 work is authorized.
+
 ## Current repair: narrow aggregate unban proof candidates
 
 Run `38811412702` for `7157b10` passed quality and all four native/container

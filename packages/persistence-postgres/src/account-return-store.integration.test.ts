@@ -475,6 +475,7 @@ describe.skipIf(url === undefined)('M8 native approved fresh guest Return', () =
         '000145_m8_retention_policy.sql',
         '000146_m8_retained_source_membership.sql',
         '000147_m8_support_content_release.sql',
+        '000148_m8_protected_profile_change_lives.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(

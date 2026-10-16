@@ -1242,7 +1242,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     );
     expect(protectedProfile?.version).toBe(finalBirthRequest?.status === 'approved' ? 6 : 5);
     expect(reviews).toHaveLength(2);
-    expect(requestAudits).toHaveLength(2);
+    expect(requestAudits).toHaveLength(3);
     expect(requestEvents).toHaveLength(2);
     // An unrelated user edit also cannot restore completion without eligible photos.
     const editedWithHiddenPhoto = await profiles.updateOwnProfile({

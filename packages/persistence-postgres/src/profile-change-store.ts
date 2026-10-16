@@ -6,7 +6,9 @@ import type {
   ProfileChangeStore,
   RequestProtectedProfileChangeWrite,
   ResolveProtectedProfileChangeWrite,
+  UserSessionActor,
 } from '@nakh/application';
+import { isUserProductLife } from '@nakh/application';
 import type {
   ProfileChangeRequest,
   RequestProtectedProfileChangeResult,
@@ -21,6 +23,7 @@ import {
 
 import type { NakhDatabase, ProfileChangeRequestTable } from './database.js';
 import { profilePhotosAreEligible } from './media-eligibility.js';
+import { PostgresUserSessionStore } from './user-session-store.js';
 
 type ProtectedWrite = RequestProtectedProfileChangeWrite | ResolveProtectedProfileChangeWrite;
 
@@ -143,21 +146,116 @@ async function profileFieldsAreValid(database: NakhDatabase, profileId: string):
 }
 
 export class PostgresProfileChangeStore implements ProfileChangeStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  /** Bind user operations to a trusted ingress principal before its waits.
+   * Legacy construction serves only first lives that have never issued a product
+   * grant. It never selects a later epoch or bypasses modern grant revocation.
+   * Administrator review still uses its separate authorization and target proof. */
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner =
+      owner === undefined
+        ? undefined
+        : Object.freeze({
+            kind: owner.kind,
+            userId: owner.userId,
+            productEpoch: owner.productEpoch,
+            sessionGrantId: owner.sessionGrantId,
+          });
+  }
+
+  private async ownerAllowed(database: NakhDatabase, userId: string): Promise<boolean> {
+    const account = await database
+      .selectFrom('identity.accounts')
+      .select(['state', 'product_epoch'])
+      .where('user_id', '=', userId)
+      .executeTakeFirst();
+    if (account === undefined || account.state === 'deleted') return false;
+    if (this.owner === undefined) {
+      if (account.product_epoch !== 0) return false;
+      return !(await database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('event_type', '=', 'identity.user-session-issued.v1')
+        .where('actor_user_id', '=', userId)
+        .limit(1)
+        .executeTakeFirst());
+    }
+    return (
+      this.owner.kind === 'user' &&
+      isUserProductLife(this.owner) &&
+      this.owner.userId === userId &&
+      this.owner.productEpoch === account.product_epoch &&
+      (await new PostgresUserSessionStore(database).current(
+        this.owner,
+        this.owner.sessionGrantId,
+      )) !== undefined
+    );
+  }
+
+  private async requireCurrent(
+    database: NakhDatabase,
+    userId: string,
+    requestId: string,
+    originalCommandId?: string,
+  ): Promise<void> {
+    const allowed = (
+      await sql<{
+        allowed: boolean;
+      }>`SELECT profile.change_is_current(${requestId}::uuid,${userId}::uuid)
+        AND (${originalCommandId ?? null}::uuid IS NULL OR EXISTS(
+          SELECT 1 FROM platform.audit_logs WHERE subject_id=${requestId}::uuid
+            AND event_type='profile.protected-change-life-bound.v1' AND command_id=${originalCommandId ?? null}::uuid
+        )) AS allowed`.execute(database)
+    ).rows[0]?.allowed;
+    if (allowed !== true)
+      throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+  }
+
+  private replayRequestId(replay: Readonly<Record<string, unknown>>): string {
+    const request = replay.request;
+    if (
+      typeof request !== 'object' ||
+      request === null ||
+      !('requestId' in request) ||
+      typeof request.requestId !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(request.requestId)
+    )
+      throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+    return request.requestId;
+  }
+
+  private knownCommand(
+    database: NakhDatabase,
+    commandId: string,
+    eventType: 'profile.protected-change-requested.v1' | 'profile.protected-change-reviewed.v1',
+  ): Promise<
+    Array<{
+      subject_id: string;
+      subject_type: string;
+      actor_user_id: string | null;
+      actor_admin_id: string | null;
+    }>
+  > {
+    return database
+      .selectFrom('platform.audit_logs')
+      .select(['subject_id', 'subject_type', 'actor_user_id', 'actor_admin_id'])
+      .where('event_type', '=', eventType)
+      .where('command_id', '=', commandId)
+      .limit(2)
+      .execute();
+  }
 
   public async requestProtectedChange(
-    write: RequestProtectedProfileChangeWrite,
+    input: RequestProtectedProfileChangeWrite,
   ): Promise<RequestProtectedProfileChangeResult> {
+    const write = structuredClone(input);
     if (write.command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const userId = write.command.actor.userId;
     return this.database.transaction().execute(async (transaction) => {
-      const replay = await claim(transaction, write);
-      if (replay !== undefined)
-        return {
-          ...(replay as unknown as RequestProtectedProfileChangeResult),
-          replayed: true,
-        };
       await transaction
         .selectFrom('identity.users')
         .select('id')
@@ -170,6 +268,44 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
         .where('user_id', '=', userId)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      if (!(await this.ownerAllowed(transaction, userId)))
+        throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+      const known = await this.knownCommand(
+        transaction,
+        write.command.commandId,
+        'profile.protected-change-requested.v1',
+      );
+      if (known.length > 0) {
+        if (
+          known.length !== 1 ||
+          known[0]!.subject_type !== 'profile_change_request' ||
+          known[0]!.actor_user_id !== userId
+        )
+          throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+        await this.requireCurrent(
+          transaction,
+          userId,
+          known[0]!.subject_id,
+          write.command.commandId,
+        );
+      }
+      const replay = await claim(transaction, write);
+      if (replay !== undefined) {
+        if (!(await this.ownerAllowed(transaction, userId)))
+          throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+        await this.requireCurrent(
+          transaction,
+          userId,
+          this.replayRequestId(replay),
+          write.command.commandId,
+        );
+        return {
+          ...(replay as unknown as RequestProtectedProfileChangeResult),
+          replayed: true,
+        };
+      }
+      if (known.length > 0)
+        throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
       const settings = await transaction
         .selectFrom('identity.user_settings')
         .select('visibility_enabled')
@@ -203,6 +339,8 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
         throw new ApplicationError('version_conflict', 'error.profile.version_conflict', 409, {
           currentVersion: String(profile.version),
         });
+      if (!(await this.ownerAllowed(transaction, userId)))
+        throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
       const oldValue =
         write.normalized.field === 'birth_year' ? profile.birth_year : profile.genderCode;
       if (oldValue === write.normalized.requestedValue)
@@ -299,8 +437,9 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
   }
 
   public async resolveProtectedChange(
-    write: ResolveProtectedProfileChangeWrite,
+    input: ResolveProtectedProfileChangeWrite,
   ): Promise<ResolveProtectedProfileChangeResult> {
+    const write = structuredClone(input);
     const actor = write.command.actor;
     if (actor.kind !== 'admin' || actor.userId !== write.authorization.reviewerUserId)
       throw new ApplicationError(
@@ -309,12 +448,6 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
         403,
       );
     return this.database.transaction().execute(async (transaction) => {
-      const replay = await claim(transaction, write);
-      if (replay !== undefined)
-        return {
-          ...(replay as unknown as ResolveProtectedProfileChangeResult),
-          replayed: true,
-        };
       const requestReference = await transaction
         .selectFrom('profile.profile_change_requests')
         .select('user_id')
@@ -336,12 +469,47 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
           'error.profile.change.reviewer_unauthorized',
           403,
         );
+      await transaction
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', requestReference.user_id)
+        .forNoKeyUpdate()
+        .executeTakeFirstOrThrow();
       const account = await transaction
         .selectFrom('identity.accounts')
         .select('state')
         .where('user_id', '=', requestReference.user_id)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      await this.requireCurrent(
+        transaction,
+        requestReference.user_id,
+        write.command.data.profileChangeRequestId,
+      );
+      const known = await this.knownCommand(
+        transaction,
+        write.command.commandId,
+        'profile.protected-change-reviewed.v1',
+      );
+      if (
+        known.length > 0 &&
+        (known.length !== 1 ||
+          known[0]!.subject_type !== 'profile_change_request' ||
+          known[0]!.subject_id !== write.command.data.profileChangeRequestId ||
+          known[0]!.actor_admin_id !== write.authorization.adminUserId)
+      )
+        throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+      const replay = await claim(transaction, write);
+      if (replay !== undefined) {
+        if (this.replayRequestId(replay) !== write.command.data.profileChangeRequestId)
+          throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+        return {
+          ...(replay as unknown as ResolveProtectedProfileChangeResult),
+          replayed: true,
+        };
+      }
+      if (known.length > 0)
+        throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
       const profile = await transaction
         .selectFrom('profile.profiles as profile')
         .innerJoin('catalog.gender_options as gender', 'gender.id', 'profile.gender_option_id')
@@ -516,12 +684,33 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
     userId: string,
     profileChangeRequestId: string,
   ): Promise<ProfileChangeRequest | undefined> {
-    const row = await this.database
-      .selectFrom('profile.profile_change_requests')
-      .selectAll()
-      .where('id', '=', profileChangeRequestId)
-      .where('user_id', '=', userId)
-      .executeTakeFirst();
-    return row === undefined ? undefined : view(row);
+    const read = async (database: NakhDatabase): Promise<ProfileChangeRequest | undefined> => {
+      await database
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', userId)
+        .forNoKeyUpdate()
+        .execute();
+      await database
+        .selectFrom('identity.accounts')
+        .select('user_id')
+        .where('user_id', '=', userId)
+        .forShare()
+        .execute();
+      if (!(await this.ownerAllowed(database, userId))) return undefined;
+      const row = await database
+        .selectFrom('profile.profile_change_requests')
+        .selectAll()
+        .where('id', '=', profileChangeRequestId)
+        .where('user_id', '=', userId)
+        .where(
+          sql<boolean>`profile.change_is_current(${profileChangeRequestId}::uuid,${userId}::uuid)`,
+        )
+        .executeTakeFirst();
+      return row === undefined ? undefined : view(row);
+    };
+    return this.database.isTransaction
+      ? read(this.database)
+      : this.database.transaction().execute(read);
   }
 }

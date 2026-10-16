@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import type { AccountControlActor, AdminCommandAttempt } from '@nakh/application';
+import type {
+  AccountControlActor,
+  AccountDeletionLease,
+  AdminCommandAttempt,
+} from '@nakh/application';
 import type { NakhDatabase } from '../database.js';
 import { createFinalDeletionFixture } from './final-deletion-fixture.js';
 import { createReportFixtureAdmin } from './report-fixture.js';
@@ -18,6 +22,7 @@ export async function createAccountReturnFixture(
     banned?: boolean;
     controlLifetimeSeconds?: number;
     beforeDeletion?: (userId: string) => Promise<void>;
+    beforeEvidenceCheckpoint?: (lease: AccountDeletionLease) => Promise<void>;
   } = {},
 ): Promise<{
   userId: string;
@@ -25,16 +30,21 @@ export async function createAccountReturnFixture(
   version: number;
   control: AccountControlActor;
 }> {
-  const item = await createFinalDeletionFixture(database, async (userId) => {
-    await sql`UPDATE identity.guest_preview_counters SET preview_count=3,first_preview_at=clock_timestamp(),last_preview_at=clock_timestamp() WHERE user_id=${userId}::uuid`.execute(
-      database,
-    );
-    if (options.banned)
-      await sql`UPDATE identity.accounts SET state='banned',version=version+1 WHERE user_id=${userId}::uuid`.execute(
+  const item = await createFinalDeletionFixture(
+    database,
+    async (userId) => {
+      await sql`UPDATE identity.guest_preview_counters SET preview_count=3,first_preview_at=clock_timestamp(),last_preview_at=clock_timestamp() WHERE user_id=${userId}::uuid`.execute(
         database,
       );
-    await options.beforeDeletion?.(userId);
-  });
+      if (options.banned)
+        await sql`UPDATE identity.accounts SET state='banned',version=version+1 WHERE user_id=${userId}::uuid`.execute(
+          database,
+        );
+      await options.beforeDeletion?.(userId);
+    },
+    undefined,
+    options.beforeEvidenceCheckpoint,
+  );
   const ephemeral = new PostgresAccountDeletionEphemeralStore(
     database,
     'm8-native-final',

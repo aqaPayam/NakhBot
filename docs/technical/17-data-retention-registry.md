@@ -2,6 +2,26 @@
 
 This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M8, with M7 owning moderation/evidence decisions; new migrations must update this file immediately.
 
+
+## Protected Profile change original lives
+
+Migration 148 adds no table/column/foreign-key classification or registry-hash
+change. Protected request/review content keeps its existing approved-window
+classification below; no private body is erased or approved period invented.
+Append-only `profile.protected-change-life-bound.v1` facts carry only original
+Profile/epoch identity, original requested-audit ID, body hash, transaction ID
+and admission/legacy mode. `profile.protected-change-closed.v1` facts carry only
+deletion/unbound mode, original Root identity or null, before/after row hashes
+and transaction ID. Their headers use the actual original operation identity.
+These minimal audit facts never authorize product access, an unban, Return or
+retained release. Pending requests close atomically with deletion; unambiguous
+legacy first lives alone may be bound during upgrade. Ambiguous pending rows
+close without guessing an origin. Original manifests and source membership facts
+remain immutable; historical proof does not silently refresh the captured hash.
+Request/review controlled release remains pending and disabled. Deployments must
+bind a trusted native product-session principal before owner operations wait;
+legacy construction cannot access returned lives or bypass issued grants.
+
 ## Policy attestations and immutable manifests
 
 Migration 145 reuses append-only administrator and account audits. It changes no

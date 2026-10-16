@@ -108,6 +108,7 @@ describe.skipIf(url === undefined)('M8 owned notice archival and original safety
       '000145_m8_retention_policy.sql',
       '000146_m8_retained_source_membership.sql',
       '000147_m8_support_content_release.sql',
+      '000148_m8_protected_profile_change_lives.sql',
     ]);
     expect(
       (
