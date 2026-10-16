@@ -82,7 +82,7 @@ export async function explainM7Queries(
             database,
             explain,
             name === 'integritySnapshot' ? 0 : 1,
-            name === 'integritySnapshot' ? 'expressions' : 'off',
+            name === 'integritySnapshot' ? 'inlined' : 'off',
           )
         : await explain(database);
     plans[name] = result.rows[0]?.['QUERY PLAN'];
@@ -127,7 +127,7 @@ async function explainTerminalAppealQueries(
           'QUERY PLAN': unknown;
         }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(connection),
       name === 'terminalIntegritySnapshot' ? 0 : 1,
-      name === 'terminalIntegritySnapshot' ? 'expressions' : 'off',
+      name === 'terminalIntegritySnapshot' ? 'inlined' : 'off',
     );
     plans[name] = result.rows[0]?.['QUERY PLAN'];
   }
@@ -190,6 +190,8 @@ export async function measureM7SyntheticPlans(
     unrestrictions: M7UnrestrictionFixture;
     encryptedCaptures: M7EncryptedCaptureFixture;
     messageCaptures: M7MessageCaptureFixture;
+    terminalCompilationPlans: Readonly<Record<string, readonly unknown[]>>;
+    terminalCompilationErrors: Readonly<Record<string, readonly 'unavailable'[]>>;
   }>
 > {
   if (!Number.isSafeInteger(volume) || volume < 1000 || volume > 20000)
@@ -203,6 +205,8 @@ export async function measureM7SyntheticPlans(
   let unrestrictions: M7UnrestrictionFixture | undefined;
   let encryptedCaptures: M7EncryptedCaptureFixture | undefined;
   let messageCaptures: M7MessageCaptureFixture | undefined;
+  const terminalCompilationPlans: Record<string, unknown[]> = {};
+  const terminalCompilationErrors: Record<string, 'unavailable'[]> = {};
   await withM6SyntheticPlanSession(database, async (connection) => {
     try {
       await connection.transaction().execute(async (tx) => {
@@ -318,6 +322,45 @@ export async function measureM7SyntheticPlans(
             if (health[key] !== healthBaseline[key])
               throw new Error('M7 operational health mismatch.');
         }
+        // Diagnostic comparisons run only after every original gate reading and
+        // repeated invariant check. They never replace or warm those readings.
+        for (const mode of [
+          'inlined',
+          'off',
+          'expressions',
+          'optimized',
+          'optimized',
+          'expressions',
+          'off',
+          'inlined',
+        ] as const) {
+          await sql`SAVEPOINT m7_compilation_comparison`.execute(tx);
+          try {
+            await sql`SET LOCAL statement_timeout='20s'`.execute(tx);
+            const result = await withModerationIntegrityRead(
+              tx,
+              async (connection) => {
+                if (mode === 'optimized')
+                  await sql`SELECT set_config('jit_optimize_above_cost',current_setting('jit_above_cost'),true)`.execute(
+                    connection,
+                  );
+                return sql<{
+                  'QUERY PLAN': unknown;
+                }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${moderationIntegrityStatement()}`.execute(
+                  connection,
+                );
+              },
+              0,
+              mode === 'optimized' ? 'inlined' : mode,
+            );
+            (terminalCompilationPlans[mode] ??= []).push(result.rows[0]?.['QUERY PLAN']);
+          } catch {
+            (terminalCompilationErrors[mode] ??= []).push('unavailable');
+          } finally {
+            await sql`ROLLBACK TO SAVEPOINT m7_compilation_comparison`.execute(tx);
+            await sql`RELEASE SAVEPOINT m7_compilation_comparison`.execute(tx);
+          }
+        }
         throw new SyntheticPlanRollback();
       });
     } catch (error) {
@@ -341,6 +384,8 @@ export async function measureM7SyntheticPlans(
     unrestrictions,
     encryptedCaptures,
     messageCaptures,
+    terminalCompilationPlans,
+    terminalCompilationErrors,
   };
 }
 class SyntheticPlanRollback extends Error {}

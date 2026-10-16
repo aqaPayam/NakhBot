@@ -13,10 +13,13 @@ export type M7PlanSummary = Readonly<{
     jitTotalMs: number;
     jitFunctions?: number;
     jitGenerationMs?: number;
+    jitInliningMs?: number;
     jitOptimizationMs?: number;
     jitEmissionMs?: number;
     jitExpressions?: boolean;
     jitDeforming?: boolean;
+    jitInlining?: boolean;
+    jitOptimization?: boolean;
     nodes: readonly Readonly<{
       parent: number;
       nodeType: string;
@@ -208,11 +211,17 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
       maximumWorkersLaunched,
       jitTotalMs: timing(jitTiming, 'Total'),
       jitFunctions: jit === undefined ? 0 : numeric(jit, 'Functions'),
-      jitGenerationMs: timing(jitTiming, 'Generation'),
+      jitGenerationMs:
+        typeof jitTiming?.Generation === 'object'
+          ? timing(object(jitTiming.Generation), 'Total')
+          : timing(jitTiming, 'Generation'),
+      jitInliningMs: timing(jitTiming, 'Inlining'),
       jitOptimizationMs: timing(jitTiming, 'Optimization'),
       jitEmissionMs: timing(jitTiming, 'Emission'),
       jitExpressions: jitOptions?.Expressions === true,
       jitDeforming: jitOptions?.Deforming === true,
+      jitInlining: jitOptions?.Inlining === true,
+      jitOptimization: jitOptions?.Optimization === true,
       nodes,
       nodesTruncated,
       slowNodes,

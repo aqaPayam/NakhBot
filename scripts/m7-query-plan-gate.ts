@@ -24,6 +24,8 @@ try {
     unrestrictions,
     encryptedCaptures,
     messageCaptures,
+    terminalCompilationPlans,
+    terminalCompilationErrors,
   } = await measureM7SyntheticPlans(database, volume);
   summaries = Object.fromEntries(
     Object.entries(plans).map(([name, plan]) => [name, summarizeM7Plan(plan)]),
@@ -95,6 +97,14 @@ try {
         requiredIndexes,
         requiredAllIndexes,
         plans: summaries,
+        // Additional diagnostics cannot authorize a failed original gate.
+        terminalCompilationComparisons: Object.fromEntries(
+          Object.entries(terminalCompilationPlans).map(([mode, readings]) => [
+            mode,
+            readings.map(summarizeM7Plan),
+          ]),
+        ),
+        terminalCompilationErrors,
       },
       null,
       2,

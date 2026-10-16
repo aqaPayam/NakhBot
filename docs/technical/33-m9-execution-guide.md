@@ -124,8 +124,9 @@ revocation after an observed pair-lock wait, real deletion and populated upgrade
 These boundaries still require gateway/worker composition and real provider acceptance.
 
 The combined moderation snapshot permits expression compilation above the
-server's existing cost threshold, with tuple decoding, LLVM inlining and expensive
-optimization left out of compilation. Phase and operational-health reads retain interpreted execution.
+server's existing cost threshold and inlines small functions/operators at that
+same threshold. Tuple decoding and expensive optimization remain outside
+production compilation. Phase and operational-health reads retain interpreted execution.
 Settings remain local to the read transaction and restore after success or
 failure. The combined snapshot retains zero workers and the 16 MiB work budget;
 the 20,000-row population, all 27 plans, both independent indexes, zero-spill
@@ -138,6 +139,15 @@ Tuple decoding uses the documented
 [tuple-deforming control](https://www.postgresql.org/docs/17/runtime-config-developer.html#GUC-JIT-TUPLE-DEFORMING).
 Plan evidence includes bounded compilation counters and boolean options, while
 discarding code, predicates and unknown fields.
+The inlining policy follows PostgreSQL's documented
+[function/operator inlining](https://www.postgresql.org/docs/17/jit-reason.html).
+The isolated plan fixture compares interpreted, expression-only, inlined and
+optimized compilation only after every original plan reading and repeated
+invariant check. These bounded diagnostics never replace original timings or
+authorize a failed gate. Each comparison has a twenty-second deadline and rolls
+back its settings through a savepoint; unavailable comparisons contain only a
+fixed status. Actual Linux compilation and performance remain exact-source CI
+requirements; the local Windows provider does not compile expressions.
 
 Retained-data erasure stays disabled pending approved policies. Completing all
 34 retained-resource erasure adapters is outside the agreed closure scope. No

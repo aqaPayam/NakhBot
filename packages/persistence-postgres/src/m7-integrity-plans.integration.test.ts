@@ -106,8 +106,22 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     }
   }
   it('measures ten populated phases and the actual combined sampler, then removes every fixture', async () => {
-    const { plans, terminalAppeals, encryptedCaptures, messageCaptures } =
-      await measureM7SyntheticPlans(database, 1000);
+    const {
+      plans,
+      terminalAppeals,
+      encryptedCaptures,
+      messageCaptures,
+      terminalCompilationPlans,
+      terminalCompilationErrors,
+    } = await measureM7SyntheticPlans(database, 1000);
+    for (const mode of ['off', 'expressions', 'inlined', 'optimized']) {
+      const readings = terminalCompilationPlans[mode] ?? [];
+      const errors = terminalCompilationErrors[mode] ?? [];
+      expect(readings.length + errors.length).toBe(2);
+      expect(errors.every((error) => error === 'unavailable')).toBe(true);
+      for (const reading of readings)
+        expect((reading as { Plan: { 'Actual Rows': number } }[])[0]?.Plan['Actual Rows']).toBe(10);
+    }
     expect(encryptedCaptures).toEqual({
       authenticated: 1000,
       metadataIntact: 1000,
@@ -881,54 +895,78 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
     ).rejects.toThrow('division by zero');
     await assertClean();
   });
-  it('bounds serial snapshot expression compilation and restores its settings on success and failure', async () => {
-    const names = [
-      'jit',
-      'jit_above_cost',
-      'jit_inline_above_cost',
-      'jit_optimize_above_cost',
-      'jit_tuple_deforming',
-      'work_mem',
-      'max_parallel_workers_per_gather',
-    ] as const;
-    await database.connection().execute(async (connection) => {
-      const settings = async (read: NakhDatabase): Promise<readonly string[]> => {
-        const values: string[] = [];
-        for (const name of names)
-          values.push(
-            (await sql<{ value: string }>`SELECT current_setting(${name}) AS value`.execute(read))
-              .rows[0]!.value,
+  it.each(['expressions', 'inlined'] as const)(
+    'bounds serial snapshot %s compilation and restores its settings on success and failure',
+    async (compilation) => {
+      const names = [
+        'jit',
+        'jit_above_cost',
+        'jit_inline_above_cost',
+        'jit_optimize_above_cost',
+        'jit_tuple_deforming',
+        'work_mem',
+        'max_parallel_workers_per_gather',
+      ] as const;
+      await database.connection().execute(async (connection) => {
+        const settings = async (read: NakhDatabase): Promise<readonly string[]> => {
+          const values: string[] = [];
+          for (const name of names)
+            values.push(
+              (await sql<{ value: string }>`SELECT current_setting(${name}) AS value`.execute(read))
+                .rows[0]!.value,
+            );
+          return values;
+        };
+        const before = await settings(connection);
+        const check = async (read: NakhDatabase): Promise<void> => {
+          const values = await settings(read);
+          expect(values).toEqual([
+            'on',
+            before[1],
+            compilation === 'inlined' ? before[1] : '-1',
+            '-1',
+            'off',
+            '16MB',
+            '0',
+          ]);
+          const sample = await new PostgresModerationIntegrityMetricsStore(read).measure();
+          expect(Object.values(sample.counts)).toEqual(Array.from({ length: 10 }, () => 0));
+        };
+        await withModerationIntegrityRead(connection, check, 0, compilation);
+        expect(await settings(connection)).toEqual(before);
+        await expect(
+          withModerationIntegrityRead(
+            connection,
+            async (read) => {
+              await check(read);
+              await sql`SELECT 1 / 0`.execute(read);
+            },
+            0,
+            compilation,
+          ),
+        ).rejects.toThrow('division by zero');
+        expect(await settings(connection)).toEqual(before);
+        await expect(
+          withModerationIntegrityRead(connection, check, 1, compilation),
+        ).rejects.toThrow('compilation mode');
+        expect(await settings(connection)).toEqual(before);
+        await connection.transaction().execute(async (read) => {
+          await sql`SET LOCAL jit_above_cost=-1`.execute(read);
+          await withModerationIntegrityRead(
+            read,
+            async (inner) => {
+              const values = await settings(inner);
+              expect(values.slice(1, 4)).toEqual(['-1', '-1', '-1']);
+            },
+            0,
+            compilation,
           );
-        return values;
-      };
-      const before = await settings(connection);
-      const check = async (read: NakhDatabase): Promise<void> => {
-        const values = await settings(read);
-        expect(values).toEqual(['on', before[1], '-1', '-1', 'off', '16MB', '0']);
-        const sample = await new PostgresModerationIntegrityMetricsStore(read).measure();
-        expect(Object.values(sample.counts)).toEqual(Array.from({ length: 10 }, () => 0));
-      };
-      await withModerationIntegrityRead(connection, check, 0, 'expressions');
-      expect(await settings(connection)).toEqual(before);
-      await expect(
-        withModerationIntegrityRead(
-          connection,
-          async (read) => {
-            await check(read);
-            await sql`SELECT 1 / 0`.execute(read);
-          },
-          0,
-          'expressions',
-        ),
-      ).rejects.toThrow('division by zero');
-      expect(await settings(connection)).toEqual(before);
-      await expect(
-        withModerationIntegrityRead(connection, check, 1, 'expressions'),
-      ).rejects.toThrow('compilation mode');
-      expect(await settings(connection)).toEqual(before);
-    });
-    await assertClean();
-  });
+        });
+        expect(await settings(connection)).toEqual(before);
+      });
+      await assertClean();
+    },
+  );
   it('keeps the combined snapshot serial and restores operator settings after success and failure', async () => {
     await database.connection().execute(async (connection) => {
       try {

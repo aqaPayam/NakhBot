@@ -19,12 +19,19 @@ describe('M7 plan evidence privacy', () => {
         Query: 'private text',
         JIT: {
           Functions: 3,
-          Options: { Expressions: true, Deforming: false, Private: 'private option' },
+          Options: {
+            Expressions: true,
+            Deforming: false,
+            Inlining: true,
+            Optimization: false,
+            Private: 'private option',
+          },
           Timing: {
             Generation: 0.1,
+            Inlining: 0.05,
             Optimization: 0.05,
             Emission: 0.35,
-            Total: 0.5,
+            Total: 0.55,
             Query: 'private JIT text',
           },
         },
@@ -67,13 +74,16 @@ describe('M7 plan evidence privacy', () => {
         maximumLoops: 20000,
         maximumWorkersPlanned: 2,
         maximumWorkersLaunched: 1,
-        jitTotalMs: 0.5,
+        jitTotalMs: 0.55,
         jitFunctions: 3,
         jitGenerationMs: 0.1,
+        jitInliningMs: 0.05,
         jitOptimizationMs: 0.05,
         jitEmissionMs: 0.35,
         jitExpressions: true,
         jitDeforming: false,
+        jitInlining: true,
+        jitOptimization: false,
         nodes: [
           { parent: -1, nodeType: 'Other', relation: 'Other', rows: 51, loops: 0, totalMs: 0 },
           {
@@ -129,5 +139,17 @@ describe('M7 plan evidence privacy', () => {
       jitDeforming: false,
     });
     expect(JSON.stringify(result)).not.toContain('private');
+  });
+  it('accepts nested generation totals without exposing deforming details or unknown fields', () => {
+    const result = summarizeM7Plan([
+      {
+        'Execution Time': 2,
+        Plan: { 'Actual Rows': 10 },
+        JIT: { Timing: { Generation: { Total: 0.75, Deform: 0.2, Query: 'private generation' } } },
+      },
+    ]);
+    expect(result.diagnostics.jitGenerationMs).toBe(0.75);
+    expect(JSON.stringify(result)).not.toContain('private');
+    expect(JSON.stringify(result)).not.toContain('"Deform":');
   });
 });

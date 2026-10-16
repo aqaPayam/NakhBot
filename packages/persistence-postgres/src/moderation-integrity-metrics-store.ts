@@ -18,7 +18,8 @@ export type ModerationIntegritySample = Readonly<{
 type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; count: string };
 /** Phase reads avoid compilation. The combined CPU-heavy snapshot may compile
  * expressions above the server's existing cost threshold, with tuple decoding,
- * LLVM inlining and expensive optimization left out of compilation. Servers
+ * and expensive optimization left out of compilation. Small functions/operators
+ * may be inlined at the server's existing compilation threshold. Servers
  * without JIT retain interpreted reads.
  * A fixed 16 MiB per-node work budget avoids
  * spilling ordinary metadata joins; it is not a total connection/process memory bound.
@@ -35,22 +36,26 @@ export async function withModerationIntegrityRead<T>(
   database: NakhDatabase,
   work: (transaction: NakhDatabase) => Promise<T>,
   maximumParallelWorkers: 0 | 1 = 1,
-  compilation: 'off' | 'expressions' = 'off',
+  compilation: 'off' | 'expressions' | 'inlined' = 'off',
 ): Promise<T> {
   if (maximumParallelWorkers !== 0 && maximumParallelWorkers !== 1)
     throw new Error('M7 integrity read limit is invalid.');
   if (
-    (compilation !== 'off' && compilation !== 'expressions') ||
-    (compilation === 'expressions' && maximumParallelWorkers !== 0)
+    (compilation !== 'off' && compilation !== 'expressions' && compilation !== 'inlined') ||
+    (compilation !== 'off' && maximumParallelWorkers !== 0)
   )
     throw new Error('M7 integrity compilation mode is invalid.');
   const read = async (transaction: NakhDatabase): Promise<T> => {
-    await sql`SELECT set_config('jit',${compilation === 'expressions' ? 'on' : 'off'},true)`.execute(
+    await sql`SELECT set_config('jit',${compilation === 'off' ? 'off' : 'on'},true)`.execute(
       transaction,
     );
-    if (compilation === 'expressions') {
+    if (compilation !== 'off') {
       await sql`SET LOCAL jit_tuple_deforming = off`.execute(transaction);
-      await sql`SET LOCAL jit_inline_above_cost = -1`.execute(transaction);
+      if (compilation === 'inlined')
+        await sql`SELECT set_config('jit_inline_above_cost',current_setting('jit_above_cost'),true)`.execute(
+          transaction,
+        );
+      else await sql`SET LOCAL jit_inline_above_cost = -1`.execute(transaction);
       await sql`SET LOCAL jit_optimize_above_cost = -1`.execute(transaction);
     }
     await sql`SET LOCAL work_mem = '16MB'`.execute(transaction);
@@ -162,7 +167,7 @@ export class PostgresModerationIntegrityMetricsStore {
       this.database,
       async (transaction) => (await moderationIntegrityStatement().execute(transaction)).rows,
       0,
-      'expressions',
+      'inlined',
     );
     if (rows.length !== MODERATION_RECONCILIATION_PHASES.length)
       throw new Error('M7 integrity measurement unavailable.');
