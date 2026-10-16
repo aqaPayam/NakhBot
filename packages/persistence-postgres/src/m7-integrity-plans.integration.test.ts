@@ -13,6 +13,7 @@ import { seedM7UnrestrictionPlans } from './m7-unrestriction-plan-fixture.js';
 import { scanRestrictionEpisodes } from './moderation-review-reconciliation.js';
 import {
   MODERATION_INTEGRITY_SOURCES,
+  moderationEpisodeMetadataSource,
   MODERATION_EPISODE_RESOLUTION_BINDING,
   MODERATION_EPISODE_RESOLUTION_MEMBERSHIP_BINDING,
 } from './moderation-integrity-sources.js';
@@ -435,6 +436,67 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
             .selectAll()
             .where('id', '=', action.restriction_episode_id!)
             .executeTakeFirstOrThrow();
+          const assertMetadataParity = async (): Promise<void> => {
+            const row = (
+              await sql<{ mismatches: number }>`WITH eligible_episodes AS MATERIALIZED (
+                SELECT * FROM moderation.restriction_episodes
+              ) SELECT count(*)::integer AS mismatches
+              FROM (${MODERATION_INTEGRITY_SOURCES.episodes}) scanner
+              FULL JOIN (${moderationEpisodeMetadataSource(true)}) aggregate ON aggregate.id=scanner.id
+              WHERE scanner.id IS NULL OR aggregate.id IS NULL
+                OR to_jsonb(scanner)-'hasResolutionAttempt' IS DISTINCT FROM to_jsonb(aggregate)-'hasResolutionAttempt'`.execute(
+                tx,
+              )
+            ).rows[0]!;
+            expect(row.mismatches).toBe(0);
+          };
+          const threshold = await tx
+            .selectFrom('moderation.moderation_actions')
+            .selectAll()
+            .where('restriction_episode_id', '=', episode.id)
+            .where('actor_type', '=', 'system')
+            .where('action_type', '=', 'restrict_user')
+            .executeTakeFirstOrThrow();
+          await assertMetadataParity();
+          for (const changed of [
+            { target_user_id: randomUUID() },
+            { source_report_id: randomUUID() },
+            { reason_code: 'unexpected_binding' },
+            { occurred_at: new Date(threshold.occurred_at.getTime() + 1) },
+          ]) {
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set(changed)
+              .where('id', '=', threshold.id)
+              .execute();
+            await assertMetadataParity();
+            expect((await store.measure()).counts.episodes).toBe(baseline + 1);
+            await tx
+              .updateTable('moderation.moderation_actions')
+              .set(threshold)
+              .where('id', '=', threshold.id)
+              .execute();
+            expect((await store.measure()).counts.episodes).toBe(baseline);
+          }
+          await sql`UPDATE moderation.restriction_episodes SET started_at=started_at-interval '0.000123 seconds' WHERE id=${episode.id}::uuid`.execute(
+            tx,
+          );
+          await assertMetadataParity();
+          expect((await store.measure()).counts.episodes).toBe(baseline + 1);
+          await tx
+            .updateTable('moderation.restriction_episodes')
+            .set({ started_at: episode.started_at })
+            .where('id', '=', episode.id)
+            .execute();
+          await tx
+            .deleteFrom('moderation.moderation_actions')
+            .where('id', '=', threshold.id)
+            .execute();
+          await assertMetadataParity();
+          expect((await store.measure()).counts.episodes).toBe(baseline + 1);
+          await tx.insertInto('moderation.moderation_actions').values(threshold).execute();
+          await assertMetadataParity();
+          expect((await store.measure()).counts.episodes).toBe(baseline);
           const resolutionValid = async (): Promise<boolean> => {
             const row = (
               await sql<{

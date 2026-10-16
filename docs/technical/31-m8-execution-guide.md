@@ -4,6 +4,36 @@
 
 
 
+## Current repair: reuse the exact threshold-action binding
+
+Run `38794376317` for `0774a19` passed quality, both actual collectors and all
+four container/native jobs: 1,262 cases in 153 files, zero skips, four bound
+source receipts. Reliability failed only terminal snapshot timing: 1,503.112 ms
+against the unchanged 1,500 ms limit. The other 26 plans passed, both mandatory
+indexes were used, with zero workers/spill. All four ZIP digests, job logs and
+annotations are preserved. Later support-load/recovery acceptance is not inferred.
+
+Reject the distinct-restoration variants: one spilled 2,023/2,024 blocks and a
+16,184 KiB sort; the no-merge alternative removed spill but regressed timing.
+Audit membership, compact proof joins, a missing-witness shortcut and shared
+command-proof staging also failed to show useful gains. Their paired observations
+are preserved. None of those source or reader-setting changes are retained.
+
+The selected aggregate-only change evaluates the existing exact threshold-action
+predicate once per metadata row and reuses its boolean for the owning action,
+history, audit and notice flags. The scanner and all predicate fields remain
+unchanged. Native parity probes compare complete metadata flags after owner,
+Report, reason, timestamp and missing-action drift, including a fractional-ms
+boundary. No fixture, crypto case, repeated sample, index, worker/memory setting,
+threshold, migration or CI cap changes.
+
+All ten phase counts matched the frozen failed-head query at full 20,000 scale.
+Controls were 2,444.410/2,450.355/2,448.044 ms; candidates were
+2,436.628/2,445.711/2,439.948 ms, with both required indexes and zero workers/spill.
+The mean Windows gain is only 6.841 ms; it is diagnostic, not Linux acceptance or
+a latency guarantee. All 11 native integrity cases passed. The full check and
+all six changed-head successes remain mandatory before M8 advances. Release stays disabled.
+
 ## Current repair: registry throttle refill budget
 
 Run `38791617799` for `9bd0bf2` passed the full project check and production
