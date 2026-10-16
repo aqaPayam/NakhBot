@@ -61,10 +61,11 @@ Repository secrets are used because protected environments are unavailable for t
 
 1. Open Actions → **Deploy staging (creates billable AWS resources)**.
 2. Select the exact default-branch commit.
-3. Enter `DEPLOY-STAGING`; leave image tag empty to use that commit SHA.
+3. Enter `DEPLOY-STAGING`; leave image tag empty to use that commit SHA. An explicit tag must be that same full lowercase SHA; alternate tags are rejected so the image source cannot differ from the checkout.
 4. Confirm that the selected ref is `main`; the workflow and AWS trust policy reject any other branch.
-5. On the first deployment, the workflow creates inactive infrastructure. It builds and pushes one immutable image release, registers and runs its migration task without changing live services, then activates two replicas per service and runs safe HTTPS/webhook checks. Later deployments leave the previous release online through image preparation and migration.
-6. Complete [`../../runbooks/m1-staging-acceptance.md`](../../runbooks/m1-staging-acceptance.md). Do not mark M1 accepted from deployment success alone.
+5. Before AWS access, the workflow requires the selected source's newest CI run to have all six jobs green in the same attempt, with live native/performance/telemetry artifact digest references. Missing, expired or mismatched evidence blocks deployment. It repeats the check before migration and activation and retains a content-free prerequisite receipt; that receipt is not proof of deployed provider acceptance.
+6. On the first deployment, the workflow creates inactive infrastructure. It builds and pushes one immutable image release, registers and runs its migration task without changing live services, then activates two replicas per service and runs safe HTTPS/webhook checks. Later deployments leave the previous release online through image preparation and migration; respect migration-specific quiescence requirements before dispatch.
+7. Complete [`../../runbooks/m1-staging-acceptance.md`](../../runbooks/m1-staging-acceptance.md). Do not mark M1 accepted from deployment success alone. M9 release preparation and remaining production gates are tracked in [`../../../docs/technical/33-m9-execution-guide.md`](../../../docs/technical/33-m9-execution-guide.md).
 
 ## Rollback after AWS exists
 

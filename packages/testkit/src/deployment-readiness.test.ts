@@ -8,6 +8,24 @@ async function source(path: string): Promise<string> {
 }
 
 describe('staging deployment readiness', () => {
+  it('checks exact-source CI before cloud access, migration and activation without accepting alternate image tags', async () => {
+    const workflow = await source('.github/workflows/deploy-staging.yml');
+    const check = 'run: pnpm exec tsx scripts/verify-release-ci.ts';
+    const positions = [...workflow.matchAll(new RegExp(check.replaceAll('.', '\\.'), 'gu'))].map(
+      (m) => m.index,
+    );
+    expect(positions).toHaveLength(3);
+    expect(workflow).toContain('actions: read');
+    expect(workflow).toContain('test "$IMAGE_TAG" = "$GITHUB_SHA"');
+    expect(workflow).toContain('[[ "$IMAGE_TAG" =~ ^[a-f0-9]{40}$ ]]');
+    expect(positions[0]!).toBeLessThan(
+      workflow.indexOf('uses: aws-actions/configure-aws-credentials'),
+    );
+    expect(positions[1]!).toBeLessThan(workflow.indexOf('task_arn=$(aws ecs run-task'));
+    expect(positions[2]!).toBeLessThan(workflow.indexOf('- name: Activate the verified release'));
+    expect(workflow.match(/NAKH_RELEASE_SHA: \$\{\{ env\.IMAGE_TAG \}\}/gu) ?? []).toHaveLength(3);
+    expect(workflow).toContain('path: artifacts/release-ci.json');
+  });
   it('keeps billable workloads default-off behind an explicit release gate', async () => {
     const variables = await source('deploy/terraform/staging/variables.tf');
     const compute = await source('deploy/terraform/staging/compute.tf');
