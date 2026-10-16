@@ -123,6 +123,27 @@ of deployed Redis, actual authenticator ownership, producer drain or operator
 sign-off. Retained-data release remains disabled pending separately approved
 periods and the complete controlled-release requirements.
 
+## Protected review response caches
+
+Migration 151 removes copied protected profile values from administrator review
+responses. A valid completed cache contains only `receiptSchemaVersion`,
+`profileChangeRequestId`, `decision` and the original `profileVersion`. Replay
+requires current native life/reviewer authority and the original review command
+and audit; a compact receipt alone grants no access. Old-life replay remains
+denied after deletion and Return.
+
+Upgrade minimizes legacy responses or discards malformed completed copies with
+mandatory content-free before/after hash audits. Audit failure rolls the entire
+migration back. Inspect hashes and fixed outcomes through private access; never
+copy cache bodies into logs. Native protected requests, reviews, Root/manifest
+proof and retention periods are unchanged. Apply schema migrations before
+starting the updated application, and retain the tombstone when diagnosing a
+failed upgrade. Quiesce protected review commands for the schema/application
+cutover: the old application expects the former response shape and must not
+remain a writer after the new constraint is installed. A rollback to that old
+application keeps protected review commands disabled; do not reconstruct private
+cache bodies to make old code work. Retained erasure remains disabled.
+
 ## Native CI timeout diagnosis
 
 Preserve exact-run logs and timeout annotations before changing scheduling. An
@@ -142,7 +163,7 @@ run proves startup only; full source-bound PostgreSQL/Redis CI proves acceptance
 The native inventory is now divided among all four existing container jobs,
 including Telegram. The overall workflow still has six jobs, all capped at 20
 minutes. Reliability requires four disjoint successful source-bound receipts and
-at least 1,245 cases across the entire 153-file inventory without skips. Missing
+at least 1,286 cases across the entire 154-file inventory without skips. Missing
 fourth-partition evidence cannot be replaced by an old three-partition report.
 Each cohort retains its own PostgreSQL database and Redis database; ordinary
 Redis bases must be 0-10 so four contexts stay below the reserved fixture DB 15.

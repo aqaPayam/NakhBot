@@ -4,6 +4,39 @@
 
 
 
+## Final implementation verification and handoff
+
+The original M8 scope and external release boundary are consolidated in
+[M8 acceptance evidence](32-m8-acceptance-evidence.md). Historical remaining-work
+entries below are superseded by that handoff. Retained erasure stays disabled
+pending approved policies; the 34 retained-resource adapters are outside this
+closure scope. M9 is excluded.
+
+Commit `4db8ded` passed all six jobs in run `38852689393`: 1,281 native cases in
+154 files, zero skips, four source-bound receipts, all 27 plans at 20,000 scale,
+and a 1,302.888-ms terminal snapshot with both indexes and zero workers/spill.
+Support concurrency load, backup/restore and both actual collector conversions
+passed; all four archive digests were verified. Tracked lines were 251,463.
+
+A separate disposable native audit then completed deletion and approved Return
+and found private old/requested birth-year values in an administrator-owned
+review response cache. Old replay was denied, but copied values survived. This
+ordinary transport copy is within M8 deletion scope, independently of retention
+period approval. Migration 151 minimizes valid legacy review responses to four
+receipt fields, discards malformed completed responses, and requires a content-free
+before/after hash audit for each change. Audit suppression rolls the migration
+back. Unrelated/processing caches, timestamps, native protected history, Roots,
+manifests, financial/safety proof and release flags remain unchanged.
+
+New review responses use that compact shape. Current-life replay reconstructs
+private fields from native history only after current administrator, User and
+Account checks and validates the original command/review/audit. A command alias
+using the same idempotency key keeps its original profile-version receipt.
+Four native cases cover concurrency/alias replay, actual deletion/Return,
+forged receipts and populated migration rollback. All old upgrade baselines
+remain and baseline 150 is added. Native floor is 1,286 cases in 154 files.
+Full project checks and all six final-revision CI successes are required.
+
 ## Current repair: batch equivalent live-photo custody checks
 
 Run `38846686842` for `2aed0b1` passed quality and all four native/image jobs:

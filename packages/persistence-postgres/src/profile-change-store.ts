@@ -70,7 +70,7 @@ function view(row: Selectable<ProfileChangeRequestTable>): ProfileChangeRequest 
 async function claim(
   database: NakhDatabase,
   write: ProtectedWrite,
-): Promise<Readonly<Record<string, unknown>> | undefined> {
+): Promise<{ commandId: string; response: Readonly<Record<string, unknown>> } | undefined> {
   const hash = requestHash(write);
   const claimed = await database
     .insertInto('platform.idempotency_records')
@@ -92,7 +92,7 @@ async function claim(
   if (claimed !== undefined) return undefined;
   const existing = await database
     .selectFrom('platform.idempotency_records')
-    .select(['request_hash', 'status', 'response_json'])
+    .select(['id', 'request_hash', 'status', 'response_json'])
     .where('actor_user_id', '=', write.command.actor.userId)
     .where('scope', '=', write.command.commandType)
     .where('idempotency_key', '=', write.command.idempotencyKey)
@@ -101,7 +101,7 @@ async function claim(
     throw new ApplicationError('idempotency_conflict', 'error.command.idempotency_conflict', 409);
   if (existing.status !== 'completed' || existing.response_json === null)
     throw new ApplicationError('conflict', 'error.command.in_progress', 409);
-  return existing.response_json;
+  return { commandId: existing.id, response: existing.response_json };
 }
 
 async function profileFieldsAreValid(database: NakhDatabase, profileId: string): Promise<boolean> {
@@ -296,11 +296,11 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
         await this.requireCurrent(
           transaction,
           userId,
-          this.replayRequestId(replay),
+          this.replayRequestId(replay.response),
           write.command.commandId,
         );
         return {
-          ...(replay as unknown as RequestProtectedProfileChangeResult),
+          ...(replay.response as unknown as RequestProtectedProfileChangeResult),
           replayed: true,
         };
       }
@@ -501,10 +501,65 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
         throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
       const replay = await claim(transaction, write);
       if (replay !== undefined) {
-        if (this.replayRequestId(replay) !== write.command.data.profileChangeRequestId)
+        const receipt = replay.response;
+        if (
+          Object.keys(receipt).length !== 4 ||
+          receipt.receiptSchemaVersion !== 1 ||
+          receipt.profileChangeRequestId !== write.command.data.profileChangeRequestId ||
+          receipt.decision !== write.command.data.decision ||
+          typeof receipt.profileVersion !== 'number' ||
+          !Number.isSafeInteger(receipt.profileVersion) ||
+          receipt.profileVersion < 1 ||
+          receipt.profileVersion > 2147483647
+        )
+          throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+        // A response is only a compact receipt. Reconstruct private fields from
+        // current native history after the User/Account life fence above. Bind
+        // the original command even when an alias uses the same idempotency key.
+        const request = await transaction
+          .selectFrom('profile.profile_change_requests')
+          .selectAll()
+          .where('id', '=', write.command.data.profileChangeRequestId)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        const review = await transaction
+          .selectFrom('profile.profile_change_reviews')
+          .selectAll()
+          .where('request_id', '=', request.id)
+          .executeTakeFirst();
+        const audits = await transaction
+          .selectFrom('platform.audit_logs')
+          .selectAll()
+          .where('command_id', '=', replay.commandId)
+          .where('event_type', '=', 'profile.protected-change-reviewed.v1')
+          .limit(2)
+          .execute();
+        const audit = audits[0];
+        if (
+          request.status !== receipt.decision ||
+          review === undefined ||
+          review.decision !== receipt.decision ||
+          review.admin_user_id !== admin.id ||
+          request.resolved_at?.getTime() !== review.reviewed_at.getTime() ||
+          audits.length !== 1 ||
+          audit?.category !== 'admin' ||
+          audit.actor_type !== 'admin' ||
+          audit.actor_user_id !== null ||
+          audit.actor_admin_id !== admin.id ||
+          audit.subject_type !== 'profile_change_request' ||
+          audit.subject_id !== request.id ||
+          audit.result_code !== receipt.decision ||
+          audit.metadata_schema_version !== 1 ||
+          Object.keys(audit.metadata).length !== 2 ||
+          audit.metadata.field !== request.field_name ||
+          audit.metadata.decision !== receipt.decision ||
+          audit.occurred_at.getTime() !== review.reviewed_at.getTime()
+        )
           throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
         return {
-          ...(replay as unknown as ResolveProtectedProfileChangeResult),
+          request: view(request),
+          decision: write.command.data.decision,
+          profileVersion: receipt.profileVersion,
           replayed: true,
         };
       }
@@ -673,7 +728,16 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
         .executeTakeFirstOrThrow();
       await transaction
         .updateTable('platform.idempotency_records')
-        .set({ status: 'completed', response_json: result, updated_at: write.processedAt })
+        .set({
+          status: 'completed',
+          response_json: {
+            receiptSchemaVersion: 1,
+            profileChangeRequestId: request.id,
+            decision: write.command.data.decision,
+            profileVersion,
+          },
+          updated_at: write.processedAt,
+        })
         .where('id', '=', write.command.commandId)
         .executeTakeFirstOrThrow();
       return result;

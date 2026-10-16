@@ -4,6 +4,18 @@ This registry is mandatory for every user-linked table or object prefix. It reco
 
 
 
+## Protected review transport receipts (migration 151)
+
+Administrator response caches contain only schema version, protected request ID,
+decision and original profile version. They do not duplicate old/requested
+protected values. Current-life replay reconstructs authorized data from retained
+native history and binds its original review/audit. Legacy completed copies are
+minimized, malformed copies discarded, with mandatory content-free hash audits.
+Unrelated caches and processing claims are unchanged. No table/column/FK
+classification, registry hash, retained source/body, policy period, Root or
+manifest changes; native protected request/review retention remains separate.
+Retained erasure remains disabled pending approved policies.
+
 ## Equivalent photo custody reads (migration 150)
 
 Only `media.report_photo_source_facts` evaluation changes. A statement-wide

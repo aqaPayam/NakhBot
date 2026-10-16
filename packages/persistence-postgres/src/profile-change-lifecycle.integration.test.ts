@@ -108,6 +108,369 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
     });
     return { f, userId, profileId, writes, before };
   }
+  it('keeps twenty review retries and command aliases stable without copying private fields into transport', async () => {
+    const owner = await createProtectedChangeProfile(database),
+      store = new PostgresProfileChangeStore(database),
+      write = protectedChangeWrite(owner.userId);
+    await store.requestProtectedChange(write);
+    const review = await protectedReviewWrite(database, write.profileChangeRequestId);
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => store.resolveProtectedChange(review)),
+    );
+    expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+    const first = results.find((r) => !r.replayed)!;
+    expect(results.every((r) => r.request.requestedValue === 1994)).toBe(true);
+    const receipt = {
+      receiptSchemaVersion: 1,
+      profileChangeRequestId: write.profileChangeRequestId,
+      decision: 'approved',
+      profileVersion: first.profileVersion,
+    };
+    expect(
+      (
+        await database
+          .selectFrom('platform.idempotency_records')
+          .select('response_json')
+          .where('id', '=', review.command.commandId)
+          .executeTakeFirstOrThrow()
+      ).response_json,
+    ).toEqual(receipt);
+    // Later authorized product changes must not change the original receipt.
+    await database
+      .updateTable('profile.profiles')
+      .set({ version: sql`version+1` })
+      .where('id', '=', owner.profileId)
+      .execute();
+    const alias = { ...review, command: { ...review.command, commandId: randomUUID() } };
+    expect(await store.resolveProtectedChange(alias)).toEqual({ ...first, replayed: true });
+    expect(
+      await database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('event_type', '=', 'profile.protected-change-reviewed.v1')
+        .where('subject_id', '=', write.profileChangeRequestId)
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('platform.idempotency_records')
+        .select('id')
+        .where('id', '=', alias.command.commandId)
+        .execute(),
+    ).toHaveLength(0);
+  });
+  it('leaves no copied review values after completed deletion and approved Return while retaining native history', async () => {
+    const store = new PostgresProfileChangeStore(database);
+    let review: Awaited<ReturnType<typeof protectedReviewWrite>> | undefined;
+    let originalRequest: unknown, originalReview: unknown, receipt: unknown;
+    const f = await createAccountReturnFixture(database, {
+      beforeDeletion: async (userId) => {
+        await createProtectedChangeProfile(database, userId);
+        const write = protectedChangeWrite(userId);
+        await store.requestProtectedChange(write);
+        review = await protectedReviewWrite(database, write.profileChangeRequestId);
+        await store.resolveProtectedChange(review);
+        originalRequest = await database
+          .selectFrom('profile.profile_change_requests')
+          .selectAll()
+          .where('id', '=', write.profileChangeRequestId)
+          .executeTakeFirstOrThrow();
+        originalReview = await database
+          .selectFrom('profile.profile_change_reviews')
+          .selectAll()
+          .where('request_id', '=', write.profileChangeRequestId)
+          .executeTakeFirstOrThrow();
+        receipt = (
+          await database
+            .selectFrom('platform.idempotency_records')
+            .select('response_json')
+            .where('id', '=', review.command.commandId)
+            .executeTakeFirstOrThrow()
+        ).response_json;
+      },
+      beforeEvidenceCheckpoint: async (lease) => {
+        expect(
+          (await new PostgresAccountDeletionProfileStore(database).archive(lease)).archived,
+        ).toBe(true);
+      },
+    });
+    await returned(f);
+    const fresh = await createProtectedChangeProfile(database, f.userId);
+    expect(
+      await database
+        .selectFrom('profile.profile_change_requests')
+        .selectAll()
+        .where('id', '=', review!.command.data.profileChangeRequestId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual(originalRequest);
+    expect(
+      await database
+        .selectFrom('profile.profile_change_reviews')
+        .selectAll()
+        .where('request_id', '=', review!.command.data.profileChangeRequestId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual(originalReview);
+    const response = (
+      await database
+        .selectFrom('platform.idempotency_records')
+        .select('response_json')
+        .where('id', '=', review!.command.commandId)
+        .executeTakeFirstOrThrow()
+    ).response_json;
+    expect(response).toEqual(receipt);
+    expect(Object.keys(response!)).toEqual(
+      expect.arrayContaining([
+        'receiptSchemaVersion',
+        'profileChangeRequestId',
+        'decision',
+        'profileVersion',
+      ]),
+    );
+    expect(Object.keys(response!)).toHaveLength(4);
+    expect(response).not.toHaveProperty('request');
+    await expect(store.resolveProtectedChange(review!)).rejects.toMatchObject({
+      code: 'profile_change_invalid',
+    });
+    expect(
+      (
+        await database
+          .selectFrom('profile.profiles')
+          .select('birth_year')
+          .where('id', '=', fresh.profileId)
+          .executeTakeFirstOrThrow()
+      ).birth_year,
+    ).toBe(1995);
+    expect(
+      (
+        await database
+          .selectFrom('identity.guest_preview_counters')
+          .select('preview_count')
+          .where('user_id', '=', f.userId)
+          .executeTakeFirstOrThrow()
+      ).preview_count,
+    ).toBe(3);
+  });
+  it('rejects private cache bodies, foreign receipts and receipts without their original native review command', async () => {
+    const owner = await createProtectedChangeProfile(database),
+      store = new PostgresProfileChangeStore(database),
+      write = protectedChangeWrite(owner.userId);
+    await store.requestProtectedChange(write);
+    const review = await protectedReviewWrite(database, write.profileChangeRequestId);
+    await store.resolveProtectedChange(review);
+    const response = (
+      await database
+        .selectFrom('platform.idempotency_records')
+        .select('response_json')
+        .where('id', '=', review.command.commandId)
+        .executeTakeFirstOrThrow()
+    ).response_json!;
+    for (const extra of [
+      { request: { oldValue: 1995 } },
+      { profileVersion: 0 },
+      { profileVersion: 2147483648 },
+    ]) {
+      await expect(
+        database
+          .updateTable('platform.idempotency_records')
+          .set({ response_json: { ...response, ...extra } })
+          .where('id', '=', review.command.commandId)
+          .execute(),
+      ).rejects.toThrow('profile_review_response_minimal_ck');
+    }
+    for (const forged of [
+      { ...response, profileChangeRequestId: randomUUID() },
+      { ...response, decision: 'rejected' },
+    ]) {
+      await database
+        .updateTable('platform.idempotency_records')
+        .set({ response_json: forged })
+        .where('id', '=', review.command.commandId)
+        .execute();
+      await expect(store.resolveProtectedChange(review)).rejects.toMatchObject({
+        code: 'profile_change_invalid',
+      });
+    }
+    await database
+      .updateTable('platform.idempotency_records')
+      .set({ response_json: response, id: randomUUID() })
+      .where('id', '=', review.command.commandId)
+      .execute();
+    await expect(store.resolveProtectedChange(review)).rejects.toMatchObject({
+      code: 'profile_change_invalid',
+    });
+    expect(
+      (
+        await database
+          .selectFrom('profile.profile_change_requests')
+          .select('status')
+          .where('id', '=', write.profileChangeRequestId)
+          .executeTakeFirstOrThrow()
+      ).status,
+    ).toBe('approved');
+  });
+  it('atomically minimizes populated legacy review caches and audits discards without changing retained proof', async () => {
+    const upgrade = await createIsolatedTestDatabase(url!, 'm8_review_cache_upgrade');
+    const previous = await mkdtemp(join(tmpdir(), 'nakh-review-cache-upgrade-'));
+    let db: NakhDatabase | undefined;
+    try {
+      for (const filename of await readdir(resolve('migrations'))) {
+        if (/^\d{6}_[a-z0-9_]+\.sql$/u.test(filename) && Number(filename.slice(0, 6)) <= 150)
+          await copyFile(join(resolve('migrations'), filename), join(previous, filename));
+      }
+      await runMigrations(upgrade.url, previous);
+      db = createDatabase({
+        url: upgrade.url,
+        poolMax: 8,
+        statementTimeoutMs: 30000,
+        lockTimeoutMs: 15000,
+      });
+      const store = new PostgresProfileChangeStore(db),
+        owner = await createProtectedChangeProfile(db);
+      const write = protectedChangeWrite(owner.userId);
+      await store.requestProtectedChange(write);
+      const review = await protectedReviewWrite(db, write.profileChangeRequestId);
+      const result = await store.resolveProtectedChange(review);
+      await db
+        .updateTable('platform.idempotency_records')
+        .set({ response_json: { ...result } })
+        .where('id', '=', review.command.commandId)
+        .execute();
+      const before = await db
+        .selectFrom('platform.idempotency_records')
+        .selectAll()
+        .where('id', '=', review.command.commandId)
+        .executeTakeFirstOrThrow();
+      const badId = randomUUID(),
+        unrelatedId = randomUUID(),
+        processingId = randomUUID();
+      await db
+        .insertInto('platform.idempotency_records')
+        .values([
+          {
+            ...before,
+            id: badId,
+            idempotency_key: badId,
+            response_json: { copiedPrivate: 'synthetic', profileVersion: 0 },
+          },
+          { ...before, id: unrelatedId, idempotency_key: unrelatedId, scope: 'synthetic.other' },
+          {
+            ...before,
+            id: processingId,
+            idempotency_key: processingId,
+            status: 'processing',
+            response_json: null,
+          },
+        ])
+        .execute();
+      await createAccountReturnFixture(db);
+      const hashes = async (): Promise<Array<{ fingerprint: string }>> =>
+        (
+          await sql<{ fingerprint: string }>`SELECT encode(sha256(convert_to(jsonb_build_object(
+        'roots',(SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM identity.account_deletion_records r),
+        'manifests',(SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM identity.data_retention_records r),
+        'requests',(SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM profile.profile_change_requests r),
+        'reviews',(SELECT jsonb_agg(to_jsonb(r) ORDER BY request_id) FROM profile.profile_change_reviews r),
+        'preview',(SELECT jsonb_agg(to_jsonb(r) ORDER BY user_id) FROM identity.guest_preview_counters r)
+      )::text,'UTF8')),'hex') AS fingerprint`.execute(db!)
+        ).rows;
+      const originalHashes = await hashes();
+      await sql`CREATE FUNCTION profile.test_cache_audit_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.event_type='profile.review-response-minimized.v1' THEN RETURN NULL;END IF;RETURN NEW;END $$;
+        CREATE TRIGGER a_test_cache_audit_fault BEFORE INSERT ON platform.audit_logs FOR EACH ROW EXECUTE FUNCTION profile.test_cache_audit_fault()`.execute(
+        db,
+      );
+      await expect(runMigrations(upgrade.url, resolve('migrations'))).rejects.toThrow();
+      expect(
+        await db
+          .selectFrom('platform.idempotency_records')
+          .selectAll()
+          .where('id', '=', review.command.commandId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual(before);
+      expect(await hashes()).toEqual(originalHashes);
+      expect(
+        (
+          await sql<{
+            missing: boolean;
+          }>`SELECT to_regprocedure('profile.review_response_receipt_valid(jsonb)') IS NULL AS missing`.execute(
+            db,
+          )
+        ).rows[0]!.missing,
+      ).toBe(true);
+      await sql`DROP TRIGGER a_test_cache_audit_fault ON platform.audit_logs;DROP FUNCTION profile.test_cache_audit_fault()`.execute(
+        db,
+      );
+      expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toEqual([
+        '000151_m8_minimal_review_response_receipts.sql',
+      ]);
+      await verifyMigrations(upgrade.url, resolve('migrations/verify'));
+      const current = await db
+        .selectFrom('platform.idempotency_records')
+        .selectAll()
+        .where('id', '=', review.command.commandId)
+        .executeTakeFirstOrThrow();
+      expect({ ...current, response_json: before.response_json }).toEqual(before);
+      expect(current.response_json).toEqual({
+        receiptSchemaVersion: 1,
+        profileChangeRequestId: write.profileChangeRequestId,
+        decision: 'approved',
+        profileVersion: result.profileVersion,
+      });
+      expect(await store.resolveProtectedChange(review)).toEqual({ ...result, replayed: true });
+      expect(
+        await db
+          .selectFrom('platform.idempotency_records')
+          .select('id')
+          .where('id', '=', badId)
+          .execute(),
+      ).toHaveLength(0);
+      expect(
+        (
+          await db
+            .selectFrom('platform.idempotency_records')
+            .select('response_json')
+            .where('id', '=', unrelatedId)
+            .executeTakeFirstOrThrow()
+        ).response_json,
+      ).toEqual(before.response_json);
+      expect(
+        (
+          await db
+            .selectFrom('platform.idempotency_records')
+            .select('response_json')
+            .where('id', '=', processingId)
+            .executeTakeFirstOrThrow()
+        ).response_json,
+      ).toBeNull();
+      const audits = await db
+        .selectFrom('platform.audit_logs')
+        .select(['result_code', 'metadata'])
+        .where('event_type', '=', 'profile.review-response-minimized.v1')
+        .execute();
+      expect(audits.map((a) => a.result_code).sort()).toEqual([
+        'response_discarded',
+        'response_minimized',
+      ]);
+      expect(
+        audits.every(
+          (a) =>
+            Object.keys(a.metadata).length === 2 &&
+            typeof a.metadata.rowHashBefore === 'string' &&
+            /^[0-9a-f]{64}$/u.test(a.metadata.rowHashBefore) &&
+            (a.metadata.rowHashAfter === null ||
+              (typeof a.metadata.rowHashAfter === 'string' &&
+                /^[0-9a-f]{64}$/u.test(a.metadata.rowHashAfter))),
+        ),
+      ).toBe(true);
+      expect(await hashes()).toEqual(originalHashes);
+      expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toHaveLength(0);
+    } finally {
+      await db?.destroy();
+      await upgrade.destroy();
+      for (const filename of await readdir(previous)) await unlink(join(previous, filename));
+      await rmdir(previous);
+    }
+  });
   it('binds one original request under twenty retries and retains its command fence after transport loss', async () => {
     const { userId } = await createProtectedChangeProfile(database),
       write = protectedChangeWrite(userId),
@@ -737,6 +1100,7 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
         '000148_m8_protected_profile_change_lives.sql',
         '000149_m8_live_retained_safety_holds.sql',
         '000150_m8_batched_photo_sources.sql',
+        '000151_m8_minimal_review_response_receipts.sql',
       ]);
       await verifyMigrations(upgrade.url, resolve('migrations/verify'));
       expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toHaveLength(0);

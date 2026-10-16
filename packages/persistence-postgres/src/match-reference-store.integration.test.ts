@@ -123,6 +123,7 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
       '000148_m8_protected_profile_change_lives.sql',
       '000149_m8_live_retained_safety_holds.sql',
       '000150_m8_batched_photo_sources.sql',
+      '000151_m8_minimal_review_response_receipts.sql',
     ]);
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000092_m8_match_references.sql',

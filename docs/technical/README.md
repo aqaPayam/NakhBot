@@ -66,6 +66,7 @@ Any product behavior change requires a domain-document update first. Any persist
 | [`29-m7-execution-guide.md`](29-m7-execution-guide.md) | Exact M7 reporting, moderation, admin, support, appeal, and acceptance sequence |
 | [`30-m7-acceptance-evidence.md`](30-m7-acceptance-evidence.md) | M7 verified automated evidence, external blockers, and staging handoff ledger |
 | [`31-m8-execution-guide.md`](31-m8-execution-guide.md) | M8 deletion lifecycle, retention controls, fresh return and hardening sequence |
+| [`32-m8-acceptance-evidence.md`](32-m8-acceptance-evidence.md) | M8 implementation coverage, exact-revision verification and external release handoff |
 
 ## Locked baseline
 
