@@ -11,6 +11,12 @@ export type M7PlanSummary = Readonly<{
     maximumWorkersPlanned: number;
     maximumWorkersLaunched: number;
     jitTotalMs: number;
+    jitFunctions?: number;
+    jitGenerationMs?: number;
+    jitOptimizationMs?: number;
+    jitEmissionMs?: number;
+    jitExpressions?: boolean;
+    jitDeforming?: boolean;
     nodes: readonly Readonly<{
       parent: number;
       nodeType: string;
@@ -185,6 +191,9 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
   const rows = root['Actual Rows'];
   if (typeof rows !== 'number' || !Number.isSafeInteger(rows) || rows < 0)
     throw new Error('M7 query plan invalid.');
+  const jit = object(document?.JIT),
+    jitTiming = object(jit?.Timing),
+    jitOptions = object(jit?.Options);
   return {
     executionMs,
     actualRows: rows,
@@ -197,7 +206,13 @@ export function summarizeM7Plan(value: unknown): M7PlanSummary {
       maximumLoops,
       maximumWorkersPlanned,
       maximumWorkersLaunched,
-      jitTotalMs: timing(object(object(document?.JIT)?.Timing), 'Total'),
+      jitTotalMs: timing(jitTiming, 'Total'),
+      jitFunctions: jit === undefined ? 0 : numeric(jit, 'Functions'),
+      jitGenerationMs: timing(jitTiming, 'Generation'),
+      jitOptimizationMs: timing(jitTiming, 'Optimization'),
+      jitEmissionMs: timing(jitTiming, 'Emission'),
+      jitExpressions: jitOptions?.Expressions === true,
+      jitDeforming: jitOptions?.Deforming === true,
       nodes,
       nodesTruncated,
       slowNodes,

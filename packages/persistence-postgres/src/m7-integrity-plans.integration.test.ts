@@ -887,6 +887,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       'jit_above_cost',
       'jit_inline_above_cost',
       'jit_optimize_above_cost',
+      'jit_tuple_deforming',
       'work_mem',
       'max_parallel_workers_per_gather',
     ] as const;
@@ -903,7 +904,7 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
       const before = await settings(connection);
       const check = async (read: NakhDatabase): Promise<void> => {
         const values = await settings(read);
-        expect(values).toEqual(['on', before[1], '-1', '-1', '16MB', '0']);
+        expect(values).toEqual(['on', before[1], '-1', '-1', 'off', '16MB', '0']);
         const sample = await new PostgresModerationIntegrityMetricsStore(read).measure();
         expect(Object.values(sample.counts)).toEqual(Array.from({ length: 10 }, () => 0));
       };

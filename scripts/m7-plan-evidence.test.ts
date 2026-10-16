@@ -17,7 +17,17 @@ describe('M7 plan evidence privacy', () => {
       {
         'Execution Time': 1.2,
         Query: 'private text',
-        JIT: { Timing: { Total: 0.5, Query: 'private JIT text' } },
+        JIT: {
+          Functions: 3,
+          Options: { Expressions: true, Deforming: false, Private: 'private option' },
+          Timing: {
+            Generation: 0.1,
+            Optimization: 0.05,
+            Emission: 0.35,
+            Total: 0.5,
+            Query: 'private JIT text',
+          },
+        },
         Plan: {
           'Actual Rows': 51,
           'Index Cond': 'user_id = private-user',
@@ -58,6 +68,12 @@ describe('M7 plan evidence privacy', () => {
         maximumWorkersPlanned: 2,
         maximumWorkersLaunched: 1,
         jitTotalMs: 0.5,
+        jitFunctions: 3,
+        jitGenerationMs: 0.1,
+        jitOptimizationMs: 0.05,
+        jitEmissionMs: 0.35,
+        jitExpressions: true,
+        jitDeforming: false,
         nodes: [
           { parent: -1, nodeType: 'Other', relation: 'Other', rows: 51, loops: 0, totalMs: 0 },
           {
@@ -85,5 +101,33 @@ describe('M7 plan evidence privacy', () => {
     expect(() =>
       summarizeM7Plan([{ 'Execution Time': Number.NaN, Plan: { 'Actual Rows': 1 } }]),
     ).toThrow('M7 query plan unavailable');
+  });
+  it('drops malformed compilation counters and nonboolean options', () => {
+    const result = summarizeM7Plan([
+      {
+        'Execution Time': 1,
+        Plan: { 'Actual Rows': 1 },
+        JIT: {
+          Functions: Number.NaN,
+          Options: { Expressions: 'private', Deforming: 1 },
+          Timing: {
+            Generation: -1,
+            Optimization: Number.POSITIVE_INFINITY,
+            Emission: 'private',
+            Total: 2,
+          },
+        },
+      },
+    ]);
+    expect(result.diagnostics).toMatchObject({
+      jitTotalMs: 2,
+      jitFunctions: 0,
+      jitGenerationMs: 0,
+      jitOptimizationMs: 0,
+      jitEmissionMs: 0,
+      jitExpressions: false,
+      jitDeforming: false,
+    });
+    expect(JSON.stringify(result)).not.toContain('private');
   });
 });

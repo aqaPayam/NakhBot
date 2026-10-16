@@ -17,8 +17,9 @@ export type ModerationIntegritySample = Readonly<{
 }>;
 type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; count: string };
 /** Phase reads avoid compilation. The combined CPU-heavy snapshot may compile
- * expressions above the server's existing cost threshold, with LLVM inlining and
- * expensive optimization disabled. Servers without JIT retain interpreted reads.
+ * expressions above the server's existing cost threshold, with tuple decoding,
+ * LLVM inlining and expensive optimization left out of compilation. Servers
+ * without JIT retain interpreted reads.
  * A fixed 16 MiB per-node work budget avoids
  * spilling ordinary metadata joins; it is not a total connection/process memory bound.
  * Dense metadata joins can benefit from parallel reads without reducing minimum
@@ -48,6 +49,7 @@ export async function withModerationIntegrityRead<T>(
       transaction,
     );
     if (compilation === 'expressions') {
+      await sql`SET LOCAL jit_tuple_deforming = off`.execute(transaction);
       await sql`SET LOCAL jit_inline_above_cost = -1`.execute(transaction);
       await sql`SET LOCAL jit_optimize_above_cost = -1`.execute(transaction);
     }
