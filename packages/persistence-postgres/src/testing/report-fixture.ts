@@ -59,6 +59,7 @@ export async function createRetainedReportPhoto(
   database: NakhDatabase,
   syntheticBytes?: Uint8Array,
   existingTarget?: string,
+  existingReporter?: string,
 ): Promise<
   Readonly<{
     reporter: string;
@@ -70,7 +71,7 @@ export async function createRetainedReportPhoto(
     content: ReportPhotoContent;
   }>
 > {
-  const reporter = await createReportUser(database),
+  const reporter = existingReporter ?? (await createReportUser(database)),
     target = existingTarget ?? (await createReportUser(database, true)),
     photoId = await createReportPhoto(database, target, true, syntheticBytes),
     reportId = randomUUID(),
@@ -463,12 +464,25 @@ export async function createReportLike(
   now = new Date(),
 ): Promise<string> {
   const id = randomUUID();
+  // Privileged fixture only: select the actual current lives explicitly. The
+  // legacy zero defaults cannot describe a separately approved returned user.
+  const lives = await database
+    .selectFrom('identity.accounts')
+    .select(['user_id', 'product_epoch'])
+    .where('user_id', 'in', [reporter, target])
+    .execute();
+  const sender = lives.find((row) => row.user_id === target),
+    receiver = lives.find((row) => row.user_id === reporter);
+  if (sender === undefined || receiver === undefined)
+    throw new Error('Report Like fixture Account unavailable');
   await database
     .insertInto('interaction.likes')
     .values({
       id,
       sender_user_id: target,
       receiver_user_id: reporter,
+      sender_product_epoch: sender.product_epoch,
+      receiver_product_epoch: receiver.product_epoch,
       status: 'active',
       created_at: now,
       closed_at: null,

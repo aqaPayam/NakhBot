@@ -1,6 +1,57 @@
 # M8 Execution Guide â€” Deletion, Retention and Production Hardening
 
 
+
+## Current increment: live safety holds before retained support erasure
+
+Accepted `44836df` passed all six jobs on attempt 1 of run `38828502899`:
+1,274 native cases in 154 files, zero skips, four bound receipts, all four ZIP
+digests verified, both actual collectors, support load and backup/restore.
+All 27 plans passed at 20,000 scale; terminal 1,410.448 ms, both mandatory
+indexes, zero workers/spill. Tracked lines: 250,593 across four wc totals.
+This verifies original protected-change lives; full M8 remains open.
+
+A native synthetic-activation reproduction then erased an original support body
+after actual completed deletion, approved Return and a real later-life restriction.
+The release checked the original Root safety bar but missed current safety work.
+No production activation or real policy period is involved; default release is false.
+
+Migration 149 adds a read-only current safety predicate for Account restriction/ban,
+pending Reports involving either side, active restriction episodes and unresolved
+Appeals. The existing support adapter requires it before a new mutation and again
+at deferred commit. Native Account SHARE fences on new pending Report/episode/Appeal
+rows serialize accepted holds with the release's Account UPDATE lock. Report pairs
+use canonical Account order; no conflicting User UPDATE lock is added. No original
+Root, manifest, source fingerprint, retained content, table/column/FK classification
+or registry hash is rewritten. No extra indexes or query-plan settings are added.
+
+Historical receipt validation/replay remains valid after later holds: it returns
+the original immutable receipt and cannot erase again. Policy revocation also
+remains available under a hold; the policy review predicate is not tightened.
+New native cases cover actual later-life restrict/ban and authorized restoration,
+both Report roles, an unrelated owner's hold, a native Report commit/erasure wait,
+deferred safety change and historical replay/revocation. Profile/media/provider
+fixtures are synthetic; this is not signup, staging or operator acceptance.
+The Report Like fixture explicitly supplies the real current native epochs instead
+of legacy zero defaults when a separately returned user participates.
+
+The first full local retention run passed all 19 existing cases and the real
+restriction/ban and deferred-safety cases. Its two new Report cases correctly
+rejected the fixture's obsolete zero-life Like inputs. Correct that privileged
+fixture to use actual native lives, and observe early fixture rejection while
+still awaiting its original promise. The combined two-role case then exceeded
+the unchanged 60-second deadline; parameterize the independent roles, retaining
+all four complete deletion fixtures and every assertion. All five final hold
+cases passed, as did final focused lint/types and the full 79-case migration
+matrix. Selected-case skips are not full-suite acceptance; exact-head CI must
+still execute the entire strengthened native inventory without skips.
+
+Keep every previous upgrade baseline and add 148. The strengthened floor is
+1,280 native cases in 154 files. Full check, native/migration evidence and all six
+exact-head jobs remain mandatory before advancing. Other retained-content adapters,
+shared/dependency holds and final independent M8 acceptance remain open. Retained
+release stays disabled, real periods remain unapproved, and no M9 is started.
+
 ## Current increment: protected changes belong to their original Profile and life
 
 Commit `7cbe7df` passed all six jobs in run `38819795783`: 1,262 native cases

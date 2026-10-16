@@ -735,6 +735,7 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
       const originalRetained = await retained();
       expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toEqual([
         '000148_m8_protected_profile_change_lives.sql',
+        '000149_m8_live_retained_safety_holds.sql',
       ]);
       await verifyMigrations(upgrade.url, resolve('migrations/verify'));
       expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toHaveLength(0);

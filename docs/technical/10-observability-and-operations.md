@@ -142,3 +142,16 @@ users without an issued product grant. Review authorization remains separate.
 Missing proof must roll back the complete operation, not leave a partial review
 or deletion. Retained release is still disabled, and no approved policy period
 or deployed provider/operator acceptance is implied by native fixtures.
+
+## Retained support content blocked by live safety work
+
+Migration 149 makes new erasure fail while the owner has a current restriction,
+ban, pending Report as reporter or target, active restriction episode or unresolved
+Appeal. Check current native safety work even when the original completed Root
+records no safety bar. Use the separately authorized moderation/review workflow;
+never clear evidence or rewrite a Root to make retention proceed. A historical
+release receipt may replay under a later hold, but cannot perform another effect.
+Policy revocation remains available. Pending safety inserts and erasure serialize
+through native Account locks; a release waiting behind an accepted hold must reread
+it. Retained release remains disabled, and the broader resource/shared-hold rollout
+and actual external acceptance remain incomplete.

@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { mkdtemp, readdir, copyFile, unlink, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { createAccountReturnFixture } from './testing/account-return-fixture.js';
+import {
+  createAccountReturnFixture,
+  approveAccountReturnFixture,
+} from './testing/account-return-fixture.js';
+import { createProtectedChangeProfile } from './testing/protected-profile-change-fixture.js';
+import { PostgresAccountControlSessionStore } from './account-control-session-store.js';
+import { PostgresAccountModerationWorkflow } from './account-moderation-store.js';
 import { PostgresAccountReturnStore } from './account-return-store.js';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -16,7 +22,7 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations, verifyMigrations } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createFinalDeletionFixture } from './testing/final-deletion-fixture.js';
-import { createReportFixtureAdmin } from './testing/report-fixture.js';
+import { createReportFixtureAdmin, createRetainedReportPhoto } from './testing/report-fixture.js';
 import { PostgresAccountDeletionEphemeralStore } from './account-deletion-ephemeral-store.js';
 import {
   PostgresRetentionPeriodReviewStore,
@@ -258,6 +264,308 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
       database,
     );
   }
+  async function returnSupportOwner(root: {
+    userId: string;
+    recordId: string;
+    version: number;
+  }): Promise<void> {
+    const control = await new PostgresAccountControlSessionStore(database).issue(
+      { userId: root.userId, productEpoch: 0 },
+      randomUUID(),
+    );
+    expect(control).toBeDefined();
+    await approveAccountReturnFixture(database, {
+      recordId: root.recordId,
+      version: root.version,
+    });
+    const commandId = randomUUID();
+    await new PostgresAccountReturnStore(database, {
+      kind: 'user',
+      scope: 'account_control',
+      userId: root.userId,
+      productEpoch: 0,
+      controlGrantId: control!.id,
+    }).return({
+      commandId,
+      commandType: 'account.return',
+      schemaVersion: 1,
+      actor: { kind: 'user', userId: root.userId },
+      requestId: randomUUID(),
+      idempotencyKey: commandId,
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+      data: { expectedAccountVersion: root.version },
+    });
+    // Privileged Profile activation only; Return, safety and policy commits are native.
+    await createProtectedChangeProfile(database, root.userId);
+  }
+  it('holds old support content when a real later-life restriction or ban follows approved Return', async () => {
+    for (const action of ['restrict_user', 'ban_user'] as const) {
+      const { root, write, input } = await releaseFixture();
+      await returnSupportOwner(root);
+      const operator = await admin(),
+        workflow = new PostgresAccountModerationWorkflow(database);
+      const version = (
+        await database
+          .selectFrom('identity.accounts')
+          .select('version')
+          .where('user_id', '=', root.userId)
+          .executeTakeFirstOrThrow()
+      ).version;
+      expect(
+        (
+          await workflow.apply(
+            {
+              ...attempt(operator, root),
+              commandCode: 'moderation.apply-account-action',
+              requiredPermission: action,
+              targetType: 'user',
+              targetId: root.userId,
+              expectedTargetVersion: version,
+            },
+            action,
+          )
+        ).result,
+      ).toBe('succeeded');
+      await activateSyntheticRelease();
+      await expect(
+        new PostgresRetainedSupportContentStore(database).release(input),
+      ).rejects.toThrow('authority unavailable');
+      expect(
+        (
+          await database
+            .selectFrom('support.support_messages')
+            .select('message_text')
+            .where('id', '=', write.messageId)
+            .executeTakeFirstOrThrow()
+        ).message_text,
+      ).toBe(write.normalizedText);
+      const restored = action === 'ban_user' ? 'unban_user' : 'unrestrict_user';
+      expect(
+        (
+          await workflow.apply(
+            {
+              ...attempt(operator, root),
+              commandCode: 'moderation.apply-account-action',
+              requiredPermission: restored,
+              targetType: 'user',
+              targetId: root.userId,
+              expectedTargetVersion: version + 1,
+            },
+            restored,
+          )
+        ).result,
+      ).toBe('succeeded');
+      await new PostgresRetainedSupportContentStore(database).release(input);
+    }
+  });
+  it.each(['target', 'reporter'] as const)(
+    'holds content for a pending Report as %s after approved Return without borrowing an unrelated hold',
+    async (side) => {
+      const { root, write, input } = await releaseFixture();
+      await returnSupportOwner(root);
+      await createRetainedReportPhoto(
+        database,
+        undefined,
+        side === 'target' ? root.userId : undefined,
+        side === 'reporter' ? root.userId : undefined,
+      );
+      expect(
+        (
+          await database
+            .selectFrom('identity.accounts')
+            .select('state')
+            .where('user_id', '=', root.userId)
+            .executeTakeFirstOrThrow()
+        ).state,
+      ).toBe('active');
+      await activateSyntheticRelease();
+      await expect(
+        new PostgresRetainedSupportContentStore(database).release(input),
+      ).rejects.toThrow('authority unavailable');
+      expect(
+        (
+          await database
+            .selectFrom('support.support_messages')
+            .select('message_text')
+            .where('id', '=', write.messageId)
+            .executeTakeFirstOrThrow()
+        ).message_text,
+      ).toBe(write.normalizedText);
+      const unrelated = await releaseFixture();
+      await activateSyntheticRelease();
+      await new PostgresRetainedSupportContentStore(database).release(unrelated.input);
+    },
+  );
+  it('waits for a committing native Report and rereads the hold before erasing its target support content', async () => {
+    const { root, write, input } = await releaseFixture();
+    await returnSupportOwner(root);
+    await activateSyntheticRelease();
+    await sql`CREATE SEQUENCE support.test_live_hold_seen;
+      CREATE FUNCTION support.test_live_hold_wait() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      PERFORM nextval('support.test_live_hold_seen');PERFORM pg_sleep(1);RETURN NEW;END $$;
+      CREATE TRIGGER test_live_hold_wait AFTER INSERT ON moderation.reports FOR EACH ROW EXECUTE FUNCTION support.test_live_hold_wait()`.execute(
+      database,
+    );
+    const report = createRetainedReportPhoto(database, undefined, root.userId);
+    // Observe the same original promise below, but handle an early fixture error
+    // immediately while waiting for its native barrier.
+    void report.catch(() => undefined);
+    let pending: Promise<unknown> | undefined;
+    try {
+      for (let n = 0; n < 100; n++) {
+        if (
+          (
+            await sql<{
+              seen: boolean;
+            }>`SELECT is_called AS seen FROM support.test_live_hold_seen`.execute(database)
+          ).rows[0]!.seen
+        )
+          break;
+        if (n === 99) throw new Error('Report commit barrier not reached');
+        await new Promise((done) => setTimeout(done, 10));
+      }
+      pending = new PostgresRetainedSupportContentStore(database)
+        .release(input)
+        .catch((error: unknown) => error);
+      let waited = false;
+      for (let n = 0; n < 100; n++) {
+        if (
+          (
+            await sql<{
+              waiting: boolean;
+            }>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()) AS waiting`.execute(
+              database,
+            )
+          ).rows[0]!.waiting
+        ) {
+          waited = true;
+          break;
+        }
+        await new Promise((done) => setTimeout(done, 10));
+      }
+      expect(waited).toBe(true);
+      await report;
+      expect(await pending).toMatchObject({ message: 'support release authority unavailable' });
+      expect(
+        (
+          await database
+            .selectFrom('support.support_messages')
+            .select('message_text')
+            .where('id', '=', write.messageId)
+            .executeTakeFirstOrThrow()
+        ).message_text,
+      ).toBe(write.normalizedText);
+      expect(
+        (
+          await sql<{
+            n: number;
+          }>`SELECT count(*)::integer AS n FROM platform.audit_logs WHERE subject_id=${root.recordId}::uuid AND event_type='account.support-content-released.v1'`.execute(
+            database,
+          )
+        ).rows[0]!.n,
+      ).toBe(0);
+    } finally {
+      await Promise.allSettled([report, pending ?? Promise.resolve()]);
+      await sql`DROP TRIGGER test_live_hold_wait ON moderation.reports;DROP FUNCTION support.test_live_hold_wait();DROP SEQUENCE support.test_live_hold_seen`.execute(
+        database,
+      );
+    }
+  });
+  it('rechecks safety at deferred commit while preserving historical replay and policy revocation under a later hold', async () => {
+    const { root, write, input } = await releaseFixture();
+    await returnSupportOwner(root);
+    await activateSyntheticRelease();
+    await expect(
+      database.transaction().execute(async (tx) => {
+        await new PostgresRetainedSupportContentStore(tx).release(input);
+        // Privileged same-transaction corruption probe; the real moderation paths
+        // and their native audit/RBAC/MFA are exercised separately above/below.
+        await tx
+          .updateTable('identity.accounts')
+          .set({
+            state: 'restricted',
+            version: sql`version+1`,
+            state_changed_at: sql`clock_timestamp()`,
+          })
+          .where('user_id', '=', root.userId)
+          .execute();
+      }),
+    ).rejects.toThrow('authority unavailable');
+    expect(
+      (
+        await database
+          .selectFrom('support.support_messages')
+          .select('message_text')
+          .where('id', '=', write.messageId)
+          .executeTakeFirstOrThrow()
+      ).message_text,
+    ).toBe(write.normalizedText);
+    expect(
+      (
+        await database
+          .selectFrom('identity.accounts')
+          .select('state')
+          .where('user_id', '=', root.userId)
+          .executeTakeFirstOrThrow()
+      ).state,
+    ).toBe('active');
+    const store = new PostgresRetainedSupportContentStore(database),
+      receipt = await store.release(input);
+    const operator = await admin(),
+      version = (
+        await database
+          .selectFrom('identity.accounts')
+          .select('version')
+          .where('user_id', '=', root.userId)
+          .executeTakeFirstOrThrow()
+      ).version;
+    expect(
+      (
+        await new PostgresAccountModerationWorkflow(database).apply(
+          {
+            ...attempt(operator, root),
+            commandCode: 'moderation.apply-account-action',
+            requiredPermission: 'ban_user',
+            targetType: 'user',
+            targetId: root.userId,
+            expectedTargetVersion: version,
+          },
+          'ban_user',
+        )
+      ).result,
+    ).toBe('succeeded');
+    expect(await store.release(input)).toEqual(receipt);
+    expect(
+      (
+        await sql<{
+          historical: boolean;
+          live: boolean;
+        }>`SELECT support.content_release_valid(a,false) AS historical,support.content_release_valid(a,true) AS live FROM platform.audit_logs a WHERE id=${receipt.auditId}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ historical: true, live: false }]);
+    const revoke: RetentionPolicyChange = { action: 'revoke', approvalId: input.approvalId };
+    expect(
+      (
+        await new PostgresRetentionPolicyWorkflow(database).record(
+          attempt(operator, root, revoke),
+          revoke,
+        )
+      ).result,
+    ).toBe('succeeded');
+    expect(await store.release(input)).toEqual(receipt);
+    expect(
+      (
+        await sql<{
+          n: number;
+        }>`SELECT count(*)::integer AS n FROM platform.audit_logs WHERE subject_id=${root.recordId}::uuid AND event_type='account.support-content-released.v1'`.execute(
+          database,
+        )
+      ).rows[0]!.n,
+    ).toBe(1);
+  });
   it('keeps real release disabled even with a due approved synthetic policy and rejects malformed inputs', async () => {
     const { write, input } = await releaseFixture();
     const store = new PostgresRetainedSupportContentStore(database);
@@ -1066,6 +1374,7 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
         '000146_m8_retained_source_membership.sql',
         '000147_m8_support_content_release.sql',
         '000148_m8_protected_profile_change_lives.sql',
+        '000149_m8_live_retained_safety_holds.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(await snapshot()).toEqual(before);

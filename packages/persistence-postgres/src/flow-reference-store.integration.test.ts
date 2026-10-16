@@ -243,6 +243,7 @@ describe.skipIf(url === undefined)('M8 original Flow references', () => {
       '000146_m8_retained_source_membership.sql',
       '000147_m8_support_content_release.sql',
       '000148_m8_protected_profile_change_lives.sql',
+      '000149_m8_live_retained_safety_holds.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);

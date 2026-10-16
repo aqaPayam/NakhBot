@@ -3,6 +3,22 @@
 This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M8, with M7 owning moderation/evidence decisions; new migrations must update this file immediately.
 
 
+
+## Live safety holds on retained support release
+
+Migration 149 changes no table/column/FK classification, registry hash, retained
+content, original source fingerprint or policy period. A completed Root's original
+safety bar alone cannot authorize a new support erasure after Return. New effects
+also require current native Account safety and absence of pending Reports on
+either side, active restriction episodes and unresolved Appeals. Pending safety
+inserts share the canonical native Account fence with release, and the mandatory
+release audit rechecks at commit. Historical receipt replay remains content-free
+and cannot repeat an effect; policy revocation stays available under a live hold.
+This currently protects the support-body adapter. Other retained resources and
+shared/dependency policy controls remain separate, incomplete work. Release stays
+disabled until real approval and a separately reviewed deployment; no duration
+or synthetic activation is a production policy.
+
 ## Protected Profile change original lives
 
 Migration 148 adds no table/column/foreign-key classification or registry-hash
