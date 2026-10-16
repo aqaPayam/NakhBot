@@ -131,6 +131,7 @@ describe.skipIf(url === undefined)(
           '000150_m8_batched_photo_sources.sql',
           '000151_m8_minimal_review_response_receipts.sql',
           '000152_m9_signup_presentation.sql',
+          '000153_m9_candidate_media_authority.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');

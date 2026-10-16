@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import type { AuthorizedMediaDelivery, MediaDeliveryAuthorizationPort } from '@nakh/application';
+import type {
+  AuthorizedMediaDelivery,
+  MediaDeliveryAuthorizationPort,
+  UserSessionActor,
+} from '@nakh/application';
 import { ApplicationError } from '@nakh/domain';
 import { sql } from 'kysely';
 import type { NakhDatabase } from './database.js';
 import { actionableLikedByFrom } from './liked-by-store.js';
+import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 function denied(): never {
   throw new ApplicationError('media_delivery_denied', 'error.media.delivery_denied', 403);
@@ -21,21 +27,42 @@ export type MediaSourceAuthorityQuery = Readonly<{
 
 /** Native opaque receipts preserve the original source, rather than reauthorizing a path. */
 export class PostgresMediaDeliveryAuthorization implements MediaDeliveryAuthorizationPort {
+  private readonly candidate:
+    Readonly<{ deliveryId: string; session: UserSessionActor }> | undefined;
   public constructor(
     private readonly database: NakhDatabase,
     private readonly environment: 'development' | 'test' | 'staging' | 'production',
-  ) {}
+    candidate?: Readonly<{ deliveryId: string; session: UserSessionActor }>,
+  ) {
+    this.candidate =
+      candidate === undefined
+        ? undefined
+        : Object.freeze({
+            deliveryId: candidate.deliveryId,
+            session: Object.freeze({ ...candidate.session }),
+          });
+  }
 
   public async authorize(
-    input: Parameters<MediaDeliveryAuthorizationPort['authorize']>[0],
+    request: Parameters<MediaDeliveryAuthorizationPort['authorize']>[0],
   ): Promise<AuthorizedMediaDelivery> {
+    const input = structuredClone(request);
     const ttlSeconds = input.ttlSeconds ?? 60;
     if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 10 || ttlSeconds > 300) denied();
     if (input.actor.kind !== 'user' || !UUID.test(input.actor.userId) || !UUID.test(input.photoId))
       denied();
     // Retained evidence is delivered only through the separately audited M7 path.
     const purpose = input.purpose;
-    if (purpose !== 'owner_preview' && purpose !== 'liked_by_blur') denied();
+    const candidatePurpose = purpose === 'profile_card' || purpose === 'profile_detail';
+    if (purpose !== 'owner_preview' && purpose !== 'liked_by_blur' && !candidatePurpose) denied();
+    if (
+      candidatePurpose &&
+      (this.candidate === undefined ||
+        !UUID.test(this.candidate.deliveryId) ||
+        this.candidate.session.userId !== input.actor.userId ||
+        input.requestedVariant !== 'thumbnail')
+    )
+      denied();
     if (
       (purpose === 'owner_preview' && input.requestedVariant !== 'thumbnail') ||
       (purpose === 'liked_by_blur' && input.requestedVariant !== 'blurred_preview')
@@ -43,6 +70,27 @@ export class PostgresMediaDeliveryAuthorization implements MediaDeliveryAuthoriz
       denied();
     try {
       return await this.database.transaction().execute(async (tx) => {
+        let candidateOwner:
+          { owner_user_id: string; photo_id: string; asset_id: string } | undefined;
+        if (candidatePurpose && this.candidate !== undefined) {
+          candidateOwner = await tx
+            .selectFrom('discovery.candidate_deliveries as delivery')
+            .innerJoin('profile.profiles as profile', 'profile.user_id', 'delivery.target_user_id')
+            .innerJoin('media.profile_photos as photo', 'photo.profile_id', 'profile.id')
+            .select([
+              'delivery.target_user_id as owner_user_id',
+              'photo.id as photo_id',
+              'photo.asset_id',
+            ])
+            .where('delivery.id', '=', this.candidate.deliveryId)
+            .where('delivery.viewer_user_id', '=', input.actor.userId)
+            .where('photo.id', '=', input.photoId)
+            .executeTakeFirst();
+          if (candidateOwner === undefined) denied();
+          const pair = await lockUserPair(tx, input.actor.userId, candidateOwner.owner_user_id);
+          await lockUserPairAccounts(tx, pair);
+          await requireCurrentUserSession(tx, input.actor.userId, this.candidate.session);
+        }
         const source =
           purpose === 'liked_by_blur'
             ? (
@@ -73,7 +121,9 @@ export class PostgresMediaDeliveryAuthorization implements MediaDeliveryAuthoriz
                 .where('photo.id', '=', input.photoId)
                 .where('profile.user_id', '=', input.actor.userId)
                 .executeTakeFirst()
-            : source;
+            : candidatePurpose
+              ? candidateOwner
+              : source;
         if (owner === undefined) denied();
         const variant = await tx
           .selectFrom('media.photo_variants')
@@ -107,6 +157,8 @@ export class PostgresMediaDeliveryAuthorization implements MediaDeliveryAuthoriz
             asset_id: owner.asset_id,
             variant_id: variant.id,
             like_id: source?.like_id ?? null,
+            candidate_delivery_id: candidatePurpose ? this.candidate!.deliveryId : null,
+            session_grant_id: candidatePurpose ? this.candidate!.session.sessionGrantId : null,
             purpose,
             variant_type: input.requestedVariant,
             delivery_path: variant.delivery_path,

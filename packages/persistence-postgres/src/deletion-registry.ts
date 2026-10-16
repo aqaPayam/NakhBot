@@ -6,6 +6,8 @@ import type { NakhDatabase } from './database.js';
 import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.js';
 
 export type DeletionCatalog = Readonly<{
+  /** Native migration ledger; omitted only by pure inventory callers. */
+  schemaVersion?: number;
   tables: readonly Readonly<{
     schema: string;
     table: string;
@@ -82,6 +84,13 @@ function canonical(value: unknown): string {
 /** A schema change must classify every new/changed column and foreign-key action.
  * Returns a fixed denial, never catalog details or private row values. */
 export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
+  if (
+    actual.schemaVersion !== undefined &&
+    (!Number.isSafeInteger(actual.schemaVersion) ||
+      actual.schemaVersion < 137 ||
+      actual.schemaVersion > 153)
+  )
+    throw conflict();
   const tableNames = actual.tables.map((item) => `${item.schema}.${item.table}`).sort();
   if (canonical(tableNames) !== canonical(DELETION_REGISTRY.map((item) => item.table).sort()))
     throw conflict();
@@ -91,9 +100,19 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
       items: DeletionCatalog['tables'][number]['columns'],
     ): readonly (readonly [string, string, boolean])[] =>
       items.map(({ name, type, nullable }) => [name, type, nullable] as const);
+    // These are two explicitly reviewed layouts, never a general allowance for
+    // nullable/missing columns. Applied migration 153 requires both new fields.
+    const expectedColumns =
+      expected.table === 'media.delivery_grants' &&
+      actual.schemaVersion !== undefined &&
+      actual.schemaVersion < 153
+        ? expected.columns.filter(
+            (c) => c.name !== 'candidate_delivery_id' && c.name !== 'session_grant_id',
+          )
+        : expected.columns;
     if (
       table === undefined ||
-      canonical(columns(table.columns)) !== canonical(columns(expected.columns))
+      canonical(columns(table.columns)) !== canonical(columns(expectedColumns))
     )
       throw conflict();
     const keys = actual.foreignKeys
@@ -131,7 +150,12 @@ export async function readDeletionCatalog(database: NakhDatabase): Promise<Delet
         WHERE con.contype='f' AND n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema'
         ORDER BY n.nspname,c.relname,pg_get_constraintdef(con.oid)`.execute(database)
     ).rows;
-    return { tables, foreignKeys };
+    const version = (
+      await sql<{ version: number }>`SELECT max(substring(name FROM 1 FOR 6)::integer) AS version
+      FROM platform.schema_migrations`.execute(database)
+    ).rows[0]?.version;
+    if (version === undefined || version === null) throw conflict();
+    return { tables, foreignKeys, schemaVersion: version };
   } finally {
     await sql`SELECT set_config('search_path',${path},true)`.execute(database);
   }

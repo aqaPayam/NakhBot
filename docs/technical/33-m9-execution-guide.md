@@ -105,6 +105,24 @@ approved Return. Unbound construction remains for trusted workers and fixtures.
 These boundaries are prerequisites for the remaining discovery UI and do not
 claim delivered profile cards or real provider acceptance.
 
+Candidate media composition supplies the original reservation ID and a captured
+native user session to `PostgresMediaDeliveryAuthorization`. Migration 153 adds
+immutable source identifiers to the existing short-lived receipt. Card delivery
+uses the current primary thumbnail; candidate detail may use another current
+visible thumbnail of that same target. Every read checks the exact reservation,
+both product epochs, session expiry/revocation, visibility, media storage/validation,
+catalog eligibility, pair state and rejection. A deletion root after the original
+reservation prevents reusing it for a returned account. Reservation expiry remains
+reconciliation eligibility, not proof of non-delivery; only definitive failure
+closes that original source.
+
+The migration extends the ordinary-media schema inventory while preserving
+pre-existing valid retained manifests and their exact hashes/proofs. New manifests
+must use the new inventory hash. Native tests cover reservation-to-grant composition,
+contention, captured inputs, source substitution, current visibility/safety,
+revocation after an observed pair-lock wait, real deletion and populated upgrade.
+These boundaries still require gateway/worker composition and real provider acceptance.
+
 The combined moderation snapshot permits expression compilation above the
 server's existing cost threshold, with tuple decoding, LLVM inlining and expensive
 optimization left out of compilation. Phase and operational-health reads retain interpreted execution.

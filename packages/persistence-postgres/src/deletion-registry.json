@@ -5368,6 +5368,16 @@
           "name": "expires_at",
           "type": "timestamp with time zone",
           "nullable": false
+        },
+        {
+          "name": "candidate_delivery_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "session_grant_id",
+          "type": "uuid",
+          "nullable": true
         }
       ],
       "foreignKeys": [

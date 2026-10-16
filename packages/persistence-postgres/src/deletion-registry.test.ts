@@ -19,6 +19,28 @@ function expectedCatalog(): DeletionCatalog {
   };
 }
 describe('M8 schema coverage denial', () => {
+  it('binds both reviewed media layouts to the native migration version', () => {
+    const current = expectedCatalog();
+    const previous = {
+      ...current,
+      tables: current.tables.map((t) =>
+        t.schema !== 'media' || t.table !== 'delivery_grants'
+          ? t
+          : {
+              ...t,
+              columns: t.columns.filter(
+                (c) => c.name !== 'candidate_delivery_id' && c.name !== 'session_grant_id',
+              ),
+            },
+      ),
+    };
+    expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion: 152 })).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 153 })).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion: 153 })).toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 152 })).toThrow();
+    for (const schemaVersion of [Number.NaN, 0, 136, 154, 152.5])
+      expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion })).toThrow();
+  });
   it('rejects a new entity instead of applying an inherited retain/purge default', () => {
     const actual = expectedCatalog();
     expect(() =>

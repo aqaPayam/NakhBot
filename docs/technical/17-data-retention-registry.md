@@ -1,5 +1,15 @@
 # Data Retention and Deletion Registry
 
+Migration 153 extends `media.delivery_grants` with the original candidate delivery
+and native user-session IDs. These remain short-lived ordinary operational
+receipts, with no media bytes, profile answers or bearer tokens. Mutable source
+IDs have no foreign keys so ordinary deletion can purge their sources; every
+delivery rechecks original source/life/session validity. Expired receipts retain
+the existing cleanup rule. The frozen schema inventory includes the two nullable
+UUIDs. Existing valid retained manifests keep their immutable proofs and original
+inventory hash; new inserts require the new hash. Retained resource descriptors
+and disabled retained-data erasure do not change.
+
 This registry is mandatory for every user-linked table or object prefix. It records the product-deletion action independently from PostgreSQL foreign-key behavior. The deletion workflow is implemented in M8, with M7 owning moderation/evidence decisions; new migrations must update this file immediately.
 
 
