@@ -92,6 +92,19 @@ trusted internal use and existing migration fixtures; public ingress must not
 use it. Native store tests are prerequisites for the signup UI and do not prove
 deployed primary entry, external provider acceptance or fresh Redis activation.
 
+Discovery filters, candidate reservations and Like/Not Interested stores also
+accept a captured native `UserSessionActor` for public composition. They check
+the same current grant and product epoch inside their business transaction,
+including cached replies and existing reservations. Pair operations retain the
+shared pair lock followed by sorted stable User/Account locks; guest capacity
+locks follow those identities. Filter saves take User/Account locks before
+idempotency. Constructor actors and operation inputs are copied before waits.
+Native tests cover retries, opposite Likes, borrowed/revoked grants, revocation
+while waiting for the pair lock, empty pools and an original product grant after
+approved Return. Unbound construction remains for trusted workers and fixtures.
+These boundaries are prerequisites for the remaining discovery UI and do not
+claim delivered profile cards or real provider acceptance.
+
 Retained-data erasure stays disabled pending approved policies. Completing all
 34 retained-resource erasure adapters is outside the agreed closure scope. No
 policy period, security approval, provider result or operator sign-off is seeded

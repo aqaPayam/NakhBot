@@ -2,12 +2,17 @@ import { createHash } from 'node:crypto';
 
 import { sql, type RawBuilder } from 'kysely';
 
-import type { CandidateReservation, CandidateReservationStore } from '@nakh/application';
+import type {
+  CandidateReservation,
+  CandidateReservationStore,
+  UserSessionActor,
+} from '@nakh/application';
 import type { GetNextExploreCandidateQuery } from '@nakh/contracts';
 import { ApplicationError, evaluateCapability, shuffleCandidates } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
-import { lockUserPair } from './pair-lock.js';
+import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 type Generated = Readonly<{ deliveryId: string; eventId: string; reservedAt: Date }>;
 
@@ -140,13 +145,16 @@ async function effectiveFilter(
   };
 }
 
-async function assertGuestCapacity(database: NakhDatabase, viewerId: string): Promise<void> {
-  const counter = await database
+async function assertGuestCapacity(
+  database: NakhDatabase,
+  viewerId: string,
+  lock = true,
+): Promise<void> {
+  const query = database
     .selectFrom('identity.guest_preview_counters')
     .select(['preview_count', 'limit_count'])
-    .where('user_id', '=', viewerId)
-    .forUpdate()
-    .executeTakeFirst();
+    .where('user_id', '=', viewerId);
+  const counter = await (lock ? query.forUpdate() : query).executeTakeFirst();
   if (counter === undefined) unavailable();
   const live = await database
     .selectFrom('discovery.candidate_deliveries')
@@ -307,12 +315,32 @@ export async function analyzeM3QueryTables(database: NakhDatabase): Promise<void
 }
 
 export class PostgresCandidateReservationStore implements CandidateReservationStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
+
+  private async lockCurrentPair(
+    transaction: NakhDatabase,
+    viewerId: string,
+    targetId: string,
+  ): Promise<boolean> {
+    const pair = await lockUserPair(transaction, viewerId, targetId);
+    const accounts = await lockUserPairAccounts(transaction, pair);
+    if (this.owner !== undefined)
+      await requireCurrentUserSession(transaction, viewerId, this.owner);
+    return accounts.length === 2;
+  }
 
   public reserveNext(
-    query: GetNextExploreCandidateQuery,
-    generated: Generated,
+    input: GetNextExploreCandidateQuery,
+    effects: Generated,
   ): Promise<CandidateReservation | undefined> {
+    const query = structuredClone(input),
+      generated = structuredClone(effects);
     if (query.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     return this.database.transaction().execute(async (transaction) => {
@@ -327,6 +355,9 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
         .where('state', '=', 'reserved')
         .executeTakeFirst();
       if (existing !== undefined) {
+        if (!(await this.lockCurrentPair(transaction, viewerId, existing.target_user_id)))
+          return undefined;
+        validateViewer(await loadViewer(transaction, viewerId), query.mode);
         if (existing.mode !== query.mode)
           throw new ApplicationError('conflict', 'error.discovery.reservation_in_progress', 409);
         return {
@@ -337,7 +368,9 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
           expiresAt: existing.expires_at.toISOString(),
         };
       }
-      if (query.mode === 'guest_preview') await assertGuestCapacity(transaction, viewerId);
+      // Preflight is read-only. The counter lock follows stable User/Account
+      // locks so deletion cannot wait on a counter while we wait on its User.
+      if (query.mode === 'guest_preview') await assertGuestCapacity(transaction, viewerId, false);
 
       let filter =
         query.mode === 'explore'
@@ -345,17 +378,14 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
           : undefined;
       const pool = await candidatePool(transaction, query, viewer, filter);
       const targetId = shuffleCandidates(pool, requestSeed(query.requestId))[0];
-      if (targetId === undefined) return undefined;
+      if (targetId === undefined) {
+        if (this.owner !== undefined)
+          await requireCurrentUserSession(transaction, viewerId, this.owner);
+        return undefined;
+      }
 
-      await lockUserPair(transaction, viewerId, targetId);
-      const lockedUsers = await transaction
-        .selectFrom('identity.users')
-        .select('id')
-        .where('id', 'in', [viewerId, targetId])
-        .orderBy('id')
-        .forUpdate()
-        .execute();
-      if (lockedUsers.length !== 2) return undefined;
+      if (!(await this.lockCurrentPair(transaction, viewerId, targetId))) return undefined;
+      if (query.mode === 'guest_preview') await assertGuestCapacity(transaction, viewerId);
       viewer = await loadViewer(transaction, viewerId);
       validateViewer(viewer, query.mode);
       filter =

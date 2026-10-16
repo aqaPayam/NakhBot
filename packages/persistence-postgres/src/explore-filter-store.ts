@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 
-import type { ExploreFilterResult, ExploreFilterStore } from '@nakh/application';
+import type { ExploreFilterResult, ExploreFilterStore, UserSessionActor } from '@nakh/application';
 import type { SaveExploreFilterCommand } from '@nakh/contracts';
 import { ApplicationError, assertExploreFilter } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 type Generated = Readonly<{ auditId: string; eventId: string; processedAt: Date }>;
 const hash = (command: SaveExploreFilterCommand): string =>
@@ -20,15 +21,38 @@ const hash = (command: SaveExploreFilterCommand): string =>
     .digest('hex');
 
 export class PostgresExploreFilterStore implements ExploreFilterStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
 
   public saveFilter(
-    command: SaveExploreFilterCommand,
-    generated: Generated,
+    input: SaveExploreFilterCommand,
+    effects: Generated,
   ): Promise<ExploreFilterResult> {
+    const command = structuredClone(input),
+      generated = structuredClone(effects);
     if (command.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     return this.database.transaction().execute(async (tx) => {
+      // Stable User/Account locks precede idempotency, including internal retries.
+      await tx
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', command.actor.userId)
+        .forNoKeyUpdate()
+        .executeTakeFirstOrThrow();
+      const account = await tx
+        .selectFrom('identity.accounts')
+        .select('state')
+        .where('user_id', '=', command.actor.userId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(tx, command.actor.userId, this.owner);
       const requestHash = hash(command);
       const claim = await tx
         .insertInto('platform.idempotency_records')
@@ -66,18 +90,6 @@ export class PostgresExploreFilterStore implements ExploreFilterStore {
         return { ...(prior.response_json as unknown as ExploreFilterResult), replayed: true };
       }
 
-      await tx
-        .selectFrom('identity.users')
-        .select('id')
-        .where('id', '=', command.actor.userId)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      const account = await tx
-        .selectFrom('identity.accounts')
-        .select('state')
-        .where('user_id', '=', command.actor.userId)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
       const profile = await tx
         .selectFrom('profile.profiles')
         .select(['gender_preference_id', 'completion_status'])

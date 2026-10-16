@@ -2,12 +2,13 @@ import { createHash } from 'node:crypto';
 
 import { sql } from 'kysely';
 
-import type { InteractionStore } from '@nakh/application';
+import type { InteractionStore, UserSessionActor } from '@nakh/application';
 import type { InteractionResult, MarkNotInterestedCommand, SendLikeCommand } from '@nakh/contracts';
 import { ApplicationError } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
 import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 type LikeGenerated = Parameters<InteractionStore['sendLike']>[1];
 type RejectionGenerated = Parameters<InteractionStore['markNotInterested']>[1];
@@ -105,7 +106,9 @@ async function lockAndLoadUsers(
     ])
     .where('user.id', 'in', [leftUserId, rightUserId])
     .orderBy('user.id')
-    .forUpdate()
+    // Pair admission already holds stable User NO KEY UPDATE locks. Do not
+    // upgrade them and block required foreign-key KEY SHARE readers.
+    .forUpdate(['account', 'settings', 'profile'])
     .execute();
   if (users.length !== 2)
     throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
@@ -223,9 +226,17 @@ async function insertEvent(
 }
 
 export class PostgresInteractionStore implements InteractionStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
 
-  public sendLike(command: SendLikeCommand, generated: LikeGenerated): Promise<InteractionResult> {
+  public sendLike(input: SendLikeCommand, effects: LikeGenerated): Promise<InteractionResult> {
+    const command = structuredClone(input),
+      generated = structuredClone(effects);
     if (command.actor.kind !== 'user')
       return Promise.reject(
         new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
@@ -233,6 +244,8 @@ export class PostgresInteractionStore implements InteractionStore {
     return this.database.transaction().execute(async (transaction) => {
       const pair = await lockUserPair(transaction, command.actor.userId, command.data.targetUserId);
       const accounts = await lockUserPairAccounts(transaction, pair);
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, command.actor.userId, this.owner);
       if (accounts.length !== 2 || accounts.some((account) => account.state === 'deleted'))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
       const replay = await claimCommand(transaction, command, generated.occurredAt);
@@ -489,9 +502,11 @@ export class PostgresInteractionStore implements InteractionStore {
   }
 
   public markNotInterested(
-    command: MarkNotInterestedCommand,
-    generated: RejectionGenerated,
+    input: MarkNotInterestedCommand,
+    effects: RejectionGenerated,
   ): Promise<InteractionResult> {
+    const command = structuredClone(input),
+      generated = structuredClone(effects);
     if (command.actor.kind !== 'user')
       return Promise.reject(
         new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
@@ -505,6 +520,8 @@ export class PostgresInteractionStore implements InteractionStore {
     return this.database.transaction().execute(async (transaction) => {
       const pair = await lockUserPair(transaction, command.actor.userId, command.data.targetUserId);
       const accounts = await lockUserPairAccounts(transaction, pair);
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, command.actor.userId, this.owner);
       if (accounts.length !== 2 || accounts.some((account) => account.state === 'deleted'))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
       const replay = await claimCommand(transaction, command, generated.occurredAt);
