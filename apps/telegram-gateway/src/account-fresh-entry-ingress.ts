@@ -47,6 +47,7 @@ export function createTelegramFreshEntryIngress(
     database: NakhDatabase;
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
+    afterActivation?: (notice: TelegramFreshEntryNotice) => Promise<void>;
   }>,
 ): TelegramFreshEntryIngressPort {
   if (!input.config.deletion.freshEntryTelegramEnabled)
@@ -135,6 +136,10 @@ export function createTelegramFreshEntryIngress(
         await current();
       }
       await client.sendMenu(notice.telegramUserId, menu);
+      if (notice.notice.key === 'entry.completed') {
+        await current();
+        await input.afterActivation?.(notice);
+      }
     },
   );
 }

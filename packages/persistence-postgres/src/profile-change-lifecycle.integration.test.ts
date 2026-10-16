@@ -402,6 +402,7 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
       );
       expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toEqual([
         '000151_m8_minimal_review_response_receipts.sql',
+        '000152_m9_signup_presentation.sql',
       ]);
       await verifyMigrations(upgrade.url, resolve('migrations/verify'));
       const current = await db
@@ -1101,6 +1102,7 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
         '000149_m8_live_retained_safety_holds.sql',
         '000150_m8_batched_photo_sources.sql',
         '000151_m8_minimal_review_response_receipts.sql',
+        '000152_m9_signup_presentation.sql',
       ]);
       await verifyMigrations(upgrade.url, resolve('migrations/verify'));
       expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toHaveLength(0);

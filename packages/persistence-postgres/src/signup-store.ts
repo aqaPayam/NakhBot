@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import type {
   SaveSignupStepWrite,
+  SaveSignupOptionalDetailsWrite,
   SignupStore,
   StartSignupWrite,
   UserSessionActor,
@@ -18,7 +19,7 @@ import {
 import type { NakhDatabase } from './database.js';
 import { requireCurrentUserSession } from './user-session-store.js';
 
-type SignupWrite = StartSignupWrite | SaveSignupStepWrite;
+type SignupWrite = StartSignupWrite | SaveSignupStepWrite | SaveSignupOptionalDetailsWrite;
 const draftSteps = new Set([
   'age_confirmation',
   'name',
@@ -247,6 +248,208 @@ export class PostgresSignupStore implements SignupStore {
 
   public getCatalogSnapshot(userId: string): Promise<SignupCatalogSnapshot> {
     return this.readOwned(userId, (database) => this.catalogs(database));
+  }
+
+  /** Private values stay in the native draft; never copy this snapshot into navigation storage. */
+  public getUiDraft(userId: string): Promise<Readonly<Record<string, object>>> {
+    if (this.owner === undefined)
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    return this.readOwned(userId, async (database) => {
+      const row = await database
+        .selectFrom('identity.signup_drafts')
+        .select(['draft_data', 'schema_version'])
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow();
+      return decodeDraft(row.draft_data, row.schema_version);
+    });
+  }
+
+  /** Trusted provider ingress records a bounded denial, never callback data or form text. */
+  public async recordNavigationDenial(
+    userId: string,
+    productEpoch: number,
+    requestId: string,
+  ): Promise<void> {
+    await this.database.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', userId)
+        .forNoKeyUpdate()
+        .executeTakeFirstOrThrow();
+      const account = await tx
+        .selectFrom('identity.accounts')
+        .select(['product_epoch', 'state'])
+        .where('user_id', '=', userId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (account.product_epoch !== productEpoch || account.state === 'deleted')
+        throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+      await tx
+        .insertInto('platform.audit_logs')
+        .values({
+          id: requestId,
+          category: 'security',
+          event_type: 'identity.signup-navigation-denied.v1',
+          actor_type: 'user',
+          actor_user_id: userId,
+          actor_admin_id: null,
+          subject_type: 'user',
+          subject_id: userId,
+          result_code: 'denied',
+          metadata_schema_version: 1,
+          metadata: { productEpoch, reason: 'invalid_navigation' },
+          request_id: requestId,
+          command_id: requestId,
+          occurred_at: new Date(),
+        })
+        .onConflict((c) => c.column('id').doNothing())
+        .execute();
+    });
+  }
+
+  public async saveSignupOptionalDetails(
+    input: SaveSignupOptionalDetailsWrite,
+  ): Promise<SignupState> {
+    const write = structuredClone(input),
+      userId = write.command.actor.userId,
+      owner = this.owner;
+    if (owner === undefined || write.command.actor.kind !== 'user')
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    return this.database.transaction().execute(async (transaction) => {
+      await transaction
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', userId)
+        .forNoKeyUpdate()
+        .executeTakeFirstOrThrow();
+      const account = await transaction
+        .selectFrom('identity.accounts')
+        .select('state')
+        .where('user_id', '=', userId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      await requireCurrentUserSession(transaction, userId, owner);
+      const replay = await this.claim(transaction, write);
+      if (replay !== undefined) return replay;
+      const progress = await transaction
+        .selectFrom('identity.signup_progress')
+        .select(['current_step', 'version'])
+        .where('user_id', '=', userId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const draft = await transaction
+        .selectFrom('identity.signup_drafts')
+        .select(['draft_data', 'schema_version', 'version'])
+        .where('user_id', '=', userId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (account.state !== 'incomplete' || progress.current_step !== 'optional_details')
+        throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+      if (draft.version !== write.command.data.expectedDraftVersion)
+        throw new ApplicationError('stale_signup_version', 'error.signup.version_conflict', 409);
+      const decoded = decodeDraft(draft.draft_data, draft.schema_version),
+        edit = write.command.data.edit;
+      const allowed = [
+        'heightCm',
+        'job',
+        'educationLevelCode',
+        'smokingPreferenceCode',
+        'petsPreferenceCode',
+        'exerciseFrequencyCode',
+        'religionCode',
+        'childrenPreferenceCode',
+        'languageCodes',
+        'personalityTagCodes',
+        'bio',
+      ];
+      if (!allowed.includes(edit.field))
+        throw new ApplicationError(
+          'invalid_signup_step',
+          'error.signup.optional_details.invalid',
+          400,
+        );
+      const entry = decoded.optional_details as { value?: Record<string, unknown> } | undefined;
+      const optional = { ...entry?.value };
+      if ('clear' in edit) delete optional[edit.field];
+      else {
+        if (
+          (edit.field === 'heightCm' && !Number.isInteger(edit.value)) ||
+          (['languageCodes', 'personalityTagCodes'].includes(edit.field)
+            ? !Array.isArray(edit.value) || edit.value.some((v: unknown) => typeof v !== 'string')
+            : edit.field !== 'heightCm' && typeof edit.value !== 'string')
+        )
+          throw new ApplicationError(
+            'invalid_signup_step',
+            'error.signup.optional_details.invalid',
+            400,
+          );
+        optional[edit.field] = edit.value;
+      }
+      const value = normalizeSignupStep(
+        { step: 'optional_details', value: optional },
+        await this.catalogs(transaction),
+        { now: () => write.processedAt },
+      );
+      const state = signupState('optional_details', draft.version + 1, write.processedAt);
+      await transaction
+        .updateTable('identity.signup_drafts')
+        .set({
+          draft_data: {
+            ...decodeDraft(draft.draft_data, draft.schema_version),
+            optional_details: value,
+          },
+          version: state.draftVersion,
+          updated_at: write.processedAt,
+        })
+        .where('user_id', '=', userId)
+        .execute();
+      await transaction
+        .updateTable('identity.signup_progress')
+        .set({ version: progress.version + 1, updated_at: write.processedAt })
+        .where('user_id', '=', userId)
+        .execute();
+      await transaction
+        .insertInto('platform.audit_logs')
+        .values({
+          id: write.auditId,
+          category: 'account',
+          event_type: 'identity.signup-optional-details-saved.v1',
+          actor_type: 'user',
+          actor_user_id: userId,
+          actor_admin_id: null,
+          subject_type: 'signup_draft',
+          subject_id: userId,
+          result_code: 'saved',
+          metadata_schema_version: 1,
+          metadata: { currentStep: state.currentStep, draftVersion: state.draftVersion },
+          request_id: write.command.requestId,
+          command_id: write.command.commandId,
+          occurred_at: write.processedAt,
+        })
+        .execute();
+      await transaction
+        .insertInto('platform.outbox_events')
+        .values({
+          id: write.eventId,
+          aggregate_type: 'user',
+          aggregate_id: userId,
+          event_type: 'identity.signup-optional-details-saved.v1',
+          schema_version: 1,
+          payload: { userId, currentStep: state.currentStep, draftVersion: state.draftVersion },
+          occurred_at: write.processedAt,
+          available_at: write.processedAt,
+          published_at: null,
+          last_error_code: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          correlation_id: write.command.requestId,
+          causation_id: write.command.commandId,
+        })
+        .execute();
+      await this.complete(transaction, write.command.commandId, state, write.processedAt);
+      return state;
+    });
   }
 
   private async readSignupState(

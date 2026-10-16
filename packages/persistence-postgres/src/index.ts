@@ -207,6 +207,7 @@ export * from './moderation-integrity-metrics-store.js';
 export * from './moderation-operational-health-store.js';
 export * from './admin-session-store.js';
 export * from './user-session-store.js';
+export * from './signup-choices.js';
 export * from './admin-session-policy.js';
 export * from './admin-totp-verifier.js';
 export * from './admin-totp-enrollment-store.js';

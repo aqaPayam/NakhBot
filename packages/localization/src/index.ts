@@ -32,3 +32,5 @@ export class CatalogRenderer {
 export * from './m7-catalog.js';
 
 export * from './m8-catalog.js';
+
+export * from './m9-catalog.js';

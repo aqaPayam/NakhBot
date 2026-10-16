@@ -9,6 +9,7 @@ import {
   RegisterTelegramIdentityCommandSchema,
   RequestProtectedProfileChangeCommandSchema,
   SaveSignupStepCommandSchema,
+  SaveSignupOptionalDetailsCommandSchema,
   UpdateProfileCommandSchema,
 } from './index.js';
 
@@ -33,6 +34,31 @@ const envelope = {
 };
 
 describe('M1 public contracts', () => {
+  it('validates versioned optional edits without accepting arbitrary fields or mixed clear/value selectors', () => {
+    const validate = validator(SaveSignupOptionalDetailsCommandSchema);
+    const check = (edit: unknown): boolean =>
+      validate({
+        ...envelope,
+        commandType: 'identity.save-signup-optional-details',
+        data: { expectedDraftVersion: 12, edit },
+      });
+    for (const edit of [
+      { field: 'heightCm', value: 180 },
+      { field: 'bio', value: 'hello' },
+      { field: 'job', clear: true },
+      { field: 'languageCodes', value: ['persian'] },
+    ])
+      expect(check(edit)).toBe(true);
+    for (const edit of [
+      { field: 'heightCm', value: '180' },
+      { field: 'heightCm', value: 99 },
+      { field: 'name', value: 'no' },
+      { field: 'bio', clear: true, value: 'no' },
+      { field: 'job', value: 'x'.repeat(65) },
+      { field: 'personalityTagCodes', value: ['a', 'b', 'c', 'd', 'e', 'f'] },
+    ])
+      expect(check(edit)).toBe(false);
+  });
   it('accepts a strict first-start command without numeric Telegram precision loss', () => {
     const validate = validator(RegisterTelegramIdentityCommandSchema);
     expect(

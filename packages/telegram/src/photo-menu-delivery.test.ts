@@ -2,6 +2,42 @@ import { describe, expect, it, vi } from 'vitest';
 import { TelegramBotApiMenuClient, renderTelegramPhotoMenu } from './photo-menu-delivery.js';
 
 describe('Telegram photo-menu delivery', () => {
+  it('returns only a verified private bot prompt receipt and rejects substituted origins', async () => {
+    const result = {
+      message_id: 4,
+      from: { id: 12345, is_bot: true },
+      chat: { id: 123, type: 'private' },
+    };
+    const call = vi.fn((input: string, init?: RequestInit) => {
+      expect(input).toContain('/sendMessage');
+      expect(init?.method).toBe('POST');
+      return Promise.resolve(new Response(JSON.stringify({ ok: true, result }), { status: 200 }));
+    });
+    const client = new TelegramBotApiMenuClient('12345:token', call);
+    expect(await client.sendPrompt('123', 'Answer')).toBe(4);
+    expect(
+      (JSON.parse(call.mock.calls[0]?.[1]?.body as string) as { reply_markup: unknown })
+        .reply_markup,
+    ).toEqual({
+      force_reply: true,
+      selective: true,
+    });
+    for (const changed of [
+      { ...result, message_id: 0 },
+      { ...result, chat: { id: 456, type: 'private' } },
+      { ...result, chat: { id: 123, type: 'group' } },
+      { ...result, from: { id: 67890, is_bot: true } },
+    ]) {
+      const wrong = new TelegramBotApiMenuClient('12345:token', () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true, result: changed }), { status: 200 }),
+        ),
+      );
+      await expect(wrong.sendPrompt('123', 'Answer')).rejects.toThrow(
+        'Telegram menu delivery unavailable.',
+      );
+    }
+  });
   it('renders localized text and an inline keyboard without parse-mode injection', () => {
     const rendered = renderTelegramPhotoMenu(
       {

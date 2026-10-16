@@ -1,4 +1,9 @@
-import type { SaveSignupStepCommand, SignupState, StartSignupCommand } from '@nakh/contracts';
+import type {
+  SaveSignupStepCommand,
+  SaveSignupOptionalDetailsCommand,
+  SignupState,
+  StartSignupCommand,
+} from '@nakh/contracts';
 import { ApplicationError, type Actor, type Clock, type IdGenerator } from '@nakh/domain';
 
 export type StartSignupWrite = Readonly<{
@@ -15,6 +20,29 @@ export type SaveSignupStepWrite = Readonly<{
   eventId: string;
   processedAt: Date;
 }>;
+
+export type SaveSignupOptionalDetailsWrite = Omit<SaveSignupStepWrite, 'command'> &
+  Readonly<{ command: SaveSignupOptionalDetailsCommand }>;
+export interface SignupOptionalDetailsStore {
+  saveSignupOptionalDetails(write: SaveSignupOptionalDetailsWrite): Promise<SignupState>;
+}
+export class SaveSignupOptionalDetailsHandler {
+  public constructor(
+    private readonly store: SignupOptionalDetailsStore,
+    private readonly ids: IdGenerator,
+    private readonly clock: Clock,
+  ) {}
+  public execute(command: SaveSignupOptionalDetailsCommand): Promise<SignupState> {
+    if (command.actor.kind !== 'user')
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    return this.store.saveSignupOptionalDetails({
+      command,
+      auditId: this.ids.uuid(),
+      eventId: this.ids.uuid(),
+      processedAt: this.clock.now(),
+    });
+  }
+}
 
 export interface SignupStore {
   startSignup(write: StartSignupWrite): Promise<SignupState>;

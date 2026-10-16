@@ -1306,6 +1306,7 @@ export interface AppealSubmissionTable {
 }
 
 export interface DatabaseSchema {
+  'platform.schema_migrations': { name: string; sha256: string; applied_at: Date };
   'administration.safety_access_audits': {
     id: string;
     admin_user_id: string;

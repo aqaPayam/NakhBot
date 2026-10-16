@@ -50,12 +50,35 @@ re-reads the current route instead of displaying a replayed registration's
 historical route. Provider failure permits retry of the original business
 update; delivery is at least once, while registration remains idempotent.
 
-This first runtime connection sends the public route title only. It issues no
-session or action grants and exposes no nonfunctional buttons. Signup, product
-navigation and the post-Return activation-to-menu bridge still need wiring
-before a usable canary. Existing M8 Return/fresh-entry controls run first in the
-webhook and retain their separate confirmation protocol. Rendering tests use
-synthetic Telegram delivery; they do not establish real provider acceptance.
+With signup disabled, this connection sends the public route title only and
+issues no product or action grants. `NAKH_TELEGRAM_SIGNUP_ENABLED` adds the
+interactive signup journey and requires start delivery plus media ingestion.
+It stays disabled by default. Migration 152 installs 26 required English keys
+and the content-free optional-draft event disposition; all active UI locales
+must have those keys and matching variables before the gateway can start.
+
+The enabled composition handles every required signup step and all optional
+fields, versioned native draft saves, catalog pagination, numbered processed
+uploads, review and separately clicked profile confirmation. Private values
+remain in PostgreSQL. The bot uses opaque MAC-bound buttons and exact private
+bot-message reply bindings. Navigation contains public selectors, expected
+versions and a native grant reference, with an explicit fifteen-minute expiry.
+The first transition from a rendered menu wins; exact provider retries retain
+the original operation. Cache loss resumes from the native draft through
+`/start`, and rejected navigation produces a bounded security audit without
+copying callback data or answers. Provider delivery remains at least once.
+
+M8 Return/fresh-entry controls run first and retain their separate confirmation
+protocol. Only successful native/Redis fresh activation invokes the product
+entry hook; its current limited control grant is checked before a separate
+native product grant is issued. An ordinary later-life `/start` cannot issue
+that grant. The menu reads current Profile completion under native session
+locks rather than inferring it from the identity-only snapshot. Native flow
+tests use synthetic Telegram delivery and media fixtures; the composed-host
+case also uses actual Redis. These are not real provider acceptance, approved
+geography/catalog data or operator sign-off. Remaining product navigation,
+operator process composition and the original M9 release table still require
+completion before usable deployed canaries or launch can be claimed.
 
 Public signup composition must pass its original native `UserSessionActor` to
 `PostgresSignupStore` and `PostgresProfileStore`. Their bound mode captures the

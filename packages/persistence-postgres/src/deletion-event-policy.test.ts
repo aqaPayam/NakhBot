@@ -3,6 +3,18 @@ import { classifyDeletionEvent } from './deletion-event-policy.js';
 
 const id = '10000000-0000-4000-8000-000000000001';
 describe('M8 typed operational event disposition', () => {
+  it('classifies optional draft transport without permitting a copy of the answers', () => {
+    const body = { userId: id, currentStep: 'optional_details', draftVersion: 13 };
+    expect(classifyDeletionEvent('identity.signup-optional-details-saved.v1', 1, body)).toBe(
+      'product_transport',
+    );
+    expect(
+      classifyDeletionEvent('identity.signup-optional-details-saved.v1', 1, {
+        ...body,
+        optional: { bio: 'private' },
+      }),
+    ).toBe('unclassified');
+  });
   it('classifies only the exact content-free Return transport shape without granting restoration authority', () => {
     const payload = { userId: id, accountVersion: 3 };
     expect(classifyDeletionEvent('account.returned.v1', 1, payload)).toBe('lifecycle_proof');

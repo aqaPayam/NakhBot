@@ -17,6 +17,7 @@ import {
 } from '@nakh/telegram';
 import { createTelegramFreshEntryIngress } from './account-fresh-entry-ingress.js';
 import { createTelegramAccountReturnIngress } from './account-return-ingress.js';
+import type { TelegramFreshEntryNotice } from '@nakh/telegram';
 export interface TelegramAccountDeletionIngressPort {
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
 }
@@ -45,6 +46,7 @@ export function createTelegramAccountDeletionIngress(
     database: NakhDatabase;
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
+    afterActivation?: (notice: TelegramFreshEntryNotice) => Promise<void>;
   }>,
 ): TelegramAccountDeletionIngressPort {
   if (!input.config.deletion.telegramEnabled) return { handle: () => Promise.resolve('unhandled') };

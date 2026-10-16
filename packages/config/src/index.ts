@@ -36,6 +36,7 @@ const ConfigSchema = Type.Object(
       notificationDeliveryEnabled: Type.Boolean(),
       supportAppealEnabled: Type.Boolean(),
       startDeliveryEnabled: Type.Boolean(),
+      signupEnabled: Type.Boolean(),
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
@@ -153,6 +154,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       notificationDeliveryEnabled: boolean(env.NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED, false),
       supportAppealEnabled: boolean(env.NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED, false),
       startDeliveryEnabled: boolean(env.NAKH_TELEGRAM_START_DELIVERY_ENABLED, false),
+      signupEnabled: boolean(env.NAKH_TELEGRAM_SIGNUP_ENABLED, false),
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),
@@ -236,6 +238,13 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   if (candidate.deletion.freshEntryTelegramEnabled && !candidate.deletion.returnTelegramEnabled)
     throw new Error(
       'Invalid configuration: fresh entry Telegram requires configured Return Telegram readiness.',
+    );
+  if (
+    candidate.telegram.signupEnabled &&
+    (!candidate.telegram.startDeliveryEnabled || !candidate.media.ingestionEnabled)
+  )
+    throw new Error(
+      'Invalid configuration: signup Telegram requires start delivery and media ingestion.',
     );
   if (candidate.deletion.returnTelegramEnabled && !candidate.deletion.telegramEnabled)
     throw new Error(

@@ -15,6 +15,7 @@ const shapes: Readonly<Record<string, Shape | readonly Shape[]>> = Object.freeze
   'telegram.start-route-requested.v1': { required: 'userId entryRoute uiLocale' },
   'identity.signup-started.v1': { required: 'userId currentStep draftVersion' },
   'identity.signup-step-saved.v1': { required: 'userId completedStep currentStep draftVersion' },
+  'identity.signup-optional-details-saved.v1': { required: 'userId currentStep draftVersion' },
   'identity.locale-changed.v1': { required: 'userId uiLocale visibilityEnabled settingsVersion' },
   'identity.visibility-changed.v1': {
     required: 'userId uiLocale visibilityEnabled settingsVersion',

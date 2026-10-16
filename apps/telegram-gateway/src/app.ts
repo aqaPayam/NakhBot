@@ -73,6 +73,7 @@ import {
 } from './account-deletion-ingress.js';
 import type { TelegramReportIngressPort } from './report-ingress.js';
 import { createTelegramStartDelivery } from './start-delivery.js';
+import { createTelegramSignupRuntime, type TelegramSignupRuntimePort } from './signup-runtime.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const REPORT_INGRESS = Symbol('REPORT_INGRESS');
@@ -80,6 +81,7 @@ const ADMIN_EVIDENCE_INGRESS = Symbol('ADMIN_EVIDENCE_INGRESS');
 const ADMIN_SAFETY_CONTENT_INGRESS = Symbol('ADMIN_SAFETY_CONTENT_INGRESS');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
+const SIGNUP_INGRESS = Symbol('SIGNUP_INGRESS');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
 const PHOTO_MANAGEMENT_ADAPTER = Symbol('PHOTO_MANAGEMENT_ADAPTER');
 const PHOTO_MENU_DELIVERY = Symbol('PHOTO_MENU_DELIVERY');
@@ -157,6 +159,7 @@ class TelegramGatewayController {
   public constructor(
     @Inject(AUTHENTICATOR) private readonly authenticator: TelegramWebhookAuthenticator,
     @Inject(START_ADAPTER) private readonly startAdapter: Pick<TelegramStartAdapter, 'handle'>,
+    @Inject(SIGNUP_INGRESS) private readonly signupIngress: TelegramSignupRuntimePort,
     @Inject(PHOTO_ADAPTER) private readonly photoAdapter: PhotoAdapter,
     @Inject(PHOTO_MANAGEMENT_ADAPTER)
     private readonly photoManagementAdapter: PhotoManagementAdapter,
@@ -204,6 +207,7 @@ class TelegramGatewayController {
     try {
       if ((await this.accountDeletionIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
+      if ((await this.signupIngress.handle(update)) !== 'unhandled') return { accepted: true };
     } catch (error) {
       if (error instanceof ApplicationError)
         throw new HttpException({ code: error.code }, error.status);
@@ -337,12 +341,14 @@ export class TelegramGatewayModule {
     const redis = createRedisConnection(config.redis.url);
     const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
     const identityStore = new PostgresIdentityStore(database);
+    const signup = createTelegramSignupRuntime({ config, database, redis });
     const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
     const supportAppealIngress = createTelegramSupportAppealIngress({ config, database, redis });
     const accountDeletionIngress = createTelegramAccountDeletionIngress({
       config,
       database,
       redis,
+      ...(signup.afterActivation === undefined ? {} : { afterActivation: signup.afterActivation }),
     });
     const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
     const photoAdapter: PhotoAdapter = config.media.ingestionEnabled
@@ -444,6 +450,7 @@ export class TelegramGatewayModule {
           useValue: new TelegramWebhookAuthenticator(config.telegram.webhookSecret),
         },
         { provide: DATABASE, useValue: database },
+        { provide: SIGNUP_INGRESS, useValue: signup },
         { provide: REDIS, useValue: redis },
         { provide: M1_METRICS, useValue: new M1Metrics() },
         { provide: M2_METRICS, useValue: new M2Metrics() },
@@ -472,6 +479,7 @@ export class TelegramGatewayModule {
             config,
             database,
             adapter: TelegramStartAdapter.withStore(identityStore, limiter),
+            ...(signup.openStart === undefined ? {} : { onStart: signup.openStart }),
           }),
         },
         DatabaseLifecycle,

@@ -70,7 +70,49 @@ export class TelegramBotApiMenuClient {
     });
   }
 
-  private async call(method: 'answerCallbackQuery' | 'sendMessage', body: unknown): Promise<void> {
+  /** The returned private bot message binds free text to its exact prompt. */
+  public async sendPrompt(telegramUserId: string, text: string): Promise<number> {
+    try {
+      const botId = this.botToken.split(':')[0];
+      if (
+        !/^[1-9][0-9]{0,19}$/u.test(telegramUserId) ||
+        !/^[1-9][0-9]*$/u.test(botId ?? '') ||
+        text.length < 1 ||
+        text.length > 4096
+      )
+        throw new Error('invalid prompt');
+      const result = await this.call('sendMessage', {
+        chat_id: telegramUserId,
+        text,
+        reply_markup: { force_reply: true, selective: true },
+      });
+      const row =
+        typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : {};
+      const chat = row.chat as Record<string, unknown> | undefined,
+        from = row.from as Record<string, unknown> | undefined;
+      if (
+        !Number.isSafeInteger(row.message_id) ||
+        Number(row.message_id) <= 0 ||
+        chat?.type !== 'private' ||
+        typeof chat.id !== 'number' ||
+        !Number.isSafeInteger(chat.id) ||
+        String(chat.id) !== telegramUserId ||
+        from?.is_bot !== true ||
+        typeof from.id !== 'number' ||
+        !Number.isSafeInteger(from.id) ||
+        String(from.id) !== botId
+      )
+        throw new Error('invalid prompt receipt');
+      return row.message_id as number;
+    } catch {
+      throw new Error('Telegram menu delivery unavailable.');
+    }
+  }
+
+  private async call(
+    method: 'answerCallbackQuery' | 'sendMessage',
+    body: unknown,
+  ): Promise<unknown> {
     try {
       const response = await this.fetcher(`${this.apiOrigin}/bot${this.botToken}/${method}`, {
         method: 'POST',
@@ -89,6 +131,7 @@ export class TelegramBotApiMenuClient {
         (parsed as Readonly<Record<string, unknown>>).ok !== true
       )
         throw new Error('request failed');
+      return (parsed as Readonly<Record<string, unknown>>).result;
     } catch {
       throw new Error('Telegram menu delivery unavailable.');
     }

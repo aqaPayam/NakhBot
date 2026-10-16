@@ -1,3 +1,4 @@
+import { M9_SIGNUP_TEXTS } from '@nakh/localization';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
@@ -202,7 +203,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(607);
+    expect(Object.keys(english.messages)).toHaveLength(607 + Object.keys(M9_SIGNUP_TEXTS).length);
     expect(Object.keys(english.messages)).toEqual(
       expect.arrayContaining([
         'return.button.confirm',
@@ -242,6 +243,8 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     expect(english.messages['error.deletion.checkpoint_conflict']).toBe(
       'Deletion progress changed. Please retry.',
     );
+    for (const [key, value] of Object.entries(M9_SIGNUP_TEXTS))
+      expect(english.messages[key]).toBe(value);
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(english.messages['media.photos.button.delete']).toBe('Delete');
     expect(english.messages['liked_by.title']).toBe('Liked By ({count})');

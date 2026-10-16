@@ -268,6 +268,7 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
             '000149_m8_live_retained_safety_holds.sql',
             '000150_m8_batched_photo_sources.sql',
             '000151_m8_minimal_review_response_receipts.sql',
+            '000152_m9_signup_presentation.sql',
           ]);
           expect(await original(item.recordId, legacy)).toEqual({ ...before, product_epoch: 0 });
           expect(

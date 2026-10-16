@@ -13,6 +13,8 @@ import { TelegramBotApiMenuClient, type TelegramStartAdapter } from '@nakh/teleg
 type StartAdapter = Pick<TelegramStartAdapter, 'handle'>;
 type Life = Readonly<{ userId: string; productEpoch: number; accountVersion: number }>;
 type State = Readonly<{ life: Life; context: IdentityContextSnapshot }>;
+export type TelegramStartDeliveryNotice = State &
+  Readonly<{ telegramUserId: string; updateId: number }>;
 type ReadState = (telegramUserId: string) => Promise<State | undefined>;
 
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -32,6 +34,7 @@ export class TelegramStartDelivery implements StartAdapter {
     private readonly readState: ReadState,
     private readonly render: (context: IdentityContextSnapshot) => Promise<string>,
     private readonly send: (telegramUserId: string, text: string) => Promise<void>,
+    private readonly onStart?: (notice: TelegramStartDeliveryNotice) => Promise<void>,
   ) {}
 
   public async handle(update: unknown): ReturnType<StartAdapter['handle']> {
@@ -88,7 +91,8 @@ export class TelegramStartDelivery implements StartAdapter {
         current.context.uiLocale !== state.context.uiLocale
       )
         throw unavailable();
-      await this.send(telegramUserId, text);
+      if (this.onStart === undefined) await this.send(telegramUserId, text);
+      else await this.onStart({ ...state, telegramUserId, updateId: root.update_id });
       return { ...result, view: routeStart(state.context.entryRoute) };
     } catch (error) {
       if (error instanceof ApplicationError && error.status < 500) throw error;
@@ -104,6 +108,7 @@ export function createTelegramStartDelivery(
     database: NakhDatabase;
     adapter: StartAdapter;
     resolveSecret?: (reference: string) => string;
+    onStart?: (notice: TelegramStartDeliveryNotice) => Promise<void>;
   }>,
 ): StartAdapter {
   if (!input.config.telegram.startDeliveryEnabled) return input.adapter;
@@ -138,5 +143,6 @@ export function createTelegramStartDelivery(
     },
     (telegramUserId, text) =>
       client.sendMenu(telegramUserId, { text, replyMarkup: { inline_keyboard: [] } }),
+    input.onStart,
   );
 }

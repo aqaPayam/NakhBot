@@ -18,6 +18,20 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps signup off and requires the existing start and photo paths when activated', () => {
+    expect(parseConfig(validEnvironment).telegram.signupEnabled).toBe(false);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_SIGNUP_ENABLED: 'true' }),
+    ).toThrow('signup Telegram requires');
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_TELEGRAM_SIGNUP_ENABLED: 'true',
+        NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
+        NAKH_MEDIA_INGESTION_ENABLED: 'true',
+      }).telegram.signupEnabled,
+    ).toBe(true);
+  });
   it('requires explicit activation of private start delivery', () => {
     expect(parseConfig(validEnvironment).telegram.startDeliveryEnabled).toBe(false);
     expect(

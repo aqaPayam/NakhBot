@@ -4,6 +4,7 @@ import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   ConfirmSignupHandler,
+  SaveSignupOptionalDetailsHandler,
   type SaveSignupStepWrite,
   type StartSignupWrite,
   type UpdateProfileWrite,
@@ -258,8 +259,44 @@ describe.skipIf(url === undefined)('M9 native signup and profile session boundar
       { step: 'highlight', value: 'Synthetic owned signup' },
       { step: 'optional_details', value: {} },
     ];
-    for (const [i, value] of values.entries())
-      await signup.saveSignupStep(save(actor.userId, i + 1, value));
+    let version = 1;
+    const optional = new SaveSignupOptionalDetailsHandler(signup, ids, new SystemClock());
+    let optionalCommand: Parameters<SaveSignupOptionalDetailsHandler['execute']>[0] | undefined;
+    for (const value of values) {
+      if (value.step === 'optional_details') {
+        const currentOptional: Parameters<SaveSignupOptionalDetailsHandler['execute']>[0] = {
+          ...command(actor.userId),
+          commandType: 'identity.save-signup-optional-details',
+          data: {
+            expectedDraftVersion: version,
+            edit: { field: 'bio', value: 'Private optional draft' },
+          },
+        };
+        optionalCommand = currentOptional;
+        const replies = await Promise.all(
+          Array.from({ length: 10 }, () => optional.execute(currentOptional)),
+        );
+        version++;
+        expect(
+          replies.every((r) => r.currentStep === 'optional_details' && r.draftVersion === version),
+        ).toBe(true);
+        await signup.saveSignupStep(
+          save(actor.userId, version, {
+            step: 'optional_details',
+            value: { bio: 'Private optional draft' },
+          }),
+        );
+      } else await signup.saveSignupStep(save(actor.userId, version, value));
+      version++;
+    }
+    const transports = await database
+      .selectFrom('platform.outbox_events')
+      .select('payload')
+      .where('aggregate_id', '=', actor.userId)
+      .where('event_type', '=', 'identity.signup-optional-details-saved.v1')
+      .execute();
+    expect(transports).toHaveLength(1);
+    expect(JSON.stringify(transports)).not.toContain('Private optional draft');
     await seedValidMedia(database, actor.userId, primary);
     await seedValidMedia(database, actor.userId, additional);
     const confirm = new ConfirmSignupHandler(
@@ -271,7 +308,7 @@ describe.skipIf(url === undefined)('M9 native signup and profile session boundar
     const input = {
       ...command(actor.userId),
       commandType: 'identity.confirm-signup' as const,
-      data: { expectedDraftVersion: 13 },
+      data: { expectedDraftVersion: version },
     };
     const results = await Promise.all(Array.from({ length: 10 }, () => confirm.execute(input)));
     expect(new Set(results.map((r) => r.profile.profileId)).size).toBe(1);
@@ -286,6 +323,8 @@ describe.skipIf(url === undefined)('M9 native signup and profile session boundar
     await expect(profile.updateOwnProfile(edit)).rejects.toMatchObject({ status: 401 });
     await expect(profile.getConfirmationReplay(input)).rejects.toMatchObject({ status: 401 });
     await expect(profile.getOwnProfile(actor.userId)).rejects.toMatchObject({ status: 401 });
+    if (optionalCommand === undefined) throw Error('Missing optional command');
+    await expect(optional.execute(optionalCommand)).rejects.toMatchObject({ status: 401 });
   });
   it('rechecks the original grant after a real native lock wait', async () => {
     const actor = await register(),

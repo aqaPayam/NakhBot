@@ -308,6 +308,91 @@ export const SaveSignupStepCommandSchema = commandSchema(
 );
 export type SaveSignupStepCommand = Static<typeof SaveSignupStepCommandSchema>;
 
+export const SaveSignupOptionalDetailsCommandSchema = commandSchema(
+  'identity.save-signup-optional-details',
+  Type.Object(
+    {
+      expectedDraftVersion: Type.Integer({ minimum: 1 }),
+      edit: Type.Union([
+        Type.Object(
+          {
+            field: Type.Union(
+              (
+                [
+                  'heightCm',
+                  'job',
+                  'educationLevelCode',
+                  'smokingPreferenceCode',
+                  'petsPreferenceCode',
+                  'exerciseFrequencyCode',
+                  'religionCode',
+                  'childrenPreferenceCode',
+                  'languageCodes',
+                  'personalityTagCodes',
+                  'bio',
+                ] as const
+              ).map((field) => Type.Literal(field)),
+            ),
+            clear: Type.Literal(true),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          { field: Type.Literal('heightCm'), value: Type.Integer({ minimum: 100, maximum: 250 }) },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            field: Type.Literal('bio'),
+            value: Type.String({ maxLength: 500 }),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          { field: Type.Literal('job'), value: Type.String({ maxLength: 64 }) },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            field: Type.Literal('languageCodes'),
+            value: Type.Array(stableCodeSchema, { maxItems: 10, uniqueItems: true }),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            field: Type.Literal('personalityTagCodes'),
+            value: Type.Array(stableCodeSchema, { maxItems: 5, uniqueItems: true }),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            field: Type.Union(
+              (
+                [
+                  'educationLevelCode',
+                  'smokingPreferenceCode',
+                  'petsPreferenceCode',
+                  'exerciseFrequencyCode',
+                  'religionCode',
+                  'childrenPreferenceCode',
+                ] as const
+              ).map((field) => Type.Literal(field)),
+            ),
+            value: stableCodeSchema,
+          },
+          { additionalProperties: false },
+        ),
+      ]),
+    },
+    { additionalProperties: false },
+  ),
+);
+export type SaveSignupOptionalDetailsCommand = Static<
+  typeof SaveSignupOptionalDetailsCommandSchema
+>;
+
 export const SignupStateSchema = Type.Object(
   {
     currentStep: SignupStepSchema,
