@@ -9,7 +9,8 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import policy from '../../../deploy/telemetry/m7-collector.json' with { type: 'json' };
-import { collectorStartupDiagnostic, pullCollectorImage } from './m7-collector-startup.js';
+import { collectorStartupDiagnostic } from './m7-collector-startup.js';
+import { prepareCollectorImage } from './collector-image.js';
 
 const execute = promisify(execFile);
 let stage = 'configuration';
@@ -159,10 +160,11 @@ async function main(): Promise<void> {
   let provider: MeterProvider | undefined;
   try {
     stage = 'image-pull';
-    await pullCollectorImage(() => docker(['pull', policy.collectorImage]), delay);
+    const imageAcquisition = await prepareCollectorImage(policy.collectorImage, docker, delay);
     stage = 'startup';
     await docker([
       'run',
+      '--pull=never',
       '-d',
       '--name',
       name,
@@ -172,7 +174,7 @@ async function main(): Promise<void> {
       'AWS_EC2_METADATA_DISABLED=true',
       '--mount',
       `type=bind,src=${configPath},dst=/tmp/m7.json,readonly`,
-      policy.collectorImage,
+      imageAcquisition.configDigest,
       '--config=/tmp/m7.json',
     ]);
     started = true;
@@ -274,6 +276,7 @@ async function main(): Promise<void> {
         {
           schemaVersion: 1,
           collectorImage: policy.collectorImage,
+          imageAcquisition,
           source: 'actual-otel-sdk-otlp-http-pinned-adot-awsemf-stdout',
           metricCount: policy.metricNames.length,
           phases: policy.phases.length,

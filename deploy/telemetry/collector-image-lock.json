@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "configuredImage": "public.ecr.aws/aws-observability/aws-otel-collector:v0.49.0",
+  "mirrorRepository": "docker.io/amazon/aws-otel-collector",
+  "indexDigest": "sha256:d2bdfff2c377c3d71d78bd5d9ce9862fd535b12134a5739d87a07801297cf9fd",
+  "platforms": {
+    "linux/amd64": {
+      "manifestDigest": "sha256:bb72328152c72fb9662056759b275f7cc85e115db12bbb114fbea9f68dc4816c",
+      "configDigest": "sha256:98fc47ece25c8510c264bd16a91ddba72a1618d0570fdbccbbcf03a71d8471d6"
+    },
+    "linux/arm64": {
+      "manifestDigest": "sha256:90b3180c21acb9497110480371a413ed91f2836077f8a8fb4507b019d3c481c0",
+      "configDigest": "sha256:78aa150ee9d8222789f4c9bb709ce34b6d33e5d408ca24e54e902b69574825f1"
+    }
+  }
+}

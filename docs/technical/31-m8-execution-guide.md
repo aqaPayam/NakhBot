@@ -4,6 +4,37 @@
 
 
 
+## Current repair: verified acquisition of the unchanged collector image
+
+Run `38806301695` for `b6c562a` passed all four native/container jobs and
+reliability: 1,262 native cases in 153 files, zero skips, four source receipts,
+all 27 plans (terminal 1,257.966 ms), support load and backup/restore. All six
+available artifact digests match. Quality passed the full project check and
+security audit, then the M7 image pull exhausted all three attempts with
+`registry_rate_limited` despite the longer refill waits. No collector evidence
+or full six-job acceptance is claimed; the unchanged failed head is not rerun.
+
+AWS documents `amazon/aws-otel-collector` as an official distribution:
+<https://aws-otel.github.io/docs/setup/docker-images/>. Read both official
+registries and verify raw manifest hashes before adding the lock. The v0.49.0
+index and both Linux AMD64/ARM64 manifest/config digests match exactly. The
+configured image/version stays unchanged. Cold rehearsals fetch that immutable
+mirror digest, verify the native configuration ID and a known repository digest,
+then tag the existing configured name. Only verified local images are reused;
+stale/unproven cache contents are replaced through the approved immutable pull.
+Malformed output and unverified pulled/tagged images fail closed.
+
+Run the verified configuration ID with `--pull=never`, preventing mutable-tag
+substitution after inspection. M7 and M8 retain the same real SDK/collector,
+conversion, freshness, privacy and first-counter assertions. Their evidence adds
+only fixed acquisition source/platform and digest metadata. Exactly three pulls,
+security-error rejection, bounded waits and 20-minute CI caps remain unchanged.
+All 76 acquisition/startup cases passed, including stale-cache recovery, both
+architectures, wrong digests, tag substitution, malformed output and persistent
+throttles. No actual local Docker runtime is available; changed-head CI must
+prove acquisition and both actual conversions before M8 advances. Retained
+release and external CloudWatch/SNS/provider acceptance remain disabled/unclaimed.
+
 ## Current repair: reuse the exact threshold-action binding
 
 Run `38794376317` for `0774a19` passed quality, both actual collectors and all
