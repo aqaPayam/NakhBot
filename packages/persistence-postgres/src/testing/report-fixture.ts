@@ -60,6 +60,7 @@ export async function createRetainedReportPhoto(
   syntheticBytes?: Uint8Array,
   existingTarget?: string,
   existingReporter?: string,
+  lifeBinding: 'legacy' | 'current' = 'legacy',
 ): Promise<
   Readonly<{
     reporter: string;
@@ -76,7 +77,23 @@ export async function createRetainedReportPhoto(
     photoId = await createReportPhoto(database, target, true, syntheticBytes),
     reportId = randomUUID(),
     evidenceId = randomUUID();
-  await createReportLike(database, reporter, target);
+  if (lifeBinding === 'current') {
+    // Explicit modern fixture only. Historical upgrade fixtures deliberately run
+    // before Account/Like life columns exist and retain their original writes.
+    const lives = await database
+      .selectFrom('identity.accounts')
+      .select(['user_id', 'product_epoch'])
+      .where('user_id', 'in', [reporter, target])
+      .execute();
+    const sender = lives.find((row) => row.user_id === target),
+      receiver = lives.find((row) => row.user_id === reporter);
+    if (sender === undefined || receiver === undefined)
+      throw new Error('Report Like fixture Account unavailable');
+    await createReportLike(database, reporter, target, new Date(), {
+      sender: sender.product_epoch,
+      receiver: receiver.product_epoch,
+    });
+  } else await createReportLike(database, reporter, target);
   const key = Buffer.alloc(32, 81);
   const content = await database.transaction().execute(async (tx) => {
     const captured = await retainPhotoEvidenceInTransaction(tx, { photoId, evidenceId });
@@ -462,27 +479,18 @@ export async function createReportLike(
   reporter: string,
   target: string,
   now = new Date(),
+  lives?: Readonly<{ sender: number; receiver: number }>,
 ): Promise<string> {
   const id = randomUUID();
-  // Privileged fixture only: select the actual current lives explicitly. The
-  // legacy zero defaults cannot describe a separately approved returned user.
-  const lives = await database
-    .selectFrom('identity.accounts')
-    .select(['user_id', 'product_epoch'])
-    .where('user_id', 'in', [reporter, target])
-    .execute();
-  const sender = lives.find((row) => row.user_id === target),
-    receiver = lives.find((row) => row.user_id === reporter);
-  if (sender === undefined || receiver === undefined)
-    throw new Error('Report Like fixture Account unavailable');
   await database
     .insertInto('interaction.likes')
     .values({
       id,
       sender_user_id: target,
       receiver_user_id: reporter,
-      sender_product_epoch: sender.product_epoch,
-      receiver_product_epoch: receiver.product_epoch,
+      ...(lives === undefined
+        ? {}
+        : { sender_product_epoch: lives.sender, receiver_product_epoch: lives.receiver }),
       status: 'active',
       created_at: now,
       closed_at: null,

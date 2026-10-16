@@ -369,6 +369,7 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
         undefined,
         side === 'target' ? root.userId : undefined,
         side === 'reporter' ? root.userId : undefined,
+        'current',
       );
       expect(
         (
@@ -407,7 +408,13 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
       CREATE TRIGGER test_live_hold_wait AFTER INSERT ON moderation.reports FOR EACH ROW EXECUTE FUNCTION support.test_live_hold_wait()`.execute(
       database,
     );
-    const report = createRetainedReportPhoto(database, undefined, root.userId);
+    const report = createRetainedReportPhoto(
+      database,
+      undefined,
+      root.userId,
+      undefined,
+      'current',
+    );
     // Observe the same original promise below, but handle an early fixture error
     // immediately while waiting for its native barrier.
     void report.catch(() => undefined);

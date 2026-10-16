@@ -2,6 +2,46 @@
 
 
 
+
+## Current repair: preserve pre-epoch Report fixtures
+
+Run `38832718242` for `39cedfb` passed quality and built all four images, but
+native worker and Telegram shards failed in three populated-upgrade fixtures.
+Match and Photo intentionally start at schemas 91/93, before Account epochs;
+Like starts at 103, before Like epoch columns. The shared Report Like helper
+introduced for returned-user tests queried/inserted those later fields globally.
+This is a fixture compatibility failure. Failed job logs and annotations are
+preserved with their hashes; no performance/recovery acceptance is inferred and
+the unchanged failed head is not rerun.
+
+The scheduler shard separately reached the unchanged 20-minute job cap. Its
+completed files were passing; its cancellation log and timeout annotations are
+preserved. The duration inventory retained an old green baseline and later measurement
+batches, substantially underweighting newer lifecycle work. Collect all four logs from fully green
+`44836df` / run `38828502899`, verify all six source jobs, and require exactly 154
+unique known file timings with no missing or extra file. Refresh planning weights
+from that measured source only. Actual source timings under the old assignment
+were 401,306 / 606,892 / 857,172 / 793,234 ms; redispatch totals are
+664,653 / 664,675 / 664,599 / 664,677 ms. These are planning observations, not a
+latency guarantee for the changed head. Estimates never authorize coverage; every
+file still runs, unknown files retain fallback dispatch, all four source receipts
+must verify, and case/file floors, all workload samples and 20-minute caps stay.
+
+Preserve the legacy helper's original insert shape and make current-life binding
+an explicit fixture mode. Only the new returned-user Report cases select that
+mode, capture actual native Account lives, and supply the two Like epochs. Old
+upgrade fixtures neither query missing columns nor invent later lifetimes. No
+production migration, lifetime guard, fixture count, crypto/concurrency sample,
+timeout, native coverage floor or CI job cap changes. Existing three upgrade
+suites and all five modern hold cases must pass together, followed by the full
+project check and all six changed-head jobs. The full inventory remains 1,280
+native cases in 154 files. All 16 tests in the three failed legacy suites now pass,
+all five modern hold cases pass separately, and all 20 dispatch/receipt tests pass.
+The failed run's three available ZIPs match their GitHub digests; scheduler timeout
+annotations and both failed native logs are retained. The skipped reliability job
+supplies no new performance or recovery acceptance. Retained release remains
+disabled; full M8 stays active.
+
 ## Current increment: live safety holds before retained support erasure
 
 Accepted `44836df` passed all six jobs on attempt 1 of run `38828502899`:
