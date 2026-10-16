@@ -16,11 +16,10 @@ export type ModerationIntegritySample = Readonly<{
   counts: Readonly<Record<ModerationReconciliationPhase, number>>;
 }>;
 type IntegrityRow = { phase: ModerationReconciliationPhase; sampledAt: Date; count: string };
-/** Phase reads avoid compilation. The combined CPU-heavy snapshot may compile
- * expressions above the server's existing cost threshold, with tuple decoding,
- * and expensive optimization left out of compilation. Small functions/operators
- * may be inlined at the server's existing compilation threshold. Servers
- * without JIT retain interpreted reads.
+/** Production reads avoid compilation: dense Linux comparisons showed compilation
+ * overhead exceeded its execution savings. Compiled modes remain available for
+ * isolated diagnostics at the server's existing threshold, with tuple decoding
+ * and expensive optimization disabled unless that diagnostic explicitly opts in.
  * A fixed 16 MiB per-node work budget avoids
  * spilling ordinary metadata joins; it is not a total connection/process memory bound.
  * Dense metadata joins can benefit from parallel reads without reducing minimum
@@ -167,7 +166,7 @@ export class PostgresModerationIntegrityMetricsStore {
       this.database,
       async (transaction) => (await moderationIntegrityStatement().execute(transaction)).rows,
       0,
-      'inlined',
+      'off',
     );
     if (rows.length !== MODERATION_RECONCILIATION_PHASES.length)
       throw new Error('M7 integrity measurement unavailable.');

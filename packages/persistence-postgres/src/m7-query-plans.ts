@@ -82,7 +82,7 @@ export async function explainM7Queries(
             database,
             explain,
             name === 'integritySnapshot' ? 0 : 1,
-            name === 'integritySnapshot' ? 'inlined' : 'off',
+            'off',
           )
         : await explain(database);
     plans[name] = result.rows[0]?.['QUERY PLAN'];
@@ -127,7 +127,7 @@ async function explainTerminalAppealQueries(
           'QUERY PLAN': unknown;
         }>`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`.execute(connection),
       name === 'terminalIntegritySnapshot' ? 0 : 1,
-      name === 'terminalIntegritySnapshot' ? 'inlined' : 'off',
+      'off',
     );
     plans[name] = result.rows[0]?.['QUERY PLAN'];
   }

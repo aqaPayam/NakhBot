@@ -123,10 +123,12 @@ contention, captured inputs, source substitution, current visibility/safety,
 revocation after an observed pair-lock wait, real deletion and populated upgrade.
 These boundaries still require gateway/worker composition and real provider acceptance.
 
-The combined moderation snapshot permits expression compilation above the
-server's existing cost threshold and inlines small functions/operators at that
-same threshold. Tuple decoding and expensive optimization remain outside
-production compilation. Phase and operational-health reads retain interpreted execution.
+Production moderation snapshots, phase reads and operational-health reads use
+interpreted execution. Post-reading Linux comparisons on the dense terminal
+fixture favored interpretation; compilation overhead exceeded its execution
+savings. Production and original gate readings use the same policy. Compiled
+modes remain available for isolated diagnostic comparisons, preserving the
+server's existing cost threshold.
 Settings remain local to the read transaction and restore after success or
 failure. The combined snapshot retains zero workers and the 16 MiB work budget;
 the 20,000-row population, all 27 plans, both independent indexes, zero-spill
@@ -139,7 +141,7 @@ Tuple decoding uses the documented
 [tuple-deforming control](https://www.postgresql.org/docs/17/runtime-config-developer.html#GUC-JIT-TUPLE-DEFORMING).
 Plan evidence includes bounded compilation counters and boolean options, while
 discarding code, predicates and unknown fields.
-The inlining policy follows PostgreSQL's documented
+Diagnostic inlining follows PostgreSQL's documented
 [function/operator inlining](https://www.postgresql.org/docs/17/jit-reason.html).
 The isolated plan fixture compares interpreted, expression-only, inlined and
 optimized compilation only after every original plan reading and repeated

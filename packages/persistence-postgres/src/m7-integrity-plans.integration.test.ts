@@ -931,6 +931,10 @@ describe.skipIf(url === undefined)('M7 integrity plan fixture isolation', () => 
           ]);
           const sample = await new PostgresModerationIntegrityMetricsStore(read).measure();
           expect(Object.values(sample.counts)).toEqual(Array.from({ length: 10 }, () => 0));
+          expect(
+            (await sql<{ value: string }>`SELECT current_setting('jit') AS value`.execute(read))
+              .rows[0]!.value,
+          ).toBe('off');
         };
         await withModerationIntegrityRead(connection, check, 0, compilation);
         expect(await settings(connection)).toEqual(before);
