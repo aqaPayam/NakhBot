@@ -129,6 +129,19 @@ describe.skipIf(url === undefined)('M9 candidate-bound native media authority', 
           .executeTakeFirstOrThrow()
       ).preview_count;
     expect(await counter()).toBe(0);
+    const retryQuery = {
+      actor: { kind: 'user' as const, userId: f.actorUserId },
+      requestId: randomUUID(),
+      mode: 'guest_preview' as const,
+    };
+    const reservations = new PostgresCandidateReservationStore(database, f.session);
+    expect(
+      await reservations.reserveNext(retryQuery, {
+        deliveryId: randomUUID(),
+        eventId: randomUUID(),
+        reservedAt: new Date(),
+      }),
+    ).toEqual(f.reservation);
     const store = new PostgresCandidateDeliveryStore(database);
     const command = { deliveryId: f.reservation.deliveryId, providerMessageId: '123' };
     const effects = {
@@ -143,6 +156,14 @@ describe.skipIf(url === undefined)('M9 candidate-bound native media authority', 
     await expect(store.recordDelivered(command, effects)).resolves.toMatchObject({
       replayed: true,
     });
+    expect(await counter()).toBe(1);
+    expect(
+      await reservations.reserveNext(retryQuery, {
+        deliveryId: randomUUID(),
+        eventId: randomUUID(),
+        reservedAt: new Date(),
+      }),
+    ).toEqual(f.reservation);
     expect(await counter()).toBe(1);
     expect(await f.store.isCurrent(grant)).toBe(true);
   });
@@ -393,6 +414,7 @@ describe.skipIf(url === undefined)('M9 candidate-bound native media authority', 
       ).rows[0]!.hash;
       expect((await runMigrations(target.url, resolve('migrations'))).applied).toEqual([
         '000153_m9_candidate_media_authority.sql',
+        '000154_m9_preview_consumption_disposition.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(

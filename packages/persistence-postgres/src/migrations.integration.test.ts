@@ -24,7 +24,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
     45, 51, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
     78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100,
     101, 102, 103, 104, 105, 106, 107, 108, 125, 126, 127, 128, 129, 130, 131, 132, 133, 135, 136,
-    137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152,
+    137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -53,6 +53,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       | undefined;
     let previousPairFunction: Record<string, unknown> | undefined;
     let previousUserSession: { id: string; audit: unknown[] } | undefined;
+    let previewEvent: Record<string, unknown> | undefined;
     let pendingProductLease: AccountDeletionLease | undefined;
     let previousDeletion:
       | { recordId: string; record: Record<string, unknown>; work: Record<string, unknown> }
@@ -68,6 +69,25 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         baseline,
       );
       target = new pg.Pool({ connectionString: targetUrl.toString() });
+      if (baseline === 153) {
+        const payload = { viewerUserId: userId, targetUserId: randomUUID(), reason: 'preview' };
+        expect(
+          (
+            await target.query<{ disposition: string }>(
+              "SELECT platform.deletion_event_disposition('discovery.consumption-created.v1',1,$1::jsonb) AS disposition",
+              [payload],
+            )
+          ).rows[0]!.disposition,
+        ).toBe('unclassified');
+        previewEvent = (
+          await target.query<Record<string, unknown>>(
+            `INSERT INTO platform.outbox_events(id,aggregate_type,aggregate_id,event_type,schema_version,payload,occurred_at,available_at,correlation_id,causation_id)
+           VALUES($1,'explore_consumption',$2,'discovery.consumption-created.v1',1,$3,clock_timestamp(),clock_timestamp(),$1,$1) RETURNING *`,
+            [randomUUID(), randomUUID(), payload],
+          )
+        ).rows[0];
+        expect(previewEvent).toBeDefined();
+      }
       if (baseline >= 85) {
         const legacy = createDatabase({
           url: targetUrl.toString(),
@@ -407,9 +427,26 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         await target.query('COMMIT');
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        153 - baseline,
+        154 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
+      if (previewEvent !== undefined) {
+        expect(
+          (
+            await target.query('SELECT * FROM platform.outbox_events WHERE id=$1', [
+              previewEvent.id,
+            ])
+          ).rows,
+        ).toEqual([previewEvent]);
+        expect(
+          (
+            await target.query<{ disposition: string }>(
+              'SELECT platform.deletion_event_disposition(event_type,schema_version,payload) AS disposition FROM platform.outbox_events WHERE id=$1',
+              [previewEvent.id],
+            )
+          ).rows[0]!.disposition,
+        ).toBe('product_transport');
+      }
       if (previousUserSession !== undefined) {
         expect(
           (
@@ -819,6 +856,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000151_m8_minimal_review_response_receipts.sql',
         '000152_m9_signup_presentation.sql',
         '000153_m9_candidate_media_authority.sql',
+        '000154_m9_preview_consumption_disposition.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -928,7 +966,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000115_m8_terminal_pending_archival.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(153);
+      expect(replay.existing).toHaveLength(154);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

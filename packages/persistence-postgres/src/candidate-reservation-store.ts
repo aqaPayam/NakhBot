@@ -348,6 +348,87 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
       await lockViewer(transaction, viewerId);
       let viewer = await loadViewer(transaction, viewerId);
       validateViewer(viewer, query.mode);
+      const scope = 'discovery.reserve-candidate';
+      const requestHash = createHash('sha256')
+        .update(
+          JSON.stringify([
+            viewerId,
+            this.owner?.productEpoch ?? null,
+            query.mode,
+            query.filterVersion ?? null,
+          ]),
+        )
+        .digest('hex');
+      const prior = await transaction
+        .selectFrom('platform.idempotency_records')
+        .select(['request_hash', 'status', 'response_json'])
+        .where('actor_user_id', '=', viewerId)
+        .where('scope', '=', scope)
+        .where('idempotency_key', '=', query.requestId)
+        .executeTakeFirst();
+      if (prior !== undefined) {
+        const response = prior.response_json as { deliveryId?: unknown } | null;
+        const original =
+          typeof response?.deliveryId === 'string'
+            ? await transaction
+                .selectFrom('discovery.candidate_deliveries')
+                .select(['id', 'target_user_id', 'mode', 'filter_version', 'expires_at'])
+                .where('id', '=', response.deliveryId)
+                .where('viewer_user_id', '=', viewerId)
+                .executeTakeFirst()
+            : undefined;
+        if (original !== undefined) {
+          if (!(await this.lockCurrentPair(transaction, viewerId, original.target_user_id)))
+            return undefined;
+        } else if (this.owner !== undefined) {
+          await requireCurrentUserSession(transaction, viewerId, this.owner);
+        }
+        validateViewer(await loadViewer(transaction, viewerId), query.mode);
+        if (prior.request_hash !== requestHash)
+          throw new ApplicationError(
+            'idempotency_conflict',
+            'error.command.idempotency_conflict',
+            409,
+          );
+        if (
+          prior.status !== 'completed' ||
+          response === null ||
+          !Object.hasOwn(response, 'deliveryId') ||
+          (response.deliveryId !== null && typeof response.deliveryId !== 'string')
+        )
+          throw new Error('Candidate reservation receipt unavailable.');
+        // Terminal or purged originals never authorize a new selection for this
+        // request. A current grant is still required before returning a receipt.
+        return original === undefined
+          ? undefined
+          : {
+              deliveryId: original.id,
+              targetUserId: original.target_user_id,
+              mode: original.mode,
+              filterVersion: original.filter_version,
+              expiresAt: original.expires_at.toISOString(),
+            };
+      }
+      const remember = async (
+        result: CandidateReservation | undefined,
+      ): Promise<CandidateReservation | undefined> => {
+        await transaction
+          .insertInto('platform.idempotency_records')
+          .values({
+            id: generated.eventId,
+            actor_user_id: viewerId,
+            scope,
+            idempotency_key: query.requestId,
+            request_hash: requestHash,
+            status: 'completed',
+            response_json: { deliveryId: result?.deliveryId ?? null },
+            created_at: generated.reservedAt,
+            updated_at: generated.reservedAt,
+            expires_at: new Date(generated.reservedAt.getTime() + 86_400_000),
+          })
+          .execute();
+        return result;
+      };
       const existing = await transaction
         .selectFrom('discovery.candidate_deliveries')
         .select(['id', 'target_user_id', 'mode', 'filter_version', 'expires_at'])
@@ -360,13 +441,13 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
         validateViewer(await loadViewer(transaction, viewerId), query.mode);
         if (existing.mode !== query.mode)
           throw new ApplicationError('conflict', 'error.discovery.reservation_in_progress', 409);
-        return {
+        return remember({
           deliveryId: existing.id,
           targetUserId: existing.target_user_id,
           mode: existing.mode,
           filterVersion: existing.filter_version,
           expiresAt: existing.expires_at.toISOString(),
-        };
+        });
       }
       // Preflight is read-only. The counter lock follows stable User/Account
       // locks so deletion cannot wait on a counter while we wait on its User.
@@ -381,10 +462,11 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
       if (targetId === undefined) {
         if (this.owner !== undefined)
           await requireCurrentUserSession(transaction, viewerId, this.owner);
-        return undefined;
+        return remember(undefined);
       }
 
-      if (!(await this.lockCurrentPair(transaction, viewerId, targetId))) return undefined;
+      if (!(await this.lockCurrentPair(transaction, viewerId, targetId)))
+        return remember(undefined);
       if (query.mode === 'guest_preview') await assertGuestCapacity(transaction, viewerId);
       viewer = await loadViewer(transaction, viewerId);
       validateViewer(viewer, query.mode);
@@ -393,7 +475,7 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
           ? await effectiveFilter(transaction, viewerId, viewer, query.filterVersion)
           : undefined;
       if ((await candidatePool(transaction, query, viewer, filter, targetId)).length !== 1)
-        return undefined;
+        return remember(undefined);
 
       const expiresAt = new Date(generated.reservedAt.getTime() + reservationLifetimeMs);
       const filterVersion = filter?.version ?? 1;
@@ -439,13 +521,13 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
           causation_id: query.requestId,
         })
         .execute();
-      return {
+      return remember({
         deliveryId: generated.deliveryId,
         targetUserId: targetId,
         mode: query.mode,
         filterVersion,
         expiresAt: expiresAt.toISOString(),
-      };
+      });
     });
   }
 }

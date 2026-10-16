@@ -105,6 +105,29 @@ approved Return. Unbound construction remains for trusted workers and fixtures.
 These boundaries are prerequisites for the remaining discovery UI and do not
 claim delivered profile cards or real provider acceptance.
 
+Candidate requests now bind their request ID, actor life, mode and requested
+filter version to a minimal receipt in `platform.idempotency_records`. Concurrent
+requests that share an unresolved reservation each remember that original ID.
+Delivery or definitive failure cannot make replay select a different candidate;
+an empty or physically absent original also stays empty for that request. A new
+action needs a new request ID. Every replay still checks the current native
+session and capability, and changed request data conflicts. Receipts contain only
+the delivery ID or null, use the existing twenty-four-hour transport expiry and
+actor-owned deletion cleanup, and add no retained-data resource. Public navigation
+remains limited to fifteen minutes. Native tests cover concurrent adoption,
+terminal replay, changed data, empty/missing originals, Guest Preview consumption
+and borrowed/revoked sessions. The provider consumer remains separate work; this
+receipt alone never authorizes sending or resolves an uncertain provider result.
+
+The composed delivery/deletion test also exposed a pre-existing classification
+gap: candidate delivery emits consumption reason `preview`, which the generic
+M8 machine-value list did not accept. Migration 154 recognizes only version one
+of that event with exactly its two UUID subjects and `reason=preview`. Additional
+fields, invalid/missing subjects, other versions and unknown events still fail
+closed; the generic value list is unchanged. Apply this migration before enabling
+candidate delivery. The schema-153 upgrade test preserves the original event row
+while proving its disposition changes from unclassified to product transport.
+
 Candidate media composition supplies the original reservation ID and a captured
 native user session to `PostgresMediaDeliveryAuthorization`. Migration 153 adds
 immutable source identifiers to the existing short-lived receipt. Card delivery

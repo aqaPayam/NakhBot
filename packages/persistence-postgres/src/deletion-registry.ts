@@ -88,7 +88,7 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
     actual.schemaVersion !== undefined &&
     (!Number.isSafeInteger(actual.schemaVersion) ||
       actual.schemaVersion < 137 ||
-      actual.schemaVersion > 153)
+      actual.schemaVersion > 154)
   )
     throw conflict();
   const tableNames = actual.tables.map((item) => `${item.schema}.${item.table}`).sort();
