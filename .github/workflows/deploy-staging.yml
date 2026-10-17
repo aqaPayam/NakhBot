@@ -16,6 +16,8 @@ permissions:
   contents: read
   actions: read
   id-token: write
+  attestations: write
+  artifact-metadata: write
 
 concurrency:
   group: staging-deployment
@@ -28,6 +30,9 @@ jobs:
     timeout-minutes: 90
     env:
       DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      RELEASE_AWS_REGION: ${{ vars.AWS_REGION }}
       TF_IN_AUTOMATION: 'true'
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_public_hostname: ${{ vars.STAGING_HOSTNAME }}
@@ -78,6 +83,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.15.9
+          terraform_wrapper: false
 
       - name: Initialize protected remote state
         run: |
@@ -108,19 +114,26 @@ jobs:
 
       - uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push one immutable release
-        run: |
-          repositories=$(terraform -chdir=deploy/terraform/staging output -json ecr_repository_urls)
-          for app in api telegram-gateway worker scheduler; do
-            repository=$(jq -r --arg app "$app" '.[$app]' <<<"$repositories")
-            repository_name=${repository#*/}
-            if aws ecr describe-images --repository-name "$repository_name" --image-ids "imageTag=$IMAGE_TAG" >/dev/null 2>&1; then
-              echo "Using existing immutable $app image for $IMAGE_TAG."
-            else
-              docker build --file deploy/docker/Dockerfile --build-arg "APP=$app" --tag "$repository:$IMAGE_TAG" .
-              docker push "$repository:$IMAGE_TAG"
-            fi
-          done
+      - name: Build candidates or verify existing source attestations
+        id: prepare_images
+        run: pnpm exec tsx scripts/release-images-cli.ts prepare
+
+      - name: Attest only images built by this exact source workflow
+        if: steps.prepare_images.outputs.new_subjects == 'true'
+        uses: actions/attest@v4
+        with:
+          subject-checksums: artifacts/release-image-subjects.txt
+
+      - name: Verify all four attestations and promote digest-pinned images
+        run: pnpm exec tsx scripts/release-images-cli.ts verify
+
+      - name: Retain content-free image provenance receipt
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-images-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-images.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Register the new migration task without changing live services
         run: |

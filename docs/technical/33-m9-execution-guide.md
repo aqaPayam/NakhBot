@@ -303,3 +303,34 @@ A matching reference is one release prerequisite. It does not attest image/cloud
 provenance, verify secret material, authenticate an approver, activate a service,
 or establish actual provider/canary/cohort acceptance. Production workflow
 composition and custody of explicit owner approvals remain required before launch.
+
+
+## Source-bound release images
+
+Deployment and rollback now use the image-provenance protocol documented in
+[the staging deployment guide](../../deploy/terraform/staging/README.md#image-provenance-and-retention).
+The deploy path prepares fresh candidate images or verifies prior trusted images,
+uses [`actions/attest`](https://github.com/actions/attest) for fresh build subjects,
+and verifies their exact repository/workflow/source/digest with
+[`gh attestation verify`](https://cli.github.com/manual/gh_attestation_verify).
+Only verified candidates may receive commit tags. This prevents an interrupted
+push/sign sequence from silently qualifying an unknown existing tag. Provider
+errors and unknown outcomes fail closed; an exact already-existing promotion
+converges only if the registry still identifies the same digest.
+
+The selected digest map binds all four runtime task definitions and the API
+migration task. Terraform checks the complete map even for targeted migration
+registration. CI builds the actual images and checks their source/application
+labels; Docker context excludes Git metadata, dependencies, generated outputs,
+`artifacts`, `.env*`, `.aws`, `.codex` and Terraform state. Tagged images
+are no longer subject to the old count-based lifecycle eviction rule.
+
+Protocol tests cover fresh and reused images, absent/foreign proof, wrong source
+and receipt binding, interrupted preparation, exact manifest bytes, promotion
+races and input capture across waits. These tests simulate AWS/Docker/GitHub CLI
+boundaries; they do not establish actual ECR or attestation-service acceptance.
+Authorized staging must demonstrate that separately. Native schema/transport
+rollback compatibility, migration quiescence, durable release custody, protected
+production approval, production infrastructure and the rest of the original M9
+release table remain required. No cloud deployment or real-user launch follows
+from a matching image receipt alone.

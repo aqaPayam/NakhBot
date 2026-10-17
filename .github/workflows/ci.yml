@@ -276,9 +276,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build ${{ matrix.app }} image
-        run: docker build --file deploy/docker/Dockerfile --build-arg APP=${{ matrix.app }} --tag nakh-${{ matrix.app }}:${{ github.sha }} .
+        run: docker build --file deploy/docker/Dockerfile --build-arg APP=${{ matrix.app }} --build-arg NAKH_RELEASE=${{ github.sha }} --build-arg NAKH_REPOSITORY=${{ github.repository }} --tag nakh-${{ matrix.app }}:${{ github.sha }} .
       - name: Verify non-root runtime image
         run: test "$(docker image inspect --format '{{.Config.User}}' nakh-${{ matrix.app }}:${{ github.sha }})" = "nakh"
+      - name: Verify image source labels
+        env:
+          IMAGE: nakh-${{ matrix.app }}:${{ github.sha }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_APP: ${{ matrix.app }}
+        run: |
+          labels=$(docker image inspect --format '{{json .Config.Labels}}' "$IMAGE")
+          test "$(jq -r '.["org.opencontainers.image.revision"]' <<<"$labels")" = "$SOURCE_SHA"
+          test "$(jq -r '.["org.opencontainers.image.source"]' <<<"$labels")" = "https://github.com/$SOURCE_REPOSITORY"
+          test "$(jq -r '.["org.opencontainers.image.title"]' <<<"$labels")" = "nakh-$SOURCE_APP"
       - name: Verify migration artifact
         if: matrix.app == 'api'
         run: |

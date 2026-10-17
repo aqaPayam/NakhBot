@@ -1,4 +1,5 @@
 locals {
+  release_images_ready = var.image_tag == "bootstrap" ? (!var.activate_services && length(var.image_digests) == 0) : (can(regex("^[a-f0-9]{40}$", var.image_tag)) && length(var.image_digests) == 4)
   services = {
     api = {
       port        = 3000
@@ -151,9 +152,9 @@ resource "aws_ecr_lifecycle_policy" "service" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Retain the newest 30 immutable releases"
+      description  = "Expire only excess untagged images; keep tagged release and candidate proofs"
       selection = {
-        tagStatus   = "any"
+        tagStatus   = "untagged"
         countType   = "imageCountMoreThan"
         countNumber = 30
       }
@@ -248,6 +249,10 @@ resource "aws_ecs_cluster" "main" {
     precondition {
       condition     = !var.activate_services || (local.dns_enabled && var.image_tag != "bootstrap")
       error_message = "Activation requires public_hostname, route53_zone_id, and an immutable deployed image tag."
+    }
+    precondition {
+      condition     = local.release_images_ready
+      error_message = "Every non-bootstrap release requires its full source SHA and four verified image digests."
     }
     precondition {
       condition     = !var.activate_services || !var.skip_final_snapshot
@@ -394,6 +399,13 @@ resource "aws_route53_record" "public" {
 }
 
 resource "aws_ecs_task_definition" "service" {
+  lifecycle {
+    precondition {
+      condition     = local.release_images_ready
+      error_message = "Task registration requires a verified source and all four image digests, including during targeted migration apply."
+    }
+  }
+
   for_each = local.services
 
   family                   = "${local.name}-${each.key}"
@@ -412,7 +424,7 @@ resource "aws_ecs_task_definition" "service" {
   container_definitions = jsonencode([
     {
       name                   = each.key
-      image                  = "${aws_ecr_repository.service[each.key].repository_url}:${var.image_tag}"
+      image                  = var.image_tag == "bootstrap" ? "${aws_ecr_repository.service[each.key].repository_url}:bootstrap" : "${aws_ecr_repository.service[each.key].repository_url}@${lookup(var.image_digests, each.key, "invalid")}"
       essential              = true
       readonlyRootFilesystem = true
       cpu                    = 384
@@ -460,6 +472,13 @@ resource "aws_ecs_task_definition" "service" {
 }
 
 resource "aws_ecs_task_definition" "migration" {
+  lifecycle {
+    precondition {
+      condition     = local.release_images_ready
+      error_message = "Task registration requires a verified source and all four image digests, including during targeted migration apply."
+    }
+  }
+
   family                   = "${local.name}-migration"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -470,7 +489,7 @@ resource "aws_ecs_task_definition" "migration" {
 
   container_definitions = jsonencode([{
     name                   = "migration"
-    image                  = "${aws_ecr_repository.service["api"].repository_url}:${var.image_tag}"
+    image                  = var.image_tag == "bootstrap" ? "${aws_ecr_repository.service["api"].repository_url}:bootstrap" : "${aws_ecr_repository.service["api"].repository_url}@${lookup(var.image_digests, "api", "invalid")}"
     essential              = true
     readonlyRootFilesystem = true
     environment = concat(local.common_environment, [

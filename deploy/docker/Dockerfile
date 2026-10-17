@@ -15,6 +15,13 @@ RUN pnpm --filter "@nakh/${APP}" --prod deploy /out
 
 FROM node:24.19.0-bookworm-slim AS runtime
 
+ARG APP
+ARG NAKH_RELEASE=dev
+ARG NAKH_REPOSITORY=aqaPayam/NakhBot
+LABEL org.opencontainers.image.revision=$NAKH_RELEASE \
+      org.opencontainers.image.source=https://github.com/$NAKH_REPOSITORY \
+      org.opencontainers.image.title=nakh-$APP
+
 ENV NODE_ENV=production
 WORKDIR /app
 RUN groupadd --system --gid 10001 nakh && useradd --system --uid 10001 --gid nakh nakh

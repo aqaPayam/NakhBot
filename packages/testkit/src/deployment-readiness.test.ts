@@ -31,6 +31,10 @@ describe('staging deployment readiness', () => {
     const compute = await source('deploy/terraform/staging/compute.tf');
     const workflow = await source('.github/workflows/deploy-staging.yml');
     const rollback = await source('.github/workflows/rollback-staging.yml');
+    const [imageCli, imageProtocol] = await Promise.all([
+      source('scripts/release-images-cli.ts'),
+      source('scripts/release-images.ts'),
+    ]);
 
     expect(variables).toMatch(/variable "activate_services"[\s\S]*?default\s*=\s*false/u);
     expect(compute).toContain('var.activate_services ? var.service_min_replicas : 0');
@@ -45,7 +49,18 @@ describe('staging deployment readiness', () => {
     expect(workflow).not.toMatch(/AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/u);
     expect(rollback).toContain('ROLLBACK-STAGING');
     expect(rollback).toContain('SCHEMA_COMPATIBLE');
-    expect(rollback).toContain('describe-images');
+    const rollbackImages = 'run: pnpm exec tsx scripts/release-images-cli.ts rollback';
+    expect(rollback).toContain(rollbackImages);
+    expect(rollback.indexOf(rollbackImages)).toBeLessThan(
+      rollback.indexOf('terraform -chdir=deploy/terraform/staging apply'),
+    );
+    expect(imageCli).toContain('prepareReleaseImages(context, command, false)');
+    expect(imageCli).toContain(
+      "verifyReleaseImages(context, prepared, command, mode === 'verify')",
+    );
+    expect(imageProtocol).toContain('describe-images');
+    expect(imageProtocol).toContain('verifyImageAttestation');
+    expect(rollback).toContain('STAGING_TELEGRAM_ACTION_TOKEN_KEY');
     expect(rollback).not.toMatch(/AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/u);
     expect(compute).toContain(
       '{ name = "NAKH_TELEGRAM_BOT_TOKEN_REF", value = "NAKH_TELEGRAM_BOT_TOKEN" }',

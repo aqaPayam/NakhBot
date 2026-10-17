@@ -61,6 +61,20 @@ variable "image_tag" {
   }
 }
 
+variable "image_digests" {
+  description = "Exact four image digests verified against the selected source and deployment workflow. Empty only for inactive bootstrap."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = length(var.image_digests) == 0 || (
+      toset(keys(var.image_digests)) == toset(["api", "telegram-gateway", "worker", "scheduler"]) &&
+      alltrue([for digest in values(var.image_digests) : can(regex("^sha256:[a-f0-9]{64}$", digest))])
+    )
+    error_message = "image_digests must contain exactly the four reviewed SHA-256 digests."
+  }
+}
+
 variable "activate_services" {
   description = "Explicit release gate. False creates infrastructure with zero running tasks."
   type        = bool

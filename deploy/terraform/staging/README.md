@@ -55,7 +55,7 @@ Keep the action-token key independent from the webhook secret and media signing/
 not add AWS access keys: GitHub uses a short-lived OIDC role restricted to this repository and its
 `main` branch.
 
-Repository secrets are used because protected environments are unavailable for this private repository on the current GitHub plan. The workflow is manual-only, refuses non-`main` refs, requires the exact `DEPLOY-STAGING` confirmation, and the AWS trust policy independently permits only the `main` branch. Upgrade the repository plan and move these values into a required-reviewer environment before production.
+These staging workflows currently use repository secrets and a `main`-only OIDC trust policy. They are manual-only and require the exact deployment or rollback confirmation. Configure a protected environment with required reviewers before production; the staging workflow is not production approval.
 
 ## Deployment sequence after AWS exists
 
@@ -64,12 +64,12 @@ Repository secrets are used because protected environments are unavailable for t
 3. Enter `DEPLOY-STAGING`; leave image tag empty to use that commit SHA. An explicit tag must be that same full lowercase SHA; alternate tags are rejected so the image source cannot differ from the checkout.
 4. Confirm that the selected ref is `main`; the workflow and AWS trust policy reject any other branch.
 5. Before AWS access, the workflow requires the selected source's newest CI run to have all six jobs green in the same attempt, with live native/performance/telemetry artifact digest references. Missing, expired or mismatched evidence blocks deployment. It repeats the check before migration and activation and retains a content-free prerequisite receipt; that receipt is not proof of deployed provider acceptance.
-6. On the first deployment, the workflow creates inactive infrastructure. It builds and pushes one immutable image release, registers and runs its migration task without changing live services, then activates two replicas per service and runs safe HTTPS/webhook checks. Later deployments leave the previous release online through image preparation and migration; respect migration-specific quiescence requirements before dispatch.
+6. On the first deployment, the workflow creates inactive infrastructure. It builds candidate images, attests only those fresh builds, verifies the exact source/workflow and image bytes before assigning the commit tags, then pins all four task images and the API migration image by digest. It registers and runs its migration task without changing live services, then activates two replicas per service and runs safe HTTPS/webhook checks. Later deployments leave the previous release online through image preparation and migration; respect migration-specific quiescence requirements before dispatch.
 7. Complete [`../../runbooks/m1-staging-acceptance.md`](../../runbooks/m1-staging-acceptance.md). Do not mark M1 accepted from deployment success alone. M9 release preparation and remaining production gates are tracked in [`../../../docs/technical/33-m9-execution-guide.md`](../../../docs/technical/33-m9-execution-guide.md).
 
 ## Rollback after AWS exists
 
-Use Actions → **Roll back staging (uses existing AWS resources)**. Select `main`, enter an earlier immutable image tag, type `ROLLBACK-STAGING`, and check the schema-compatibility confirmation only after verifying that the older application version works with every migration already applied to the database. The workflow refuses missing images and waits for the restored ECS services to become healthy. It never rolls the database backward.
+Use Actions → **Roll back staging (uses existing AWS resources)**. Select `main`, enter an earlier full lowercase commit SHA, type `ROLLBACK-STAGING`, and check the schema-compatibility confirmation only after verifying that the older application version works with every migration already applied to the database. The workflow refuses missing or unprovenanced images, verifies their original deployment workflow/source attestations, pins their exact digests and waits for restored ECS services to become healthy. Historical images without trusted attestations cannot be qualified merely by reusing their tags. The schema checkbox remains a separate operator prerequisite; a native schema/transport compatibility gate is still required before production. It never rolls the database backward.
 
 ## Security and operational boundaries
 
@@ -80,3 +80,37 @@ Use Actions → **Roll back staging (uses existing AWS resources)**. Select `mai
 - One NAT gateway deliberately reduces staging cost and is a staging-only failure point. Production uses independent egress per availability zone.
 - R2 settings remain disabled placeholders until M2. Guest Preview candidate delivery and protected-change administration remain unavailable.
 - Never run `terraform destroy` as an ordinary rollback. Roll back the immutable application image while preserving compatible database migrations.
+
+
+## Image provenance and retention
+
+Every non-bootstrap Terraform task registration requires all four reviewed image
+digests, including targeted migration registration. The release CLI sets
+`TF_VAR_image_digests` only after verifying all four registry subjects with the
+GitHub CLI, restricted to this repository, the deployment workflow, the selected
+source and signer commit, `main`, GitHub-hosted runners and SLSA v1. The bootstrap
+exception stays inactive with zero application tasks. CI checks each real image's
+revision, source and application labels as well as its non-root runtime.
+
+The deploy CLI verifies the actual checkout SHA and rejects tracked source drift
+before preparation or promotion. Fresh builds use `candidate-<source>-<run>-<attempt>` tags. They receive commit tags
+only after attestation verification and an exact manifest-byte/hash check. An
+interruption before signing leaves no unverified commit tag that a later run
+would silently accept. Existing commit tags must already have their original
+trusted proof; the workflow never manufactures provenance for an unknown image.
+A conflicting existing tag stops the release. Rollback never builds or promotes
+images. Native AWS/registry/GitHub acceptance still needs an authorized real
+staging rehearsal; simulated protocol tests are not that evidence.
+
+The ECR lifecycle policy expires only excess untagged images. Tagged current,
+rollback and candidate images remain available until reviewed cleanup; do not
+apply the former count-based rule to all images, because failed candidate builds
+could otherwise evict an active or rollback binary. Review failed candidate tags
+and storage growth operationally. The fourteen-day Actions receipt is convenient
+CI evidence; copy release receipts, signed bundles and rollback/schema decisions
+to approved durable release custody before relying on them beyond that interval.
+Do not upload private catalog/administrator review snapshots as public artifacts.
+
+The manual deployment can create billable AWS resources. No workflow dispatch,
+Terraform apply, real bot activation or provider signing rehearsal is authorized
+by a local test or by these source changes alone.

@@ -20,6 +20,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  attestations: read
 
 concurrency:
   group: staging-deployment
@@ -34,6 +35,9 @@ jobs:
       ROLLBACK_CONFIRMATION: ${{ inputs.confirmation }}
       SCHEMA_COMPATIBLE: ${{ inputs.schema_compatible }}
       IMAGE_TAG: ${{ inputs.image_tag }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      RELEASE_AWS_REGION: ${{ vars.AWS_REGION }}
       TF_IN_AUTOMATION: 'true'
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_public_hostname: ${{ vars.STAGING_HOSTNAME }}
@@ -41,6 +45,7 @@ jobs:
       TF_VAR_alert_email: ${{ vars.STAGING_ALERT_EMAIL }}
       TF_VAR_telegram_bot_token: ${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}
       TF_VAR_telegram_webhook_secret: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_SECRET }}
+      TF_VAR_telegram_action_token_key: ${{ secrets.STAGING_TELEGRAM_ACTION_TOKEN_KEY }}
     steps:
       - name: Require explicit schema-aware confirmation
         run: |
@@ -48,11 +53,19 @@ jobs:
           test "$ROLLBACK_CONFIRMATION" = "ROLLBACK-STAGING"
           test "$SCHEMA_COMPATIBLE" = "true"
           test -n "$IMAGE_TAG"
-          test "$IMAGE_TAG" != "latest"
+          [[ "$IMAGE_TAG" =~ ^[a-f0-9]{40}$ ]]
+          test -n "$TF_VAR_telegram_action_token_key"
           test "${#TF_VAR_telegram_bot_token}" -ge 20
           test "${#TF_VAR_telegram_webhook_secret}" -ge 32
 
       - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -63,6 +76,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.15.9
+          terraform_wrapper: false
 
       - name: Initialize protected remote state
         run: |
@@ -71,17 +85,18 @@ jobs:
             -backend-config="key=${{ vars.TF_STATE_KEY }}" \
             -backend-config="region=${{ vars.AWS_REGION }}"
 
-      - name: Verify the complete immutable release still exists
-        run: |
-          repositories=$(terraform -chdir=deploy/terraform/staging output -json ecr_repository_urls)
-          for app in api telegram-gateway worker scheduler; do
-            repository=$(jq -r --arg app "$app" '.[$app]' <<<"$repositories")
-            repository_name=${repository#*/}
-            aws ecr describe-images \
-              --repository-name "$repository_name" \
-              --image-ids "imageTag=$IMAGE_TAG" \
-              >/dev/null
-          done
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Verify the selected source and exact image attestations
+        run: pnpm exec tsx scripts/release-images-cli.ts rollback
+
+      - name: Retain content-free rollback image proof
+        uses: actions/upload-artifact@v6
+        with:
+          name: rollback-images-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-images.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Restore the previous release and wait until it is healthy
         run: |
