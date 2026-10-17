@@ -15,7 +15,8 @@ export type SignupNavigation = Readonly<{
     | 'clear'
     | 'finish'
     | 'reply'
-    | 'preview';
+    | 'preview'
+    | 'detail';
   code?: string | undefined;
   selection?: readonly string[] | undefined;
   field?: string | undefined;
@@ -188,6 +189,7 @@ export class SignupNavigationTokens {
         'finish',
         'reply',
         'preview',
+        'detail',
       ].includes(row.action) &&
       ['code', 'field', 'country', 'province'].every(
         (k) =>

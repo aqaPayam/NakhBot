@@ -30,6 +30,17 @@ function fixture(): {
   };
 }
 describe('signup navigation integrity and concurrency', () => {
+  it('keeps Show More bound to its owner and opaque delivered-card reference', async () => {
+    const f = fixture(),
+      delivery = '30000000-0000-4000-8000-000000000001';
+    const nav: SignupNavigation = { ...f.nav, screen: 'preview', action: 'detail', code: delivery };
+    const token = await f.tokens.button(nav);
+    expect(token).not.toContain(delivery);
+    expect(Buffer.byteLength(token)).toBeLessThanOrEqual(64);
+    expect(await f.tokens.callback(token)).toEqual(nav);
+    const borrowed = new SignupNavigationTokens(f.store, Buffer.alloc(32, 1), '12345', '456', life);
+    expect(await borrowed.callback(token)).toBeUndefined();
+  });
   it('binds callback ownership, bot, life and purpose with no form values', async () => {
     const f = fixture(),
       token = await f.tokens.button(f.nav);

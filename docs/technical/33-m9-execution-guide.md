@@ -165,9 +165,10 @@ These tests use synthetic provider responses; deployed provider acceptance and
 operator reconciliation are still external acceptance work. Fixed M1 handler and
 Guest Preview counters report delivery outcomes without user/target labels.
 
-Show More/full-profile navigation, normal Explore interaction actions, remaining
-product/operator entry points, audited uncertain-delivery reconciliation and the
-original release checklist remain unfinished.
+Normal Explore interaction and full-profile navigation, remaining product/operator
+entry points, audited uncertain-delivery reconciliation and the original release
+checklist remain unfinished. Delivered Guest Preview cards now provide the full
+Profile path described below.
 The flag must stay disabled for launch until those applicable journey and operator
 conditions are satisfied; this card-delivery increment does not close M9.
 
@@ -454,3 +455,50 @@ actual signed-manifest verification, AWS policy/version behavior, expired-online
 rollback and the full controlled deployment/recovery journeys still require the
 protected provider rehearsal. No cloud account, approved retention period,
 production/operator approval, M8 Root approval or real-user launch is implied.
+
+## Delivered-card full Profile through the gateway
+
+The running Guest Preview composition now offers Show More on the original card.
+It carries an opaque owner/bot/life-bound navigation token, not a target user ID or
+profile snapshot. Native reads require that exact viewer's delivered candidate
+receipt. Pending, uncertain, failed or foreign receipts cannot open a full Profile;
+a callback never settles an uncertain provider result. Reads neither select a new
+candidate nor consume another preview, including at the lifetime preview limit.
+
+The projection reads current public Profile fields, catalog labels, optional
+answers, biography and every visible photo in primary/display order. Each photo
+uses the existing native `profile_detail` authority and private media relay. All
+original source/session/life/pair/visibility/deletion fences remain in force.
+The runtime captures its actor before waits and snapshots source checks before
+asynchronous validation. It rechecks every photo source and the whole text version
+immediately before each provider send. A change during photo delivery withholds
+subsequent text. Full text uses bounded Unicode-safe chunks with plain Telegram
+messages; no delivery URL, raw target ID or private snapshot is put in a callback,
+transport cache or message metadata.
+
+Profile messages are read delivery and may repeat after provider retries. They do
+not repeat the original card's quota consumption or claim a new business effect.
+Already accepted Telegram messages and actual provider cleanup remain part of the
+separate M8/provider acceptance boundary; this increment does not certify them.
+Existing media-grant and signup-navigation deletion coverage is reused. No new
+user-linked table, cache namespace, retained-resource adapter or retention period
+is introduced; retained-data erasure remains disabled.
+
+Migration 156 seeds four required English `profile.ui.*` texts and preserves the
+historical five-key Preview catalog. Enabled preview startup requires this migration
+and matching variables in every active UI locale. Apply the source migration before
+enabling the new binary. The strict native compatibility command still compares
+the complete source ledger, including this migration; historical binaries do not
+gain compatibility merely because the new migration contains UI text. Deletion
+catalog coverage explicitly accepts this unchanged user-linked layout at schema
+156 and still rejects unknown future schemas.
+
+Native checks exercise concurrent/replayed reads with unchanged quota, all visible
+photos, pending/foreign/borrowed sources, captured actors, updated text versions,
+and visibility/block/photo withdrawal. Gateway tests exercise the real adapter
+composition with synthetic media/Telegram, opaque callbacks and target withdrawal
+after photo acceptance but before text. Localization, exact reference counts and
+populated migration/replay checks cover the new seed. These are implementation
+checks, not a live test-bot rehearsal, content approval or launch sign-off. Normal
+Explore interaction delivery, complete menus, operator process composition and the
+original production/provider/cohort/health requirements remain outstanding.

@@ -523,6 +523,7 @@ describe.skipIf(url === undefined)(
                   '000153_m9_candidate_media_authority.sql',
                   '000154_m9_preview_consumption_disposition.sql',
                   '000155_m9_guest_preview_delivery.sql',
+                  '000156_m9_profile_detail_presentation.sql',
                 ]
               : [
                   '000103_m8_support_closure_proof_view.sql',
@@ -578,6 +579,7 @@ describe.skipIf(url === undefined)(
                   '000153_m9_candidate_media_authority.sql',
                   '000154_m9_preview_consumption_disposition.sql',
                   '000155_m9_guest_preview_delivery.sql',
+                  '000156_m9_profile_detail_presentation.sql',
                 ],
           );
           expect(

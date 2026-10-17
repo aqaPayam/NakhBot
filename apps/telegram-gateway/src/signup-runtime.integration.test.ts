@@ -27,6 +27,7 @@ import { seedValidMedia } from '../../../packages/persistence-postgres/src/media
 import { createAccountReturnFixture } from '../../../packages/persistence-postgres/src/testing/account-return-fixture.js';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
 import { createMediaAuthorityFixture } from '../../../packages/persistence-postgres/src/testing/media-authority-fixture.js';
+import { createReportPhoto } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import {
   HmacMediaDeliveryTokens,
   EdgeHmacMediaAudienceAuthenticator,
@@ -535,7 +536,17 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       let viewer = '',
         providerCalls = 0,
         uncertain = false,
-        nextData = '';
+        nextData = '',
+        detailData = '',
+        detailProviderCalls = 0,
+        mediaPurpose = '',
+        withdrawDetails = false;
+      await createReportPhoto(database, target.ownerUserId, false, new Uint8Array([7, 8, 9]));
+      await database
+        .updateTable('profile.profiles')
+        .set({ bio: 'Synthetic full profile biography', version: sql`version+1` })
+        .where('user_id', '=', target.ownerUserId)
+        .execute();
       const relay = new TelegramCandidateMediaRelay(
         'https://media.invalid',
         botToken,
@@ -556,6 +567,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
               audienceId: viewer,
               now: Math.floor(Date.now() / 1000),
             });
+            mediaPurpose = claims.purpose;
             expect(
               await new PostgresMediaDeliveryAuthorization(database, 'test').isCurrent(claims),
             ).toBe(true);
@@ -570,8 +582,20 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             inline_keyboard: Message['keyboard'];
           };
           nextData = markup.inline_keyboard[0]![0]!.callback_data;
-          providerCalls++;
-          if (uncertain) throw new Error('synthetic uncertain provider result');
+          detailData =
+            markup.inline_keyboard.flat().find((b) => b.text === 'Show More')?.callback_data ??
+            detailData;
+          if (mediaPurpose === 'profile_detail') {
+            detailProviderCalls++;
+            if (withdrawDetails && detailProviderCalls === 8)
+              await database
+                .updateTable('identity.user_settings')
+                .set({ visibility_enabled: false, version: sql`version+1` })
+                .where('user_id', '=', target.ownerUserId)
+                .execute();
+          } else providerCalls++;
+          if (uncertain && mediaPurpose === 'profile_card')
+            throw new Error('synthetic uncertain provider result');
           return new Response(
             JSON.stringify({
               ok: true,
@@ -635,6 +659,15 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       expect(await count()).toBe(priorCount + 1);
       await runtime.handle(update);
       expect(providerCalls).toBe(1);
+      expect(detailData).not.toBe('');
+      const more = callback(sender, detailData);
+      for (let i = 0; i < 3; i++) await runtime.handle(more);
+      expect(detailProviderCalls).toBe(6);
+      expect(providerCalls).toBe(1);
+      expect(await count()).toBe(priorCount + 1);
+      expect(transport.last(sender).text).toContain('Synthetic full profile biography');
+      await runtime.handle(callback(String(serial++), detailData));
+      expect(detailProviderCalls).toBe(6);
       if (priorCount === 9) {
         await runtime.handle(callback(sender, nextData));
         expect(providerCalls).toBe(1);
@@ -644,8 +677,26 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         expect(find(sender, (nav) => nav.action === 'begin')).toBeDefined();
         await open(sender, viewer);
         expect(find(sender, (nav) => nav.action === 'preview')).toBeUndefined();
+        await database
+          .updateTable('identity.user_settings')
+          .set({ visibility_enabled: false, version: sql`version+1` })
+          .where('user_id', '=', target.ownerUserId)
+          .execute();
+        await runtime.handle(callback(sender, detailData));
+        expect(detailProviderCalls).toBe(6);
+        expect(transport.last(sender).text).not.toContain('Synthetic full profile biography');
         return;
       }
+      const priorTexts = transport.messages.filter((m) =>
+        m.text.includes('Synthetic full profile biography'),
+      ).length;
+      withdrawDetails = true;
+      await runtime.handle(callback(sender, detailData));
+      expect(detailProviderCalls).toBe(8);
+      expect(
+        transport.messages.filter((m) => m.text.includes('Synthetic full profile biography')),
+      ).toHaveLength(priorTexts);
+      expect(await count()).toBe(1);
       await createMediaAuthorityFixture(database);
       uncertain = true;
       const next = callback(sender, nextData);

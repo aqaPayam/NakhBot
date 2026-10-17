@@ -12,7 +12,12 @@ import {
 } from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import { ApplicationError, SystemClock } from '@nakh/domain';
-import { CatalogRenderer, M9_SIGNUP_TEXTS, M9_PREVIEW_TEXTS } from '@nakh/localization';
+import {
+  CatalogRenderer,
+  M9_SIGNUP_TEXTS,
+  M9_PREVIEW_TEXTS,
+  M9_PROFILE_TEXTS,
+} from '@nakh/localization';
 import { M1Metrics, M1_REASON_CODES, type M1HandlerOperation } from '@nakh/observability';
 import {
   PostgresAccountControlSessionStore,
@@ -101,7 +106,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       (await this.database
         .selectFrom('platform.schema_migrations')
         .select('name')
-        .where('name', '=', '000155_m9_guest_preview_delivery.sql')
+        .where('name', '=', '000156_m9_profile_detail_presentation.sql')
         .executeTakeFirst()) === undefined
     )
       throw new Error('Guest Preview schema unavailable.');
@@ -116,7 +121,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       const catalog = await this.localization.loadActiveCatalog(locale.code);
       for (const [key, expected] of Object.entries({
         ...M9_SIGNUP_TEXTS,
-        ...(this.previewDelivery === undefined ? {} : M9_PREVIEW_TEXTS),
+        ...(this.previewDelivery === undefined ? {} : { ...M9_PREVIEW_TEXTS, ...M9_PROFILE_TEXTS }),
       })) {
         const value = catalog.messages[key];
         if (
@@ -341,6 +346,14 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       requestId: this.envelope(nav.actor, telegramId, updateId, 'preview').requestId,
       keyboard,
       render,
+      ...(this.previewDelivery.detail === undefined
+        ? {}
+        : {
+            detailButton: async (deliveryId: string) => ({
+              text: render('profile.ui.more'),
+              callback_data: await tokens.button({ ...base, action: 'detail', code: deliveryId }),
+            }),
+          }),
     });
     if (result !== 'sent')
       await this.notice(
@@ -353,6 +366,53 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
               ? 'preview.ui.failed'
               : 'preview.ui.pending',
       );
+  }
+  private async showDetail(telegramId: string, nav: Nav): Promise<void> {
+    if (!this.previewDelivery?.detail || nav.screen !== 'preview' || typeof nav.code !== 'string')
+      throw denied();
+    const context = await new PostgresSignupChoices(this.database, nav.actor).context();
+    const catalog = await this.localization.loadActiveCatalog(context.uiLocale);
+    const renderer = new CatalogRenderer(
+      { [catalog.resolvedLocale]: catalog.messages },
+      catalog.resolvedLocale,
+    );
+    const render = (key: string, variables: Record<string, string | number> = {}): string =>
+      renderer.render(catalog.resolvedLocale, { key, variables });
+    const tokens = this.tokens(telegramId, nav.actor),
+      base: Nav = {
+        actor: nav.actor,
+        screen: 'preview',
+        version: context.accountVersion,
+        action: 'preview',
+        group: randomBytes(12).toString('base64url'),
+      };
+    const keyboard = [
+      [{ text: render('preview.ui.next'), callback_data: await tokens.button(base) }],
+      [
+        {
+          text: render(
+            context.accountState === 'guest' ? 'common.button.sign_up' : 'signup.ui.continue',
+          ),
+          callback_data: await tokens.button({
+            ...base,
+            action: context.accountState === 'guest' ? 'begin' : 'resume',
+          }),
+        },
+      ],
+    ];
+    await this.previewDelivery.detail({
+      actor: nav.actor,
+      telegramUserId: telegramId,
+      deliveryId: nav.code,
+      keyboard,
+      render,
+      sendText: async (text) => {
+        await this.client.sendMenu(telegramId, {
+          text,
+          replyMarkup: { inline_keyboard: keyboard },
+        });
+      },
+    });
   }
   private async optional(
     telegramId: string,
@@ -504,6 +564,10 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     try {
       if (callback !== undefined) {
         await this.current(nav.actor, telegramId);
+        if (nav.action === 'detail') {
+          await this.showDetail(telegramId, nav);
+          return 'notice';
+        }
         const next = this.next(nav),
           claim = await tokens.claim(nav, updateId, String(data), next);
         if (!claim.accepted) {

@@ -190,6 +190,152 @@ describe.skipIf(url === undefined)('M9 candidate-bound native media authority', 
     expect(await counter()).toBe(1);
     expect(await f.store.isCurrent(grant)).toBe(true);
   });
+  async function deliveredDetail(): Promise<{
+    f: Fixture;
+    store: PostgresCandidatePresentationStore;
+  }> {
+    await database
+      .updateTable('identity.user_settings')
+      .set({ visibility_enabled: false })
+      .execute();
+    const f = await fixture(undefined, true),
+      store = await presentation(f);
+    await createReportPhoto(database, f.ownerUserId, false, new Uint8Array([4, 5, 6]));
+    await new PostgresCandidateDeliveryStore(database).recordDelivered(
+      { deliveryId: f.reservation.deliveryId, providerMessageId: '456' },
+      {
+        auditId: randomUUID(),
+        deliveryEventId: randomUUID(),
+        consumptionEventId: randomUUID(),
+        processedAt: new Date(),
+      },
+    );
+    return { f, store };
+  }
+  it('projects all current photos and details for the same delivered target without another consumption', async () => {
+    const { f, store } = await deliveredDetail();
+    await database
+      .updateTable('profile.profiles')
+      .set({ bio: 'Synthetic public biography', version: sql`version+1` })
+      .where('user_id', '=', f.ownerUserId)
+      .execute();
+    const profileId = (
+      await database
+        .selectFrom('profile.profiles')
+        .select('id')
+        .where('user_id', '=', f.ownerUserId)
+        .executeTakeFirstOrThrow()
+    ).id;
+    await sql`INSERT INTO profile.profile_optional_details(profile_id,height_cm,job_title) VALUES(${profileId}::uuid,180,'Synthetic public job') ON CONFLICT(profile_id) DO UPDATE SET height_cm=180,job_title='Synthetic public job'`.execute(
+      database,
+    );
+    const profiles = await Promise.all(
+      Array.from({ length: 5 }, () => store.detail(f.reservation.deliveryId)),
+    );
+    for (const p of profiles) {
+      expect(p.photos).toHaveLength(2);
+      expect(p.optional).toContainEqual({ labelKey: 'signup.ui.height_cm', value: 180 });
+      expect(p.optional).toContainEqual({
+        labelKey: 'signup.ui.job',
+        value: 'Synthetic public job',
+      });
+      expect(p.bio).toBe('Synthetic public biography');
+      expect(p.locationLabelKeys).toHaveLength(3);
+      expect(p.name).toBeTruthy();
+      expect(await store.detailIsCurrent(f.reservation.deliveryId, p)).toBe(true);
+      expect(JSON.stringify(p)).not.toContain(f.ownerUserId);
+    }
+    const count = await database
+      .selectFrom('identity.guest_preview_counters')
+      .select('preview_count')
+      .where('user_id', '=', f.actorUserId)
+      .executeTakeFirstOrThrow();
+    expect(count.preview_count).toBe(1);
+    expect(
+      await database
+        .selectFrom('discovery.candidate_deliveries')
+        .select('id')
+        .where('viewer_user_id', '=', f.actorUserId)
+        .execute(),
+    ).toHaveLength(1);
+  });
+  it('denies pending, foreign and borrowed-session detail reads', async () => {
+    await database
+      .updateTable('identity.user_settings')
+      .set({ visibility_enabled: false })
+      .execute();
+    const f = await fixture(undefined, true),
+      pending = await presentation(f);
+    await expect(pending.detail(f.reservation.deliveryId)).rejects.toMatchObject({ status: 403 });
+    await expect(pending.detail(randomUUID())).rejects.toMatchObject({ status: 403 });
+    const { f: g, store } = await deliveredDetail();
+    await expect(
+      new PostgresCandidatePresentationStore(database, 'test', f.session).detail(
+        g.reservation.deliveryId,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    const originalOwner = { ...g.session };
+    const capturedStore = new PostgresCandidatePresentationStore(database, 'test', originalOwner);
+    originalOwner.sessionGrantId = f.session.sessionGrantId;
+    expect((await capturedStore.detail(g.reservation.deliveryId)).photos).toHaveLength(2);
+    const snapshot = await store.detail(g.reservation.deliveryId);
+    const borrowed = new PostgresCandidatePresentationStore(database, 'test', {
+      ...g.session,
+      sessionGrantId: f.session.sessionGrantId,
+    });
+    await expect(borrowed.detail(g.reservation.deliveryId)).rejects.toMatchObject({ status: 401 });
+    await expect(
+      borrowed.detailIsCurrent(g.reservation.deliveryId, snapshot),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+  it('rejects changed text versions and rereads the new profile instead of caching private values', async () => {
+    const { f, store } = await deliveredDetail(),
+      before = await store.detail(f.reservation.deliveryId);
+    await database
+      .updateTable('profile.profiles')
+      .set({ name: 'Updated synthetic name', version: sql`version+1` })
+      .where('user_id', '=', f.ownerUserId)
+      .execute();
+    expect(await store.detailIsCurrent(f.reservation.deliveryId, before)).toBe(false);
+    const after = await store.detail(f.reservation.deliveryId);
+    expect(after.name).toBe('Updated synthetic name');
+    expect(await store.detailIsCurrent(f.reservation.deliveryId, after)).toBe(true);
+    const other = await deliveredDetail(),
+      foreign = await other.store.detail(other.f.reservation.deliveryId);
+    await database
+      .updateTable('identity.user_settings')
+      .set({ visibility_enabled: true })
+      .where('user_id', '=', f.ownerUserId)
+      .execute();
+    expect(await store.detailIsCurrent(f.reservation.deliveryId, after)).toBe(true);
+    expect(await store.detailIsCurrent(f.reservation.deliveryId, foreign)).toBe(false);
+  });
+  it.each(['visibility', 'block', 'photo'] as const)(
+    'fences full detail after current %s withdrawal',
+    async (mode) => {
+      const { f, store } = await deliveredDetail(),
+        before = await store.detail(f.reservation.deliveryId);
+      if (mode === 'visibility')
+        await database
+          .updateTable('identity.user_settings')
+          .set({ visibility_enabled: false, version: sql`version+1` })
+          .where('user_id', '=', f.ownerUserId)
+          .execute();
+      if (mode === 'block')
+        await sql`INSERT INTO interaction.user_pair_states(user_low_id,user_high_id,state,reason_code,changed_at)
+      VALUES(LEAST(${f.actorUserId}::uuid,${f.ownerUserId}::uuid),GREATEST(${f.actorUserId}::uuid,${f.ownerUserId}::uuid),'blocked','user_block',clock_timestamp())`.execute(
+          database,
+        );
+      if (mode === 'photo')
+        await sql`UPDATE media.profile_photos SET status='hidden',hidden_at=clock_timestamp(),is_primary=false,version=version+1,updated_at=clock_timestamp() WHERE id=${f.photoId}::uuid`.execute(
+          database,
+        );
+      if (mode === 'photo')
+        await expect(store.detailIsCurrent(f.reservation.deliveryId, before)).resolves.toBe(false);
+      else expect(await store.detailIsCurrent(f.reservation.deliveryId, before)).toBe(false);
+      await expect(store.detail(f.reservation.deliveryId)).rejects.toBeDefined();
+    },
+  );
   it('issues concurrent opaque receipts for one native reservation without consuming it', async () => {
     const f = await fixture();
     const grants = await Promise.all(Array.from({ length: 10 }, () => issue(f)));
@@ -439,6 +585,7 @@ describe.skipIf(url === undefined)('M9 candidate-bound native media authority', 
         '000153_m9_candidate_media_authority.sql',
         '000154_m9_preview_consumption_disposition.sql',
         '000155_m9_guest_preview_delivery.sql',
+        '000156_m9_profile_detail_presentation.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(

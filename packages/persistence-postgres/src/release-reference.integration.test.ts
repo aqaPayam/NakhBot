@@ -43,7 +43,7 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
       second = await capture();
     expect(referenceDigest(first)).toBe(referenceDigest(second));
     expect(Object.keys(first.native).sort()).toEqual(Object.keys(RELEASE_REFERENCE_COLUMNS).sort());
-    expect(first.native['catalog.ui_texts']).toHaveLength(641);
+    expect(first.native['catalog.ui_texts']).toHaveLength(645);
     expect(
       first.native['catalog.ui_texts']?.filter(
         (row) =>
@@ -55,8 +55,8 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
           'is_active' in row &&
           row.is_active === true,
       ),
-    ).toHaveLength(638);
-    expect(first.native['platform.schema_migrations']).toHaveLength(155);
+    ).toHaveLength(642);
+    expect(first.native['platform.schema_migrations']).toHaveLength(156);
     expect(first.native['administration.admin_roles']).toHaveLength(3);
     expect(first.native['administration.admin_permissions']).toHaveLength(M7_PERMISSIONS.length);
     expect(first.native['billing.credit_packages']).toEqual(
@@ -196,6 +196,6 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
         { name: '999999_unknown.sql', sha256: '1'.repeat(64) },
       ]),
     ).rejects.toThrow('Release reference unavailable.');
-    expect((await capture()).native['platform.schema_migrations']).toHaveLength(155);
+    expect((await capture()).native['platform.schema_migrations']).toHaveLength(156);
   });
 });

@@ -38,3 +38,11 @@ export const M9_PREVIEW_TEXTS = {
   'preview.ui.handled':
     'This profile was already delivered. Use the buttons on your current card or send /start.',
 } as const;
+
+export const M9_PROFILE_TEXTS = {
+  'profile.ui.more': 'Show More',
+  'profile.ui.details':
+    '{name}, approximately {age}\n{location}\nGender: {gender}\nLooking for: {preference}\nRelationship goal: {goal}\nInterests: {interests}\n{highlight}\n{optional}\n{bio}',
+  'profile.ui.optional': '{label}: {value}',
+  'profile.ui.photo': '{name} · Photo {position} of {total}',
+} as const;
