@@ -70,7 +70,7 @@ These staging workflows currently use repository secrets and a `main`-only OIDC 
 
 ## Rollback after AWS exists
 
-Use Actions → **Roll back staging (uses existing AWS resources)**. Select `main`, enter an earlier full lowercase source SHA, type `ROLLBACK-STAGING`, and confirm the separate transport/data review. The workflow requires selected-source CI and original trusted image attestations, drains the fleet, and runs only the selected image's read-only native schema command. It never invokes the migrator on rollback or reverses the database. Exact migration names/checksums must match; the checkbox cannot waive a mismatch or qualify an image without the command. Activation and scaling restoration use the same selected-task health and maintenance controls as deployment. Historical CI archives and signed image proof still need approved durable archive custody before their online evidence expires.
+Use Actions → **Roll back staging (uses existing AWS resources)**. Select `main`, enter an earlier full lowercase source SHA, type `ROLLBACK-STAGING`, and confirm the separate transport/data review. The workflow requires selected-source CI and original trusted image attestations, drains the fleet, and runs only the selected image's read-only native schema command. It never invokes the migrator on rollback or reverses the database. Exact migration names/checksums must match; the checkbox cannot waive a mismatch or qualify an image without the command. Activation and scaling restoration use the same selected-task health and maintenance controls as deployment. Supply the exact optional `archive_ref` to verify the signed private release archive after online ZIP expiry; the newest CI run/attempt must still match and be green. Without it, original live-artifact checks remain. See the controlled-release runbook for archive preparation, signature policy and required real-provider rehearsal.
 
 ## Security and operational boundaries
 
@@ -130,8 +130,12 @@ policy for subsequent infrastructure applies. `release_scaling_hold` remains tru
 until the selected release passes its health gate.
 
 The phase bucket is private, encrypted, versioned and protected from destruction;
-its policy requires conditional creates under `releases/` and denies object/version
-deletes there. This is operational custody, not compliance Object Lock or an
+its policy requires conditional creates under `releases/` and `archives/` and
+denies object/version deletes there. Forward deployment seals a signed archive of
+the four CI ZIPs, four image bundles and observed trusted-root evidence before
+drain; phase envelope format 2 binds current controller and selected source with
+the archive key/hash. Archive verification uses current trust, never a saved root
+as its own anchor. This is operational custody, not compliance Object Lock or an
 approved retention period. The broad staging administrator can change policy;
 production permissions and independent review remain separate requirements.
 Private catalog/administrator snapshots must not be uploaded as public artifacts.

@@ -43,6 +43,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       RELEASE_AWS_REGION: ${{ vars.AWS_REGION }}
+      RELEASE_ARCHIVE_REQUIRED: 'true'
       RELEASE_INITIALIZE: ${{ inputs.initialize }}
       RELEASE_RECOVERY_INTENT: ${{ inputs.recovery_intent }}
       TF_VAR_project_name: ${{ vars.PROJECT_NAME || 'nakh' }}
@@ -141,6 +142,22 @@ jobs:
           terraform -chdir=deploy/terraform/staging apply -auto-approve \
             -target='aws_s3_bucket_policy.release_evidence' \
             -var="image_tag=$IMAGE_TAG" -var='activate_services=false'
+
+      - name: Retain verified CI bytes and image bundles before drain
+        id: prepare_archive
+        run: pnpm exec tsx scripts/release-archive-cli.ts prepare
+
+      - name: Attest the exact release archive manifest
+        id: attest_archive
+        uses: actions/attest@v4
+        with:
+          subject-name: nakh-release-archive
+          subject-digest: ${{ steps.prepare_archive.outputs.manifest_digest }}
+
+      - name: Seal and independently verify protected archive custody
+        env:
+          ARCHIVE_BUNDLE_PATH: ${{ steps.attest_archive.outputs.bundle-path }}
+        run: pnpm exec tsx scripts/release-archive-cli.ts seal
 
       - name: Suspend scaling and verify all old producers stopped
         id: drain

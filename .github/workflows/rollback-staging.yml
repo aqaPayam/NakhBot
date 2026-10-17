@@ -17,6 +17,10 @@ on:
         default: false
         type: boolean
 
+      archive_ref:
+        description: Optional protected manifest key; required when online CI artifacts have expired
+        required: false
+        type: string
       recovery_intent:
         description: Protected original intent key for an explicitly reviewed maintenance recovery
         required: false
@@ -44,6 +48,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       RELEASE_AWS_REGION: ${{ vars.AWS_REGION }}
+      RELEASE_ARCHIVE_REF: ${{ inputs.archive_ref }}
+      RELEASE_ARCHIVE_REQUIRED: ${{ inputs.archive_ref != '' }}
       RELEASE_RECOVERY_INTENT: ${{ inputs.recovery_intent }}
       TF_VAR_project_name: ${{ vars.PROJECT_NAME || 'nakh' }}
       TF_IN_AUTOMATION: 'true'
@@ -79,7 +85,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           NAKH_RELEASE_SHA: ${{ env.IMAGE_TAG }}
-        run: pnpm exec tsx scripts/verify-release-ci.ts
+        run: |
+          if [ -n "$RELEASE_ARCHIVE_REF" ]; then
+            pnpm exec tsx scripts/verify-release-ci.ts --archive-status
+          else
+            pnpm exec tsx scripts/verify-release-ci.ts
+          fi
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -102,7 +113,12 @@ jobs:
       - uses: aws-actions/amazon-ecr-login@v2
 
       - name: Verify the selected source and exact image attestations
+        if: inputs.archive_ref == ''
         run: pnpm exec tsx scripts/release-images-cli.ts rollback
+
+      - name: Restore and verify signed archive bytes against current source CI status
+        if: inputs.archive_ref != ''
+        run: pnpm exec tsx scripts/release-archive-cli.ts restore
 
       - name: Retain content-free rollback image proof
         uses: actions/upload-artifact@v6
@@ -135,7 +151,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           NAKH_RELEASE_SHA: ${{ env.IMAGE_TAG }}
-        run: pnpm exec tsx scripts/verify-release-ci.ts
+        run: |
+          if [ -n "$RELEASE_ARCHIVE_REF" ]; then
+            pnpm exec tsx scripts/verify-release-ci.ts --archive-status
+          else
+            pnpm exec tsx scripts/verify-release-ci.ts
+          fi
+
+      - name: Recheck signed archive against the newest CI attempt before activation
+        if: inputs.archive_ref != ''
+        run: pnpm exec tsx scripts/release-archive-cli.ts restore
 
       - name: Refresh scoped credentials before service activation
         uses: aws-actions/configure-aws-credentials@v6

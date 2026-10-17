@@ -23,6 +23,8 @@ export type ReleaseCapacity = {
 };
 export type StagingReleaseContext = Readonly<{
   sourceSha: string;
+  controllerSha: string;
+  archive: Readonly<{ key: string; sha256: string }> | null;
   repository: string;
   accountId: string;
   region: string;
@@ -157,6 +159,7 @@ export function captureStagingContext(input: StagingReleaseContext): StagingRele
   const c = structuredClone(input);
   if (
     !/^[a-f0-9]{40}$/u.test(c.sourceSha) ||
+    !/^[a-f0-9]{40}$/u.test(c.controllerSha) ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(c.repository) ||
     !/^[0-9]{12}$/u.test(c.accountId) ||
     !/^[a-z]{2}(?:-gov)?-[a-z]+-[1-9][0-9]*$/u.test(c.region) ||
@@ -165,6 +168,15 @@ export function captureStagingContext(input: StagingReleaseContext): StagingRele
     !Number.isSafeInteger(c.attempt) ||
     c.attempt < 1 ||
     c.attempt > 999999999
+  )
+    denied();
+  if (
+    c.archive !== null &&
+    (!new RegExp(
+      '^archives/' + c.sourceSha + '/[1-9][0-9]{0,19}/[1-9][0-9]{0,8}/manifest\\.json$',
+      'u',
+    ).test(c.archive.key) ||
+      !/^[a-f0-9]{64}$/u.test(c.archive.sha256))
   )
     denied();
   count(c.defaultMin, 2);
@@ -203,6 +215,8 @@ export function captureStagingContext(input: StagingReleaseContext): StagingRele
     denied();
   return {
     sourceSha: c.sourceSha,
+    controllerSha: c.controllerSha,
+    archive: c.archive === null ? null : { ...c.archive },
     repository: c.repository,
     accountId: c.accountId,
     region: c.region,
@@ -311,7 +325,7 @@ export class StagingRelease {
     }
     const context = captureStagingContext(envelope.context as StagingReleaseContext);
     if (
-      envelope.format !== 1 ||
+      envelope.format !== 2 ||
       typeof envelope.observedAt !== 'number' ||
       !Number.isSafeInteger(envelope.observedAt) ||
       typeof envelope.payloadHash !== 'string' ||
@@ -323,7 +337,7 @@ export class StagingRelease {
   }
   private async save(phase: string, payload: unknown): Promise<'created' | 'existing'> {
     const body = JSON.stringify({
-      format: 1,
+      format: 2,
       context: this.context,
       observedAt: this.now(),
       payloadHash: releaseHash(payload),

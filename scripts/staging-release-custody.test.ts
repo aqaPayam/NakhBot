@@ -3,8 +3,61 @@ import { mkdtemp, readFile, writeFile, readdir, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { stagingReleaseCustody, type ReleaseCommand } from './staging-release-custody.js';
+import {
+  stagingReleaseCustody,
+  stagingArchiveCustody,
+  type ReleaseCommand,
+} from './staging-release-custody.js';
 import { stagingContext } from './testing/staging-release-context.js';
+
+it('retains binary archive bytes through conditional, version-bound S3 readback', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nakh-archive-custody-'));
+  const c = stagingContext(),
+    objects = new Map<string, Buffer>();
+  let huge = false;
+  const command: ReleaseCommand = async (tool, args) => {
+    expect(tool).toBe('aws');
+    const value = (name: string): string => args[args.indexOf(name) + 1]!;
+    expect(value('--expected-bucket-owner')).toBe(c.accountId);
+    const key = value('--key');
+    if (args[1] === 'put-object') {
+      expect(value('--if-none-match')).toBe('*');
+      expect(value('--server-side-encryption')).toBe('AES256');
+      expect(value('--content-type')).toBe('application/octet-stream');
+      const bytes = await readFile(value('--body'));
+      expect(value('--checksum-sha256')).toBe(createHash('sha256').update(bytes).digest('base64'));
+      objects.set(key, bytes);
+      return '{}';
+    }
+    const bytes = objects.get(key)!;
+    if (args[1] === 'head-object')
+      return JSON.stringify({ ContentLength: huge ? 16777217 : bytes.length, VersionId: 'v1' });
+    expect(args[1]).toBe('get-object');
+    expect(value('--version-id')).toBe('v1');
+    expect(value('--checksum-mode')).toBe('ENABLED');
+    await writeFile(args.at(-1)!, bytes);
+    return JSON.stringify({
+      ContentLength: bytes.length,
+      VersionId: 'v1',
+      ServerSideEncryption: 'AES256',
+      ChecksumSHA256: createHash('sha256').update(bytes).digest('base64'),
+    });
+  };
+  try {
+    const port = stagingArchiveCustody(c, command, directory),
+      bytes = Buffer.from([0, 255, 128, 1, 13, 10]);
+    const key = `archives/${c.sourceSha}/123/1/files/${createHash('sha256').update(bytes).digest('hex')}.bin`;
+    await expect(port.put(key, bytes)).resolves.toBe('created');
+    expect(await port.read(key)).toEqual(bytes);
+    huge = true;
+    await expect(port.read(key)).rejects.toThrow();
+    await expect(port.read('archives/foreign/manifest.json')).rejects.toThrow();
+    await expect(port.put(key, Buffer.alloc(16777217))).rejects.toThrow();
+  } finally {
+    expect(await readdir(directory)).toEqual([]);
+    await rmdir(directory);
+  }
+});
 
 async function fixture(): Promise<{
   directory: string;

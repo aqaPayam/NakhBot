@@ -114,11 +114,51 @@ Before production, demonstrate actual ECS stop/grace behavior, pagination,
 scaling holds/restoration, failed-image maintenance, uncertain task recovery,
 S3 version/checksum/conditional-write and access-denial behavior, secret/network
 binding and the safe forward/rollback journeys. Complete protected production
-approval, least-privilege identities, full durable CI ZIP/signed-bundle archives,
+approval, least-privilege identities, actual signed archive/expired-online-ZIP rollback acceptance,
 reference-input approvals and the original M9 provider/canary/cohort/health work.
-The phase bucket alone does not satisfy that complete release archive or launch.
+Phase custody alone does not qualify a release or launch. The signed archive
+workflow and its separate acceptance requirements are described below.
 
 AWS contracts: [scaling-target updates](https://docs.aws.amazon.com/autoscaling/application/APIReference/API_RegisterScalableTarget.html),
 [task desired-status filtering](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ListTasks.html),
 [RunTask idempotency](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_RunTask.html),
 and [conditional S3 writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html).
+
+## Signed archive and historical rollback
+
+Forward deployment prepares and verifies the four CI ZIPs and four image bundles,
+retains those bytes in the private release bucket, signs the exact manifest with
+`actions/attest@v4`, then verifies/seals it before drain. The manifest also preserves
+the observed trusted-root document, producing workflow run/attempt, selected source,
+controller source, six CI job IDs and scoped image/infrastructure bindings. The
+producer must run the selected source. Content is addressed by SHA-256; every write
+requires independent checksum/version-bound readback. A prepared or partially sealed
+archive is not complete. Replays preserve the same manifest/signature; conflicting
+or uncertain evidence cannot become an activation receipt.
+
+For historical rollback, independently obtain the reviewed producing archive key
+and provide `archive_ref` as
+`archives/<selected-source-sha>/<producing-deploy-run>/<attempt>/manifest.json`.
+There is no mutable latest pointer. Keep the source SHA, `ROLLBACK-STAGING` and
+separate transport/data review inputs. The current controller can differ from the
+selected image source; phase envelope format 2 records both plus archive key/hash.
+Older format 1 phase records lack this binding and are rejected. Never manufacture
+an upgraded phase receipt or use a different source to retroactively sign old images.
+
+The verifier uses current GitHub CLI trust, the pinned original deploy workflow,
+main ref, selected source/signer SHA, GitHub-hosted runners and exact manifest subject.
+Saved roots never supply their own trust. It requires the complete protected archive,
+matching file digests/sizes, all original native/performance/telemetry checks, original
+image bundles and current ECR digests/tags. It still reads newest selected-source CI
+and requires the same green run/attempt and six job IDs. A newer red/pending run,
+changed attempt, missing signature or unavailable trust denies rollback. Archive
+expiry is not a reason to skip live CI status or native current-schema admission.
+Without `archive_ref`, rollback retains the original live CI artifact expiry gates.
+
+Rehearse actual manifest/image verification and archive-based rollback after online
+ZIP expiry in staging, including missing objects, changed signature, denied reads,
+partial writes and a newer CI attempt. Verify S3 conditional-create/delete policies
+under both `releases/` and `archives/`. Capture real evidence before claiming provider
+acceptance. Local protocol tests use synthetic bundles and simulated S3; the separate
+read-only GitHub probe covers actual ZIP download/report inspection only. An archive
+is release evidence, not a launch approval, retention policy or M8 Root checkpoint.

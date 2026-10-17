@@ -7,6 +7,8 @@ export function stagingContext(): StagingReleaseContext {
     region = 'eu-west-1';
   return {
     sourceSha: 'a'.repeat(40),
+    controllerSha: 'a'.repeat(40),
+    archive: null,
     repository: 'aqaPayam/NakhBot',
     accountId,
     region,

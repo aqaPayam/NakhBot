@@ -4,6 +4,7 @@ import {
   captureImageContext,
   prepareReleaseImages,
   verifyReleaseImages,
+  verifyArchiveAttestation,
   parsePreparedImages,
   RELEASE_SERVICES,
   type ReleaseImageContext,
@@ -25,6 +26,71 @@ function context(): ReleaseImageContext {
     ) as Record<ReleaseService, string>,
   };
 }
+describe('signed release archive policy', () => {
+  it('uses current trust and pins repository, workflow, source, runner and subject bytes', async () => {
+    const ctx = context(),
+      digest = 'c'.repeat(64);
+    let name = 'nakh-release-archive',
+      hash = digest,
+      code = 0;
+    const command: ImageCommand = (tool, args) => {
+      expect(tool).toBe('gh');
+      expect(args).toEqual([
+        'attestation',
+        'verify',
+        '/private/manifest.json',
+        '--bundle',
+        '/private/bundle.jsonl',
+        '--repo',
+        ctx.repository,
+        '--signer-workflow',
+        'github.com/' + ctx.repository + '/.github/workflows/deploy-staging.yml',
+        '--source-ref',
+        'refs/heads/main',
+        '--source-digest',
+        ctx.sourceSha,
+        '--signer-digest',
+        ctx.sourceSha,
+        '--deny-self-hosted-runners',
+        '--predicate-type',
+        'https://slsa.dev/provenance/v1',
+        '--format',
+        'json',
+      ]);
+      return Promise.resolve({
+        code,
+        stderr: '',
+        stdout: JSON.stringify([
+          {
+            verificationResult: {
+              statement: {
+                predicateType: 'https://slsa.dev/provenance/v1',
+                subject: [{ name, digest: { sha256: hash } }],
+              },
+            },
+          },
+        ]),
+      });
+    };
+    const verify = (): Promise<void> =>
+      verifyArchiveAttestation(
+        ctx,
+        '/private/manifest.json',
+        '/private/bundle.jsonl',
+        digest,
+        command,
+      );
+    await expect(verify()).resolves.toBeUndefined();
+    name = 'unrelated';
+    await expect(verify()).rejects.toThrow();
+    name = 'nakh-release-archive';
+    hash = 'd'.repeat(64);
+    await expect(verify()).rejects.toThrow();
+    hash = digest;
+    code = 1;
+    await expect(verify()).rejects.toThrow();
+  });
+});
 type Fixture = {
   ctx: ReleaseImageContext;
   calls: Array<{ tool: string; args: readonly string[] }>;

@@ -141,6 +141,7 @@ export async function verifyImageAttestation(
   context: ReleaseImageContext,
   image: ReleaseImage,
   command: ImageCommand,
+  bundlePath?: string,
 ): Promise<void> {
   const output = await requireCommand(command, 'gh', [
     'attestation',
@@ -161,6 +162,7 @@ export async function verifyImageAttestation(
     'https://slsa.dev/provenance/v1',
     '--format',
     'json',
+    ...(bundlePath ? ['--bundle', bundlePath] : []),
   ]);
   const verified = parse(output);
   if (!Array.isArray(verified) || verified.length < 1 || verified.length > 30) unavailable();
@@ -183,6 +185,59 @@ export async function verifyImageAttestation(
     });
   });
   if (!matches) unavailable();
+}
+/** Verify the retained manifest with the same independent source/workflow policy.
+ * Archive-provided trust roots are evidence, never automatic trust anchors. */
+export async function verifyArchiveAttestation(
+  input: ReleaseImageContext,
+  path: string,
+  bundle: string,
+  expectedSha256: string,
+  command: ImageCommand,
+): Promise<void> {
+  const context = captureImageContext(input);
+  if (!/^[a-f0-9]{64}$/u.test(expectedSha256)) unavailable();
+  const output = await requireCommand(command, 'gh', [
+    'attestation',
+    'verify',
+    path,
+    '--bundle',
+    bundle,
+    '--repo',
+    context.repository,
+    '--signer-workflow',
+    'github.com/' + context.repository + '/.github/workflows/deploy-staging.yml',
+    '--source-ref',
+    'refs/heads/main',
+    '--source-digest',
+    context.sourceSha,
+    '--signer-digest',
+    context.sourceSha,
+    '--deny-self-hosted-runners',
+    '--predicate-type',
+    'https://slsa.dev/provenance/v1',
+    '--format',
+    'json',
+  ]);
+  const verified = parse(output);
+  if (!Array.isArray(verified) || verified.length < 1 || verified.length > 30) unavailable();
+  if (
+    !verified.some((value: unknown) => {
+      const statement = record(record(record(value).verificationResult).statement);
+      return (
+        statement.predicateType === 'https://slsa.dev/provenance/v1' &&
+        Array.isArray(statement.subject) &&
+        statement.subject.some((value: unknown) => {
+          const subject = record(value);
+          return (
+            subject.name === 'nakh-release-archive' &&
+            record(subject.digest).sha256 === expectedSha256
+          );
+        })
+      );
+    })
+  )
+    unavailable();
 }
 export async function prepareReleaseImages(
   input: ReleaseImageContext,
@@ -363,6 +418,7 @@ export async function verifyReleaseImages(
   prepared: unknown,
   command: ImageCommand,
   promote = false,
+  bundles?: Readonly<Record<ReleaseService, string>>,
 ): Promise<PreparedReleaseImages> {
   const context = captureImageContext(input),
     value = parsePreparedImages(context, structuredClone(prepared));
@@ -374,7 +430,7 @@ export async function verifyReleaseImages(
       'imageDigest=' + image.digest,
     );
     if (current?.digest !== image.digest) unavailable();
-    await verifyImageAttestation(context, image, command);
+    await verifyImageAttestation(context, image, command, bundles?.[image.service]);
     if (promote) await promoteImage(context, image, command);
     else if ((await currentImage(context, image.service, command))?.digest !== image.digest)
       unavailable();

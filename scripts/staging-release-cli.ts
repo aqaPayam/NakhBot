@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { archiveSha, archiveRef } from './release-archive.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { captureImageContext, parsePreparedImages, type ReleaseService } from './release-images.js';
 import {
@@ -141,6 +142,8 @@ async function main(): Promise<void> {
   const defaults = object(output('release_default_capacity'));
   const context: StagingReleaseContext = {
     sourceSha,
+    controllerSha: process.env.GITHUB_SHA,
+    archive: null,
     repository: imageContext.repository,
     accountId,
     region,
@@ -158,6 +161,35 @@ async function main(): Promise<void> {
     bucket: String(output('release_evidence_bucket')),
   };
   await mkdir('artifacts', { recursive: true });
+  if (process.env.RELEASE_ARCHIVE_REQUIRED === 'true') {
+    const proofPath = resolve('artifacts/release-archive-verified.json');
+    if ((await stat(proofPath)).size > 262144) denied();
+    const archived = object(JSON.parse(await readFile(proofPath, 'utf8')) as unknown);
+    if (
+      archived.sourceSha !== sourceSha ||
+      archived.controllerSha !== context.controllerSha ||
+      archived.repository !== context.repository ||
+      archived.accountId !== accountId ||
+      archived.region !== region ||
+      archived.cluster !== context.cluster ||
+      JSON.stringify(parsePreparedImages(imageContext, archived.images)) !==
+        JSON.stringify(images) ||
+      typeof archived.key !== 'string' ||
+      typeof archived.sha256 !== 'string'
+    )
+      denied();
+    archiveRef(archived.key, sourceSha);
+    if (
+      mode !== 'maintain' &&
+      archiveSha(await readFile(resolve('artifacts/release-archive/manifest.json'))) !==
+        archived.sha256
+    )
+      denied();
+    (context as { archive: StagingReleaseContext['archive'] }).archive = {
+      key: archived.key,
+      sha256: archived.sha256,
+    };
+  }
   const protectedCustody = stagingReleaseCustody(context, command, 'artifacts');
   const intentKey = `releases/${sourceSha}/${runId}/${attempt}/intent.json`;
   const cache = resolve('artifacts', `release-intent-${sourceSha}-${runId}-${attempt}.json`);

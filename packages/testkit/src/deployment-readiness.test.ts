@@ -122,6 +122,31 @@ describe('staging deployment readiness', () => {
     expect(custody).toContain('s3:DeleteObjectVersion');
   });
 
+  it('seals original CI bytes before drain and requires independent archived proof before rollback mutations', async () => {
+    const deploy = await source('.github/workflows/deploy-staging.yml'),
+      rollback = await source('.github/workflows/rollback-staging.yml'),
+      images = await source('scripts/release-images.ts'),
+      archive = await source('scripts/release-archive-cli.ts');
+    expect(deploy.indexOf('scripts/release-archive-cli.ts prepare')).toBeLessThan(
+      deploy.indexOf('id: attest_archive'),
+    );
+    expect(deploy.indexOf('scripts/release-archive-cli.ts seal')).toBeLessThan(
+      deploy.indexOf('scripts/staging-release-cli.ts drain'),
+    );
+    expect(deploy).toContain('subject-name: nakh-release-archive');
+    expect(deploy).toContain("RELEASE_ARCHIVE_REQUIRED: 'true'");
+    expect(rollback).toContain('scripts/verify-release-ci.ts --archive-status');
+    expect(rollback.match(/scripts\/release-archive-cli\.ts restore/gu)).toHaveLength(2);
+    expect(rollback.indexOf('scripts/release-archive-cli.ts restore')).toBeLessThan(
+      rollback.indexOf('Prepare protected release custody'),
+    );
+    expect(archive).toContain('restoreArchive(');
+    expect(archive).toContain('readReleaseCiStatus(');
+    expect(archive).toContain('verifyReleaseImages(');
+    expect(images).toContain("'--bundle'");
+    expect(images).not.toContain("'--custom-trusted-root'");
+  });
+
   it('keeps data private, encrypted, recoverable, and highly available', async () => {
     const network = await source('deploy/terraform/staging/network.tf');
     const data = await source('deploy/terraform/staging/data.tf');

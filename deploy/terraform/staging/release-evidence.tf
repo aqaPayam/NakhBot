@@ -59,7 +59,7 @@ data "aws_iam_policy_document" "release_evidence" {
     sid       = "RequireConditionalCreate"
     effect    = "Deny"
     actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.release_evidence.arn}/releases/*"]
+    resources = ["${aws_s3_bucket.release_evidence.arn}/releases/*", "${aws_s3_bucket.release_evidence.arn}/archives/*"]
     principals {
       type        = "*"
       identifiers = ["*"]
@@ -74,7 +74,7 @@ data "aws_iam_policy_document" "release_evidence" {
     sid       = "PreserveReleaseHistory"
     effect    = "Deny"
     actions   = ["s3:DeleteObject", "s3:DeleteObjectVersion"]
-    resources = ["${aws_s3_bucket.release_evidence.arn}/releases/*"]
+    resources = ["${aws_s3_bucket.release_evidence.arn}/releases/*", "${aws_s3_bucket.release_evidence.arn}/archives/*"]
     principals {
       type        = "*"
       identifiers = ["*"]

@@ -400,8 +400,57 @@ reset or deleted by this controller.
 The new bucket stores private operational phase observations using checksum,
 conditional-create and independent version-bound readback. No user-linked table,
 retention period, private review snapshot, M8 Root completion or erasure authority
-is introduced. It does not yet archive all CI ZIPs and signed attestation bundles;
-complete that separate release archive before relying on historical candidates
-beyond the online evidence lifetime. Protocol tests simulate AWS boundaries;
+is introduced. The signed release archive described below now preserves CI ZIPs and image
+attestation bundles separately from these phase observations. Its actual provider
+and signature acceptance still requires the protected staging rehearsal. Protocol tests simulate AWS boundaries;
 native schema tests use actual PostgreSQL. Neither proves real AWS/R2 acceptance,
 production approval, provider canaries, cohort launch or the rest of M9 complete.
+
+## Durable signed release archive
+
+The forward staging workflow now downloads and checks the four exact-source CI
+ZIPs, retains their original GitHub digests, and preserves all four image Sigstore
+bundles plus an observed trusted-root document. The manifest binds the selected
+source, producing controller source, deployment run/attempt, scoped infrastructure,
+CI run/attempt and six job IDs, image digests and every retained file's size/hash.
+The producing controller must be that same source. `actions/attest@v4` signs the
+manifest before the workflow seals it and before any producer drain.
+
+Private versioned S3 custody uses conditional creates, independent version-bound
+readback and checksum/body equality for archive bytes as well as phase records.
+A completion marker is written only after manifest and image verification and a
+fresh newest-CI check. Partial writes remain incomplete and cannot authorize release.
+A replay preserves the original manifest/signature bytes; it cannot overwrite a
+conflicting archive. Phase record format 2 separately identifies the current
+controller SHA, selected image SHA and optional signed archive key/digest. Legacy
+format 1 records are not accepted as proof of an unrecorded controller identity.
+
+Rollback may supply an exact `archive_ref` in the form
+`archives/<source-sha>/<producing-deploy-run>/<attempt>/manifest.json`.
+It verifies the manifest with the current trusted-root configuration and the
+original repository, deploy workflow, main ref, source/signer SHA, GitHub-hosted
+runner and SLSA subject digest policy. The saved root document is evidence, never
+an automatically trusted anchor. Rollback checks all archived bytes, native shard
+source receipts, zero skips, 27 plans at 20,000 rows/1,500 ms, both required terminal
+indexes, original JIT/worker/spill limits, load totals and both telemetry conversions.
+It also verifies the image bundles and current ECR digests/tags without rebuilding,
+promoting, reattesting or running a database migration.
+
+The newest selected-source CI run and attempt must still be green, with the same
+six job IDs as the signed archive. Only the online ZIP availability/expiry check
+is replaced by protected archived bytes; red, pending, superseded or unavailable
+CI still denies admission. Verification repeats after drain/schema inspection.
+Rollback without `archive_ref` keeps the original live-artifact requirements.
+Native current-schema compatibility and the separate transport/data review remain
+mandatory for either route. Historical images are not retroactively qualified.
+
+Focused protocol tests cover changed bytes, partial seals, source/controller
+separation, failed signatures, current-CI changes, binary custody, malformed ZIPs,
+and credential stripping on artifact redirects. A read-only integration probe
+successfully downloaded and inspected all four actual CI ZIPs for green source
+`7444cb6c35e645a48b2045eee4addc4010228057` (run `38985649458`, attempt 1).
+This verifies the GitHub download/report path. Test signature/S3 ports are simulated;
+actual signed-manifest verification, AWS policy/version behavior, expired-online-ZIP
+rollback and the full controlled deployment/recovery journeys still require the
+protected provider rehearsal. No cloud account, approved retention period,
+production/operator approval, M8 Root approval or real-user launch is implied.

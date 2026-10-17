@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   latestReleaseCiRun,
   readReleaseCi,
+  readReleaseCiStatus,
+  verifyReleaseCiStatus,
   RELEASE_CI_JOBS,
   validateReleaseCiContext,
   verifyReleaseCi,
@@ -77,6 +79,25 @@ function fixture(): Fixture {
   return { context, input: { run, jobs, artifacts, finalRun: structuredClone(run) } };
 }
 describe('exact-source release CI prerequisite', () => {
+  it('separates archived status observation from live artifact authority without accepting a new red attempt', async () => {
+    const f = fixture();
+    for (const a of f.input.artifacts.artifacts) {
+      a.expired = true;
+      a.expires_at = '2026-10-16T08:59:00Z';
+    }
+    const status = verifyReleaseCiStatus(f.input, f.context);
+    expect(status).not.toHaveProperty('artifacts');
+    expect(status.jobs).toHaveLength(6);
+    expect(() => verifyReleaseCi(f.input, f.context)).toThrow();
+    let count = 0;
+    const result = await readReleaseCiStatus(f.context, () =>
+      Promise.resolve(++count === 2 ? f.input.jobs : { workflow_runs: [f.input.run] }),
+    );
+    expect(result.runId).toBe(123);
+    f.input.finalRun = { ...f.input.finalRun, conclusion: 'failure' };
+    expect(() => verifyReleaseCiStatus(f.input, f.context)).toThrow();
+  });
+
   it('projects only six job identities and four artifact digest references from the current attempt', () => {
     const f = fixture();
     const receipt = verifyReleaseCi(

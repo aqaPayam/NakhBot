@@ -23,7 +23,13 @@ export type ReleaseCiReceipt = Readonly<{
   attempt: number;
   checkedAt: string;
   jobs: readonly { name: string; id: number }[];
-  artifacts: readonly { name: string; id: number; digest: string; expiresAt: string }[];
+  artifacts: readonly {
+    name: string;
+    id: number;
+    digest: string;
+    expiresAt: string;
+    size: number;
+  }[];
 }>;
 function invalid(): never {
   throw new Error('Release CI evidence is incomplete, stale or invalid.');
@@ -105,10 +111,10 @@ function collection(value: unknown, key: 'jobs' | 'artifacts'): unknown[] {
     invalid();
   return values as unknown[];
 }
-export function verifyReleaseCi(
-  input: Readonly<{ run: unknown; jobs: unknown; artifacts: unknown; finalRun: unknown }>,
+export function verifyReleaseCiStatus(
+  input: Readonly<{ run: unknown; jobs: unknown; finalRun: unknown }>,
   context: ReleaseCiContext,
-): ReleaseCiReceipt {
+): Omit<ReleaseCiReceipt, 'artifacts'> {
   validateReleaseCiContext(context);
   const run = sourceRun(input.run, context),
     finalRun = sourceRun(input.finalRun, context);
@@ -154,6 +160,24 @@ export function verifyReleaseCi(
     new Set(jobs.map((job) => job.id)).size !== jobs.length
   )
     invalid();
+  return {
+    schemaVersion: 1,
+    repository: context.repository,
+    sourceSha: context.sha,
+    runId,
+    attempt,
+    checkedAt: context.now.toISOString(),
+    jobs,
+  };
+}
+export function verifyReleaseCi(
+  input: Readonly<{ run: unknown; jobs: unknown; artifacts: unknown; finalRun: unknown }>,
+  context: ReleaseCiContext,
+): ReleaseCiReceipt {
+  const status = verifyReleaseCiStatus(input, context),
+    run = sourceRun(input.run, context),
+    runId = status.runId,
+    startedAt = time(run.run_started_at);
   const available = collection(input.artifacts, 'artifacts').map(object);
   const artifacts = ARTIFACTS.map((prefix) => {
     const name = `${prefix}-${context.sha}`,
@@ -184,19 +208,11 @@ export function verifyReleaseCi(
       id: id(artifact.id),
       digest: artifact.digest,
       expiresAt: new Date(time(artifact.expires_at)).toISOString(),
+      size: artifact.size_in_bytes,
     };
   });
   if (new Set(artifacts.map((artifact) => artifact.id)).size !== artifacts.length) invalid();
-  return {
-    schemaVersion: 1,
-    repository: context.repository,
-    sourceSha: context.sha,
-    runId,
-    attempt,
-    checkedAt: context.now.toISOString(),
-    jobs,
-    artifacts,
-  };
+  return { ...status, artifacts };
 }
 export async function readReleaseCi(
   context: ReleaseCiContext,
@@ -214,4 +230,20 @@ export async function readReleaseCi(
   ]);
   const finalRun = latestReleaseCiRun(await readJson(listPath), context);
   return verifyReleaseCi({ run, jobs, artifacts, finalRun }, context);
+}
+
+/** Status only permits reading a protected archive. It never substitutes for artifact verification. */
+export async function readReleaseCiStatus(
+  context: ReleaseCiContext,
+  readJson: (path: string) => Promise<unknown>,
+): Promise<Omit<ReleaseCiReceipt, 'artifacts'>> {
+  validateReleaseCiContext(context);
+  const base = `/repos/${context.repository}/actions`,
+    path = `${base}/workflows/ci.yml/runs?head_sha=${context.sha}&branch=main&event=push&per_page=100`;
+  const run = latestReleaseCiRun(await readJson(path), context),
+    runId = id(run.id),
+    attempt = id(run.run_attempt);
+  const jobs = await readJson(`${base}/runs/${runId}/attempts/${attempt}/jobs?per_page=100`);
+  const finalRun = latestReleaseCiRun(await readJson(path), context);
+  return verifyReleaseCiStatus({ run, jobs, finalRun }, context);
 }

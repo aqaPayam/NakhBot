@@ -30,24 +30,35 @@ function errorKind(error: unknown, operation: string, name: string): boolean {
 
 /** Conditional writes and independent, size-bounded, version-bound S3 reads.
  * No raw provider errors or private evidence bodies are printed by this port. */
-export function stagingReleaseCustody(
-  input: StagingReleaseContext,
+export type ReleaseBlobs = Readonly<{
+  read: (key: string) => Promise<Buffer | undefined>;
+  put: (key: string, body: Uint8Array) => Promise<'created' | 'existing'>;
+}>;
+type CustodyScope = Pick<StagingReleaseContext, 'accountId' | 'region' | 'cluster' | 'bucket'>;
+function versionedObjects(
+  input: CustodyScope,
   command: ReleaseCommand,
   directory: string,
-): ReleaseCustody {
-  const c = captureStagingContext(input);
+  maxBytes: number,
+  checked: (key: string) => string,
+): ReleaseBlobs {
+  const c = structuredClone(input);
   let sequence = 0;
-  const checked = (key: string): string => {
-    if (
-      !/^releases\/[a-f0-9]{40}\/[1-9][0-9]{0,19}\/[1-9][0-9]{0,8}\/(?:intent|held|drained|observed-(?:0|[1-9][0-9]?)|(?:migration|compatibility)-(?:prepared|started|succeeded)|healthy|activated|maintenance)\.json$/u.test(
-        key,
-      )
-    )
-      denied();
-    return key;
-  };
+  if (
+    !/^[0-9]{12}$/u.test(c.accountId) ||
+    !/^[a-z]{2}(?:-gov)?-[a-z]+-[1-9][0-9]*$/u.test(c.region) ||
+    !/^[a-z][a-z0-9-]{1,19}-staging$/u.test(c.cluster) ||
+    c.bucket !==
+      c.cluster +
+        '-release-' +
+        createHash('sha256')
+          .update(c.accountId + ':' + c.region)
+          .digest('hex')
+          .slice(0, 16)
+  )
+    denied();
   const base = ['--region', c.region, '--bucket', c.bucket, '--expected-bucket-owner', c.accountId];
-  const custody: ReleaseCustody = {
+  const custody: ReleaseBlobs = {
     read: async (key) => {
       checked(key);
       let head: Record<string, unknown>;
@@ -74,7 +85,7 @@ export function stagingReleaseCustody(
       if (
         !Number.isSafeInteger(length) ||
         Number(length) < 1 ||
-        Number(length) > 262144 ||
+        Number(length) > maxBytes ||
         typeof version !== 'string' ||
         version.length < 1 ||
         version.length > 1024 ||
@@ -99,9 +110,9 @@ export function stagingReleaseCustody(
             ]),
           ) as unknown,
         );
-        const body = await readFile(path, 'utf8');
+        const body = await readFile(path);
         if (
-          Buffer.byteLength(body) !== length ||
+          body.length !== length ||
           response.ContentLength !== length ||
           response.VersionId !== version ||
           response.ServerSideEncryption !== 'AES256' ||
@@ -113,11 +124,12 @@ export function stagingReleaseCustody(
         await unlink(path).catch(() => undefined);
       }
     },
-    put: async (key, body) => {
+    put: async (key, inputBody) => {
+      const body = Buffer.from(inputBody);
       checked(key);
-      if (Buffer.byteLength(body) > 262144 || body.length === 0) denied();
+      if (body.length > maxBytes || body.length === 0) denied();
       const path = resolve(directory, `release-custody-write-${sequence++}.json`);
-      await writeFile(path, body, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      await writeFile(path, body, { flag: 'wx', mode: 0o600 });
       let result: 'created' | 'existing' = 'created';
       try {
         try {
@@ -138,13 +150,14 @@ export function stagingReleaseCustody(
             '--server-side-encryption',
             'AES256',
             '--content-type',
-            'application/json',
+            key.includes('/files/') ? 'application/octet-stream' : 'application/json',
           ]);
         } catch (error) {
           if (!errorKind(error, 'PutObject', 'PreconditionFailed')) throw error;
           result = 'existing';
         }
-        if ((await custody.read(key)) !== body) denied();
+        const observed = await custody.read(key);
+        if (!observed || !observed.equals(body)) denied();
         return result;
       } finally {
         await unlink(path).catch(() => undefined);
@@ -152,4 +165,40 @@ export function stagingReleaseCustody(
     },
   };
   return custody;
+}
+
+export function stagingReleaseCustody(
+  input: StagingReleaseContext,
+  command: ReleaseCommand,
+  directory: string,
+): ReleaseCustody {
+  const checked = (key: string): string => {
+    if (
+      !/^releases\/[a-f0-9]{40}\/[1-9][0-9]{0,19}\/[1-9][0-9]{0,8}\/(?:intent|held|drained|observed-(?:0|[1-9][0-9]?)|(?:migration|compatibility)-(?:prepared|started|succeeded)|healthy|activated|maintenance)\.json$/u.test(
+        key,
+      )
+    )
+      denied();
+    return key;
+  };
+  const blobs = versionedObjects(captureStagingContext(input), command, directory, 262144, checked);
+  return {
+    read: async (key) => (await blobs.read(key))?.toString('utf8'),
+    put: (key, body) => blobs.put(key, Buffer.from(body, 'utf8')),
+  };
+}
+export function stagingArchiveCustody(
+  input: CustodyScope,
+  command: ReleaseCommand,
+  directory: string,
+): ReleaseBlobs {
+  return versionedObjects(input, command, directory, 16777216, (key) => {
+    if (
+      !/^archives\/[a-f0-9]{40}\/[1-9][0-9]{0,19}\/[1-9][0-9]{0,8}\/(?:manifest\.json|manifest-bundle\.jsonl|complete\.json|files\/[a-f0-9]{64}\.bin)$/u.test(
+        key,
+      )
+    )
+      denied();
+    return key;
+  });
 }
