@@ -38,6 +38,7 @@
     "audit:security": "tsx scripts/audit-production.ts",
     "db:migrate": "tsx packages/persistence-postgres/src/cli/migrate.ts",
     "db:verify": "tsx packages/persistence-postgres/src/cli/verify.ts",
+    "release:reference": "tsx packages/persistence-postgres/src/cli/release-reference.ts",
     "db:status": "tsx packages/persistence-postgres/src/cli/status.ts",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },

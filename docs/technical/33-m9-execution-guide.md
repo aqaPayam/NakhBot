@@ -260,3 +260,46 @@ budget, DNS, separate test/production bots, private R2 and evidence custody,
 secret delivery and operator/security/privacy acceptance. Do not request secrets
 in chat or deploy billable resources or real-user traffic from a coding approval.
 Present the actual reviewed deployment before asking for its final authorization.
+
+
+## Production reference review and drift verification
+
+`pnpm release:reference --capture <absolute-private-file>` captures the selected
+staging or production service's reference state. Run from a clean committed
+checkout after `pnpm build`, with `NAKH_RELEASE` equal to that checkout's full
+SHA and the actual service configuration loaded through protected provisioning.
+Run separately for `api`, `telegram-gateway`, `worker` and `scheduler`; one
+service's receipt does not verify the other services' configuration.
+
+The reader uses one read-only, repeatable-read transaction for all catalog rows,
+including disabled locales/text/options, prompts, credit packages, report reasons,
+administrator bindings, roles, permissions and assignments. Its migration ledger
+must exactly match every migration name/checksum in the source checkout. Runtime
+configuration covers every reviewed leaf and rejects unknown leaves; it includes
+activation flags, namespaces, endpoints and secret-reference names. Connection
+userinfo/query credentials, webhook secret material and resolved secrets are
+excluded. Domain credit-package and paid-action/Nakh prices are also captured,
+with exact decimal strings for bigint amounts. No seeds, prices, roles, policies
+or infrastructure are changed by this command.
+
+Keep the file private: it includes administrator identities and assignment
+provenance. Capture creates a new file exclusively and never overwrites a reviewed
+input. Review its full contents with the product/localization, backend, platform
+and security/moderation owners as applicable; record their approval against the
+file's digest and selected source/environment/service in protected release
+custody. Current fixture values and a newly captured file are not production
+approval. Retained-data erasure remains disabled pending its separate policies.
+
+`pnpm release:reference --verify <absolute-reviewed-file>` compares the current
+state to that exact input. Missing, extra or changed rows, versions, activation,
+prices, configuration, identities, role assignments or source migrations fail the
+comparison. Only bounded counts, context and digests reach stdout; mismatches and
+provider/database errors print no private values. The reader bounds snapshot size
+and query time. Native tests observe a reader blocked by a concurrent price
+writer and prove it retains one consistent snapshot; another capture sees the
+committed drift, including integer amounts above JavaScript's safe-number range.
+
+A matching reference is one release prerequisite. It does not attest image/cloud
+provenance, verify secret material, authenticate an approver, activate a service,
+or establish actual provider/canary/cohort acceptance. Production workflow
+composition and custody of explicit owner approvals remain required before launch.
