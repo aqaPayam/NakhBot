@@ -1,11 +1,13 @@
 import type { DynamicModule } from '@nestjs/common';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
-import { ReportTokenFactory } from '@nakh/application';
+import { ReportTokenFactory, RevokePhotoDeliveryCache } from '@nakh/application';
+import { CloudflareMediaCachePurger } from '@nakh/media-delivery';
 import { M7_LOCALIZATION_ENTRIES, M9_ADMIN_TEXTS } from '@nakh/localization';
 import {
   AdminRuntimeKeys,
   getAdminFirstFactorIdentity,
   loadAdminRuntimeCatalogs,
+  PostgresMediaDeliveryPathStore,
   type AdminRuntimeCatalogs,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -51,6 +53,18 @@ export class AdministratorApiRuntime {
       safetyKey: this.keys.userSessionKey,
       capabilities: this.keys.capabilities,
       reviewNotes: this.keys.reviewNotes,
+      ...(config.administration.mediaEnabled
+        ? {
+            photoDelivery: new RevokePhotoDeliveryCache(
+              new PostgresMediaDeliveryPathStore(database),
+              new CloudflareMediaCachePurger({
+                zoneId: config.media.cloudflareZoneId,
+                apiToken: resolve(config.media.cloudflareApiTokenRef),
+                mediaOrigin: `https://${config.media.cdnHost}`,
+              }),
+            ),
+          }
+        : {}),
       accountReturnApprovalEnabled:
         config.deletion.returnApiEnabled || config.deletion.returnTelegramEnabled,
     });

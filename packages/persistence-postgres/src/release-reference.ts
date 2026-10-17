@@ -37,6 +37,7 @@ export function referenceDigest(value: unknown): string {
 // neither secrets nor an accidentally added private setting may enter a snapshot.
 const fields = `environment serviceName release http.host http.port
  administration.enabled administration.publicOrigin administration.totpKeyRingRef
+ administration.mediaEnabled administration.evidenceAccessKeyRef administration.evidenceSecretKeyRef
  administration.actionKeyRef administration.reviewNoteKeyRingRef
  administration.reviewNoteKeyId administration.reviewNoteKeyVersion
  database.url database.poolMax database.statementTimeoutMs database.lockTimeoutMs

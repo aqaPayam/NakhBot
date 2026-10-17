@@ -9,10 +9,12 @@ import {
   AesGcmPhotoReportSnapshotReader,
   AesGcmChatReportSnapshotReader,
   AesGcmUnmatchedReportSnapshotReader,
+  IntegrityMessageReportSnapshotReader,
   verifyAdminTotpSecretCustody,
 } from '@nakh/application';
 import type { NakhDatabase } from './database.js';
 import type { ReportEvidenceCapabilities } from './report-services.js';
+import type { ReportEvidenceReaders } from './report-capture-integrity.js';
 
 function key(encoded: string): Buffer {
   const result = Buffer.from(encoded, 'base64url');
@@ -38,6 +40,7 @@ export class AdminRuntimeKeys {
   public readonly uiReferenceKey: Uint8Array;
   public readonly reviewNotes: AesGcmReviewNoteProtector;
   public readonly capabilities: ReportEvidenceCapabilities;
+  public readonly readers: ReportEvidenceReaders;
   public constructor(
     input: Readonly<{
       totp: string;
@@ -100,6 +103,13 @@ export class AdminRuntimeKeys {
         }),
       });
       snapshot.key.fill(0);
+      this.readers = Object.freeze({
+        profile: new AesGcmProfileReportSnapshotReader(this.snapshots),
+        photo: new AesGcmPhotoReportSnapshotReader(this.snapshots),
+        chat: new AesGcmChatReportSnapshotReader(this.snapshots),
+        unmatched_user: new AesGcmUnmatchedReportSnapshotReader(this.snapshots),
+        message: new IntegrityMessageReportSnapshotReader(),
+      });
       navigation.fill(0);
     } catch {
       throw new Error('Administrator key custody unavailable.');

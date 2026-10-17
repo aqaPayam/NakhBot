@@ -30,6 +30,9 @@ const ConfigSchema = Type.Object(
     }),
     administration: Type.Object({
       enabled: Type.Boolean(),
+      mediaEnabled: Type.Boolean(),
+      evidenceAccessKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      evidenceSecretKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       publicOrigin: Type.String({ minLength: 1, maxLength: 253 }),
       totpKeyRingRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       actionKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
@@ -161,6 +164,17 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     },
     administration: {
       enabled: boolean(env.NAKH_ADMINISTRATION_ENABLED, false),
+      mediaEnabled: boolean(env.NAKH_ADMIN_MEDIA_ENABLED, false),
+      evidenceAccessKeyRef: required(
+        env,
+        'NAKH_ADMIN_EVIDENCE_R2_ACCESS_KEY_REF',
+        'NAKH_ADMIN_EVIDENCE_R2_ACCESS_KEY',
+      ),
+      evidenceSecretKeyRef: required(
+        env,
+        'NAKH_ADMIN_EVIDENCE_R2_SECRET_KEY_REF',
+        'NAKH_ADMIN_EVIDENCE_R2_SECRET_KEY',
+      ),
       publicOrigin: required(env, 'NAKH_ADMIN_PUBLIC_ORIGIN', 'https://admin.invalid'),
       totpKeyRingRef: required(env, 'NAKH_ADMIN_TOTP_KEY_RING_REF', 'NAKH_ADMIN_TOTP_KEYS'),
       actionKeyRef: required(env, 'NAKH_ADMIN_ACTION_KEY_REF', 'NAKH_ADMIN_ACTION_KEY'),
@@ -284,6 +298,13 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       );
     }
   }
+  if (
+    candidate.administration.mediaEnabled &&
+    (!candidate.administration.enabled || !candidate.media.cachePurgeEnabled)
+  )
+    throw new Error(
+      'Invalid configuration: administrator media requires administration and cache purge.',
+    );
   if (
     candidate.deletion.workerEnabled &&
     (!candidate.media.cachePurgeEnabled ||

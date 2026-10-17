@@ -66,7 +66,7 @@ import {
 } from '@nakh/telegram';
 
 /** Explicit composition only. A trusted selected-target UI calls prepare; authenticated private
- * webhook callbacks call handle. Ordinary startup enables neither session nor admin delivery. */
+ * webhook callbacks call handle. Ordinary startup supplies these capabilities only when enabled. */
 export function createTelegramAdminSafetyReadIngress(
   input: Readonly<{
     database: NakhDatabase;

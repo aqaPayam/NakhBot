@@ -18,6 +18,30 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps administrator media closed until administration and real cache purge are configured', () => {
+    expect(parseConfig(validEnvironment).administration.mediaEnabled).toBe(false);
+    const media = { ...validEnvironment, NAKH_ADMIN_MEDIA_ENABLED: 'true' };
+    expect(() => parseConfig(media)).toThrow('administrator media');
+    expect(() => parseConfig({ ...media, NAKH_ADMINISTRATION_ENABLED: 'true' })).toThrow(
+      'administrator media',
+    );
+    const enabled = {
+      ...media,
+      NAKH_ADMINISTRATION_ENABLED: 'true',
+      NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+      NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
+      NAKH_ADMIN_EVIDENCE_R2_ACCESS_KEY_REF: 'EVIDENCE_READ_ACCESS',
+      NAKH_ADMIN_EVIDENCE_R2_SECRET_KEY_REF: 'EVIDENCE_READ_SECRET',
+    };
+    expect(parseConfig(enabled).administration).toMatchObject({
+      mediaEnabled: true,
+      evidenceAccessKeyRef: 'EVIDENCE_READ_ACCESS',
+      evidenceSecretKeyRef: 'EVIDENCE_READ_SECRET',
+    });
+    expect(() =>
+      parseConfig({ ...enabled, NAKH_ADMIN_EVIDENCE_R2_SECRET_KEY_REF: 'raw-private-secret' }),
+    ).toThrow('Invalid configuration');
+  });
   it('keeps administration disabled and requires an exact HTTPS origin when enabled', () => {
     expect(parseConfig(validEnvironment).administration.enabled).toBe(false);
     const enabled = {

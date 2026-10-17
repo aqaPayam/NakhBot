@@ -231,6 +231,9 @@ importers:
       '@nakh/media-delivery':
         specifier: workspace:*
         version: link:../../packages/media-delivery
+      '@nakh/media-r2':
+        specifier: workspace:*
+        version: link:../../packages/media-r2
       '@nakh/observability':
         specifier: workspace:*
         version: link:../../packages/observability

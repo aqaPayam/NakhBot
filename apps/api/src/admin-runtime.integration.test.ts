@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac } from 'node:crypto';
 import { mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -16,7 +16,12 @@ import {
   ReportSnapshotKeyRing,
   ReportTokenFactory,
 } from '@nakh/application';
-import { createRedisConnection, RedisUserOpaqueTokenStores } from '@nakh/queue-redis';
+import {
+  createRedisConnection,
+  RedisUserOpaqueTokenStores,
+  RedisOpaqueTokenStore,
+} from '@nakh/queue-redis';
+import { TelegramAdminReportQueueState } from '@nakh/telegram';
 import {
   createDatabase,
   runMigrations,
@@ -30,6 +35,7 @@ import { createIsolatedTestDatabase } from '../../../packages/persistence-postgr
 import {
   createReportUser,
   createReportLike,
+  createRetainedPhotoReview,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { createAccountReturnFixture } from '../../../packages/persistence-postgres/src/testing/account-return-fixture.js';
 
@@ -48,6 +54,7 @@ const botId = 12345,
   botToken = `${botId}:${'a'.repeat(24)}`,
   webhookSecret = 'native-admin-webhook-secret-00000000000000';
 type Menu = {
+  message_id?: number;
   chat_id: string;
   text: string;
   reply_markup?: {
@@ -58,6 +65,13 @@ type Host = {
   child: ChildProcess;
   origin: string;
   menus: Menu[];
+  media: {
+    objects: Map<string, Buffer>;
+    photos: Array<{ chat_id: string; protect_content: string; photoBytes: string }>;
+    reads: string[];
+    purges: string[][];
+    failPurge: boolean;
+  };
   diagnostics: () => string;
   stop: () => Promise<void>;
 };
@@ -149,6 +163,11 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF: 'M9_HOST_NAV',
         M9_HOST_NAV: key(11),
         NAKH_ADMINISTRATION_ENABLED: 'true',
+        NAKH_ADMIN_MEDIA_ENABLED: 'true',
+        NAKH_ADMIN_EVIDENCE_R2_ACCESS_KEY_REF: 'M9_EVIDENCE_ACCESS',
+        NAKH_ADMIN_EVIDENCE_R2_SECRET_KEY_REF: 'M9_EVIDENCE_SECRET',
+        M9_EVIDENCE_ACCESS: 'native-evidence-read-access',
+        M9_EVIDENCE_SECRET: 'native-evidence-read-secret-only',
         NAKH_ADMIN_PUBLIC_ORIGIN: `http://127.0.0.1:${apiPort}`,
         NAKH_ADMIN_TOTP_KEY_RING_REF: 'M9_HOST_TOTP',
         M9_HOST_TOTP: JSON.stringify([totp]),
@@ -159,7 +178,7 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         NAKH_ADMIN_REVIEW_NOTE_KEY_ID: note.keyId,
         NAKH_ADMIN_REVIEW_NOTE_KEY_VERSION: '1',
         NAKH_DELETION_EVIDENCE_KEY_RING_REF: 'M9_HOST_SNAPSHOTS',
-        M9_HOST_SNAPSHOTS: JSON.stringify([snapshot]),
+        M9_HOST_SNAPSHOTS: JSON.stringify([snapshot, entry('photo-fixture', 81)]),
         NAKH_REPORT_SNAPSHOT_KEY_ID: snapshot.keyId,
         NAKH_REPORT_SNAPSHOT_KEY_VERSION: '1',
         NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
@@ -174,11 +193,14 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED: 'false',
         NAKH_MEDIA_INGESTION_ENABLED: 'true',
         NAKH_MEDIA_CLEANUP_ENABLED: 'false',
-        NAKH_MEDIA_CACHE_PURGE_ENABLED: 'false',
+        NAKH_MEDIA_CACHE_PURGE_ENABLED: 'true',
+        NAKH_CLOUDFLARE_ZONE_ID: 'a'.repeat(32),
+        NAKH_CLOUDFLARE_API_TOKEN_REF: 'M9_HOST_PURGE',
+        M9_HOST_PURGE: 'synthetic-cloudflare-purge-token',
         NAKH_MEDIA_ORPHAN_RECONCILIATION_ENABLED: 'false',
         NAKH_MEDIA_TRANSPORT_KEY_REF: 'M9_HOST_TRANSPORT',
         M9_HOST_TRANSPORT: key(16),
-        NAKH_R2_ENDPOINT: 'https://r2.invalid',
+        NAKH_R2_ENDPOINT: 'https://native-account.r2.cloudflarestorage.com',
         NAKH_R2_BUCKET: 'native-admin',
         NAKH_R2_ACCESS_KEY_REF: 'M9_UNUSED_R2_ACCESS',
         NAKH_R2_SECRET_KEY_REF: 'M9_UNUSED_R2_SECRET',
@@ -215,6 +237,13 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
       );
       const ended = once(child, 'exit');
       const menus: Menu[] = [];
+      const media: Host['media'] = {
+        objects: new Map(),
+        photos: [],
+        reads: [],
+        purges: [],
+        failPurge: false,
+      };
       let diagnostics = '';
       child.stdout!.on('data', (chunk: Buffer) => {
         diagnostics = (diagnostics + chunk.toString()).slice(-64000);
@@ -223,10 +252,54 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         diagnostics = (diagnostics + chunk.toString()).slice(-64000);
       });
       child.on('message', (raw: unknown) => {
-        const request = raw as { type?: string; id?: number; method?: string; body?: Menu };
+        const request = raw as {
+          type?: string;
+          id?: number;
+          method?: string;
+          path?: string;
+          authorization?: string;
+          body?: Menu & { files?: string[]; protect_content?: string; photoBytes?: string };
+        };
+        if (request.type === 'r2-read') {
+          const path = decodeURIComponent(
+            new URL(request.path!, 'https://native.invalid').pathname,
+          ).replace(/^\/(?:native-admin\/)?/u, '');
+          media.reads.push(path);
+          const bytes =
+            request.method === 'GET' &&
+            request.authorization?.startsWith(
+              'AWS4-HMAC-SHA256 Credential=native-evidence-read-access/',
+            )
+              ? media.objects.get(path)
+              : undefined;
+          child.send({
+            type: 'r2-result',
+            id: request.id,
+            bytes: bytes?.toString('base64'),
+            status: bytes === undefined ? 403 : 200,
+          });
+          return;
+        }
         if (request.type !== 'provider') return;
         const body = request.body!;
-        if (request.method === 'sendMessage') menus.push(body);
+        if (request.method === 'purge_cache') {
+          media.purges.push(body.files!);
+          child.send({
+            type: 'provider-result',
+            id: request.id,
+            result: { success: !media.failPurge },
+          });
+          return;
+        }
+        const deliveredMessageId = ++messageId;
+        if (request.method === 'sendMessage')
+          menus.push({ ...body, message_id: deliveredMessageId });
+        if (request.method === 'sendPhoto')
+          media.photos.push({
+            chat_id: body.chat_id,
+            protect_content: body.protect_content!,
+            photoBytes: body.photoBytes!,
+          });
         child.send({
           type: 'provider-result',
           id: request.id,
@@ -234,7 +307,7 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
             request.method === 'answerCallbackQuery'
               ? true
               : {
-                  message_id: ++messageId,
+                  message_id: deliveredMessageId,
                   from: { id: botId, is_bot: true },
                   chat: { id: Number(body.chat_id), type: 'private' },
                   text: body.text,
@@ -245,6 +318,7 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         child,
         origin: `http://127.0.0.1:${selectedPort}`,
         menus,
+        media,
         diagnostics: () => diagnostics,
         stop: async () => {
           if (child.exitCode !== null || child.signalCode !== null) return;
@@ -288,20 +362,46 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
       await writeFile(
         preload,
         `
+import https from 'node:https';
+import { syncBuiltinESMExports } from 'node:module';
+import { Readable, Writable } from 'node:stream';
 const pending = new Map(); let id = 0, stopping = false;
+// Synthetic transport only: exercise the real S3 SDK signer and GET pipeline.
+https.request = (options, callback) => {
+  if (!options.host.endsWith('.r2.cloudflarestorage.com')) throw Error('Unexpected object origin');
+  const request = new Writable({ autoDestroy: false, write(_chunk,_encoding,done) {done();}, final(done) {
+    const requestId = ++id;
+    const answer = new Promise(resolve => pending.set(requestId, resolve));
+    process.send({type:'r2-read',id:requestId,method:options.method,path:options.path,authorization:options.headers.authorization});
+    done();
+    void answer.then(result => {
+      const bytes = result.status === 200 ? Buffer.from(result.bytes,'base64') : Buffer.from('<Error><Code>AccessDenied</Code></Error>');
+      const response = Readable.from([bytes]); response.statusCode = result.status;
+      response.statusMessage = result.status === 200 ? 'OK' : 'Forbidden';
+      response.headers = {'content-length':String(bytes.length),'content-type':result.status === 200 ? 'image/webp' : 'application/xml'};
+      response.on('end',()=>request.destroy()); callback(response);
+    });
+  }});
+  return request;
+};
+syncBuiltinESMExports();
 globalThis.fetch = async (url, options) => {
   const parsed = new URL(String(url));
-  if (parsed.origin !== 'https://api.telegram.org') throw Error('Unexpected native provider origin');
+  const purge = parsed.origin === 'https://api.cloudflare.com' && parsed.pathname === '/client/v4/zones/' + 'a'.repeat(32) + '/purge_cache';
+  if (!purge && parsed.origin !== 'https://api.telegram.org') throw Error('Unexpected native provider origin');
   const requestId = ++id;
   const answer = new Promise(resolve => pending.set(requestId, resolve));
-  process.send({type:'provider',id:requestId,method:parsed.pathname.split('/').at(-1),body:JSON.parse(options.body)});
-  return Response.json({ok:true,result:await answer});
+  const body = options.body instanceof FormData ? { chat_id:options.body.get('chat_id'), protect_content:options.body.get('protect_content'),
+    photoBytes:Buffer.from(await options.body.get('photo').arrayBuffer()).toString('base64') } : JSON.parse(options.body);
+  process.send({type:'provider',id:requestId,method:parsed.pathname.split('/').at(-1),body});
+  const result = await answer; return Response.json(purge ? result : {ok:true,result});
 };
 const stop = () => { if(stopping && process.listenerCount('SIGTERM') > 0) { stopping = false; process.emit('SIGTERM','SIGTERM'); process.disconnect(); } };
 process.on('newListener', name => { if(name === 'SIGTERM') queueMicrotask(stop); });
 process.on('message', message => {
   if(message?.stop) { stopping = true; stop(); }
   else if(message?.type === 'provider-result') { pending.get(message.id)?.(message.result); pending.delete(message.id); }
+  else if(message?.type === 'r2-result') { pending.get(message.id)?.(message); pending.delete(message.id); }
 });
 `,
       );
@@ -353,6 +453,7 @@ process.on('message', message => {
       text = '/start',
       eventId = ++updateId,
       secret = webhookSecret,
+      replyTo?: number,
     ): Promise<Response> {
       return localRequest(gateway.origin + '/v1/providers/telegram/webhook', {
         method: 'POST',
@@ -365,6 +466,15 @@ process.on('message', message => {
             text,
             from: { id: Number(telegramUserId), is_bot: false },
             chat: { id: Number(telegramUserId), type: 'private' },
+            ...(replyTo === undefined
+              ? {}
+              : {
+                  reply_to_message: {
+                    message_id: replyTo,
+                    from: { id: botId, is_bot: true },
+                    chat: { id: Number(telegramUserId), type: 'private' },
+                  },
+                }),
           },
         }),
       });
@@ -572,6 +682,235 @@ process.on('message', message => {
       );
       return privateNote;
     }
+    async function verifyMediaControls(
+      userId: string,
+      recipient: string,
+      bearer: string,
+    ): Promise<void> {
+      const bytes = Buffer.alloc(32);
+      bytes.write('RIFF');
+      bytes.writeUInt32LE(24, 4);
+      bytes.write('WEBP', 8);
+      const held = await createRetainedPhotoReview(database, bytes);
+      const admin = await database
+        .selectFrom('administration.admin_users')
+        .select('id')
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow();
+      // Governing assigned-review fixture; actual effects below use confirmed commands.
+      await database
+        .updateTable('moderation.moderation_reviews')
+        .set({
+          status: 'in_review',
+          assigned_admin_id: admin.id,
+          assigned_at: new Date(),
+          updated_at: new Date(),
+          version: 2,
+        })
+        .where('id', '=', held.reviewId)
+        .execute();
+      const variant = await database
+        .selectFrom('media.profile_photos as photo')
+        .innerJoin('media.photo_variants as variant', 'variant.asset_id', 'photo.asset_id')
+        .select(['variant.storage_key', 'variant.delivery_path'])
+        .where('photo.id', '=', held.photoId)
+        .where('variant.variant_type', '=', 'thumbnail')
+        .executeTakeFirstOrThrow();
+      gateway.media.objects.set(variant.storage_key, bytes);
+      const actor = { kind: 'admin' as const, userId };
+      const queue = await post('reports/queue/actions', bearer, { actor, requestId: randomUUID() });
+      expect(queue.status).toBe(200);
+      const { metadataActionToken } = (await queue.json()) as { metadataActionToken: string };
+      async function change(
+        action: 'hide_photo' | 'delete_photo',
+        version: number,
+        expected: 'failed' | 'succeeded',
+      ): Promise<void> {
+        const selected = await post('moderation/reports/photo-selection', bearer, {
+          actor,
+          requestId: randomUUID(),
+          adminActionToken: metadataActionToken,
+          reportId: held.reportId,
+          expectedReportVersion: 2,
+          evidenceId: held.evidenceId,
+          action,
+        });
+        expect(selected.status).toBe(200);
+        const selection = (await selected.json()) as {
+          adminActionToken: string;
+          photoVersion: number;
+        };
+        expect(selection.photoVersion).toBe(version);
+        const id = randomUUID();
+        const draft = {
+          actor,
+          requestId: id,
+          commandId: id,
+          idempotencyKey: id,
+          commandType: 'moderation.apply-photo-action',
+          schemaVersion: 1,
+          occurredAt: new Date().toISOString(),
+          locale: 'en',
+          data: {
+            action,
+            expectedTargetVersion: version,
+            reason: 'Controlled photo review',
+            adminActionToken: selection.adminActionToken,
+          },
+        };
+        const path = 'moderation/photos/' + action;
+        const prepared = await post(path + '/prepare', bearer, draft);
+        expect(prepared.status).toBe(200);
+        const { confirmationToken } = (await prepared.json()) as { confirmationToken: string };
+        const command = { ...draft, data: { ...draft.data, confirmationToken } };
+        for (const result of await Promise.all(
+          Array.from({ length: 3 }, () => post(path, bearer, command)),
+        )) {
+          expect(result.status).toBe(200);
+          expect(await result.json()).toMatchObject({ result: expected });
+        }
+        expect(
+          await database
+            .selectFrom('administration.admin_action_logs')
+            .select('id')
+            .where('command_id', '=', id)
+            .execute(),
+        ).toHaveLength(1);
+      }
+      api.media.failPurge = true;
+      await change('hide_photo', 1, 'failed');
+      expect(
+        await database
+          .selectFrom('media.profile_photos')
+          .select(['status', 'version'])
+          .where('id', '=', held.photoId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ status: 'visible', version: 1 });
+      api.media.failPurge = false;
+      await change('hide_photo', 1, 'succeeded');
+      await change('delete_photo', 2, 'succeeded');
+      expect(
+        await database
+          .selectFrom('media.profile_photos')
+          .select(['status', 'version'])
+          .where('id', '=', held.photoId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ status: 'deleted', version: 3 });
+      expect(api.media.purges.flat()).toContain('https://media.invalid' + variant.delivery_path);
+      expect(
+        await database
+          .selectFrom('media.report_photo_evidence_holds')
+          .select('report_evidence_id')
+          .where('report_evidence_id', '=', held.evidenceId)
+          .execute(),
+      ).toHaveLength(1);
+
+      // Select only opaque choices actually delivered by the running gateway.
+      const redis = createRedisConnection(redisUrl!);
+      try {
+        const derive = (domain: string): Buffer =>
+          createHmac('sha256', Buffer.from(key(12), 'base64url'))
+            .update(domain)
+            .digest();
+        const state = new TelegramAdminReportQueueState(
+          new RedisOpaqueTokenStore(redis, prefix + ':admin'),
+          derive('nakh-admin-ui-encryption-v1'),
+          derive('nakh-admin-ui-reference-v1'),
+        );
+        async function callback(data: string, eventId = ++updateId): Promise<void> {
+          const result = await localRequest(gateway.origin + '/v1/providers/telegram/webhook', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-telegram-bot-api-secret-token': webhookSecret,
+            },
+            body: JSON.stringify({
+              update_id: eventId,
+              callback_query: {
+                id: String(eventId),
+                data,
+                from: { id: Number(recipient), is_bot: false },
+                message: { message_id: eventId, chat: { id: Number(recipient), type: 'private' } },
+              },
+            }),
+          });
+          expect(
+            result.status,
+            JSON.stringify({
+              syntheticObjectReads: gateway.media.reads,
+              syntheticUploads: gateway.media.photos.length,
+            }),
+          ).toBe(201);
+        }
+        const buttons = (): string[] =>
+          gateway.menus
+            .at(-1)!
+            .reply_markup!.inline_keyboard!.flat()
+            .map((b) => b.callback_data!);
+        expect((await webhook(recipient, '/admin_reports pending_review')).status).toBe(201);
+        let selected: string | undefined;
+        for (let page = 0; page < 20 && selected === undefined; page++) {
+          for (const button of buttons().filter((b) => b.startsWith('m7T:'))) {
+            if ((await state.choice(actor, button.slice(4)))?.targetId === held.reportId) {
+              selected = button;
+              break;
+            }
+          }
+          if (selected === undefined) {
+            const next = buttons().find((b) => b.startsWith('m7O:'));
+            expect(next).toBeDefined();
+            await callback(next!);
+          }
+        }
+        expect(selected).toBeDefined();
+        await callback(selected!);
+        await callback(selected!.replace('m7T:', 'm7C:'));
+        const evidence = buttons().find((b) => b.startsWith('m7J:'))!;
+        expect(evidence).toBeDefined();
+        await callback(evidence);
+        await callback(evidence.replace('m7J:', 'm7W:'));
+        const prompt = gateway.menus.at(-1)!.message_id!;
+        expect(
+          (
+            await webhook(
+              recipient,
+              'Controlled held evidence review',
+              ++updateId,
+              webhookSecret,
+              prompt,
+            )
+          ).status,
+        ).toBe(201);
+        const confirmation = buttons().find((b) => b.startsWith('m7K:'));
+        expect(confirmation).toBeDefined();
+        const replay = ++updateId;
+        const deliveries = await Promise.allSettled(
+          Array.from({ length: 8 }, () => callback(confirmation!, replay)),
+        );
+        for (const delivery of deliveries)
+          expect(
+            delivery.status,
+            delivery.status === 'rejected' && delivery.reason instanceof Error
+              ? delivery.reason.message
+              : undefined,
+          ).toBe('fulfilled');
+        expect(gateway.media.photos).toEqual([
+          { chat_id: recipient, protect_content: 'true', photoBytes: bytes.toString('base64') },
+        ]);
+        expect(gateway.media.reads).toEqual([variant.storage_key]);
+        expect(
+          await database
+            .selectFrom('moderation.evidence_access_audits')
+            .select('outcome')
+            .where('report_evidence_id', '=', held.evidenceId)
+            .execute(),
+        ).toEqual([{ outcome: 'revealed' }]);
+        for (const menu of gateway.menus)
+          expect(JSON.stringify(menu)).not.toContain(variant.storage_key);
+      } finally {
+        await redis.quit();
+      }
+    }
     function seed(uri: string): Buffer {
       const text = new URL(uri).searchParams.get('secret')!;
       const bits = [...text]
@@ -656,6 +995,7 @@ process.on('message', message => {
         expect(gateway.menus.length).toBeGreaterThan(before);
         expect(gateway.menus.at(-1)!.text).toContain('Report');
         const privateNote = await reviewProtectedReport(userId, adminSessionToken);
+        await verifyMediaControls(userId, telegramUserId, adminSessionToken);
         const persisted = JSON.stringify(
           await database.selectFrom('platform.audit_logs').select('metadata').execute(),
         );
@@ -787,7 +1127,12 @@ process.on('message', message => {
       expect(missing.diagnostics()).toContain('Administrator key custody unavailable.');
       for (const override of [
         { M9_HOST_NOTES: JSON.stringify([entry(note.keyId, 19)]) },
-        { M9_HOST_SNAPSHOTS: JSON.stringify([entry(snapshot.keyId, 20)]) },
+        {
+          M9_HOST_SNAPSHOTS: JSON.stringify([
+            entry(snapshot.keyId, 20),
+            entry('photo-fixture', 81),
+          ]),
+        },
       ]) {
         const invalid = await start('api', override, false);
         await vi.waitFor(() => expect(invalid.child.exitCode).not.toBeNull(), {
@@ -798,9 +1143,37 @@ process.on('message', message => {
         expect(invalid.diagnostics()).not.toContain('Synthetic private custody note');
       }
     });
+    it('keeps administrator media closed without resolving provider credentials while native sign-in stays available', async () => {
+      const overrides = {
+        NAKH_ADMIN_MEDIA_ENABLED: 'false',
+        M9_HOST_PURGE: undefined,
+        M9_EVIDENCE_ACCESS: undefined,
+        M9_EVIDENCE_SECRET: undefined,
+      };
+      const metadataOnly = await start('api', overrides);
+      const metadataGateway = await start('telegram-gateway', overrides);
+      expect((await localRequest(metadataOnly.origin + '/v1/admin/auth/page')).status).toBe(200);
+      expect((await localRequest(metadataGateway.origin + '/health/ready')).status).toBe(200);
+      for (const action of ['hide_photo', 'restore_photo', 'delete_photo']) {
+        const result = await localRequest(
+          metadataOnly.origin + '/v1/admin/moderation/photos/' + action + '/prepare',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          },
+        );
+        expect(result.status).toBe(404);
+      }
+      expect(metadataGateway.media.reads).toEqual([]);
+      expect(metadataGateway.media.photos).toEqual([]);
+      await metadataGateway.stop();
+      await metadataOnly.stop();
+    });
     it('leaves all administrator routes absent when disabled, without resolving administrator secrets', async () => {
       const disabled = await start('api', {
         NAKH_ADMINISTRATION_ENABLED: 'false',
+        NAKH_ADMIN_MEDIA_ENABLED: 'false',
         M9_HOST_TOTP: undefined,
         M9_HOST_NOTES: undefined,
         M9_HOST_ADMIN: undefined,

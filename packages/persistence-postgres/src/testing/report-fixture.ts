@@ -159,8 +159,9 @@ export async function createRetainedReportPhoto(
 /** A pending review with retained synthetic evidence; no real object or moderator provisioning. */
 export async function createRetainedPhotoReview(
   database: NakhDatabase,
+  syntheticBytes?: Uint8Array,
 ): Promise<Awaited<ReturnType<typeof createRetainedReportPhoto>> & Readonly<{ reviewId: string }>> {
-  const photo = await createRetainedReportPhoto(database),
+  const photo = await createRetainedReportPhoto(database, syntheticBytes),
     reviewId = randomUUID(),
     now = new Date();
   await database.transaction().execute(async (tx) => {

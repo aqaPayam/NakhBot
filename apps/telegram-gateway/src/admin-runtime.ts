@@ -1,4 +1,6 @@
-import type { UserSessionActor } from '@nakh/application';
+import { RevokePhotoDeliveryCache, type UserSessionActor } from '@nakh/application';
+import { CloudflareMediaCachePurger } from '@nakh/media-delivery';
+import { AwsR2ObjectClient } from '@nakh/media-r2';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import { CatalogRenderer, M7_LOCALIZATION_ENTRIES, M9_ADMIN_TEXTS } from '@nakh/localization';
 import {
@@ -7,11 +9,13 @@ import {
   createPostgresUserSessions,
   getAdminFirstFactorIdentity,
   loadAdminRuntimeCatalogs,
+  PostgresMediaDeliveryPathStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { RedisOpaqueTokenStore, type createRedisConnection } from '@nakh/queue-redis';
 import { TelegramAdminTextDelivery } from '@nakh/telegram';
 import { createTelegramAdminSafetyReadIngress } from './admin-safety-read-ingress.js';
+import { createTelegramAdminEvidenceDelivery } from './admin-evidence-delivery.js';
 
 export interface AdministratorTelegramPort {
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
@@ -48,6 +52,7 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
     if (bot === null || !Number.isSafeInteger(Number(bot[1])))
       throw new Error('Administrator bot identity unavailable.');
     this.users = createPostgresUserSessions(database, this.keys.userSessionKey);
+    const sessions = createPostgresTotpAdminSessions(database, this.keys.totp);
     this.ingress = createTelegramAdminSafetyReadIngress({
       database,
       botId: bot[1]!,
@@ -55,7 +60,7 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
       adminKey: this.keys.actionKey,
       uiEncryptionKey: this.keys.uiEncryptionKey,
       uiReferenceKey: this.keys.uiReferenceKey,
-      sessions: createPostgresTotpAdminSessions(database, this.keys.totp),
+      sessions,
       renderer: {
         render: (locale, intent) => {
           if (this.renderer === undefined)
@@ -65,6 +70,32 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
       },
       delivery: new TelegramAdminTextDelivery(botToken),
       reviewNotes: this.keys.reviewNotes,
+      ...(config.administration.mediaEnabled
+        ? {
+            photoDelivery: new RevokePhotoDeliveryCache(
+              new PostgresMediaDeliveryPathStore(database),
+              new CloudflareMediaCachePurger({
+                zoneId: config.media.cloudflareZoneId,
+                apiToken: resolve(config.media.cloudflareApiTokenRef),
+                mediaOrigin: `https://${config.media.cdnHost}`,
+              }),
+            ),
+            evidence: {
+              readers: this.keys.readers,
+              delivery: createTelegramAdminEvidenceDelivery({
+                database,
+                sessions,
+                botToken,
+                objects: new AwsR2ObjectClient({
+                  endpoint: config.media.r2Endpoint,
+                  bucket: config.media.bucket,
+                  accessKeyId: resolve(config.administration.evidenceAccessKeyRef),
+                  secretAccessKey: resolve(config.administration.evidenceSecretKeyRef),
+                }),
+              }),
+            },
+          }
+        : {}),
     });
   }
   public async onModuleInit(): Promise<void> {

@@ -850,3 +850,34 @@ real AWS/R2/domain/Telegram deployment still require completion and evidence.
 The owner has not created those accounts; provide one concrete setup checklist
 after independent implementation. Real operator, cohort and health acceptance
 remain required. Retained-data erasure stays disabled pending approved policies.
+
+## Administrator held-photo delivery and cache revocation
+
+`NAKH_ADMIN_MEDIA_ENABLED` composes the existing photo moderation and audited
+evidence delivery in ordinary hosts. It defaults to false and requires both
+administration and configured Cloudflare cache purge. The API and gateway use
+`RevokePhotoDeliveryCache` with native rendition paths and the actual Cloudflare
+purger. A failed purge prevents hide/delete from committing; native confirmation,
+assigned review, current permissions, version checks and immutable command receipts
+still govern every effect. Retrying a command cannot produce another native effect.
+
+The gateway supplies all five retained-evidence readers and the existing audited
+private delivery adapter. Held photos use the real R2 SDK GET path with separate
+`NAKH_ADMIN_EVIDENCE_R2_ACCESS_KEY_REF` and
+`NAKH_ADMIN_EVIDENCE_R2_SECRET_KEY_REF` credentials. Provision these credentials
+with read-only access to evidence objects, without write/delete rights. They are
+resolved only when administrator media is enabled; public release snapshots contain
+the reference names, never secret values. Native audited authority, physical hold,
+content digest and current administrator session are checked before delivery.
+Bytes are uploaded directly with protected content, without a public URL or file
+cache. A logical photo deletion preserves the reported object's hold.
+
+The compiled API/gateway fixture exercises purge refusal, separate confirmed
+hide/delete commands, duplicate command receipts, retained holds after deletion,
+opaque Telegram selection and eight concurrent reveal confirmations yielding one
+signed S3 GET and one protected upload. It uses real PostgreSQL/Redis with synthetic
+Cloudflare, Telegram and S3 transports, including the real SDK signer. Separate
+startup tests leave photo commands absent and never resolve provider credentials
+when media is disabled. This is implementation evidence, not actual provider,
+deployment or operator acceptance. M9's remaining public journeys, operator
+provisioning, controlled rollout and launch-health requirements remain open.
