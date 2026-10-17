@@ -306,6 +306,11 @@ jobs:
       - name: Install native test dependencies
         if: matrix.nativeShard != 0
         run: pnpm install --frozen-lockfile
+      - name: Build native CLI fixtures
+        if: matrix.nativeShard != 0
+        run: |
+          pnpm --filter @nakh/config build
+          pnpm --filter @nakh/persistence-postgres build
       - name: Run isolated native shard
         if: matrix.nativeShard != 0
         env:
