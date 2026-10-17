@@ -4,6 +4,8 @@ import {
   SaveSignupStepHandler,
   SaveSignupOptionalDetailsHandler,
   StartSignupHandler,
+  SendLikeHandler,
+  MarkNotInterestedHandler,
   routeStart,
   type SaveSignupStepWrite,
   type SaveSignupOptionalDetailsWrite,
@@ -17,6 +19,7 @@ import {
   M9_SIGNUP_TEXTS,
   M9_PREVIEW_TEXTS,
   M9_PROFILE_TEXTS,
+  englishCatalogFromManifest,
 } from '@nakh/localization';
 import { M1Metrics, M1_REASON_CODES, type M1HandlerOperation } from '@nakh/observability';
 import {
@@ -29,6 +32,7 @@ import {
   PostgresProfileMediaEligibility,
   PostgresTelegramUserResolver,
   PostgresUserSessionStore,
+  PostgresInteractionStore,
   SystemIdGenerator,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -46,6 +50,7 @@ import {
 import type { TelegramStartDeliveryNotice } from './start-delivery.js';
 import {
   createGuestPreviewRuntime,
+  createExploreDeliveryRuntime,
   type GuestPreviewRuntimePort,
 } from './guest-preview-runtime.js';
 
@@ -102,7 +107,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       .executeTakeFirst();
     if (migration === undefined) throw new Error('Signup schema unavailable.');
     if (
-      this.previewDelivery !== undefined &&
+      (this.previewDelivery !== undefined || this.exploreDelivery !== undefined) &&
       (await this.database
         .selectFrom('platform.schema_migrations')
         .select('name')
@@ -121,7 +126,22 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       const catalog = await this.localization.loadActiveCatalog(locale.code);
       for (const [key, expected] of Object.entries({
         ...M9_SIGNUP_TEXTS,
-        ...(this.previewDelivery === undefined ? {} : { ...M9_PREVIEW_TEXTS, ...M9_PROFILE_TEXTS }),
+        ...(this.previewDelivery === undefined && this.exploreDelivery === undefined
+          ? {}
+          : { ...M9_PREVIEW_TEXTS, ...M9_PROFILE_TEXTS }),
+        ...(this.exploreDelivery === undefined
+          ? {}
+          : Object.fromEntries(
+              [
+                'explore.title',
+                'explore.empty',
+                'explore.button.like',
+                'explore.button.not_interested',
+                'interaction.like.sent',
+                'interaction.not_interested.saved',
+                'matching.match.created',
+              ].map((key) => [key, englishCatalogFromManifest()[key]!]),
+            )),
       })) {
         const value = catalog.messages[key];
         if (
@@ -182,6 +202,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       life: Readonly<{ userId: string; productEpoch: number }>,
     ) => OpaqueTokenStore,
     private readonly previewDelivery?: GuestPreviewRuntimePort,
+    private readonly exploreDelivery?: GuestPreviewRuntimePort,
   ) {
     this.key = Buffer.from(key);
     this.identities = new PostgresIdentityStore(database);
@@ -367,8 +388,113 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
               : 'preview.ui.pending',
       );
   }
+  private async exploreKeyboard(
+    telegramId: string,
+    nav: Nav,
+    deliveryId: string,
+    render: (key: string) => string,
+  ): Promise<Array<Array<{ text: string; callback_data: string }>>> {
+    const tokens = this.tokens(telegramId, nav.actor);
+    const button = async (
+      key: string,
+      action: Nav['action'],
+      code?: string,
+    ): Promise<{ text: string; callback_data: string }> => ({
+      text: render(key),
+      callback_data: await tokens.button({ ...nav, action, code }),
+    });
+    return [
+      [
+        await button('explore.button.like', 'like', deliveryId),
+        await button('explore.button.not_interested', 'reject', deliveryId),
+      ],
+      [await button('profile.ui.more', 'detail', deliveryId)],
+      [await button('signup.ui.next', 'explore'), await button('signup.ui.back', 'resume')],
+    ];
+  }
+  private async showExplore(telegramId: string, updateId: number, nav: Nav): Promise<void> {
+    if (this.exploreDelivery === undefined) throw denied();
+    const context = await new PostgresSignupChoices(this.database, nav.actor).context();
+    if (context.accountState !== 'active' || context.profileCompletion !== 'complete')
+      throw denied();
+    const catalog = await this.localization.loadActiveCatalog(context.uiLocale),
+      renderer = new CatalogRenderer(
+        { [catalog.resolvedLocale]: catalog.messages },
+        catalog.resolvedLocale,
+      );
+    const render = (key: string, variables: Record<string, string | number> = {}): string =>
+      renderer.render(catalog.resolvedLocale, { key, variables });
+    const base: Nav = {
+      actor: nav.actor,
+      screen: 'explore',
+      version: context.accountVersion,
+      action: 'explore',
+      group: randomBytes(12).toString('base64url'),
+    };
+    const result = await this.exploreDelivery.show({
+      actor: nav.actor,
+      telegramUserId: telegramId,
+      requestId: this.envelope(nav.actor, telegramId, updateId, 'explore').requestId,
+      keyboard: [],
+      render,
+      cardKeyboard: (deliveryId) => this.exploreKeyboard(telegramId, base, deliveryId, render),
+    });
+    if (result !== 'sent')
+      await this.notice(
+        telegramId,
+        result === 'empty'
+          ? 'explore.empty'
+          : result === 'delivered'
+            ? 'preview.ui.handled'
+            : result === 'failed'
+              ? 'preview.ui.failed'
+              : 'preview.ui.pending',
+      );
+  }
+  private async exploreInteraction(telegramId: string, updateId: number, nav: Nav): Promise<void> {
+    if (this.exploreDelivery === undefined || nav.screen !== 'explore' || !nav.code) throw denied();
+    // The server resolves the target; transport state carries only the original receipt.
+    // The writer repeats the source/life/session checks under the native pair locks.
+    const source = await this.database
+      .selectFrom('discovery.candidate_deliveries')
+      .select('target_user_id')
+      .where('id', '=', nav.code)
+      .where('viewer_user_id', '=', nav.actor.userId)
+      .where('mode', '=', 'explore')
+      .where('state', '=', 'delivered')
+      .executeTakeFirst();
+    if (source === undefined) throw denied();
+    const store = new PostgresInteractionStore(this.database, nav.actor, nav.code),
+      envelope = this.envelope(nav.actor, telegramId, updateId, 'explore-' + nav.action);
+    const result =
+      nav.action === 'like'
+        ? await new SendLikeHandler(store, this.ids, this.clock).execute({
+            ...envelope,
+            commandType: 'interaction.send-like',
+            data: { targetUserId: source.target_user_id },
+          })
+        : await new MarkNotInterestedHandler(store, this.ids, this.clock).execute({
+            ...envelope,
+            commandType: 'interaction.mark-not-interested',
+            data: { targetUserId: source.target_user_id, source: 'explore' },
+          });
+    await this.notice(
+      telegramId,
+      result.outcome === 'matched'
+        ? 'matching.match.created'
+        : result.outcome === 'liked'
+          ? 'interaction.like.sent'
+          : 'interaction.not_interested.saved',
+    );
+    await this.showExplore(telegramId, updateId, nav);
+  }
   private async showDetail(telegramId: string, nav: Nav): Promise<void> {
-    if (!this.previewDelivery?.detail || nav.screen !== 'preview' || typeof nav.code !== 'string')
+    const delivery = nav.screen === 'explore' ? this.exploreDelivery : this.previewDelivery;
+    if (
+      !delivery?.detail ||
+      !['preview', 'explore'].includes(nav.screen) ||
+      typeof nav.code !== 'string'
+    )
       throw denied();
     const context = await new PostgresSignupChoices(this.database, nav.actor).context();
     const catalog = await this.localization.loadActiveCatalog(context.uiLocale);
@@ -386,21 +512,24 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         action: 'preview',
         group: randomBytes(12).toString('base64url'),
       };
-    const keyboard = [
-      [{ text: render('preview.ui.next'), callback_data: await tokens.button(base) }],
-      [
-        {
-          text: render(
-            context.accountState === 'guest' ? 'common.button.sign_up' : 'signup.ui.continue',
-          ),
-          callback_data: await tokens.button({
-            ...base,
-            action: context.accountState === 'guest' ? 'begin' : 'resume',
-          }),
-        },
-      ],
-    ];
-    await this.previewDelivery.detail({
+    const keyboard =
+      nav.screen === 'explore'
+        ? await this.exploreKeyboard(telegramId, nav, nav.code, render)
+        : [
+            [{ text: render('preview.ui.next'), callback_data: await tokens.button(base) }],
+            [
+              {
+                text: render(
+                  context.accountState === 'guest' ? 'common.button.sign_up' : 'signup.ui.continue',
+                ),
+                callback_data: await tokens.button({
+                  ...base,
+                  action: context.accountState === 'guest' ? 'begin' : 'resume',
+                }),
+              },
+            ],
+          ];
+    await delivery.detail({
       actor: nav.actor,
       telegramUserId: telegramId,
       deliveryId: nav.code,
@@ -576,6 +705,14 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         }
         if (nav.action === 'preview') {
           await this.showPreview(telegramId, updateId, nav);
+          return 'notice';
+        }
+        if (nav.action === 'explore') {
+          await this.showExplore(telegramId, updateId, nav);
+          return 'notice';
+        }
+        if (nav.action === 'like' || nav.action === 'reject') {
+          await this.exploreInteraction(telegramId, updateId, nav);
           return 'notice';
         }
         if (nav.action === 'begin')
@@ -798,6 +935,12 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         nav = { ...nav, selection: selected };
     }
     if (screen === 'root') {
+      if (
+        context.accountState === 'active' &&
+        context.profileCompletion === 'complete' &&
+        this.exploreDelivery !== undefined
+      )
+        await button(t('explore.title'), { action: 'explore' });
       if (context.accountState === 'guest')
         await button(t('common.button.sign_up'), { action: 'begin' });
       if (
@@ -1001,5 +1144,6 @@ export function createTelegramSignupRuntime(
     new RedisRateLimiter(input.redis, input.config.redis.queuePrefix),
     undefined,
     createGuestPreviewRuntime(input.config, input.database, resolve),
+    createExploreDeliveryRuntime(input.config, input.database, resolve),
   );
 }

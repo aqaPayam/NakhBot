@@ -42,6 +42,11 @@ describe('M9 exact release reference comparison', () => {
     });
     expect(projected['telegram.botTokenRef']).toBe('TEST_BOT');
     expect(projected['telegram.guestPreviewEnabled']).toBe(false);
+    expect(projected['telegram.exploreEnabled']).toBe(false);
+    const config = referenceFixtureConfig();
+    expect(
+      releaseConfig({ ...config, telegram: { ...config.telegram, exploreEnabled: true } }),
+    ).not.toEqual(projected);
     expect(projected).not.toHaveProperty('telegram.webhookSecret');
   });
   it('fails closed on new config leaves, invalid source identities or inline secret references', () => {

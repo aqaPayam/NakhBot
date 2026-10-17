@@ -553,3 +553,40 @@ Only a fresh delivered card authorizes the returned counterpart. There is no new
 migration, user-linked table, retention period or retained-erasure adapter, and
 retained-data erasure remains disabled. Original M9 provider/operator/cohort/health
 acceptance is still required.
+
+## Ordinary Explore entry and delivered-card interactions
+
+`NAKH_TELEGRAM_EXPLORE_ENABLED` connects the active-account Explore button to the
+running signup/product gateway. It is false by default and requires signup,
+start delivery and photo-ingestion readiness. Guest Preview has its own independent
+flag; enabling Explore does not enable guest sampling. Startup checks the existing
+schema 156 presentation texts and required interaction texts for every active UI
+locale. There is no migration or new retained resource in this increment.
+
+Explore uses the original candidate reservation, effective native filters,
+source-bound media authorization, begin-send claim and delivery confirmation.
+The existing default or saved filter is applied; interactive filter editing still
+requires gateway composition. A definitive provider rejection uses the existing
+failure path. An ambiguous acknowledgement leaves the original attempted source
+pending; neither retry nor another click turns it into delivery authority.
+
+The delivered card offers Like, Not Interested, Show More, Next and Back. Buttons
+contain opaque owner/bot/life-bound references. The server resolves the target
+from the original receipt and calls the session/source-bound interaction writer.
+Native capability, pair, idempotency, audit and outbox rules remain authoritative.
+Like/Not Interested acknowledge the outcome and request the next candidate.
+The card and its full-profile presentation share one action group, so a second
+competing transition cannot be introduced by opening Show More. Read-only full
+profile viewing consumes no additional candidate or guest quota. Revoked sessions
+are checked before cached command replies can be reached.
+
+Native transport tests cover concurrent card delivery and Like/Not Interested,
+borrowed navigation, shared full-profile action groups, opposite-intent denial,
+revoked retries and ambiguous Explore acknowledgements. The existing authenticated
+host rehearsal also exercises a separate active account through real Redis and
+the actual HTTP/process factory while preserving its unresolved guest reservation.
+Media and Telegram providers in these tests are synthetic, not external provider
+acceptance. Nakh prompts, Report, filter controls and the other complete product
+menus remain to be connected before enabling this flow for canaries. This is not
+M9 completion or permission to launch; operator, infrastructure, real-provider,
+cohort and health-review acceptance remains required. Retained erasure stays off.

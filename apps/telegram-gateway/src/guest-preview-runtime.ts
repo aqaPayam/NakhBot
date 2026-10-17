@@ -31,6 +31,7 @@ export interface GuestPreviewRuntimePort {
       detailButton?: (
         deliveryId: string,
       ) => Promise<Readonly<{ text: string; callback_data: string }>>;
+      cardKeyboard?: (deliveryId: string) => Promise<TelegramCandidateCard['keyboard']>;
       render: (key: string, variables: Record<string, string | number>) => string;
     }>,
   ): Promise<'sent' | 'empty' | 'delivered' | 'failed' | 'pending'>;
@@ -52,10 +53,12 @@ export class GuestPreviewRuntime implements GuestPreviewRuntimePort {
     private readonly environment: 'development' | 'test' | 'staging' | 'production',
     private readonly relay: Pick<TelegramCandidateMediaRelay, 'send'>,
     private readonly signer: MediaDeliverySignerPort,
+    private readonly mode: 'guest_preview' | 'explore' = 'guest_preview',
   ) {}
   public async show(
     input: Parameters<GuestPreviewRuntimePort['show']>[0],
   ): ReturnType<GuestPreviewRuntimePort['show']> {
+    if (this.mode === 'explore') return this.deliver(input);
     const at = performance.now();
     try {
       const result = await this.deliver(input);
@@ -177,12 +180,13 @@ export class GuestPreviewRuntime implements GuestPreviewRuntimePort {
       telegramUserId = input.telegramUserId,
       requestId = input.requestId,
       render = input.render,
+      cardKeyboard = input.cardKeyboard,
       detailButton = input.detailButton;
     const reservation = await new PostgresCandidateReservationStore(
       this.database,
       actor,
     ).reserveNext(
-      { actor: { kind: 'user', userId: actor.userId }, requestId, mode: 'guest_preview' },
+      { actor: { kind: 'user', userId: actor.userId }, requestId, mode: this.mode },
       { deliveryId: randomUUID(), eventId: randomUUID(), reservedAt: new Date() },
     );
     if (reservation === undefined) return 'empty';
@@ -203,9 +207,11 @@ export class GuestPreviewRuntime implements GuestPreviewRuntimePort {
         {
           viewerUserId: actor.userId,
           telegramUserId,
-          keyboard: detailButton
-            ? [...keyboard, [await detailButton(reservation.deliveryId)]]
-            : keyboard,
+          keyboard: cardKeyboard
+            ? await cardKeyboard(reservation.deliveryId)
+            : detailButton
+              ? [...keyboard, [await detailButton(reservation.deliveryId)]]
+              : keyboard,
           caption: render('preview.ui.card', {
             name: card.name,
             age: card.age,
@@ -281,6 +287,22 @@ export function createGuestPreviewRuntime(
   resolve: (reference: string) => string = resolveSecretReference,
 ): GuestPreviewRuntimePort | undefined {
   if (!config.telegram.guestPreviewEnabled) return undefined;
+  return createCandidateRuntime(config, database, resolve, 'guest_preview');
+}
+export function createExploreDeliveryRuntime(
+  config: AppConfig,
+  database: NakhDatabase,
+  resolve: (reference: string) => string = resolveSecretReference,
+): GuestPreviewRuntimePort | undefined {
+  if (!config.telegram.exploreEnabled) return undefined;
+  return createCandidateRuntime(config, database, resolve, 'explore');
+}
+function createCandidateRuntime(
+  config: AppConfig,
+  database: NakhDatabase,
+  resolve: (reference: string) => string,
+  mode: 'guest_preview' | 'explore',
+): GuestPreviewRuntimePort {
   const key = (reference: string): Buffer => {
     const encoded = resolve(reference),
       bytes = Buffer.from(encoded, 'base64url');
@@ -310,5 +332,6 @@ export function createGuestPreviewRuntime(
         keys: new Map([[config.media.signingKeyId, signing]]),
       }),
     ),
+    mode,
   );
 }

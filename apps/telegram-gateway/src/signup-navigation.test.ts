@@ -40,6 +40,13 @@ describe('signup navigation integrity and concurrency', () => {
     expect(await f.tokens.callback(token)).toEqual(nav);
     const borrowed = new SignupNavigationTokens(f.store, Buffer.alloc(32, 1), '12345', '456', life);
     expect(await borrowed.callback(token)).toBeUndefined();
+    for (const action of ['explore', 'like', 'reject'] as const) {
+      const explore = { ...nav, screen: 'explore', action };
+      const reference = await f.tokens.button(explore);
+      expect(reference).not.toContain(delivery);
+      expect(await f.tokens.callback(reference)).toEqual(explore);
+      expect(await borrowed.callback(reference)).toBeUndefined();
+    }
   });
   it('binds callback ownership, bot, life and purpose with no form values', async () => {
     const f = fixture(),

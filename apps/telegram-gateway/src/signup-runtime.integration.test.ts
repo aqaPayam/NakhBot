@@ -15,6 +15,7 @@ import {
   PostgresSignupStore,
   PostgresAccountReturnStore,
   PostgresMediaDeliveryAuthorization,
+  PostgresUserSessionStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection } from '@nakh/queue-redis';
@@ -229,6 +230,32 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       context,
     });
     return userId;
+  }
+  async function eligibleExplorePair(viewer: string, target: string): Promise<void> {
+    const preference = await database
+      .selectFrom('profile.profiles')
+      .select('gender_preference_id')
+      .where('user_id', '=', viewer)
+      .executeTakeFirstOrThrow();
+    const gender = await database
+      .selectFrom('catalog.gender_preference_members')
+      .select('gender_option_id')
+      .where('gender_preference_id', '=', preference.gender_preference_id)
+      .orderBy('gender_option_id')
+      .executeTakeFirstOrThrow();
+    await database
+      .updateTable('profile.profiles')
+      .set({
+        gender_option_id: gender.gender_option_id,
+        gender_preference_id: preference.gender_preference_id,
+      })
+      .where('user_id', 'in', [viewer, target])
+      .execute();
+    await database
+      .updateTable('identity.user_settings')
+      .set({ visibility_enabled: true })
+      .where('user_id', 'in', [viewer, target])
+      .execute();
   }
   function state(sender: string, data: string): SignupNavigation {
     const id = data.split(':')[1]!;
@@ -725,6 +752,214 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         }
     },
   );
+  it.each(['like', 'reject'] as const)(
+    'performs Explore %s through delivered opaque cards without guest quota and fences replay',
+    async (kind) => {
+      await database
+        .updateTable('identity.user_settings')
+        .set({ visibility_enabled: false })
+        .execute();
+      const sender = String(serial++),
+        viewer = await open(sender);
+      expect(find(sender, (n) => n.action === 'explore')).toBeUndefined();
+      await createMediaAuthorityFixture(database, 'owner_preview', viewer);
+      const target = await createMediaAuthorityFixture(database);
+      await eligibleExplorePair(viewer, target.ownerUserId);
+      const tokens = new HmacMediaDeliveryTokens({
+        currentKeyId: 'm9',
+        keys: new Map([['m9', key]]),
+      });
+      let uncertain = false;
+      let cards = 0,
+        details = 0;
+      const relay = new TelegramCandidateMediaRelay(
+        'https://media.invalid',
+        botToken,
+        new HmacMediaAudienceCredentials('https://media.invalid', {
+          currentKeyId: 'm9',
+          keys: new Map([['m9', Buffer.alloc(32, 156)]]),
+        }),
+        async (input, init) => {
+          if (input.startsWith('https://media.invalid/')) {
+            const media = new URL(input),
+              claims = tokens.verify(media.searchParams.get('token')!, {
+                path: media.pathname,
+                audienceId: viewer,
+                now: Math.floor(Date.now() / 1000),
+              });
+            expect(
+              await new PostgresMediaDeliveryAuthorization(database, 'test').isCurrent(claims),
+            ).toBe(true);
+            if (claims.purpose === 'profile_card') cards++;
+            else details++;
+            return new Response(new Uint8Array([82, 73, 70, 70]), {
+              headers: { 'content-type': 'image/webp' },
+            });
+          }
+          const form = init?.body as FormData;
+          expect(form.get('chat_id')).toBe(sender);
+          const markup = JSON.parse(formText(form, 'reply_markup')) as {
+            inline_keyboard: Message['keyboard'];
+          };
+          transport.messages.push({
+            id: serial++,
+            sender,
+            text: formText(form, 'caption'),
+            keyboard: markup.inline_keyboard,
+            prompt: false,
+          });
+          if (uncertain) throw new Error('synthetic ambiguous Explore acknowledgement');
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: serial++,
+                from: { id: botId, is_bot: true },
+                chat: { id: Number(sender), type: 'private' },
+              },
+            }),
+          );
+        },
+      );
+      runtime = new TelegramSignupRuntime(
+        database,
+        {} as ReturnType<typeof createRedisConnection>,
+        'm9-explore',
+        String(botId),
+        key,
+        transport.client,
+        limiter,
+        cache,
+        undefined,
+        new GuestPreviewRuntime(
+          database,
+          'test',
+          relay,
+          new MediaDeliveryUrlSigner('https://media.invalid', tokens),
+          'explore',
+        ),
+      );
+      await runtime.onModuleInit();
+      await open(sender, viewer);
+      const enter = find(sender, (n) => n.action === 'explore')!;
+      expect(enter).toBeDefined();
+      const enterUpdate = callback(sender, enter);
+      await Promise.all(Array.from({ length: 10 }, () => runtime.handle(enterUpdate)));
+      expect(cards).toBe(1);
+      const card = transport.messages.findLast(
+        (m) => m.sender === sender && m.keyboard.flat().some((b) => b.text === 'Like'),
+      )!;
+      const button = (label: string): string =>
+        card.keyboard.flat().find((b) => b.text === label)!.callback_data;
+      const more = button('Show More'),
+        intent = button(kind === 'like' ? 'Like' : 'Not interested');
+      const source = state(sender, intent);
+      expect(intent).not.toContain(target.ownerUserId);
+      expect(source.code).toBeDefined();
+      expect(state(sender, more).group).toBe(source.group);
+      await runtime.handle(callback(sender, more));
+      expect(details).toBe(1);
+      const detailIntent = find(sender, (n) => n.action === kind)!;
+      expect(state(sender, detailIntent).group).toBe(source.group);
+      const foreign = String(serial++);
+      await open(foreign);
+      await runtime.handle(callback(foreign, intent));
+      expect(transport.last(foreign).text).not.toContain('Private report fixture');
+      const update = callback(sender, intent);
+      await Promise.all(Array.from({ length: 10 }, () => runtime.handle(update)));
+      const table = kind === 'like' ? 'interaction.likes' : 'interaction.not_interested';
+      expect(
+        await database
+          .selectFrom(table)
+          .select('id')
+          .where('sender_user_id', '=', viewer)
+          .where('receiver_user_id', '=', target.ownerUserId)
+          .execute(),
+      ).toHaveLength(1);
+      await runtime.handle(callback(sender, detailIntent));
+      expect(
+        await database
+          .selectFrom(table)
+          .select('id')
+          .where('sender_user_id', '=', viewer)
+          .execute(),
+      ).toHaveLength(1);
+      const opposite = button(kind === 'like' ? 'Not interested' : 'Like');
+      await runtime.handle(callback(sender, opposite));
+      const other = kind === 'like' ? 'interaction.not_interested' : 'interaction.likes';
+      expect(
+        await database
+          .selectFrom(other)
+          .select('id')
+          .where('sender_user_id', '=', viewer)
+          .execute(),
+      ).toHaveLength(0);
+      expect(
+        await database
+          .selectFrom('discovery.candidate_deliveries')
+          .select(['mode', 'state'])
+          .where('viewer_user_id', '=', viewer)
+          .execute(),
+      ).toEqual([{ mode: 'explore', state: 'delivered' }]);
+      expect(
+        (
+          await database
+            .selectFrom('identity.guest_preview_counters')
+            .select('preview_count')
+            .where('user_id', '=', viewer)
+            .executeTakeFirstOrThrow()
+        ).preview_count,
+      ).toBe(0);
+      await open(sender, viewer);
+      const freshEntry = find(sender, (n) => n.action === 'explore')!;
+      const nextTarget = await createMediaAuthorityFixture(database);
+      await eligibleExplorePair(viewer, nextTarget.ownerUserId);
+      uncertain = true;
+      const uncertainUpdate = callback(sender, freshEntry);
+      await runtime.handle(uncertainUpdate);
+      await runtime.handle(uncertainUpdate);
+      expect(cards).toBe(2);
+      const uncertainCard = transport.messages.findLast(
+        (m) => m.sender === sender && m.keyboard.flat().some((b) => b.text === 'Like'),
+      )!;
+      await runtime.handle(
+        callback(
+          sender,
+          uncertainCard.keyboard
+            .flat()
+            .find((b) => b.text === (kind === 'like' ? 'Like' : 'Not interested'))!.callback_data,
+        ),
+      );
+      expect(
+        await database
+          .selectFrom(table)
+          .select('id')
+          .where('sender_user_id', '=', viewer)
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        await database
+          .selectFrom('discovery.candidate_deliveries')
+          .select('attempt_count')
+          .where('viewer_user_id', '=', viewer)
+          .where('state', '=', 'reserved')
+          .execute(),
+      ).toEqual([{ attempt_count: 1 }]);
+      await new PostgresUserSessionStore(database).revoke(
+        source.actor,
+        source.actor.sessionGrantId,
+        randomUUID(),
+      );
+      await runtime.handle(update);
+      expect(transport.last(sender).text).toContain('no longer current');
+      expect(cards).toBe(2);
+      for (const map of values.values())
+        for (const value of map.values()) {
+          expect(value).not.toContain('Private report fixture');
+          expect(value).not.toContain('/media/');
+        }
+    },
+  );
   it.skipIf(redisUrl === undefined)(
     'uses the authenticated process composition and real Redis, including the verified post-Return activation bridge',
     async () => {
@@ -743,6 +978,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         NAKH_REDIS_URL: redisUrl!,
         NAKH_QUEUE_PREFIX: prefix,
         NAKH_TELEGRAM_BOT_TOKEN_REF: 'M9_UI_BOT',
+        NAKH_TELEGRAM_EXPLORE_ENABLED: 'true',
         NAKH_TELEGRAM_WEBHOOK_SECRET: '1'.repeat(32),
         NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF: 'M9_UI_KEY',
         NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
@@ -805,6 +1041,9 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         .execute();
       const target = await createMediaAuthorityFixture(database);
       const photos: Array<{ keyboard: Message['keyboard']; caption: string }> = [];
+      let mediaViewer = f.userId,
+        mediaSender = sender,
+        exploreUser: string | undefined;
       let ambiguous = false,
         providerCalls = 0,
         detailProviderCalls = 0;
@@ -823,10 +1062,10 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           const viewer = await audience.authenticate(
             new Request(input, { headers: new Headers(init?.headers) }),
           );
-          expect(viewer).toBe(f.userId);
+          expect(viewer).toBe(mediaViewer);
           const claims = signing.verify(media.searchParams.get('token')!, {
             path: media.pathname,
-            audienceId: f.userId,
+            audienceId: mediaViewer,
             now: Math.floor(Date.now() / 1000),
           });
           expect(claims.purpose).toBe(expectedMediaPurpose);
@@ -840,7 +1079,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         expect(input).toBe(`https://api.telegram.org/bot${botToken}/sendPhoto`);
         expect(init?.body).toBeInstanceOf(FormData);
         const body = init!.body as FormData;
-        expect(body.get('chat_id')).toBe(sender);
+        expect(body.get('chat_id')).toBe(mediaSender);
         expect(formText(body, 'caption')).not.toContain('/media/');
         const keyboard = JSON.parse(formText(body, 'reply_markup')) as {
           inline_keyboard: Message['keyboard'];
@@ -853,7 +1092,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             await database
               .selectFrom('discovery.candidate_deliveries')
               .select('attempt_count')
-              .where('viewer_user_id', '=', f.userId)
+              .where('viewer_user_id', '=', mediaViewer)
               .where(
                 'state',
                 '=',
@@ -1004,6 +1243,80 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             .where('attempt_count', '=', 1)
             .execute(),
         ).toHaveLength(1);
+        // Keep the uncertain guest source above unresolved. A separate active
+        // account exercises ordinary Explore through the same running host.
+        const exploreSender = String(serial++);
+        const registration = await TelegramStartAdapter.withStore(
+          new PostgresIdentityStore(database),
+        ).handle(incoming(exploreSender));
+        if (!registration.handled) throw Error('Missing Explore registration');
+        exploreUser = registration.userId;
+        await database
+          .updateTable('identity.user_settings')
+          .set({ visibility_enabled: false })
+          .execute();
+        await createMediaAuthorityFixture(database, 'owner_preview', exploreUser);
+        const exploreTarget = await createMediaAuthorityFixture(database);
+        await eligibleExplorePair(exploreUser, exploreTarget.ownerUserId);
+        mediaViewer = exploreUser;
+        mediaSender = exploreSender;
+        ambiguous = false;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: incoming(exploreSender),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const explore = sent
+          .at(-1)
+          ?.keyboard.flat()
+          .find((b) => b.text === 'Explore')?.callback_data;
+        if (!explore) throw Error('Missing running Explore entry');
+        const exploreUpdate = callback(exploreSender, explore);
+        for (let i = 0; i < 3; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: exploreUpdate }))
+              .statusCode,
+          ).toBe(201);
+        expect(providerCalls).toBe(3);
+        const exploreCard = photos.at(-1)!;
+        expect(exploreCard.keyboard.flat().map((b) => b.text)).toEqual([
+          'Like',
+          'Not interested',
+          'Show More',
+          'Next',
+          'Back',
+        ]);
+        const like = exploreCard.keyboard.flat().find((b) => b.text === 'Like')!.callback_data;
+        expect(like).not.toContain(exploreTarget.ownerUserId);
+        const likeUpdate = callback(exploreSender, like);
+        for (let i = 0; i < 3; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: likeUpdate }))
+              .statusCode,
+          ).toBe(201);
+        expect(
+          await database
+            .selectFrom('interaction.likes')
+            .select('id')
+            .where('sender_user_id', '=', exploreUser)
+            .where('receiver_user_id', '=', exploreTarget.ownerUserId)
+            .execute(),
+        ).toHaveLength(1);
+        expect(
+          (
+            await database
+              .selectFrom('identity.guest_preview_counters')
+              .select('preview_count')
+              .where('user_id', '=', exploreUser)
+              .executeTakeFirstOrThrow()
+          ).preview_count,
+        ).toBe(0);
+        expect(await count()).toBe(4);
       } finally {
         await app?.close();
         const index = `${prefix}:owned-action:{${createHash('sha256').update(f.userId).digest('hex')}}:1:index`;
@@ -1018,6 +1331,13 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           marker,
           `${prefix}:owned-action:{${createHash('sha256').update(f.userId).digest('hex')}}:1:index`,
         );
+        if (exploreUser !== undefined) {
+          const owner = `${prefix}:owned-action:{${createHash('sha256').update(exploreUser).digest('hex')}}`;
+          const entries = await redis.hkeys(`${owner}:0:index`);
+          const owned = entries.filter((e) => e.startsWith(`${owner}:0:value:`));
+          if (owned.length > 0) await redis.unlink(...owned);
+          await redis.unlink(`${owner}:life`, `${owner}:0:index`);
+        }
         await redis.quit();
       }
     },
