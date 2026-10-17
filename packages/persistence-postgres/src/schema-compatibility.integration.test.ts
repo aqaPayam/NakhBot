@@ -37,7 +37,7 @@ describe.skipIf(url === undefined)('M9 selected image native schema admission', 
     const first = await verify(),
       second = await verify();
     expect(first).toEqual(second);
-    expect(first.migrations).toBe(156);
+    expect(first.migrations).toBe(157);
     expect(first.ledgerDigest).toMatch(/^[a-f0-9]{64}$/u);
     expect(
       (
@@ -204,6 +204,6 @@ describe.skipIf(url === undefined)('M9 selected image native schema admission', 
         database,
       );
     }
-    expect((await verify()).migrations).toBe(156);
+    expect((await verify()).migrations).toBe(157);
   });
 });

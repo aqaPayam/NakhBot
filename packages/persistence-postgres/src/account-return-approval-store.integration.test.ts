@@ -420,6 +420,7 @@ describe.skipIf(url === undefined)('M8 separate native account return approval',
             '000154_m9_preview_consumption_disposition.sql',
             '000155_m9_guest_preview_delivery.sql',
             '000156_m9_profile_detail_presentation.sql',
+            '000157_m9_public_report_presentation.sql',
           ]);
           await verifyMigrations(target.url, resolve('migrations/verify'));
           expect(

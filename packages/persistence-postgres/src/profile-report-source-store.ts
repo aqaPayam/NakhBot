@@ -7,6 +7,7 @@ import {
 } from '@nakh/application';
 import type { NakhDatabase } from './database.js';
 import { canSubmitUserReport } from '@nakh/domain';
+import { sql } from 'kysely';
 
 /** Shared by preparation and commit-time reauthorization; received Nakh text is never selected. */
 export async function resolveProfileReportSource(
@@ -45,14 +46,20 @@ export async function resolveProfileReportSource(
     if (lockSource) query = query.forShare();
     row = await query.executeTakeFirst();
   } else if (source.kind === 'delivered_candidate') {
-    let query = database
-      .selectFrom('discovery.candidate_deliveries as source')
-      .innerJoin('profile.profiles as profile', 'profile.user_id', 'source.target_user_id')
-      .select(['profile.id', 'profile.user_id'])
-      .where('source.id', '=', source.referenceId)
-      .where('source.viewer_user_id', '=', actorUserId)
-      .where('source.target_user_id', '!=', actorUserId)
-      .where('source.state', '=', 'delivered');
+    let query = // A delivered card describes the life seen at reservation. Deletion and
+      // approved Return must not turn that original source into a new profile.
+      database
+        .selectFrom('discovery.candidate_deliveries as source')
+        .innerJoin('profile.profiles as profile', 'profile.user_id', 'source.target_user_id')
+        .select(['profile.id', 'profile.user_id'])
+        .where('source.id', '=', source.referenceId)
+        .where('source.viewer_user_id', '=', actorUserId)
+        .where('source.target_user_id', '!=', actorUserId)
+        .where('source.state', '=', 'delivered').where(sql<boolean>`NOT EXISTS (
+        SELECT 1 FROM identity.account_deletion_records root
+        WHERE root.user_id IN (source.viewer_user_id, source.target_user_id)
+          AND root.requested_at >= source.reserved_at
+      )`);
     if (lockSource) query = query.forShare();
     row = await query.executeTakeFirst();
   } else {

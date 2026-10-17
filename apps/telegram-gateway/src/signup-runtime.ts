@@ -54,6 +54,7 @@ import {
 } from './signup-navigation.js';
 import type { TelegramStartDeliveryNotice } from './start-delivery.js';
 import type { TelegramStarsRuntimePort } from './stars-runtime.js';
+import type { TelegramReportRuntimePort } from './report-runtime.js';
 import {
   createGuestPreviewRuntime,
   createExploreDeliveryRuntime,
@@ -216,6 +217,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     private readonly previewDelivery?: GuestPreviewRuntimePort,
     private readonly exploreDelivery?: GuestPreviewRuntimePort,
     private readonly stars?: TelegramStarsRuntimePort,
+    private readonly reports?: TelegramReportRuntimePort,
   ) {
     this.key = Buffer.from(key);
     this.stars?.assertSeparateNavigationKey?.(this.key);
@@ -423,7 +425,17 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         await button('nakh.compose.title', 'nakh', deliveryId),
         await button('explore.button.not_interested', 'reject', deliveryId),
       ],
-      [await button('profile.ui.more', 'detail', deliveryId)],
+      [
+        await button('profile.ui.more', 'detail', deliveryId),
+        ...(this.reports?.enabled
+          ? [
+              {
+                text: render('nakh.received.button.report'),
+                callback_data: await this.reports.button(nav.actor, telegramId, deliveryId),
+              },
+            ]
+          : []),
+      ],
       [await button('signup.ui.next', 'explore'), await button('signup.ui.back', 'resume')],
     ];
   }
@@ -1283,11 +1295,14 @@ export function createTelegramSignupRuntime(
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
     stars?: TelegramStarsRuntimePort;
+    reports?: TelegramReportRuntimePort;
   }>,
 ): TelegramSignupRuntimePort {
   if (!input.config.telegram.signupEnabled) return { handle: () => Promise.resolve('unhandled') };
   if (input.config.telegram.starsEnabled && !input.stars?.enabled)
     throw new Error('Stars composition unavailable.');
+  if (input.config.telegram.reportsEnabled && !input.reports?.enabled)
+    throw new Error('Report composition unavailable.');
   const resolve = input.resolveSecret ?? resolveSecretReference,
     token = resolve(input.config.telegram.botTokenRef),
     match = /^([1-9][0-9]{0,19}):[A-Za-z0-9_-]{20,}$/u.exec(token),
@@ -1312,5 +1327,6 @@ export function createTelegramSignupRuntime(
     createGuestPreviewRuntime(input.config, input.database, resolve),
     createExploreDeliveryRuntime(input.config, input.database, resolve),
     input.stars,
+    input.reports,
   );
 }

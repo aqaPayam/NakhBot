@@ -111,7 +111,7 @@ export class TelegramCandidateMediaRelay {
               (button) =>
                 button.text.length < 1 ||
                 button.text.length > 64 ||
-                !/^m9s:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{22}$/u.test(button.callback_data),
+                !/^m9[sr]:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{22}$/u.test(button.callback_data),
             ),
         )
       )

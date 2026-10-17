@@ -31,6 +31,8 @@ export type SignupNavigation = Readonly<{
   province?: string | undefined;
   page?: number | undefined;
   group?: string | undefined;
+  reference?: string | undefined;
+  reason?: string | undefined;
 }>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export function signupRecord(value: unknown): Record<string, unknown> | undefined {
@@ -55,9 +57,12 @@ export class SignupNavigationTokens {
     private readonly telegramUserId: string,
     life: Readonly<{ userId: string; productEpoch: number }>,
     private readonly now: () => number = Date.now,
+    private readonly purpose: 'signup' | 'report' = 'signup',
   ) {
     if (key.byteLength !== 32) throw new Error('Signup key unavailable.');
-    this.key = createHmac('sha256', key).update('nakh-signup-navigation-v1').digest();
+    this.key = createHmac('sha256', key)
+      .update(purpose === 'signup' ? 'nakh-signup-navigation-v1' : 'nakh-report-navigation-v1')
+      .digest();
     this.life = Object.freeze({ userId: life.userId, productEpoch: life.productEpoch });
   }
   private tag(id: string, body: string): string {
@@ -96,7 +101,7 @@ export class SignupNavigationTokens {
       !(await this.store.putIfAbsent(id, value, 900))
     )
       throw new Error('Signup navigation unavailable.');
-    return `m9s:${id}:${mac}`;
+    return `${this.purpose === 'signup' ? 'm9s' : 'm9r'}:${id}:${mac}`;
   }
   public button(state: SignupNavigation): Promise<string> {
     if (state.action === 'reply') throw new Error('Signup navigation purpose invalid.');
@@ -147,8 +152,10 @@ export class SignupNavigationTokens {
     };
   }
   public async callback(data: string): Promise<SignupNavigation | undefined> {
-    const match = /^m9s:([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
-    return match === null ? undefined : this.read(match[1]!, match[2], false);
+    const match = /^(m9s|m9r):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
+    return match === null || match[1] !== (this.purpose === 'signup' ? 'm9s' : 'm9r')
+      ? undefined
+      : this.read(match[2]!, match[3], false);
   }
   public reply(messageId: number): Promise<SignupNavigation | undefined> {
     return this.read(this.replyId(messageId), undefined, true);
@@ -172,6 +179,8 @@ export class SignupNavigationTokens {
           'province',
           'page',
           'group',
+          'reference',
+          'reason',
         ].includes(k),
       ) &&
       Object.keys(actor).sort().join(',') === 'kind,productEpoch,sessionGrantId,userId' &&
@@ -205,7 +214,7 @@ export class SignupNavigationTokens {
         'nakh_stars',
         'detail',
       ].includes(row.action) &&
-      ['code', 'field', 'country', 'province'].every(
+      ['code', 'field', 'country', 'province', 'reference', 'reason'].every(
         (k) =>
           row[k] === undefined ||
           (typeof row[k] === 'string' && /^[A-Za-z0-9_-]{1,80}$/u.test(row[k])),

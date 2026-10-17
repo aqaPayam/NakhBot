@@ -30,6 +30,36 @@ function fixture(): {
   };
 }
 describe('signup navigation integrity and concurrency', () => {
+  it('separates report callbacks, private reply bindings and claims from signup', async () => {
+    const f = fixture(),
+      reports = new SignupNavigationTokens(
+        f.store,
+        Buffer.alloc(32, 1),
+        '12345',
+        '123',
+        life,
+        undefined,
+        'report',
+      );
+    const state: SignupNavigation = {
+      ...f.nav,
+      screen: 'report',
+      reference: 'abcdefghijklmnop',
+      reason: 'fake_profile',
+    };
+    const report = await reports.button(state),
+      signup = await f.tokens.button(f.nav);
+    expect(report).toMatch(/^m9r:/u);
+    expect(await f.tokens.callback(report)).toBeUndefined();
+    expect(await reports.callback(signup)).toBeUndefined();
+    expect(await reports.callback(report)).toEqual(state);
+    await reports.prompt(123, { ...state, action: 'reply' });
+    expect(await f.tokens.reply(123)).toBeUndefined();
+    expect((await reports.reply(123))?.reason).toBe('fake_profile');
+    expect(reports.replyId(123)).not.toBe(f.tokens.replyId(123));
+    expect((await reports.claim(state, 1, report, state)).accepted).toBe(true);
+    expect((await f.tokens.claim(f.nav, 2, signup, f.nav)).accepted).toBe(true);
+  });
   it('keeps Show More bound to its owner and opaque delivered-card reference', async () => {
     const f = fixture(),
       delivery = '30000000-0000-4000-8000-000000000001';

@@ -37,6 +37,37 @@ function accepted(chatId = 789): Response {
   );
 }
 describe('private candidate photo relay', () => {
+  it('accepts the distinct report callback namespace and rejects unknown namespaces before media fetch', async () => {
+    let calls = 0;
+    const fetcher = vi.fn(() => Promise.resolve(++calls === 1 ? webp() : accepted()));
+    const relay = new TelegramCandidateMediaRelay(
+      'https://media.example.test',
+      botToken,
+      { tokenFor: () => Promise.resolve(audienceSecret) },
+      fetcher,
+      () => now,
+    );
+    const card = {
+      ...structuredClone(base),
+      keyboard: [
+        [{ text: 'Report', callback_data: 'm9r:' + 'a'.repeat(16) + ':' + 'b'.repeat(22) }],
+      ],
+    };
+    expect(await relay.send(card, () => Promise.resolve(true))).toBe('42');
+    fetcher.mockClear();
+    for (const prefix of ['m9x', 'm7r', 'https']) {
+      const invalid = {
+        ...card,
+        keyboard: [
+          [{ text: 'Report', callback_data: prefix + ':' + 'a'.repeat(16) + ':' + 'b'.repeat(22) }],
+        ],
+      };
+      await expect(relay.send(invalid, () => Promise.resolve(true))).rejects.toMatchObject({
+        code: 'media_unavailable',
+      });
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it('fetches private bytes before the native start, then sends no edge URL or credential to Telegram', async () => {
     const order: string[] = [],
       calls: RequestInit[] = [];

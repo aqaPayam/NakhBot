@@ -12,6 +12,7 @@ import {
   type ProfileReportWrite,
   type ProfileReportSubmissionStore,
   type ReportTokens,
+  type UserSessionActor,
 } from '@nakh/application';
 import type { ReportSubmissionResult } from '@nakh/contracts';
 import { ApplicationError, canSubmitUserReport } from '@nakh/domain';
@@ -20,6 +21,50 @@ import { SystemIdGenerator } from './foundation-store.js';
 import { resolveProfileReportSource } from './profile-report-source-store.js';
 import { applyModerationThreshold } from './moderation-threshold-store.js';
 import { PostgresUserSessionStore } from './user-session-store.js';
+import { requireCurrentUserSession } from './user-session-store.js';
+import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
+import { captureExploreCardSource, requireDeliveredExploreSource } from './explore-card-source.js';
+
+export type DeliveredReportScope = Readonly<{ actor: UserSessionActor; deliveryId: string }>;
+export function captureDeliveredReportScope(
+  input?: DeliveredReportScope,
+): DeliveredReportScope | undefined {
+  if (input === undefined) return undefined;
+  const actor = Object.freeze({ ...input.actor });
+  const deliveryId = captureExploreCardSource(input.deliveryId, actor);
+  if (deliveryId === undefined) throw reportUnavailable();
+  return Object.freeze({ actor, deliveryId });
+}
+/** Public card authority is checked inside the business transaction, including
+ * cached receipts. The existing threshold lock precedes the shared pair and
+ * sorted User/Account locks, matching trusted report writers. */
+export async function lockDeliveredReportScope(
+  database: NakhDatabase,
+  scope: DeliveredReportScope,
+): Promise<string> {
+  const delivery = await database
+    .selectFrom('discovery.candidate_deliveries')
+    .select('target_user_id')
+    .where('id', '=', scope.deliveryId)
+    .where('viewer_user_id', '=', scope.actor.userId)
+    .executeTakeFirst();
+  if (delivery === undefined || delivery.target_user_id === scope.actor.userId)
+    throw reportUnavailable();
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${delivery.target_user_id}::text, 0))`.execute(
+    database,
+  );
+  const pair = await lockUserPair(database, scope.actor.userId, delivery.target_user_id);
+  const accounts = await lockUserPairAccounts(database, pair);
+  if (accounts.length !== 2) throw reportUnavailable();
+  await requireCurrentUserSession(database, scope.actor.userId, scope.actor);
+  await requireDeliveredExploreSource(
+    database,
+    scope.deliveryId,
+    scope.actor.userId,
+    delivery.target_user_id,
+  );
+  return delivery.target_user_id;
+}
 
 async function assertReportLife(
   database: NakhDatabase,
@@ -103,14 +148,43 @@ export interface SingleReportEvidenceCapture {
 }
 
 export class PostgresSingleEvidenceReportSubmissionStore implements ProfileReportSubmissionStore {
+  private readonly scope: DeliveredReportScope | undefined;
   public constructor(
     private readonly database: NakhDatabase,
     private readonly capture: SingleReportEvidenceCapture,
-  ) {}
-  public replay(request: ProfileReportRequest): Promise<ReportSubmissionResult | undefined> {
-    return replay(this.database, request);
+    scope?: DeliveredReportScope,
+  ) {
+    this.scope = captureDeliveredReportScope(scope);
   }
-  public submit(write: ProfileReportWrite): Promise<ReportSubmissionResult> {
+  private assertOwner(request: ProfileReportRequest): void {
+    if (
+      this.scope !== undefined &&
+      (request.actorUserId !== this.scope.actor.userId ||
+        request.productEpoch !== this.scope.actor.productEpoch ||
+        request.sessionGrantId !== this.scope.actor.sessionGrantId)
+    )
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+  }
+  public async replay(input: ProfileReportRequest): Promise<ReportSubmissionResult | undefined> {
+    const request = structuredClone(input);
+    this.assertOwner(request);
+    const scope = this.scope;
+    if (scope === undefined) return replay(this.database, request);
+    return this.database.transaction().execute(async (transaction) => {
+      await lockDeliveredReportScope(transaction, scope);
+      return replay(transaction, request);
+    });
+  }
+  public async submit(input: ProfileReportWrite): Promise<ReportSubmissionResult> {
+    const write = structuredClone(input);
+    this.assertOwner(write);
+    const scope = this.scope;
+    if (
+      scope !== undefined &&
+      (write.intent.source.kind !== 'delivered_candidate' ||
+        write.intent.source.referenceId !== scope.deliveryId)
+    )
+      throw reportUnavailable();
     return this.database
       .transaction()
       .execute<ReportSubmissionResult>(async (transaction) => {
@@ -120,6 +194,11 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
         await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-report:' || ${write.actorUserId}::text, 0))`.execute(
           transaction,
         );
+        if (
+          scope !== undefined &&
+          (await lockDeliveredReportScope(transaction, scope)) !== write.intent.targetUserId
+        )
+          throw reportUnavailable();
         const previous = await replay(transaction, write);
         if (previous !== undefined) return previous;
         await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${write.intent.targetUserId}::text, 0))`.execute(

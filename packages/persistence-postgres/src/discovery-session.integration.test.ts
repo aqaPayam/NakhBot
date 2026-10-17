@@ -10,6 +10,9 @@ import {
   EditPendingNakhHandler,
   CancelPendingNakhHandler,
   type CreatePendingNakhWrite,
+  ReportTokens,
+  AesGcmProfileReportSnapshotProtector,
+  AesGcmProfileReportSnapshotReader,
 } from '@nakh/application';
 import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-store.js';
 import { PostgresAccountDeletionPhotoStore } from './account-deletion-photo-store.js';
@@ -21,6 +24,7 @@ import type {
   SendLikeCommand,
   MarkNotInterestedCommand,
   CreateDirectNakhCommand,
+  SubmitReportCommand,
 } from '@nakh/contracts';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -39,6 +43,8 @@ import { lockUserPair } from './pair-lock.js';
 import { seedValidMedia } from './media-fixtures.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createAccountReturnFixture } from './testing/account-return-fixture.js';
+import { PostgresProfileReportSourceStore } from './profile-report-source-store.js';
+import { createPostgresUserReportServices } from './report-services.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 const man = '20000000-0000-4000-8000-000000000001';
@@ -171,6 +177,137 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
       randomUUID(),
     );
   }
+
+  async function reportFixture(
+    f: { a: string; b: string },
+    owner: UserSessionActor,
+  ): Promise<{
+    services: ReturnType<typeof createPostgresUserReportServices>;
+    command: SubmitReportCommand;
+    deliveryId: string;
+  }> {
+    const deliveryId = await card(f, owner),
+      values = new Map<string, string>(),
+      key = Buffer.alloc(32, 71);
+    const tokens = ReportTokens.forLife(
+      {
+        get: (id) => Promise.resolve(values.get(id)),
+        putIfAbsent: (id, value) => {
+          if (values.has(id)) return Promise.resolve(false);
+          values.set(id, value);
+          return Promise.resolve(true);
+        },
+      },
+      Buffer.alloc(32, 72),
+      owner,
+    );
+    const services = createPostgresUserReportServices(
+      database,
+      tokens,
+      {
+        profile: {
+          protector: new AesGcmProfileReportSnapshotProtector('report-key', 1, key),
+          reader: new AesGcmProfileReportSnapshotReader({ resolve: () => key }),
+        },
+      },
+      { actor: owner, deliveryId },
+    );
+    expect(Object.keys(services).sort()).toEqual(['prepare', 'submit']);
+    const source = await tokens.issueSource(owner.userId, {
+      kind: 'delivered_candidate',
+      referenceId: deliveryId,
+    });
+    const prepared = await services.prepare.execute(
+      {
+        actor: owner,
+        requestId: randomUUID(),
+        sourceActionToken: source.token,
+        requestedEvidenceTypes: ['profile'],
+      },
+      owner,
+      owner.productEpoch,
+      owner.sessionGrantId,
+    );
+    const command: SubmitReportCommand = {
+      ...envelope(owner.userId),
+      commandType: 'moderation.submit-report',
+      data: {
+        evidenceIntentToken: prepared.evidenceIntentToken,
+        reasonCode: 'fake_profile',
+        text: 'Private report opening',
+      },
+    };
+    return { services, command, deliveryId };
+  }
+  it('submits one source-bound report under concurrent retries and refuses revoked cached receipts', async () => {
+    const f = await pair(),
+      owner = await actor(f.a),
+      captured = { ...owner },
+      report = await reportFixture(f, captured);
+    captured.sessionGrantId = randomUUID();
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        report.services.submit.execute(
+          report.command,
+          owner,
+          owner.productEpoch,
+          owner.sessionGrantId,
+        ),
+      ),
+    );
+    expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+    expect(new Set(results.map((r) => r.reportId)).size).toBe(1);
+    const row = await database
+      .selectFrom('moderation.reports')
+      .select(['target_user_id', 'extra_text'])
+      .where('id', '=', results[0]!.reportId)
+      .executeTakeFirstOrThrow();
+    expect(row).toEqual({ target_user_id: f.b, extra_text: 'Private report opening' });
+    const borrowed = await actor(f.b);
+    await expect(
+      report.services.submit.execute(
+        report.command,
+        owner,
+        owner.productEpoch,
+        borrowed.sessionGrantId,
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+    await revoke(owner);
+    await expect(
+      report.services.submit.execute(
+        report.command,
+        owner,
+        owner.productEpoch,
+        owner.sessionGrantId,
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(
+      await database
+        .selectFrom('moderation.reports')
+        .select('id')
+        .where('reporter_user_id', '=', f.a)
+        .execute(),
+    ).toHaveLength(1);
+  });
+  it('serializes reciprocal source-bound reports and fences a disappearing card before cached results', async () => {
+    const f = await pair(),
+      a = await actor(f.a),
+      b = await actor(f.b);
+    const left = await reportFixture(f, a),
+      right = await reportFixture({ a: f.b, b: f.a }, b);
+    const results = await Promise.all([
+      left.services.submit.execute(left.command, a, a.productEpoch, a.sessionGrantId),
+      right.services.submit.execute(right.command, b, b.productEpoch, b.sessionGrantId),
+    ]);
+    expect(results.every((r) => !r.replayed)).toBe(true);
+    await database
+      .deleteFrom('discovery.candidate_deliveries')
+      .where('id', '=', left.deliveryId)
+      .execute();
+    await expect(
+      left.services.submit.execute(left.command, a, a.productEpoch, a.sessionGrantId),
+    ).rejects.toMatchObject({ code: 'report_unavailable' });
+  });
 
   it('binds concurrent requests to their original reservation after delivery and refuses revoked replay', async () => {
     const f = await pair(),
@@ -1023,6 +1160,12 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
         beforeDeletion: async (userId) => {
           await rebuild(userId);
           originalSource = await card({ a: seed.a, b: userId }, session);
+          expect(
+            await new PostgresProfileReportSourceStore(database).resolve(seed.a, {
+              kind: 'delivered_candidate',
+              referenceId: originalSource,
+            }),
+          ).toMatchObject({ targetUserId: userId });
         },
         beforeEvidenceCheckpoint: async (lease) => {
           expect(
@@ -1045,6 +1188,12 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
       });
       await rebuild(returned.userId);
       const f = { a: seed.a, b: returned.userId };
+      expect(
+        await new PostgresProfileReportSourceStore(database).resolve(seed.a, {
+          kind: 'delivered_candidate',
+          referenceId: originalSource,
+        }),
+      ).toBeUndefined();
       if (mode === 'nakh') await fund(f);
       const act = (source: string): Promise<unknown> =>
         mode === 'like'
@@ -1065,6 +1214,12 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
       await expect(act(originalSource)).rejects.toMatchObject({ status: 403 });
       if (mode === 'nakh') expect(await balance(f.a)).toBe(5n);
       const fresh = await card(f, session);
+      expect(
+        await new PostgresProfileReportSourceStore(database).resolve(seed.a, {
+          kind: 'delivered_candidate',
+          referenceId: fresh,
+        }),
+      ).toMatchObject({ targetUserId: returned.userId });
       await expect(act(fresh)).resolves.toBeDefined();
       const target = await database
         .selectFrom('identity.accounts')

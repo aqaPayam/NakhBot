@@ -46,3 +46,9 @@ export const M9_PROFILE_TEXTS = {
   'profile.ui.optional': '{label}: {value}',
   'profile.ui.photo': '{name} · Photo {position} of {total}',
 } as const;
+
+export const M9_REPORT_TEXTS = {
+  'report.ui.reply_submits':
+    'Reply to this message to submit your report with details. To submit without details, use Submit report above.',
+  'report.ui.cancelled': 'This report was cancelled. No report was submitted.',
+} as const;

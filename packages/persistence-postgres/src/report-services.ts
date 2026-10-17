@@ -27,6 +27,9 @@ import {
   PostgresSingleEvidenceReportSubmissionStore,
   captureProfileReportEvidence,
   type SingleReportEvidenceCapture,
+  type DeliveredReportScope,
+  captureDeliveredReportScope,
+  lockDeliveredReportScope,
 } from './profile-report-submission-store.js';
 import { captureChatReportEvidence } from './chat-report-submission-store.js';
 import { captureUnmatchedReportEvidence } from './unmatched-report-submission-store.js';
@@ -54,20 +57,19 @@ export type ReportEvidenceCapabilities = Readonly<{
   }>;
 }>;
 
-/** Provider-neutral composition. One trusted configuration governs every supported evidence path. */
-export function createPostgresReportServices(
+/** Shared capture configuration; privileged reveal services are composed separately. */
+function reportServiceParts(
   database: NakhDatabase,
   reportTokens: ReportTokens | ReportTokenReferences,
-  adminTokens: OpaqueTokenStore,
-  adminKey: Uint8Array,
   capabilities: ReportEvidenceCapabilities,
-  now: () => number = Date.now,
+  publicScope?: DeliveredReportScope,
 ): Readonly<{
   prepare: PrepareSingleReportEvidenceHandler;
   submit: SubmitSingleEvidenceReportHandler;
-  evidenceActions: PostgresGetReportEvidenceActionsHandler;
-  reveals: PostgresConfirmedReportEvidenceReveals;
+  readers: ReportEvidenceReaders;
+  types: readonly ReportEvidenceType[];
 }> {
+  const scope = captureDeliveredReportScope(publicScope);
   type SourceResolver = (
     context: NakhDatabase,
     actor: string,
@@ -121,6 +123,17 @@ export function createPostgresReportServices(
       {
         resolve: (actor, source, type, authority) =>
           database.transaction().execute(async (transaction) => {
+            if (scope !== undefined) {
+              if (
+                actor !== scope.actor.userId ||
+                authority?.productEpoch !== scope.actor.productEpoch ||
+                authority.sessionGrantId !== scope.actor.sessionGrantId ||
+                source.kind !== 'delivered_candidate' ||
+                source.referenceId !== scope.deliveryId
+              )
+                throw reportUnavailable();
+              await lockDeliveredReportScope(transaction, scope);
+            }
             const account = await transaction
               .selectFrom('identity.accounts')
               .select(['product_epoch', 'state'])
@@ -148,17 +161,62 @@ export function createPostgresReportServices(
     ),
     submit: new SubmitSingleEvidenceReportHandler(
       reportTokens,
-      new PostgresSingleEvidenceReportSubmissionStore(database, {
-        capture: (transaction, write) => {
-          const type = write.intent.evidence[0]?.evidenceType;
-          const capture = type === undefined ? undefined : captures[type];
-          if (capture === undefined) throw reportUnavailable();
-          return capture(transaction, write);
+      new PostgresSingleEvidenceReportSubmissionStore(
+        database,
+        {
+          capture: (transaction, write) => {
+            const type = write.intent.evidence[0]?.evidenceType;
+            const capture = type === undefined ? undefined : captures[type];
+            if (capture === undefined) throw reportUnavailable();
+            return capture(transaction, write);
+          },
         },
-      }),
+        scope,
+      ),
       new SystemIdGenerator(),
       types,
     ),
+    readers,
+    types,
+  };
+}
+
+/** Public hosts receive only report preparation and submission capabilities. */
+export function createPostgresUserReportServices(
+  database: NakhDatabase,
+  reportTokens: ReportTokens | ReportTokenReferences,
+  capabilities: ReportEvidenceCapabilities,
+  scope: DeliveredReportScope,
+): Readonly<{
+  prepare: PrepareSingleReportEvidenceHandler;
+  submit: SubmitSingleEvidenceReportHandler;
+}> {
+  const { prepare, submit } = reportServiceParts(database, reportTokens, capabilities, scope);
+  return Object.freeze({ prepare, submit });
+}
+
+/** Provider-neutral composition for explicitly authorized administrative hosts. */
+export function createPostgresReportServices(
+  database: NakhDatabase,
+  reportTokens: ReportTokens | ReportTokenReferences,
+  adminTokens: OpaqueTokenStore,
+  adminKey: Uint8Array,
+  capabilities: ReportEvidenceCapabilities,
+  now: () => number = Date.now,
+): Readonly<{
+  prepare: PrepareSingleReportEvidenceHandler;
+  submit: SubmitSingleEvidenceReportHandler;
+  evidenceActions: PostgresGetReportEvidenceActionsHandler;
+  reveals: PostgresConfirmedReportEvidenceReveals;
+}> {
+  const { prepare, submit, readers, types } = reportServiceParts(
+    database,
+    reportTokens,
+    capabilities,
+  );
+  return {
+    prepare,
+    submit,
     evidenceActions: new PostgresGetReportEvidenceActionsHandler(
       database,
       adminTokens,

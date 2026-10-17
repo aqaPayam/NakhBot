@@ -4,6 +4,7 @@ import {
   AesGcmPhotoReportSnapshotReader,
   AesGcmUnmatchedReportSnapshotReader,
   IntegrityMessageReportSnapshotReader,
+  ReportSnapshotKeyRing,
   ExecuteAccountDeletionMedia,
   ExecuteAccountDeletionEphemeral,
   RunAccountDeletionBatchHandler,
@@ -25,35 +26,7 @@ import {
  * Invalid configuration never echoes JSON or secret material into startup logs. */
 export function loadDeletionEvidenceReaders(encoded: string): ReportEvidenceReaders {
   try {
-    if (encoded.length > 65536) throw new Error();
-    const entries: unknown = JSON.parse(encoded);
-    if (!Array.isArray(entries) || entries.length < 1 || entries.length > 16) throw new Error();
-    const keys = new Map<string, Uint8Array>();
-    for (const entry of entries) {
-      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) throw new Error();
-      const item = entry as Record<string, unknown>;
-      if (
-        Object.keys(item).length !== 3 ||
-        typeof item.keyId !== 'string' ||
-        !/^[A-Za-z0-9_-]{8,160}$/u.test(item.keyId) ||
-        !Number.isSafeInteger(item.keyVersion) ||
-        Number(item.keyVersion) < 1 ||
-        typeof item.key !== 'string' ||
-        !/^[A-Za-z0-9_-]{43}$/u.test(item.key)
-      )
-        throw new Error();
-      const key = Buffer.from(item.key, 'base64url'),
-        id = `${item.keyId}\0${String(item.keyVersion)}`;
-      if (key.byteLength !== 32 || key.toString('base64url') !== item.key || keys.has(id))
-        throw new Error();
-      keys.set(id, key);
-    }
-    const resolver = Object.freeze({
-      resolve: (id: string, version: number): Uint8Array | undefined => {
-        const key = keys.get(`${id}\0${version}`);
-        return key === undefined ? undefined : Uint8Array.from(key);
-      },
-    });
+    const resolver = new ReportSnapshotKeyRing(encoded);
     return Object.freeze({
       profile: new AesGcmProfileReportSnapshotReader(resolver),
       chat: new AesGcmChatReportSnapshotReader(resolver),

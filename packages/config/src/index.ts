@@ -41,6 +41,9 @@ const ConfigSchema = Type.Object(
       exploreEnabled: Type.Boolean(),
       starsEnabled: Type.Boolean(),
       starsKeyRingRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      reportsEnabled: Type.Boolean(),
+      reportSnapshotKeyId: Type.String({ pattern: '^[A-Za-z0-9_-]{8,160}$' }),
+      reportSnapshotKeyVersion: Type.Integer({ minimum: 1, maximum: 2147483647 }),
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
@@ -163,6 +166,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       exploreEnabled: boolean(env.NAKH_TELEGRAM_EXPLORE_ENABLED, false),
       starsEnabled: boolean(env.NAKH_TELEGRAM_STARS_ENABLED, false),
       starsKeyRingRef: required(env, 'NAKH_STARS_KEY_RING_REF', 'NAKH_STARS_KEY_RING'),
+      reportsEnabled: boolean(env.NAKH_TELEGRAM_REPORTS_ENABLED, false),
+      reportSnapshotKeyId: required(env, 'NAKH_REPORT_SNAPSHOT_KEY_ID', 'report-snapshot-v1'),
+      reportSnapshotKeyVersion: integer(env.NAKH_REPORT_SNAPSHOT_KEY_VERSION, 1),
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),

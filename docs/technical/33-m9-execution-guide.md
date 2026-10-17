@@ -682,3 +682,56 @@ The owner has not created launch-provider accounts yet. Continue independent
 implementation and give the owner a concrete setup checklist when deployment
 needs those accounts; do not repeatedly request an inventory or invent credentials,
 catalog approvals, role holders or real-provider acceptance.
+
+## Public profile reporting from delivered Explore cards
+
+`NAKH_TELEGRAM_REPORTS_ENABLED` defaults to false and composes a separate
+authenticated report ingress before signup. Enabled Explore cards and their
+Show More view offer Report. Existing report controls continue to work while
+signup and Explore admission are stopped, subject to the original current native
+grant and the active/restricted reporting policy. Guest and deleted accounts do
+not gain reporting authority. Reporting uses its own MAC domain, callback prefix,
+private reply bindings and transition receipts; signup controls cannot be used
+as report controls.
+
+The user selects an active native reason and either clicks Submit report without
+details or sends the exact private reply to submit with details. The prompt
+explicitly explains that sending commits the report. Cancel consumes the same
+transition group and prevents a late reply from submitting it. Private report
+details are not retained in Redis or a compose draft. The existing five-minute
+evidence intent, daily native quota, encrypted profile snapshot, confidential
+receipt, moderation queue and distinct-reporter threshold remain authoritative.
+
+The public native factory returns preparation and submission only and requires
+a captured actor and original delivery scope. Preparation, mutation and cached
+receipts take the existing target-threshold lock, shared pair lock and sorted
+User/Account locks before checking the current grant and delivered Explore
+source. Constructor scope and full writes are copied before waits. The source
+must remain owned and confirmed, including for cached results. A deletion Root
+requested after the original reservation invalidates that delivered source;
+approved Return cannot turn an old card into a report about a new profile.
+
+Snapshot capture uses the existing retained-evidence key-ring format configured
+by `NAKH_DELETION_EVIDENCE_KEY_RING_REF`. The separately reviewed
+`NAKH_REPORT_SNAPSHOT_KEY_ID` and `NAKH_REPORT_SNAPSHOT_KEY_VERSION` select the
+write capability explicitly. Historical entries remain available to the existing
+deletion and authorized evidence readers. Startup checks referenced key versions
+and decrypts a bounded sample per version; it does not claim a full corruption
+scan. Snapshot keys must be separate from navigation keys. No administrative
+reveal capability or administrative credential is passed to the public report
+runtime.
+
+Migration 157 adds two English messages for reply submission and cancellation,
+with matching active-locale readiness checks. It adds no retained resource.
+Native evidence covers concurrent and reciprocal submissions, borrowed/revoked
+grants, cached receipt fences and genuine deletion/Return source replacement.
+The actual HTTP factory with real Redis verifies private details, provider
+retries, encrypted snapshots, reporting with product admission stopped and
+historical-key custody across a process restart. Telegram remains synthetic.
+
+This public entry currently offers profile evidence. The existing native photo,
+chat, message and unmatched evidence contracts remain available to their owning
+compositions; photo-object retention and the remaining public/operator journeys
+still need process wiring and launch evidence. This does not close M9 or replace
+real-provider, production, operator, cohort or health-review acceptance.
+Retained-data erasure remains disabled pending approved policies.

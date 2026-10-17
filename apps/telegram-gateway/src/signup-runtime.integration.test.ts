@@ -6,6 +6,7 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OpaqueTokenStore } from '@nakh/application';
+import { AesGcmProfileReportSnapshotReader } from '@nakh/application';
 import { parseConfig } from '@nakh/config';
 import {
   createDatabase,
@@ -42,6 +43,7 @@ import { TelegramSignupRuntime } from './signup-runtime.js';
 import { signupRecord as record, type SignupNavigation } from './signup-navigation.js';
 import { TelegramStarsClient, TelegramStarsRuntime } from './stars-runtime.js';
 import { TelegramStarsKeys } from './stars-keys.js';
+import { createTelegramReportRuntime, TelegramReportRuntime } from './report-runtime.js';
 const url = process.env.NAKH_TEST_DATABASE_URL,
   redisUrl = process.env.NAKH_TEST_REDIS_URL;
 const botId = 12345,
@@ -1139,6 +1141,12 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       vi.stubEnv('M9_UI_BOT', botToken);
       vi.stubEnv('M9_UI_KEY', key.toString('base64url'));
       vi.stubEnv(
+        'M9_UI_REPORT_KEYS',
+        JSON.stringify([
+          { keyId: 'report-key', keyVersion: 1, key: Buffer.alloc(32, 73).toString('base64url') },
+        ]),
+      );
+      vi.stubEnv(
         'M9_UI_STARS',
         JSON.stringify({
           activeKeyId: 'v1',
@@ -1163,6 +1171,10 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         NAKH_TELEGRAM_BOT_TOKEN_REF: 'M9_UI_BOT',
         NAKH_TELEGRAM_EXPLORE_ENABLED: 'true',
         NAKH_TELEGRAM_STARS_ENABLED: 'true',
+        NAKH_TELEGRAM_REPORTS_ENABLED: 'true',
+        NAKH_REPORT_SNAPSHOT_KEY_ID: 'report-key',
+        NAKH_REPORT_SNAPSHOT_KEY_VERSION: '1',
+        NAKH_DELETION_EVIDENCE_KEY_RING_REF: 'M9_UI_REPORT_KEYS',
         NAKH_STARS_KEY_RING_REF: 'M9_UI_STARS',
         NAKH_TELEGRAM_WEBHOOK_SECRET: '1'.repeat(32),
         NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF: 'M9_UI_KEY',
@@ -1274,7 +1286,9 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           };
           expect(String(body.chat_id)).toBe(mediaSender);
           expect(body.reply_markup.force_reply).toBe(true);
-          expect(body.text).toContain('automatically');
+          if (body.text.includes('submit your report'))
+            expect(body.text).toContain('Reply to this message');
+          else expect(body.text).toContain('automatically');
           forceReplyId = serial++;
           return new Response(
             JSON.stringify({
@@ -1528,6 +1542,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           'Send Nakh',
           'Not interested',
           'Show More',
+          'Report',
           'Next',
           'Back',
         ]);
@@ -1583,6 +1598,26 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             })
           ).statusCode,
         ).toBe(201);
+        const cancelReport = photos
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Report')!.callback_data;
+        const pendingMore = photos
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Show More')!.callback_data;
+        expectedMediaPurpose = 'profile_detail';
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, pendingMore),
+            })
+          ).statusCode,
+        ).toBe(201);
+        expectedMediaPurpose = 'profile_card';
         const compose = photos
           .at(-1)!
           .keyboard.flat()
@@ -1702,6 +1737,241 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             .where('provider_event_id', '=', String(payment.update_id))
             .execute(),
         ).toHaveLength(1);
+        const reportButton = photos
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Report')!.callback_data;
+        expect(reportButton).toMatch(/^m9r:/u);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, reportButton),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const reason = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Fake profile')!.callback_data;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, reason),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const details = response(exploreSender, 'Private host report details', forceReplyId);
+        for (let i = 0; i < 3; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: details }))
+              .statusCode,
+          ).toBe(201);
+        expect(sent.at(-1)!.text).toContain('Reports are confidential');
+        const reports = await database
+          .selectFrom('moderation.reports')
+          .select(['id', 'target_user_id', 'extra_text'])
+          .where('reporter_user_id', '=', exploreUser)
+          .execute();
+        expect(reports).toHaveLength(1);
+        expect(reports[0]).toMatchObject({
+          target_user_id: pendingTarget.ownerUserId,
+          extra_text: 'Private host report details',
+        });
+        const snapshot = await database
+          .selectFrom('moderation.report_snapshots')
+          .selectAll()
+          .where('report_id', '=', reports[0]!.id)
+          .executeTakeFirstOrThrow();
+        const content = new AesGcmProfileReportSnapshotReader({
+          resolve: () => Buffer.alloc(32, 73),
+        }).decrypt(
+          { reportId: snapshot.report_id, evidenceId: snapshot.report_evidence_id },
+          {
+            schemaVersion: snapshot.schema_version,
+            snapshotType: snapshot.snapshot_type,
+            keyId: snapshot.encryption_key_id,
+            keyVersion: snapshot.encryption_key_version,
+            nonce: snapshot.nonce,
+            ciphertext: snapshot.ciphertext,
+            sha256: snapshot.content_sha256,
+          },
+        );
+        expect(content.displayName).toBe(
+          (
+            await database
+              .selectFrom('profile.profiles')
+              .select('name')
+              .where('user_id', '=', pendingTarget.ownerUserId)
+              .executeTakeFirstOrThrow()
+          ).name,
+        );
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, cancelReport),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const cancelReason = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Fake profile')!.callback_data;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, cancelReason),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const cancelledPrompt = forceReplyId;
+        const cancel = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Cancel')!.callback_data;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, cancel),
+            })
+          ).statusCode,
+        ).toBe(201);
+        expect(sent.at(-1)!.text).toContain('No report was submitted');
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: response(exploreSender, 'Cancelled private details', cancelledPrompt),
+            })
+          ).statusCode,
+        ).toBe(201);
+        expect(
+          await database
+            .selectFrom('moderation.reports')
+            .select('id')
+            .where('reporter_user_id', '=', exploreUser)
+            .execute(),
+        ).toHaveLength(1);
+        // The original other delivered card remains reportable while product
+        // admission is stopped. A new process also verifies retained v1 custody
+        // before using v2 for its separately selected write capability.
+        const pausedReport = exploreCard.keyboard
+          .flat()
+          .find((button) => button.text === 'Report')!.callback_data;
+        vi.stubEnv(
+          'M9_UI_REPORT_KEYS',
+          JSON.stringify(
+            [1, 2].map((version) => ({
+              keyId: 'report-key',
+              keyVersion: version,
+              key: Buffer.alloc(32, 72 + version).toString('base64url'),
+            })),
+          ),
+        );
+        await app.close();
+        app = await NestFactory.create<NestFastifyApplication>(
+          TelegramGatewayModule.register({
+            ...config,
+            telegram: {
+              ...config.telegram,
+              signupEnabled: false,
+              startDeliveryEnabled: false,
+              guestPreviewEnabled: false,
+              exploreEnabled: false,
+              reportSnapshotKeyVersion: 2,
+            },
+          }),
+          new FastifyAdapter(),
+          { logger: false },
+        );
+        await app.init();
+        await app.getHttpAdapter().getInstance().ready();
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, pausedReport),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const pausedReason = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Fake profile')!.callback_data;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, pausedReason),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const withoutText = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Submit report')!.callback_data;
+        const withoutTextUpdate = callback(exploreSender, withoutText);
+        for (let i = 0; i < 3; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: withoutTextUpdate }))
+              .statusCode,
+          ).toBe(201);
+        const afterPause = await database
+          .selectFrom('moderation.reports')
+          .select(['id', 'target_user_id', 'extra_text'])
+          .where('reporter_user_id', '=', exploreUser)
+          .execute();
+        expect(afterPause).toHaveLength(2);
+        const noDetails = afterPause.find((report) => report.id !== reports[0]!.id)!;
+        expect(noDetails).toMatchObject({
+          target_user_id: exploreTarget.ownerUserId,
+          extra_text: null,
+        });
+        expect(
+          (
+            await database
+              .selectFrom('moderation.report_snapshots')
+              .select('encryption_key_version')
+              .where('report_id', '=', noDetails.id)
+              .executeTakeFirstOrThrow()
+          ).encryption_key_version,
+        ).toBe(2);
+        vi.stubEnv(
+          'M9_UI_REPORT_KEYS',
+          JSON.stringify([
+            { keyId: 'report-key', keyVersion: 2, key: Buffer.alloc(32, 74).toString('base64url') },
+          ]),
+        );
+        const missingHistory = createTelegramReportRuntime({
+          config: { ...config, telegram: { ...config.telegram, reportSnapshotKeyVersion: 2 } },
+          database,
+          redis,
+        });
+        if (!(missingHistory instanceof TelegramReportRuntime))
+          throw new Error('Missing enabled report runtime');
+        await expect(missingHistory.onModuleInit()).rejects.toThrow(
+          'Report snapshot custody unavailable.',
+        );
         expect(providerCalls).toBe(4);
       } finally {
         await app?.close();
@@ -1721,6 +1991,11 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           const owner = `${prefix}:owned-action:{${createHash('sha256').update(exploreUser).digest('hex')}}`;
           const entries = await redis.hkeys(`${owner}:0:index`);
           const owned = entries.filter((e) => e.startsWith(`${owner}:0:value:`));
+          if (owned.length > 0)
+            for (const value of await redis.mget(...owned)) {
+              expect(value).not.toContain('Private host report details');
+              expect(value).not.toContain('Private host Nakh opening');
+            }
           if (owned.length > 0) await redis.unlink(...owned);
           await redis.unlink(`${owner}:life`, `${owner}:0:index`);
         }

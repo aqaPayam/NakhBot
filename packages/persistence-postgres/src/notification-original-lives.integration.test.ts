@@ -164,6 +164,7 @@ describe.skipIf(url === undefined)('M8 populated original notification-life upgr
       '000154_m9_preview_consumption_disposition.sql',
       '000155_m9_guest_preview_delivery.sql',
       '000156_m9_profile_detail_presentation.sql',
+      '000157_m9_public_report_presentation.sql',
     ]);
     expect(await snapshot()).toEqual(original);
     expect(

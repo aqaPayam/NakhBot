@@ -18,6 +18,22 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps public reports independent of product admission and selects an explicit snapshot write version', () => {
+    expect(parseConfig(validEnvironment).telegram.reportsEnabled).toBe(false);
+    const config = parseConfig({
+      ...validEnvironment,
+      NAKH_TELEGRAM_REPORTS_ENABLED: 'true',
+      NAKH_REPORT_SNAPSHOT_KEY_ID: 'report-key',
+      NAKH_REPORT_SNAPSHOT_KEY_VERSION: '2',
+    });
+    expect(config.telegram.reportsEnabled).toBe(true);
+    expect(config.telegram.signupEnabled).toBe(false);
+    expect(config.telegram.reportSnapshotKeyId).toBe('report-key');
+    expect(config.telegram.reportSnapshotKeyVersion).toBe(2);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_REPORT_SNAPSHOT_KEY_VERSION: '0' }),
+    ).toThrow();
+  });
   it('keeps Stars disabled by default and allows receipts while product menus are stopped', () => {
     expect(parseConfig(validEnvironment).telegram.starsEnabled).toBe(false);
     const config = parseConfig({ ...validEnvironment, NAKH_TELEGRAM_STARS_ENABLED: 'true' });

@@ -38,10 +38,10 @@ describe('M8 schema coverage denial', () => {
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 153 })).not.toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 154 })).not.toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 155 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 156 })).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 157 })).not.toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion: 153 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 152 })).toThrow();
-    for (const schemaVersion of [Number.NaN, 0, 136, 157, 152.5])
+    for (const schemaVersion of [Number.NaN, 0, 136, 158, 152.5])
       expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion })).toThrow();
   });
   it('rejects a new entity instead of applying an inherited retain/purge default', () => {
