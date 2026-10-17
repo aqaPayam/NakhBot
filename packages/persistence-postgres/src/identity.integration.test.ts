@@ -1,4 +1,4 @@
-import { M9_SIGNUP_TEXTS } from '@nakh/localization';
+import { M9_PREVIEW_TEXTS, M9_SIGNUP_TEXTS } from '@nakh/localization';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
@@ -203,7 +203,9 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
-    expect(Object.keys(english.messages)).toHaveLength(607 + Object.keys(M9_SIGNUP_TEXTS).length);
+    expect(Object.keys(english.messages)).toHaveLength(
+      607 + Object.keys(M9_SIGNUP_TEXTS).length + Object.keys(M9_PREVIEW_TEXTS).length,
+    );
     expect(Object.keys(english.messages)).toEqual(
       expect.arrayContaining([
         'return.button.confirm',
@@ -245,6 +247,15 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     );
     for (const [key, value] of Object.entries(M9_SIGNUP_TEXTS))
       expect(english.messages[key]).toBe(value);
+    expect(
+      Object.keys(english.messages)
+        .filter((key) => key.startsWith('preview.ui.'))
+        .sort(),
+    ).toEqual(Object.keys(M9_PREVIEW_TEXTS).sort());
+    for (const [key, value] of Object.entries(M9_PREVIEW_TEXTS)) {
+      expect(english.messages[key]).toBe(value);
+      expect(inactiveFallback.messages[key]).toBe(value);
+    }
     expect(english.messages['start.guest.title']).toBe('Welcome to Nakh');
     expect(english.messages['media.photos.button.delete']).toBe('Delete');
     expect(english.messages['liked_by.title']).toBe('Liked By ({count})');
