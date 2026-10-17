@@ -806,7 +806,9 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       const target = await createMediaAuthorityFixture(database);
       const photos: Array<{ keyboard: Message['keyboard']; caption: string }> = [];
       let ambiguous = false,
-        providerCalls = 0;
+        providerCalls = 0,
+        detailProviderCalls = 0;
+      let expectedMediaPurpose: 'profile_card' | 'profile_detail' = 'profile_card';
       const signing = new HmacMediaDeliveryTokens({
         currentKeyId: config.media.signingKeyId,
         keys: new Map([[config.media.signingKeyId, key]]),
@@ -827,7 +829,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             audienceId: f.userId,
             now: Math.floor(Date.now() / 1000),
           });
-          expect(claims.purpose).toBe('profile_card');
+          expect(claims.purpose).toBe(expectedMediaPurpose);
           expect(
             await new PostgresMediaDeliveryAuthorization(database, 'test').isCurrent(claims),
           ).toBe(true);
@@ -844,14 +846,19 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           inline_keyboard: Message['keyboard'];
         };
         photos.push({ keyboard: keyboard.inline_keyboard, caption: formText(body, 'caption') });
-        providerCalls++;
+        if (expectedMediaPurpose === 'profile_detail') detailProviderCalls++;
+        else providerCalls++;
         expect(
           (
             await database
               .selectFrom('discovery.candidate_deliveries')
               .select('attempt_count')
               .where('viewer_user_id', '=', f.userId)
-              .where('state', '=', 'reserved')
+              .where(
+                'state',
+                '=',
+                expectedMediaPurpose === 'profile_detail' ? 'delivered' : 'reserved',
+              )
               .executeTakeFirstOrThrow()
           ).attempt_count,
         ).toBe(1);
@@ -925,7 +932,11 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         expect(results.every((r) => r.statusCode === 201)).toBe(true);
         expect(providerCalls).toBe(1);
         expect(photos[0]!.caption).toContain('approximately');
-        expect(photos[0]!.keyboard.flat().map((b) => b.text)).toEqual(['Next profile', 'Sign up']);
+        expect(photos[0]!.keyboard.flat().map((b) => b.text)).toEqual([
+          'Next profile',
+          'Sign up',
+          'Show More',
+        ]);
         const delivered = await database
           .selectFrom('discovery.candidate_deliveries')
           .selectAll()
@@ -948,6 +959,33 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         ).toBe(201);
         expect(providerCalls).toBe(1);
         expect(await count()).toBe(4);
+        expectedMediaPurpose = 'profile_detail';
+        const more = photos[0]!.keyboard.flat().find((b) => b.text === 'Show More')?.callback_data;
+        if (!more) throw Error('Missing full Profile navigation');
+        const moreUpdate = callback(sender, more);
+        for (let i = 0; i < 2; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: moreUpdate }))
+              .statusCode,
+          ).toBe(201);
+        expect(detailProviderCalls).toBe(2);
+        expect(providerCalls).toBe(1);
+        expect(await count()).toBe(4);
+        expect(
+          await database
+            .selectFrom('discovery.candidate_deliveries')
+            .selectAll()
+            .where('id', '=', delivered.id)
+            .executeTakeFirstOrThrow(),
+        ).toEqual(delivered);
+        const publicProfile = await database
+          .selectFrom('profile.profiles')
+          .select(['name', 'highlight'])
+          .where('user_id', '=', target.ownerUserId)
+          .executeTakeFirstOrThrow();
+        expect(sent.at(-1)?.text).toContain(publicProfile.name);
+        expect(sent.at(-1)?.text).toContain(publicProfile.highlight);
+        expectedMediaPurpose = 'profile_card';
         await createMediaAuthorityFixture(database);
         ambiguous = true;
         const next = callback(sender, photos[0]!.keyboard[0]![0]!.callback_data);

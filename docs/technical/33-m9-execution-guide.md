@@ -497,7 +497,10 @@ Native checks exercise concurrent/replayed reads with unchanged quota, all visib
 photos, pending/foreign/borrowed sources, captured actors, updated text versions,
 and visibility/block/photo withdrawal. Gateway tests exercise the real adapter
 composition with synthetic media/Telegram, opaque callbacks and target withdrawal
-after photo acceptance but before text. Localization, exact reference counts and
+after photo acceptance but before text. The authenticated host case uses actual
+Redis and the verified post-Return activation bridge to replay Show More without
+changing the original delivery receipt or permanent preview count. Localization,
+exact reference counts and
 populated migration/replay checks cover the new seed. These are implementation
 checks, not a live test-bot rehearsal, content approval or launch sign-off. Normal
 Explore interaction delivery, complete menus, operator process composition and the
