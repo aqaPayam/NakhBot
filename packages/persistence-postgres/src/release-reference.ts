@@ -40,6 +40,7 @@ const fields = `environment serviceName release http.host http.port
  redis.url redis.queuePrefix telegram.botTokenRef telegram.webhookSecret telegram.actionTokenKeyRef
  telegram.likedByDeliveryEnabled telegram.notificationDeliveryEnabled telegram.supportAppealEnabled
  telegram.startDeliveryEnabled telegram.signupEnabled telegram.guestPreviewEnabled telegram.exploreEnabled
+ telegram.starsEnabled telegram.starsKeyRingRef
  media.ingestionEnabled media.cachePurgeEnabled media.cleanupEnabled media.orphanReconciliationEnabled media.orphanGraceMs
  media.r2Endpoint media.bucket media.accessKeyRef media.secretKeyRef media.cleanupAccessKeyRef media.cleanupSecretKeyRef
  media.cdnHost media.signingKeyId media.signingKeyRef media.audienceKeyId media.audienceKeyRef

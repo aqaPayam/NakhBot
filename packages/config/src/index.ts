@@ -39,6 +39,8 @@ const ConfigSchema = Type.Object(
       signupEnabled: Type.Boolean(),
       guestPreviewEnabled: Type.Boolean(),
       exploreEnabled: Type.Boolean(),
+      starsEnabled: Type.Boolean(),
+      starsKeyRingRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
@@ -159,6 +161,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       signupEnabled: boolean(env.NAKH_TELEGRAM_SIGNUP_ENABLED, false),
       guestPreviewEnabled: boolean(env.NAKH_TELEGRAM_GUEST_PREVIEW_ENABLED, false),
       exploreEnabled: boolean(env.NAKH_TELEGRAM_EXPLORE_ENABLED, false),
+      starsEnabled: boolean(env.NAKH_TELEGRAM_STARS_ENABLED, false),
+      starsKeyRingRef: required(env, 'NAKH_STARS_KEY_RING_REF', 'NAKH_STARS_KEY_RING'),
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),

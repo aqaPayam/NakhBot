@@ -627,8 +627,58 @@ Gateway tests exercise one credit debit, sender-only pending creation, explicit
 consent, invalid and duplicate replies, insufficient credit, borrowed navigation,
 revocation and ambiguous cards. The actual HTTP factory/real Redis rehearsal also
 submits a pending opening through Bot API force-reply serialization. Telegram and
-media remain synthetic providers in those checks. Direct Stars invoice/payment
-ingress, Report, filter editing, full remaining menus and original operator/
+media remain synthetic providers in those checks. Report, filter editing,
+full remaining menus and original operator/
 production/provider/cohort/health acceptance are still outstanding. Explore stays
 false by default. There is no new migration or retained resource; retained-data
 erasure remains disabled pending approved policies.
+
+## Stars invoice and financial ingress composition
+
+`NAKH_TELEGRAM_STARS_ENABLED` defaults to false. Enabling it resolves the bot
+token and `NAKH_STARS_KEY_RING_REF` (default `NAKH_STARS_KEY_RING`) and verifies
+financial key custody and active-locale messages at startup. It is independent
+of signup and Explore flags: authentic payment receipts must continue to be
+processed while product admission is stopped. Disabled financial ingress returns
+a retryable error for payment-shaped updates instead of acknowledging and losing
+them. Webhook secret authentication precedes all financial processing.
+
+Enabled Explore offers the existing Pay with Telegram Stars option. The private
+reply first creates the original consented Pending Nakh, then prepares its native
+two-Star attempt and sends a private XTR invoice. The invoice contains generic
+localized text and an opaque payload, never the private opening. Provider retries
+can repeat presentation of that same attempt and payload. An invoice delivery
+acknowledgement never marks payment paid. Public funding stores capture the actor
+and writes before waits and check the current native session before new or cached
+results; trusted financial worker capabilities remain independent of user sessions.
+
+The key-ring secret is JSON with exactly `activeKeyId`, `digestKey` and `keys`.
+Each key entry has exactly `id`, `invoiceKey` and `evidenceKey`; all secrets are
+distinct canonical base64url encodings of 32 random bytes. Key IDs use one to 32
+ASCII letters, digits, underscores or hyphens. The digest key stays stable; rotate
+the active encryption keys by adding a new entry and retaining historical entries
+while their financial records exist. Navigation keys must be separate. Startup
+checks every referenced key ID and decrypts a bounded sample per key from native
+invoices and retained provider evidence; missing or overwritten historical keys
+and a changed lookup digest prevent startup. This check is not a full corruption
+scan or permission to erase historical keys.
+
+Pre-checkout decisions commit before the Bot API answer, and successful payments
+commit before the HTTP acknowledgement. Both reuse the existing native M4 receipt,
+quarantine, reconciliation and worker-fulfillment contracts. Evidence encrypts only
+bounded canonical financial facts with separate authenticated encryption; arbitrary
+Telegram names, addresses and message bodies are not copied. No live product grant
+is required to preserve a genuine financial receipt after session revocation.
+
+Native tests cover retries, payer/currency/amount mismatches, revoked and borrowed
+funding authority, captured inputs and historical key custody. The actual HTTP
+factory with real Redis exercises the Explore reply, lost invoice acknowledgement,
+same-attempt replay, webhook authentication, pre-checkout and repeated successful
+payment ingestion. Its Telegram transport is synthetic; actual provider, deployed
+worker fulfillment/correction, operator and launch acceptance remain required.
+There is no migration or new retained resource. Retained erasure stays disabled.
+
+The owner has not created launch-provider accounts yet. Continue independent
+implementation and give the owner a concrete setup checklist when deployment
+needs those accounts; do not repeatedly request an inventory or invent credentials,
+catalog approvals, role holders or real-provider acceptance.

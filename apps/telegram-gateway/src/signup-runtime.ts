@@ -53,6 +53,7 @@ import {
   type SignupNavigation as Nav,
 } from './signup-navigation.js';
 import type { TelegramStartDeliveryNotice } from './start-delivery.js';
+import type { TelegramStarsRuntimePort } from './stars-runtime.js';
 import {
   createGuestPreviewRuntime,
   createExploreDeliveryRuntime,
@@ -214,8 +215,10 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     ) => OpaqueTokenStore,
     private readonly previewDelivery?: GuestPreviewRuntimePort,
     private readonly exploreDelivery?: GuestPreviewRuntimePort,
+    private readonly stars?: TelegramStarsRuntimePort,
   ) {
     this.key = Buffer.from(key);
+    this.stars?.assertSeparateNavigationKey?.(this.key);
     this.identities = new PostgresIdentityStore(database);
     this.users = new PostgresTelegramUserResolver(database);
     this.sessions = new PostgresUserSessionStore(database);
@@ -531,6 +534,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         (
           [
             ['nakh.button.send_credits', 'nakh_credits'],
+            ...(this.stars?.enabled ? [['nakh.button.pay_stars', 'nakh_stars'] as const] : []),
             ['nakh.button.save_pending', 'nakh_pending'],
             ['signup.ui.back', 'resume'],
           ] as const
@@ -551,13 +555,15 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       return;
     }
     const screen = nav.action === 'reply' ? nav.screen : nav.action;
-    if (screen !== 'nakh_credits' && screen !== 'nakh_pending') throw denied();
+    if (screen !== 'nakh_credits' && screen !== 'nakh_pending' && screen !== 'nakh_stars')
+      throw denied();
+    if (screen === 'nakh_stars' && !this.stars?.enabled) throw denied();
     const prompt = await this.client.sendPrompt(
       telegramId,
       [
         t('nakh.compose.title'),
         t(screen === 'nakh_credits' ? 'nakh.compose.cost.credits' : 'nakh.compose.cost.stars'),
-        ...(screen === 'nakh_pending' ? [t('nakh.compose.auto_settle_consent')] : []),
+        ...(screen !== 'nakh_credits' ? [t('nakh.compose.auto_settle_consent')] : []),
         t('nakh.compose.prompt'),
         t('signup.ui.reply'),
       ].join('\n'),
@@ -584,8 +590,8 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         this.ids,
       ).execute({ ...envelope, commandType: 'nakh.create-direct', data: { targetUserId, text } });
       await this.notice(telegramId, 'nakh.delivery.sent');
-    } else if (nav.screen === 'nakh_pending') {
-      await new CreatePendingNakhHandler(
+    } else if (nav.screen === 'nakh_pending' || nav.screen === 'nakh_stars') {
+      const pending = await new CreatePendingNakhHandler(
         new PostgresPendingNakhStore(this.database, nav.actor, nav.code),
         this.ids,
       ).execute({
@@ -594,6 +600,16 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         data: { targetUserId, text, autoSettleAuthorized: true },
       });
       await this.notice(telegramId, 'nakh.pending.created');
+      if (nav.screen === 'nakh_stars') {
+        if (!this.stars?.enabled) throw denied();
+        await this.stars.invoice({
+          ...envelope,
+          actor: nav.actor,
+          telegramUserId: telegramId,
+          fundingIntentId: pending.fundingIntentId,
+          expectedVersion: 1,
+        });
+      }
     } else throw denied();
     await this.showExplore(telegramId, updateId, nav);
   }
@@ -824,7 +840,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           await this.exploreInteraction(telegramId, updateId, nav);
           return 'notice';
         }
-        if (['nakh', 'nakh_credits', 'nakh_pending'].includes(nav.action)) {
+        if (['nakh', 'nakh_credits', 'nakh_pending', 'nakh_stars'].includes(nav.action)) {
           await this.openNakh(telegramId, nav);
           return 'notice';
         }
@@ -931,7 +947,11 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         await this.render(telegramId, nav.actor, next);
       } else {
         const value = String(text);
-        if (nav.screen === 'nakh_credits' || nav.screen === 'nakh_pending') {
+        if (
+          nav.screen === 'nakh_credits' ||
+          nav.screen === 'nakh_pending' ||
+          nav.screen === 'nakh_stars'
+        ) {
           validateNakhText(value);
           const claim = await tokens.claim(
             nav,
@@ -978,7 +998,9 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       if (!(error instanceof ApplicationError) || error.status >= 500)
         throw new ApplicationError('internal_error', 'error.identity.user_context_invalid', 500);
       if (
-        (nav.screen === 'nakh_credits' || nav.screen === 'nakh_pending') &&
+        (nav.screen === 'nakh_credits' ||
+          nav.screen === 'nakh_pending' ||
+          nav.screen === 'nakh_stars') &&
         error.code === 'nakh_text_invalid'
       ) {
         await this.notice(telegramId, 'error.nakh.text_invalid');
@@ -1260,9 +1282,12 @@ export function createTelegramSignupRuntime(
     database: NakhDatabase;
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
+    stars?: TelegramStarsRuntimePort;
   }>,
 ): TelegramSignupRuntimePort {
   if (!input.config.telegram.signupEnabled) return { handle: () => Promise.resolve('unhandled') };
+  if (input.config.telegram.starsEnabled && !input.stars?.enabled)
+    throw new Error('Stars composition unavailable.');
   const resolve = input.resolveSecret ?? resolveSecretReference,
     token = resolve(input.config.telegram.botTokenRef),
     match = /^([1-9][0-9]{0,19}):[A-Za-z0-9_-]{20,}$/u.exec(token),
@@ -1286,5 +1311,6 @@ export function createTelegramSignupRuntime(
     undefined,
     createGuestPreviewRuntime(input.config, input.database, resolve),
     createExploreDeliveryRuntime(input.config, input.database, resolve),
+    input.stars,
   );
 }

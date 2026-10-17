@@ -18,6 +18,16 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps Stars disabled by default and allows receipts while product menus are stopped', () => {
+    expect(parseConfig(validEnvironment).telegram.starsEnabled).toBe(false);
+    const config = parseConfig({ ...validEnvironment, NAKH_TELEGRAM_STARS_ENABLED: 'true' });
+    expect(config.telegram.starsEnabled).toBe(true);
+    expect(config.telegram.signupEnabled).toBe(false);
+    expect(config.telegram.starsKeyRingRef).toBe('NAKH_STARS_KEY_RING');
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_STARS_KEY_RING_REF: 'inline-private-key' }),
+    ).toThrow();
+  });
   it('keeps Explore separate from Guest Preview and requires the signup process', () => {
     expect(parseConfig(validEnvironment).telegram.exploreEnabled).toBe(false);
     expect(() =>

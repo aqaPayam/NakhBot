@@ -40,6 +40,8 @@ import { GuestPreviewRuntime } from './guest-preview-runtime.js';
 import { TelegramGatewayModule } from './app.js';
 import { TelegramSignupRuntime } from './signup-runtime.js';
 import { signupRecord as record, type SignupNavigation } from './signup-navigation.js';
+import { TelegramStarsClient, TelegramStarsRuntime } from './stars-runtime.js';
+import { TelegramStarsKeys } from './stars-keys.js';
 const url = process.env.NAKH_TEST_DATABASE_URL,
   redisUrl = process.env.NAKH_TEST_REDIS_URL;
 const botId = 12345,
@@ -753,7 +755,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         }
     },
   );
-  it.each(['like', 'reject', 'nakh_credits', 'nakh_pending'] as const)(
+  it.each(['like', 'reject', 'nakh_credits', 'nakh_pending', 'nakh_stars'] as const)(
     'performs Explore %s through delivered opaque cards without guest quota and fences replay',
     async (kind) => {
       await database
@@ -766,7 +768,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       await createMediaAuthorityFixture(database, 'owner_preview', viewer);
       const target = await createMediaAuthorityFixture(database);
       await eligibleExplorePair(viewer, target.ownerUserId);
-      const isNakh = kind === 'nakh_credits' || kind === 'nakh_pending';
+      const isNakh = kind.startsWith('nakh_');
       if (isNakh)
         for (const userId of [viewer, target.ownerUserId])
           await database
@@ -839,6 +841,43 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           );
         },
       );
+      const invoices: Record<string, unknown>[] = [];
+      const stars = new TelegramStarsRuntime(
+        database,
+        new TelegramStarsKeys(
+          JSON.stringify({
+            activeKeyId: 'v1',
+            digestKey: Buffer.alloc(32, 1).toString('base64url'),
+            keys: [
+              {
+                id: 'v1',
+                invoiceKey: Buffer.alloc(32, 2).toString('base64url'),
+                evidenceKey: Buffer.alloc(32, 3).toString('base64url'),
+              },
+            ],
+          }),
+        ),
+        'test',
+        String(botId),
+        new TelegramStarsClient(botToken, (_url, init) => {
+          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '') as Record<
+            string,
+            unknown
+          >;
+          invoices.push(body);
+          return Promise.resolve(
+            Response.json({
+              ok: true,
+              result: {
+                message_id: serial++,
+                chat: { id: Number(sender), type: 'private' },
+                from: { id: botId, is_bot: true },
+                invoice: { currency: 'XTR', total_amount: 2 },
+              },
+            }),
+          );
+        }),
+      );
       runtime = new TelegramSignupRuntime(
         database,
         {} as ReturnType<typeof createRedisConnection>,
@@ -856,6 +895,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           new MediaDeliveryUrlSigner('https://media.invalid', tokens),
           'explore',
         ),
+        kind === 'nakh_stars' ? stars : undefined,
       );
       await runtime.onModuleInit();
       await open(sender, viewer);
@@ -896,6 +936,9 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         ).toHaveLength(0);
         expect(transport.last(sender).text).toContain('2 credits');
         expect(transport.last(sender).text).toContain('automatically');
+        expect(find(sender, (n) => n.action === 'nakh_stars') !== undefined).toBe(
+          kind === 'nakh_stars',
+        );
         if (kind === 'nakh_pending') {
           await action(sender, 'nakh_credits');
           const unfundedPrompt = transport.last(sender);
@@ -916,7 +959,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         await action(sender, kind);
         let prompt = transport.last(sender);
         expect(prompt.prompt).toBe(true);
-        if (kind === 'nakh_pending') expect(prompt.text).toContain('automatically');
+        if (kind !== 'nakh_credits') expect(prompt.text).toContain('automatically');
         await runtime.handle(response(sender, '', prompt.id));
         prompt = transport.last(sender);
         expect(prompt.prompt).toBe(true);
@@ -962,7 +1005,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
               .executeTakeFirstOrThrow()
           ).balance,
         ).toBe(kind === 'nakh_credits' ? '3' : '0');
-        if (kind === 'nakh_pending')
+        if (kind !== 'nakh_credits')
           expect(
             await database
               .selectFrom('nakh.nakhes')
@@ -970,6 +1013,25 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
               .where('receiver_user_id', '=', target.ownerUserId)
               .execute(),
           ).toHaveLength(0);
+        if (kind === 'nakh_stars') {
+          // Presentation is at least once; all ten provider retries carry one
+          // native attempt and the same opaque payload. Sending an invoice
+          // never creates a paid receipt.
+          expect(invoices).toHaveLength(10);
+          expect(new Set(invoices.map((invoice) => JSON.stringify(invoice))).size).toBe(1);
+          expect(invoices[0]).toMatchObject({
+            chat_id: sender,
+            currency: 'XTR',
+            prices: [{ amount: 2 }],
+          });
+          expect(JSON.stringify(invoices)).not.toContain(privateOpening);
+          const attempts = await database
+            .selectFrom('billing.payment_records')
+            .select(['status', 'stars_amount'])
+            .where('user_id', '=', viewer)
+            .execute();
+          expect(attempts).toEqual([{ status: 'pending', stars_amount: '2' }]);
+        } else expect(invoices).toHaveLength(0);
       } else {
         expect(
           await database
@@ -1076,6 +1138,20 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       let app: NestFastifyApplication | undefined;
       vi.stubEnv('M9_UI_BOT', botToken);
       vi.stubEnv('M9_UI_KEY', key.toString('base64url'));
+      vi.stubEnv(
+        'M9_UI_STARS',
+        JSON.stringify({
+          activeKeyId: 'v1',
+          digestKey: Buffer.alloc(32, 1).toString('base64url'),
+          keys: [
+            {
+              id: 'v1',
+              invoiceKey: Buffer.alloc(32, 2).toString('base64url'),
+              evidenceKey: Buffer.alloc(32, 3).toString('base64url'),
+            },
+          ],
+        }),
+      );
       const audienceKey = Buffer.alloc(32, 156);
       vi.stubEnv('M9_UI_AUDIENCE', audienceKey.toString('base64url'));
       const config = parseConfig({
@@ -1086,6 +1162,8 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         NAKH_QUEUE_PREFIX: prefix,
         NAKH_TELEGRAM_BOT_TOKEN_REF: 'M9_UI_BOT',
         NAKH_TELEGRAM_EXPLORE_ENABLED: 'true',
+        NAKH_TELEGRAM_STARS_ENABLED: 'true',
+        NAKH_STARS_KEY_RING_REF: 'M9_UI_STARS',
         NAKH_TELEGRAM_WEBHOOK_SECRET: '1'.repeat(32),
         NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF: 'M9_UI_KEY',
         NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
@@ -1156,6 +1234,8 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         detailProviderCalls = 0;
       let expectedMediaPurpose: 'profile_card' | 'profile_detail' = 'profile_card';
       let forceReplyId = 0;
+      const invoices: Array<Record<string, unknown>> = [],
+        checkoutAnswers: Array<Record<string, unknown>> = [];
       const signing = new HmacMediaDeliveryTokens({
         currentKeyId: config.media.signingKeyId,
         keys: new Map([[config.media.signingKeyId, key]]),
@@ -1165,6 +1245,26 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         new Map([[config.media.audienceKeyId, audienceKey]]),
       );
       vi.stubGlobal('fetch', async (input: string, init?: RequestInit): Promise<Response> => {
+        if (input === `https://api.telegram.org/bot${botToken}/sendInvoice`) {
+          if (typeof init?.body !== 'string') throw new Error('Missing invoice body');
+          const body = JSON.parse(init.body) as Record<string, unknown>;
+          invoices.push(body);
+          if (invoices.length === 1) throw new Error('Synthetic lost invoice acknowledgement');
+          return Response.json({
+            ok: true,
+            result: {
+              message_id: serial++,
+              from: { id: botId, is_bot: true },
+              chat: { id: Number(mediaSender), type: 'private' },
+              invoice: { currency: 'XTR', total_amount: 2 },
+            },
+          });
+        }
+        if (input === `https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`) {
+          if (typeof init?.body !== 'string') throw new Error('Missing checkout body');
+          checkoutAnswers.push(JSON.parse(init.body) as Record<string, unknown>);
+          return Response.json({ ok: true, result: true });
+        }
         if (input === `https://api.telegram.org/bot${botToken}/sendMessage`) {
           if (typeof init?.body !== 'string') throw new Error('Missing synthetic prompt body');
           const body = JSON.parse(init.body) as {
@@ -1501,7 +1601,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         const savePending = sent
           .at(-1)!
           .keyboard.flat()
-          .find((b) => b.text === 'Save as Pending Nakh')!.callback_data;
+          .find((b) => b.text === 'Pay with Telegram Stars')!.callback_data;
         expect(
           (
             await app.inject({
@@ -1514,6 +1614,10 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         ).toBe(201);
         expect(forceReplyId).toBeGreaterThan(0);
         const pendingOpening = response(exploreSender, 'Private host Nakh opening', forceReplyId);
+        expect(
+          (await app.inject({ method: 'POST', url: route, headers, payload: pendingOpening }))
+            .statusCode,
+        ).toBe(500);
         for (let i = 0; i < 3; i++)
           expect(
             (await app.inject({ method: 'POST', url: route, headers, payload: pendingOpening }))
@@ -1533,6 +1637,71 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             .where('receiver_user_id', '=', pendingTarget.ownerUserId)
             .execute(),
         ).toHaveLength(0);
+        expect(invoices).toHaveLength(4);
+        expect(new Set(invoices.map((invoice) => JSON.stringify(invoice))).size).toBe(1);
+        expect(JSON.stringify(invoices)).not.toContain('Private host Nakh opening');
+        const attempt = await database
+          .selectFrom('billing.payment_records')
+          .select(['id', 'status', 'stars_amount'])
+          .where('user_id', '=', exploreUser)
+          .execute();
+        expect(attempt).toHaveLength(1);
+        expect(attempt[0]).toMatchObject({ status: 'pending', stars_amount: '2' });
+        const paymentFacts = {
+          currency: 'XTR',
+          total_amount: 2,
+          invoice_payload: invoices[0]!.payload,
+        };
+        const precheckout = {
+          update_id: serial++,
+          pre_checkout_query: {
+            ...paymentFacts,
+            id: 'host-checkout',
+            from: { id: Number(exploreSender), is_bot: false },
+          },
+        };
+        expect(
+          (await app.inject({ method: 'POST', url: route, headers: {}, payload: precheckout }))
+            .statusCode,
+        ).toBe(401);
+        expect(checkoutAnswers).toHaveLength(0);
+        expect(
+          (await app.inject({ method: 'POST', url: route, headers, payload: precheckout }))
+            .statusCode,
+        ).toBe(201);
+        expect(checkoutAnswers).toEqual([{ pre_checkout_query_id: 'host-checkout', ok: true }]);
+        const payment = {
+          update_id: serial++,
+          message: {
+            from: { id: Number(exploreSender), is_bot: false },
+            successful_payment: {
+              ...paymentFacts,
+              telegram_payment_charge_id: 'host-charge',
+              provider_payment_charge_id: '',
+            },
+          },
+        };
+        for (let i = 0; i < 3; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: payment }))
+              .statusCode,
+          ).toBe(201);
+        expect(
+          (
+            await database
+              .selectFrom('billing.payment_records')
+              .select('status')
+              .where('id', '=', attempt[0]!.id)
+              .executeTakeFirstOrThrow()
+          ).status,
+        ).toBe('paid');
+        expect(
+          await database
+            .selectFrom('billing.payment_provider_events')
+            .select('id')
+            .where('provider_event_id', '=', String(payment.update_id))
+            .execute(),
+        ).toHaveLength(1);
         expect(providerCalls).toBe(4);
       } finally {
         await app?.close();

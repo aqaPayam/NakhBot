@@ -47,6 +47,7 @@ describe('signup navigation integrity and concurrency', () => {
       'nakh',
       'nakh_credits',
       'nakh_pending',
+      'nakh_stars',
     ] as const) {
       const explore = { ...nav, screen: 'explore', action };
       const reference = await f.tokens.button(explore);

@@ -74,6 +74,7 @@ import {
 import type { TelegramReportIngressPort } from './report-ingress.js';
 import { createTelegramStartDelivery } from './start-delivery.js';
 import { createTelegramSignupRuntime, type TelegramSignupRuntimePort } from './signup-runtime.js';
+import { createTelegramStarsRuntime, type TelegramStarsRuntimePort } from './stars-runtime.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const REPORT_INGRESS = Symbol('REPORT_INGRESS');
@@ -82,6 +83,7 @@ const ADMIN_SAFETY_CONTENT_INGRESS = Symbol('ADMIN_SAFETY_CONTENT_INGRESS');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const SIGNUP_INGRESS = Symbol('SIGNUP_INGRESS');
+const STARS_INGRESS = Symbol('STARS_INGRESS');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
 const PHOTO_MANAGEMENT_ADAPTER = Symbol('PHOTO_MANAGEMENT_ADAPTER');
 const PHOTO_MENU_DELIVERY = Symbol('PHOTO_MENU_DELIVERY');
@@ -160,6 +162,7 @@ class TelegramGatewayController {
     @Inject(AUTHENTICATOR) private readonly authenticator: TelegramWebhookAuthenticator,
     @Inject(START_ADAPTER) private readonly startAdapter: Pick<TelegramStartAdapter, 'handle'>,
     @Inject(SIGNUP_INGRESS) private readonly signupIngress: TelegramSignupRuntimePort,
+    @Inject(STARS_INGRESS) private readonly starsIngress: TelegramStarsRuntimePort,
     @Inject(PHOTO_ADAPTER) private readonly photoAdapter: PhotoAdapter,
     @Inject(PHOTO_MANAGEMENT_ADAPTER)
     private readonly photoManagementAdapter: PhotoManagementAdapter,
@@ -205,6 +208,7 @@ class TelegramGatewayController {
     if (!this.authenticator.verify(secret)) throw new UnauthorizedException();
     const startedAt = performance.now();
     try {
+      if ((await this.starsIngress.handle(update)) !== 'unhandled') return { accepted: true };
       if ((await this.accountDeletionIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
       if ((await this.signupIngress.handle(update)) !== 'unhandled') return { accepted: true };
@@ -341,7 +345,8 @@ export class TelegramGatewayModule {
     const redis = createRedisConnection(config.redis.url);
     const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
     const identityStore = new PostgresIdentityStore(database);
-    const signup = createTelegramSignupRuntime({ config, database, redis });
+    const stars = createTelegramStarsRuntime({ config, database });
+    const signup = createTelegramSignupRuntime({ config, database, redis, stars });
     const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
     const supportAppealIngress = createTelegramSupportAppealIngress({ config, database, redis });
     const accountDeletionIngress = createTelegramAccountDeletionIngress({
@@ -451,6 +456,7 @@ export class TelegramGatewayModule {
         },
         { provide: DATABASE, useValue: database },
         { provide: SIGNUP_INGRESS, useValue: signup },
+        { provide: STARS_INGRESS, useValue: stars },
         { provide: REDIS, useValue: redis },
         { provide: M1_METRICS, useValue: new M1Metrics() },
         { provide: M2_METRICS, useValue: new M2Metrics() },

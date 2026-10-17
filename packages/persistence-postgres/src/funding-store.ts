@@ -9,6 +9,7 @@ import type {
   ResolvedFundingTarget,
   StoredFundingIntent,
   StoredStarsAttempt,
+  UserSessionActor,
 } from '@nakh/application';
 import {
   ApplicationError,
@@ -20,6 +21,7 @@ import {
 
 import { actionableLikedByFrom } from './liked-by-store.js';
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 function hash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -39,7 +41,13 @@ type IntentFacts = Readonly<{
 }>;
 
 export class PostgresFundingStore implements BillingFundingStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
 
   private async lockProductEpoch(database: NakhDatabase, userId: string): Promise<number> {
     await database
@@ -56,10 +64,14 @@ export class PostgresFundingStore implements BillingFundingStore {
       .executeTakeFirst();
     if (account?.state !== 'active')
       throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+    if (this.owner !== undefined) await requireCurrentUserSession(database, userId, this.owner);
     return account.product_epoch;
   }
 
-  public async createFundingIntent(write: CreateFundingIntentWrite): Promise<StoredFundingIntent> {
+  public async createFundingIntent(input: CreateFundingIntentWrite): Promise<StoredFundingIntent> {
+    const write = structuredClone(input);
+    if (this.owner !== undefined && this.owner.userId !== write.userId)
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     return this.database.transaction().execute(async (transaction) => {
       await sql`SELECT pg_advisory_xact_lock(hashtextextended(${'billing-user:'} || ${write.userId}::text, 0))`.execute(
         transaction,
@@ -144,7 +156,10 @@ export class PostgresFundingStore implements BillingFundingStore {
     });
   }
 
-  public async prepareStarsAttempt(write: PrepareStarsAttemptWrite): Promise<StoredStarsAttempt> {
+  public async prepareStarsAttempt(input: PrepareStarsAttemptWrite): Promise<StoredStarsAttempt> {
+    const write = structuredClone(input);
+    if (this.owner !== undefined && this.owner.userId !== write.userId)
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     return this.database.transaction().execute(async (transaction) => {
       await sql`SELECT pg_advisory_xact_lock(hashtextextended(${'billing-user:'} || ${write.userId}::text, 0))`.execute(
         transaction,
