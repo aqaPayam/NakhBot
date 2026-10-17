@@ -23,6 +23,7 @@ export async function createAccountReturnFixture(
     controlLifetimeSeconds?: number;
     beforeDeletion?: (userId: string) => Promise<void>;
     beforeEvidenceCheckpoint?: (lease: AccountDeletionLease) => Promise<void>;
+    beforeMediaCheckpoint?: (lease: AccountDeletionLease) => Promise<void>;
   } = {},
 ): Promise<{
   userId: string;
@@ -44,6 +45,7 @@ export async function createAccountReturnFixture(
     },
     undefined,
     options.beforeEvidenceCheckpoint,
+    options.beforeMediaCheckpoint,
   );
   const ephemeral = new PostgresAccountDeletionEphemeralStore(
     database,

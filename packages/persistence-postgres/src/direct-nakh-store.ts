@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { sql } from 'kysely';
 
-import type { CreateDirectNakhWrite, DirectNakhStore } from '@nakh/application';
+import type { CreateDirectNakhWrite, DirectNakhStore, UserSessionActor } from '@nakh/application';
 import type { CreateDirectNakhCommand, DirectNakhResult } from '@nakh/contracts';
 import {
   ApplicationError,
@@ -14,8 +14,10 @@ import {
 import type { NakhDatabase } from './database.js';
 import { insertNotification } from './notification-store.js';
 import { lockNakhLifecyclePair } from './nakh-lifecycle-authority.js';
+import { requireCurrentUserSession } from './user-session-store.js';
+import { captureExploreCardSource, requireDeliveredExploreSource } from './explore-card-source.js';
 
-function commandHash(command: CreateDirectNakhCommand): string {
+function commandHash(command: CreateDirectNakhCommand, candidateDeliveryId?: string): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -23,6 +25,7 @@ function commandHash(command: CreateDirectNakhCommand): string {
         schemaVersion: command.schemaVersion,
         actor: command.actor,
         data: command.data,
+        ...(candidateDeliveryId === undefined ? {} : { candidateDeliveryId }),
       }),
     )
     .digest('hex');
@@ -49,15 +52,36 @@ function unavailable(): never {
 }
 
 export class PostgresDirectNakhStore implements DirectNakhStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  private readonly candidateDeliveryId: string | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+    candidateDeliveryId?: string,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+    this.candidateDeliveryId = captureExploreCardSource(candidateDeliveryId, this.owner);
+  }
 
-  public async createDirect(write: CreateDirectNakhWrite): Promise<DirectNakhResult> {
-    const { command } = write;
+  public async createDirect(input: CreateDirectNakhWrite): Promise<DirectNakhResult> {
+    const write = structuredClone(input),
+      { command } = write;
+    if (command.actor.kind !== 'user')
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const senderUserId = command.actor.userId;
     const receiverUserId = command.data.targetUserId;
-    const requestHash = commandHash(command);
+    const requestHash = commandHash(command, this.candidateDeliveryId);
     return this.database.transaction().execute(async (transaction) => {
       const pair = await lockNakhLifecyclePair(transaction, senderUserId, receiverUserId);
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, senderUserId, this.owner);
+      if (this.candidateDeliveryId !== undefined)
+        await requireDeliveredExploreSource(
+          transaction,
+          this.candidateDeliveryId,
+          senderUserId,
+          receiverUserId,
+        );
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({

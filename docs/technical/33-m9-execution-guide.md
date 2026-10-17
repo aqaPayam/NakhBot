@@ -505,3 +505,51 @@ populated migration/replay checks cover the new seed. These are implementation
 checks, not a live test-bot rehearsal, content approval or launch sign-off. Normal
 Explore interaction delivery, complete menus, operator process composition and the
 original production/provider/cohort/health requirements remain outstanding.
+
+## Delivered Explore source binding for interactions and direct Nakh
+
+Native card-action composition can now construct
+`PostgresInteractionStore(database, currentActor, deliveredCardId)` and
+`PostgresDirectNakhStore(database, currentActor, deliveredCardId)`.
+The actor is a verified current product session and the card ID is resolved by the
+server from owned navigation. Passing a card without an actor, or a malformed card
+ID, is rejected. A regression first demonstrated that the previous actor-only
+interaction path could create a Like for a still-unconfirmed reservation.
+
+The bound writers take the existing shared pair and sorted User/Account locks,
+check the current native session, then require the original delivered Explore
+receipt for that exact viewer and target. Pending, uncertain, failed, missing,
+foreign and Guest Preview receipts cannot authorize these actions. The original
+account-life fence runs inside the business transaction: deletion/Return cannot
+turn an old card into authority over the counterpart's new life. A disappearing
+source is checked again after the pair-lock wait. These checks run before cached
+idempotency replies as well as before new mutations. Existing capability, pair,
+credit, FIFO, audit and outbox rules continue to govern new writes.
+
+The card ID participates in the request hash. Retrying the same intent preserves
+its original source; changing the source while reusing its idempotency key is a
+conflict. No private message or Profile snapshot is added to transport storage.
+Direct Nakh also captures its whole command/generated write and constructor actor
+before asynchronous waits, preventing a queued caller mutation from changing the
+message or generated IDs under an earlier request hash. Current-session checks
+precede both spending and cached replies. The canonical Nakh cost and ledger
+idempotency rules are unchanged.
+
+Existing constructor forms remain available for trusted internal composition and
+other owning source workflows. Ordinary card ingress must use the source-bound
+form; a target UUID alone is not a delivered-card proof. This increment supplies
+the native prerequisite. The normal Explore menu, filter controls, user Nakh
+prompts and Report journey still need running-gateway composition before enabling
+that product flow. Guest Preview remains free of interaction actions.
+
+Native evidence covers the reproduced pending-card failure, concurrent Like and
+Not Interested retries, foreign/changed source rejection, Guest Preview after
+activation, one canonical direct-Nakh debit, revoked cached replies, observed
+pair waits, write capture, and all three actions after genuine native deletion
+and approved Return of the counterpart. The latter runs native photo archival,
+media operations/readback receipts and every completion phase; its object/cache
+provider is a stateful synthetic fixture, not actual R2 or Cloudflare acceptance.
+Only a fresh delivered card authorizes the returned counterpart. There is no new
+migration, user-linked table, retention period or retained-erasure adapter, and
+retained-data erasure remains disabled. Original M9 provider/operator/cohort/health
+acceptance is still required.

@@ -14,6 +14,7 @@ export async function createFinalDeletionFixture(
   beforeDeletion?: (userId: string) => Promise<void>,
   beforeProductCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
   beforeEvidenceCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
+  beforeMediaCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
 ): Promise<{
   userId: string;
   recordId: string;
@@ -24,6 +25,7 @@ export async function createFinalDeletionFixture(
     beforeDeletion,
     beforeProductCheckpoint,
     beforeEvidenceCheckpoint,
+    beforeMediaCheckpoint,
   );
   await new PostgresAccountDeletionSessionStore(database).revokeNext(item.lease);
   const ephemeral = new PostgresAccountDeletionEphemeralStore(

@@ -9,6 +9,7 @@ import { ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
 import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 import { requireCurrentUserSession } from './user-session-store.js';
+import { captureExploreCardSource, requireDeliveredExploreSource } from './explore-card-source.js';
 
 type LikeGenerated = Parameters<InteractionStore['sendLike']>[1];
 type RejectionGenerated = Parameters<InteractionStore['markNotInterested']>[1];
@@ -22,7 +23,7 @@ type UserFacts = Readonly<{
   visibilityEnabled: boolean;
 }>;
 
-function commandHash(command: InteractionCommand): string {
+function commandHash(command: InteractionCommand, candidateDeliveryId?: string): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -30,6 +31,7 @@ function commandHash(command: InteractionCommand): string {
         schemaVersion: command.schemaVersion,
         actor: command.actor,
         data: command.data,
+        ...(candidateDeliveryId === undefined ? {} : { candidateDeliveryId }),
       }),
     )
     .digest('hex');
@@ -39,8 +41,9 @@ async function claimCommand(
   database: NakhDatabase,
   command: InteractionCommand,
   occurredAt: Date,
+  candidateDeliveryId?: string,
 ): Promise<InteractionResult | undefined> {
-  const hash = commandHash(command);
+  const hash = commandHash(command, candidateDeliveryId);
   const claim = await database
     .insertInto('platform.idempotency_records')
     .values({
@@ -227,11 +230,14 @@ async function insertEvent(
 
 export class PostgresInteractionStore implements InteractionStore {
   private readonly owner: UserSessionActor | undefined;
+  private readonly candidateDeliveryId: string | undefined;
   public constructor(
     private readonly database: NakhDatabase,
     owner?: UserSessionActor,
+    candidateDeliveryId?: string,
   ) {
     this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+    this.candidateDeliveryId = captureExploreCardSource(candidateDeliveryId, this.owner);
   }
 
   public sendLike(input: SendLikeCommand, effects: LikeGenerated): Promise<InteractionResult> {
@@ -248,7 +254,19 @@ export class PostgresInteractionStore implements InteractionStore {
         await requireCurrentUserSession(transaction, command.actor.userId, this.owner);
       if (accounts.length !== 2 || accounts.some((account) => account.state === 'deleted'))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
-      const replay = await claimCommand(transaction, command, generated.occurredAt);
+      if (this.candidateDeliveryId !== undefined)
+        await requireDeliveredExploreSource(
+          transaction,
+          this.candidateDeliveryId,
+          command.actor.userId,
+          command.data.targetUserId,
+        );
+      const replay = await claimCommand(
+        transaction,
+        command,
+        generated.occurredAt,
+        this.candidateDeliveryId,
+      );
       if (replay !== undefined) return replay;
       const users = await lockAndLoadUsers(transaction, pair.userLowId, pair.userHighId);
       await assertPairAvailable(transaction, pair.userLowId, pair.userHighId);
@@ -524,7 +542,19 @@ export class PostgresInteractionStore implements InteractionStore {
         await requireCurrentUserSession(transaction, command.actor.userId, this.owner);
       if (accounts.length !== 2 || accounts.some((account) => account.state === 'deleted'))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
-      const replay = await claimCommand(transaction, command, generated.occurredAt);
+      if (this.candidateDeliveryId !== undefined)
+        await requireDeliveredExploreSource(
+          transaction,
+          this.candidateDeliveryId,
+          command.actor.userId,
+          command.data.targetUserId,
+        );
+      const replay = await claimCommand(
+        transaction,
+        command,
+        generated.occurredAt,
+        this.candidateDeliveryId,
+      );
       if (replay !== undefined) return replay;
       const users = await lockAndLoadUsers(transaction, pair.userLowId, pair.userHighId);
       await assertPairAvailable(transaction, pair.userLowId, pair.userHighId);

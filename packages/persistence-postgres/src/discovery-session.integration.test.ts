@@ -1,12 +1,23 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as pause } from 'node:timers/promises';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
+import { NAKH_CREDIT_COST } from '@nakh/domain';
+import {
+  ExecuteAccountDeletionMedia,
+  type AccountDeletionLease,
+  type AccountDeletionMediaObjects,
+} from '@nakh/application';
+import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-store.js';
+import { PostgresAccountDeletionPhotoStore } from './account-deletion-photo-store.js';
+import { PostgresAccountDeletionMediaStore } from './account-deletion-media-store.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { InteractionStore, UserSessionActor } from '@nakh/application';
+import type { InteractionStore, UserSessionActor, CreateDirectNakhWrite } from '@nakh/application';
 import type {
   SaveExploreFilterCommand,
   SendLikeCommand,
   MarkNotInterestedCommand,
+  CreateDirectNakhCommand,
 } from '@nakh/contracts';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -14,6 +25,9 @@ import { PostgresExploreFilterStore } from './explore-filter-store.js';
 import { PostgresCandidateReservationStore } from './candidate-reservation-store.js';
 import { PostgresCandidateDeliveryStore } from './candidate-delivery-store.js';
 import { PostgresInteractionStore } from './interaction-store.js';
+import { PostgresDirectNakhStore } from './direct-nakh-store.js';
+import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
+import { createMediaAuthorityFixture } from './testing/media-authority-fixture.js';
 import { PostgresUserSessionStore } from './user-session-store.js';
 import { PostgresAccountReturnStore } from './account-return-store.js';
 import { lockUserPair } from './pair-lock.js';
@@ -295,6 +309,467 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
     ).toMatchObject({ targetUserId: f.b });
   });
 
+  async function card(
+    f: { a: string; b: string },
+    session: UserSessionActor,
+    delivered = true,
+  ): Promise<string> {
+    const selected = await new PostgresCandidateReservationStore(database, session).reserveNext(
+      { actor: { kind: 'user', userId: f.a }, requestId: randomUUID(), mode: 'explore' },
+      reservationEffects(),
+    );
+    if (selected?.targetUserId !== f.b) throw new Error('Original candidate fixture unavailable.');
+    if (delivered)
+      await new PostgresCandidateDeliveryStore(database).recordDelivered(
+        { deliveryId: selected.deliveryId, providerMessageId: '7801' },
+        {
+          auditId: randomUUID(),
+          deliveryEventId: randomUUID(),
+          consumptionEventId: randomUUID(),
+          processedAt: new Date(),
+        },
+      );
+    return selected.deliveryId;
+  }
+  it('does not authorize a card Like before the original delivery is confirmed', async () => {
+    const f = await pair(),
+      session = await actor(f.a),
+      source = await card(f, session, false);
+    await expect(
+      new PostgresInteractionStore(database, session, source).sendLike(
+        like(f.a, f.b),
+        likeEffects(),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(
+      await database
+        .selectFrom('interaction.likes')
+        .select('id')
+        .where('sender_user_id', '=', f.a)
+        .execute(),
+    ).toHaveLength(0);
+  });
+  async function aliasCard(source: string): Promise<string> {
+    const original = await database
+      .selectFrom('discovery.candidate_deliveries')
+      .selectAll()
+      .where('id', '=', source)
+      .executeTakeFirstOrThrow();
+    const id = randomUUID();
+    await database
+      .insertInto('discovery.candidate_deliveries')
+      .values({ ...original, id })
+      .execute();
+    return id;
+  }
+  async function fund(f: { a: string; b: string }): Promise<void> {
+    await database
+      .insertInto('billing.credit_accounts')
+      .values({ user_id: f.a, created_at: new Date(), updated_at: new Date() })
+      .onConflict((c) => c.column('user_id').doNothing())
+      .execute();
+    for (const userId of [f.a, f.b])
+      await database
+        .insertInto('notification.notification_preferences')
+        .values({ user_id: userId, created_at: new Date(), updated_at: new Date() })
+        .onConflict((c) => c.column('user_id').doNothing())
+        .execute();
+    await new PostgresCreditLedgerStore(database).append({
+      transactionId: randomUUID(),
+      userId: f.a,
+      transactionType: 'admin_adjustment',
+      amount: 5n,
+      idempotencyKey: randomUUID(),
+      correlationId: randomUUID(),
+    });
+  }
+  async function balance(userId: string): Promise<bigint> {
+    return BigInt(
+      (
+        await database
+          .selectFrom('billing.credit_accounts')
+          .select('balance')
+          .where('user_id', '=', userId)
+          .executeTakeFirstOrThrow()
+      ).balance,
+    );
+  }
+  function direct(
+    f: { a: string; b: string },
+    command?: CreateDirectNakhCommand,
+  ): CreateDirectNakhWrite {
+    return {
+      command: command ?? {
+        ...envelope(f.a),
+        commandType: 'nakh.create-direct',
+        data: { targetUserId: f.b, text: 'Original source-bound synthetic Nakh' },
+      },
+      flowId: randomUUID(),
+      nakhId: randomUUID(),
+      creditTransactionId: randomUUID(),
+      historyId: randomUUID(),
+      flowEventId: randomUUID(),
+      deliveredEventId: randomUUID(),
+    };
+  }
+  /** Native media closure with a stateful synthetic object provider; no live R2 acceptance. */
+  async function closeMedia(lease: AccountDeletionLease): Promise<void> {
+    const assets = await database
+      .selectFrom('media.media_assets')
+      .select('id')
+      .where('owner_user_id', '=', lease.userId)
+      .execute();
+    const objects = new Set<string>();
+    for (const asset of assets) {
+      objects.add(`quarantine/test/${asset.id}/original`);
+      objects.add(`validated/test/${asset.id}/original`);
+      for (const variant of await database
+        .selectFrom('media.photo_variants')
+        .select('storage_key')
+        .where('asset_id', '=', asset.id)
+        .execute())
+        objects.add(variant.storage_key);
+    }
+    const provider: AccountDeletionMediaObjects = {
+      list: (prefix, limit) =>
+        Promise.resolve([...objects].filter((key) => key.startsWith(prefix)).slice(0, limit)),
+      head: (key) =>
+        Promise.resolve(objects.has(key) ? { bytes: 3, sha256: 'a'.repeat(64) } : undefined),
+      delete: (key) => {
+        objects.delete(key);
+        return Promise.resolve();
+      },
+      get: () => Promise.reject(new Error('No retained media expected.')),
+      putPrivate: () => Promise.reject(new Error('No retained media expected.')),
+    };
+    const store = new PostgresAccountDeletionMediaStore(database, 'test');
+    const executor = new ExecuteAccountDeletionMedia(
+      store,
+      provider,
+      { purge: () => Promise.resolve() },
+      'test',
+    );
+    let completed = false;
+    for (let i = 0; i < 20; i++) {
+      if (!(await executor.executeNext(lease)).worked) {
+        completed = true;
+        break;
+      }
+    }
+    expect(completed).toBe(true);
+    expect(objects.size).toBe(0);
+    expect(await store.archiveNext(lease)).toEqual({ archived: true, hasMore: false });
+  }
+  async function observedPairWait(): Promise<void> {
+    for (let i = 0; i < 200; i++) {
+      const r = await sql<{
+        waiting: boolean;
+      }>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event='advisory' AND query LIKE '%interaction.lock_user_pair%') AS waiting`.execute(
+        database,
+      );
+      if (r.rows[0]?.waiting) return;
+      await pause(5);
+    }
+    throw new Error('The native pair-lock wait was not observed.');
+  }
+  it.each(['like', 'not_interested'] as const)(
+    'binds %s retries to one current delivered source before idempotency replay',
+    async (mode) => {
+      const f = await pair(),
+        session = await actor(f.a),
+        source = await card(f, session),
+        foreign = await pair(),
+        foreignActor = await actor(foreign.a),
+        foreignSource = await card(foreign, foreignActor);
+      const command = mode === 'like' ? like(f.a, f.b) : reject(f.a, f.b);
+      const act = (
+        store: PostgresInteractionStore,
+        input = command,
+      ): Promise<Awaited<ReturnType<PostgresInteractionStore['sendLike']>>> =>
+        input.commandType === 'interaction.send-like'
+          ? store.sendLike(input, likeEffects())
+          : store.markNotInterested(input, rejectEffects());
+      await expect(
+        act(new PostgresInteractionStore(database, session, foreignSource)),
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        act(new PostgresInteractionStore(database, session, randomUUID())),
+      ).rejects.toMatchObject({ status: 403 });
+      const third = await user(f.cityId, true);
+      await expect(
+        act(new PostgresInteractionStore(database, session, source), {
+          ...command,
+          data: { ...command.data, targetUserId: third },
+        } as typeof command),
+      ).rejects.toMatchObject({ status: 403 });
+      const store = new PostgresInteractionStore(database, session, source);
+      const results = await Promise.all(Array.from({ length: 10 }, () => act(store)));
+      expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+      expect(new Set(results.map((r) => r.interactionId)).size).toBe(1);
+      const alternate = await aliasCard(source);
+      await expect(
+        act(new PostgresInteractionStore(database, session, alternate)),
+      ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+      await revoke(session);
+      await expect(act(store)).rejects.toMatchObject({ status: 401 });
+      expect(
+        await database
+          .selectFrom('platform.idempotency_records')
+          .select('id')
+          .where('actor_user_id', '=', f.a)
+          .where('scope', '=', command.commandType)
+          .execute(),
+      ).toHaveLength(1);
+    },
+  );
+  it('rejects a delivered Guest Preview as interaction authority after activation', async () => {
+    const f = await pair(),
+      session = await actor(f.a);
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'guest', version: sql`version+1` })
+      .where('user_id', '=', f.a)
+      .execute();
+    await database
+      .insertInto('identity.guest_preview_counters')
+      .values({ user_id: f.a, limit_count: 10 })
+      .execute();
+    const selected = await new PostgresCandidateReservationStore(database, session).reserveNext(
+      { actor: { kind: 'user', userId: f.a }, requestId: randomUUID(), mode: 'guest_preview' },
+      reservationEffects(),
+    );
+    if (!selected) throw new Error('Guest source unavailable.');
+    await new PostgresCandidateDeliveryStore(database).recordDelivered(
+      { deliveryId: selected.deliveryId, providerMessageId: '7802' },
+      {
+        auditId: randomUUID(),
+        deliveryEventId: randomUUID(),
+        consumptionEventId: randomUUID(),
+        processedAt: new Date(),
+      },
+    );
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'active', version: sql`version+1` })
+      .where('user_id', '=', f.a)
+      .execute();
+    const store = new PostgresInteractionStore(database, session, selected.deliveryId);
+    await expect(
+      store.sendLike(like(f.a, selected.targetUserId), likeEffects()),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      store.markNotInterested(reject(f.a, selected.targetUserId), rejectEffects()),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(() => new PostgresInteractionStore(database, undefined, selected.deliveryId)).toThrow();
+    expect(() => new PostgresDirectNakhStore(database, undefined, selected.deliveryId)).toThrow();
+    expect(() => new PostgresInteractionStore(database, session, 'not-a-source')).toThrow();
+  });
+  it('checks direct Nakh session and source before spending or returning a cached result', async () => {
+    const f = await pair(),
+      session = await actor(f.a),
+      source = await card(f, session, false),
+      input = direct(f);
+    await fund(f);
+    const store = new PostgresDirectNakhStore(database, session, source);
+    await expect(store.createDirect(input)).rejects.toMatchObject({ status: 403 });
+    expect(await balance(f.a)).toBe(5n);
+    expect(
+      await database
+        .selectFrom('platform.idempotency_records')
+        .select('id')
+        .where('actor_user_id', '=', f.a)
+        .where('scope', '=', 'nakh.create-direct')
+        .execute(),
+    ).toHaveLength(0);
+    await new PostgresCandidateDeliveryStore(database).recordDelivered(
+      { deliveryId: source, providerMessageId: '7803' },
+      {
+        auditId: randomUUID(),
+        deliveryEventId: randomUUID(),
+        consumptionEventId: randomUUID(),
+        processedAt: new Date(),
+      },
+    );
+    const borrowed = await actor(f.b);
+    await expect(
+      new PostgresDirectNakhStore(database, borrowed, source).createDirect(input),
+    ).rejects.toMatchObject({ status: 401 });
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => store.createDirect(direct(f, input.command))),
+    );
+    expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+    expect(new Set(results.map((r) => r.nakhId)).size).toBe(1);
+    expect(await balance(f.a)).toBe(5n - NAKH_CREDIT_COST);
+    await expect(
+      new PostgresDirectNakhStore(database, session, await aliasCard(source)).createDirect(input),
+    ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+    await revoke(session);
+    await expect(store.createDirect(input)).rejects.toMatchObject({ status: 401 });
+    await expect(
+      new PostgresDirectNakhStore(database, await actor(f.a), source).createDirect(input),
+    ).resolves.toMatchObject({ replayed: true });
+    expect(await balance(f.a)).toBe(5n - NAKH_CREDIT_COST);
+  });
+  it('rechecks a disappearing source after an observed pair-lock wait', async () => {
+    const f = await pair(),
+      session = await actor(f.a),
+      source = await card(f, session);
+    let entered!: () => void, release!: () => void;
+    const ready = new Promise<void>((r) => {
+        entered = r;
+      }),
+      gate = new Promise<void>((r) => {
+        release = r;
+      });
+    const holder = database.transaction().execute(async (tx) => {
+      await lockUserPair(tx, f.a, f.b);
+      entered();
+      await gate;
+      await tx.deleteFrom('discovery.candidate_deliveries').where('id', '=', source).execute();
+    });
+    await ready;
+    const pending = new PostgresInteractionStore(database, session, source).sendLike(
+      like(f.a, f.b),
+      likeEffects(),
+    );
+    const denied = expect(pending).rejects.toMatchObject({ status: 403 });
+    try {
+      await observedPairWait();
+    } finally {
+      release();
+      await holder;
+    }
+    await denied;
+    expect(
+      await database
+        .selectFrom('interaction.likes')
+        .select('id')
+        .where('sender_user_id', '=', f.a)
+        .execute(),
+    ).toHaveLength(0);
+  });
+  it('captures a paid Nakh write and owner before the observed source/pair wait', async () => {
+    const f = await pair(),
+      session = await actor(f.a),
+      source = await card(f, session),
+      input = direct(f),
+      owner = { ...session };
+    await fund(f);
+    const store = new PostgresDirectNakhStore(database, owner, source),
+      nakhId = input.nakhId,
+      text = input.command.data.text;
+    owner.sessionGrantId = randomUUID();
+    let entered!: () => void, release!: () => void;
+    const ready = new Promise<void>((r) => {
+        entered = r;
+      }),
+      gate = new Promise<void>((r) => {
+        release = r;
+      });
+    const holder = database.transaction().execute(async (tx) => {
+      await lockUserPair(tx, f.a, f.b);
+      entered();
+      await gate;
+    });
+    await ready;
+    const pending = store.createDirect(input);
+    try {
+      await observedPairWait();
+      input.command.data.text = 'Mutated after enqueue';
+      (input as { nakhId: string }).nakhId = randomUUID();
+      input.command.data.targetUserId = randomUUID();
+    } finally {
+      release();
+      await holder;
+    }
+    await expect(pending).resolves.toMatchObject({ nakhId, replayed: false });
+    expect(
+      (
+        await database
+          .selectFrom('nakh.nakhes')
+          .select('text')
+          .where('id', '=', nakhId)
+          .executeTakeFirstOrThrow()
+      ).text,
+    ).toBe(text);
+    expect(await balance(f.a)).toBe(5n - NAKH_CREDIT_COST);
+  });
+  it.each(['like', 'not_interested', 'nakh'] as const)(
+    'requires a fresh delivered source for %s after the counterpart completes deletion and Return',
+    async (mode) => {
+      const seed = await pair(),
+        session = await actor(seed.a);
+      let originalSource = '';
+      const rebuild = async (userId: string): Promise<void> => {
+        await createMediaAuthorityFixture(database, 'owner_preview', userId);
+        await database
+          .updateTable('profile.profiles')
+          .set({ gender_option_id: woman, gender_preference_id: men, city_id: seed.cityId })
+          .where('user_id', '=', userId)
+          .execute();
+        await database
+          .updateTable('identity.user_settings')
+          .set({ visibility_enabled: true })
+          .where('user_id', '=', userId)
+          .execute();
+      };
+      await database
+        .updateTable('identity.user_settings')
+        .set({ visibility_enabled: false })
+        .where('user_id', '=', seed.b)
+        .execute();
+      const returned = await createAccountReturnFixture(database, {
+        beforeDeletion: async (userId) => {
+          await rebuild(userId);
+          originalSource = await card({ a: seed.a, b: userId }, session);
+        },
+        beforeEvidenceCheckpoint: async (lease) => {
+          expect(
+            await new PostgresAccountDeletionPhotoStore(database).archiveNext(lease),
+          ).toMatchObject({ archived: true, hasMore: false });
+          expect(
+            (await new PostgresAccountDeletionProfileStore(database).archive(lease)).archived,
+          ).toBe(true);
+        },
+        beforeMediaCheckpoint: closeMedia,
+      });
+      const id = randomUUID();
+      await new PostgresAccountReturnStore(database, returned.control).return({
+        ...envelope(returned.userId),
+        commandId: id,
+        requestId: id,
+        idempotencyKey: id,
+        commandType: 'account.return',
+        data: { expectedAccountVersion: returned.version },
+      });
+      await rebuild(returned.userId);
+      const f = { a: seed.a, b: returned.userId };
+      if (mode === 'nakh') await fund(f);
+      const act = (source: string): Promise<unknown> =>
+        mode === 'like'
+          ? new PostgresInteractionStore(database, session, source).sendLike(
+              like(f.a, f.b),
+              likeEffects(),
+            )
+          : mode === 'not_interested'
+            ? new PostgresInteractionStore(database, session, source).markNotInterested(
+                reject(f.a, f.b),
+                rejectEffects(),
+              )
+            : new PostgresDirectNakhStore(database, session, source).createDirect(direct(f));
+      await expect(act(originalSource)).rejects.toMatchObject({ status: 403 });
+      if (mode === 'nakh') expect(await balance(f.a)).toBe(5n);
+      const fresh = await card(f, session);
+      await expect(act(fresh)).resolves.toBeDefined();
+      const target = await database
+        .selectFrom('identity.accounts')
+        .select('product_epoch')
+        .where('user_id', '=', f.b)
+        .executeTakeFirstOrThrow();
+      expect(target.product_epoch).toBe(1);
+      if (mode === 'nakh') expect(await balance(f.a)).toBe(5n - NAKH_CREDIT_COST);
+    },
+  );
   it('saves one filter under retries and rejects revoked and borrowed grants before cached replies', async () => {
     const f = await pair(),
       a = await actor(f.a),

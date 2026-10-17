@@ -17,6 +17,7 @@ export async function createEphemeralDeletionFixture(
   beforeDeletion?: (userId: string) => Promise<void>,
   beforeProductCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
   beforeEvidenceCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
+  beforeMediaCheckpoint?: (lease: AccountDeletionLease) => Promise<void>,
 ): Promise<{ userId: string; recordId: string; lease: AccountDeletionLease }> {
   const item = await createDeletionFixture(database, beforeDeletion);
   const work = new PostgresAccountDeletionWorkStore(database),
@@ -55,7 +56,9 @@ export async function createEphemeralDeletionFixture(
   await beforeProductCheckpoint?.(product);
   if ((await checkpoints.finishProduct(product)).phase !== 'media_objects')
     throw new Error('Product fixture not verified.');
-  if ((await checkpoints.finishMedia(await claim())).phase !== 'ephemeral_access')
+  const media = await claim();
+  await beforeMediaCheckpoint?.(media);
+  if ((await checkpoints.finishMedia(media)).phase !== 'ephemeral_access')
     throw new Error('Media fixture not verified.');
   return { ...item, lease: await claim() };
 }
