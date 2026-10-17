@@ -17,7 +17,15 @@ import { ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
 import { insertPaymentCorrectionNotification } from './notification-store.js';
 
-export type StarsRefundClaim = Readonly<{ owner: string; leaseMs: number; limit: number }>;
+export type StarsRefundClaim = Readonly<{
+  owner: string;
+  leaseMs: number;
+  limit: number;
+  provider?: Readonly<{
+    environment: 'local' | 'test' | 'staging' | 'production';
+    botIdDigest: string;
+  }>;
+}>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const OWNER = /^[\x20-\x7e]{1,128}$/u;
@@ -57,6 +65,7 @@ export class PostgresRefundStore implements StarsRefundStore, AmbiguousStarsRefu
 
   /** Claims only requests for which Telegram has definitely not been contacted. */
   public async claimStarsRefunds(input: StarsRefundClaim): Promise<ClaimedStarsRefund[]> {
+    input = structuredClone(input);
     if (
       typeof input.owner !== 'string' ||
       !OWNER.test(input.owner) ||
@@ -65,12 +74,15 @@ export class PostgresRefundStore implements StarsRefundStore, AmbiguousStarsRefu
       input.leaseMs > 900_000 ||
       !Number.isSafeInteger(input.limit) ||
       input.limit < 1 ||
-      input.limit > 100
+      input.limit > 100 ||
+      (input.provider !== undefined &&
+        (!['local', 'test', 'staging', 'production'].includes(input.provider.environment) ||
+          !/^[a-f0-9]{64}$/u.test(input.provider.botIdDigest)))
     )
       invalidRequest();
 
     return this.database.transaction().execute(async (transaction) => {
-      const due = await transaction
+      let query = transaction
         .selectFrom('billing.refund_records')
         .select('id')
         .where('funding_type', '=', 'telegram_stars')
@@ -87,8 +99,21 @@ export class PostgresRefundStore implements StarsRefundStore, AmbiguousStarsRefu
         .orderBy('id', 'asc')
         .limit(input.limit)
         .forUpdate()
-        .skipLocked()
-        .execute();
+        .skipLocked();
+      if (input.provider !== undefined) {
+        const { environment, botIdDigest } = input.provider;
+        query = query.where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('billing.payment_records as payment')
+              .select('payment.id')
+              .whereRef('payment.id', '=', 'billing.refund_records.payment_record_id')
+              .where('payment.provider_environment', '=', environment)
+              .where('payment.provider_bot_id_digest', '=', botIdDigest),
+          ),
+        );
+      }
+      const due = await query.execute();
       if (due.length === 0) return [];
 
       const rows = await transaction

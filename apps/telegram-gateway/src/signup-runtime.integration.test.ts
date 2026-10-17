@@ -815,14 +815,24 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             expect(
               await new PostgresMediaDeliveryAuthorization(database, 'test').isCurrent(claims),
             ).toBe(true);
-            if (claims.purpose === 'profile_card') cards++;
-            else details++;
-            return new Response(new Uint8Array([82, 73, 70, 70]), {
-              headers: { 'content-type': 'image/webp' },
-            });
+            // Reads may race before the native send CAS. Mark synthetic bytes
+            // so the counters below measure actual Bot API invocations.
+            return new Response(
+              new Uint8Array([82, 73, 70, 70, claims.purpose === 'profile_card' ? 1 : 2]),
+              {
+                headers: { 'content-type': 'image/webp' },
+              },
+            );
           }
           const form = init?.body as FormData;
           expect(form.get('chat_id')).toBe(sender);
+          const bytes = new Uint8Array(await (form.get('photo') as Blob).arrayBuffer());
+          expect([...bytes.subarray(0, 4)]).toEqual([82, 73, 70, 70]);
+          if (bytes[4] === 1) cards++;
+          else {
+            expect(bytes[4]).toBe(2);
+            details++;
+          }
           const markup = JSON.parse(formText(form, 'reply_markup')) as {
             inline_keyboard: Message['keyboard'];
           };

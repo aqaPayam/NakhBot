@@ -27,6 +27,13 @@ describe('Stars financial key custody', () => {
       first = keys.protectEvidence({ a: 'one', b: 'two' }),
       second = keys.protectEvidence({ b: 'two', a: 'one' });
     expect(first.digest).toBe(second.digest);
+    expect(keys.verifyEvidence(first.ciphertext, first.keyId, first.digest)).toEqual({
+      a: 'one',
+      b: 'two',
+    });
+    expect(() => keys.verifyEvidence(first.ciphertext, first.keyId, '0'.repeat(64))).toThrow(
+      'Stars keys unavailable.',
+    );
     expect(first.ciphertext).not.toEqual(second.ciphertext);
     const corrupt = Buffer.from(first.ciphertext);
     corrupt[corrupt.length - 1]! ^= 1;

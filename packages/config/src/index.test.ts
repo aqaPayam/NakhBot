@@ -36,6 +36,14 @@ describe('configuration', () => {
   });
   it('keeps Stars disabled by default and allows receipts while product menus are stopped', () => {
     expect(parseConfig(validEnvironment).telegram.starsEnabled).toBe(false);
+    expect(parseConfig(validEnvironment).telegram.starsRefundsEnabled).toBe(false);
+    const refunds = parseConfig({
+      ...validEnvironment,
+      NAKH_TELEGRAM_STARS_REFUNDS_ENABLED: 'true',
+    });
+    expect(refunds.telegram.starsRefundsEnabled).toBe(true);
+    expect(refunds.telegram.starsEnabled).toBe(false);
+    expect(refunds.telegram.signupEnabled).toBe(false);
     const config = parseConfig({ ...validEnvironment, NAKH_TELEGRAM_STARS_ENABLED: 'true' });
     expect(config.telegram.starsEnabled).toBe(true);
     expect(config.telegram.signupEnabled).toBe(false);

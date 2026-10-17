@@ -57,6 +57,7 @@ import { createTelegramLikedByDeliveryRuntime } from './liked-by-delivery-runtim
 import { SharpPhotoTransformer } from './media/image-transformer.js';
 import { createTelegramNotificationDeliveryRuntime } from './notification-delivery-runtime.js';
 import { PaymentFulfillmentProcessor } from './payment-fulfillment-processor.js';
+import { createTelegramStarsRefundRuntime } from './stars-refund-runtime.js';
 import {
   createAccountDeletionRuntime,
   loadDeletionEvidenceReaders,
@@ -187,6 +188,12 @@ const paymentFulfillment = new PaymentFulfillmentProcessor(
   ids,
   `payment-fulfillment-${randomUUID()}`,
 );
+const starsRefunds = createTelegramStarsRefundRuntime({
+  config,
+  database,
+  owner: `stars-refund-${randomUUID()}`,
+});
+await starsRefunds?.verifyCustody();
 const likedByDelivery = createTelegramLikedByDeliveryRuntime({
   config,
   database,
@@ -435,6 +442,22 @@ const dispatchLikedBy = async (): Promise<void> => {
   }
 };
 
+const dispatchStarsRefund = async (): Promise<void> => {
+  if (starsRefunds === undefined) return;
+  try {
+    const result = await starsRefunds.processNext();
+    if (result.outcome !== 'idle')
+      logger.info(
+        { operation: 'billing.stars_refund', outcome: result.outcome },
+        'Stars refund polled',
+      );
+  } catch {
+    logger.error(
+      { operation: 'billing.stars_refund', reasonCode: 'refund_poll_unavailable' },
+      'Stars refund polling unavailable',
+    );
+  }
+};
 let paymentFulfillmentDispatching = false;
 const dispatchPaymentFulfillment = async (): Promise<void> => {
   if (paymentFulfillmentDispatching) return;
@@ -513,6 +536,7 @@ await Promise.all([
   dispatch(),
   dispatchLikedBy(),
   dispatchPaymentFulfillment(),
+  dispatchStarsRefund(),
   sampleLikedByBacklog(),
   dispatchNotification(),
   dispatchDeletion(),
@@ -527,6 +551,8 @@ const deletionTimer =
 const timer = setInterval(() => void dispatch(), 250);
 const queueMigrationTimer = setInterval(() => void migrateLegacyQueue(), 5000);
 const paymentFulfillmentTimer = setInterval(() => void dispatchPaymentFulfillment(), 250);
+const starsRefundTimer =
+  starsRefunds === undefined ? undefined : setInterval(() => void dispatchStarsRefund(), 250);
 const likedByTimer =
   likedByDelivery === undefined ? undefined : setInterval(() => void dispatchLikedBy(), 250);
 const likedByBacklogTimer =
@@ -543,6 +569,7 @@ logger.info(
     telegramLikedByDeliveryEnabled: likedByDelivery !== undefined,
     telegramNotificationDeliveryEnabled: notificationDelivery !== undefined,
     accountDeletionWorkerEnabled: deletionRuntime !== undefined,
+    telegramStarsRefundsEnabled: starsRefunds !== undefined,
   },
   'service started',
 );
@@ -553,9 +580,11 @@ const shutdown = async (): Promise<void> => {
   clearInterval(timer);
   clearInterval(queueMigrationTimer);
   clearInterval(paymentFulfillmentTimer);
+  if (starsRefundTimer !== undefined) clearInterval(starsRefundTimer);
   if (likedByTimer !== undefined) clearInterval(likedByTimer);
   if (likedByBacklogTimer !== undefined) clearInterval(likedByBacklogTimer);
   if (notificationTimer !== undefined) clearInterval(notificationTimer);
+  await starsRefunds?.close();
   await deletionRuntime?.close();
   await deletionTelemetry?.close();
   await eventWorker.close();

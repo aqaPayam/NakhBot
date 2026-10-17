@@ -169,6 +169,34 @@ async function execute(): Promise<void> {
   async function runShard(shard: NativeShard): Promise<IntegrationShardReport> {
     const database = await createIsolatedTestDatabase(url!, `ci_native_${shard}`);
     try {
+      // The ordinary worker entry-point case runs the production compiled
+      // artifact. Build its workspace dependency closure only on its owning
+      // shard; all original native cases, CLI fixtures and time caps remain.
+      if (
+        dispatch.files[shard - 1]!.some(
+          (file) =>
+            relative(resolve('.'), file).replaceAll('\\', '/') ===
+            'apps/worker/src/stars-refund-runtime.integration.test.ts',
+        )
+      ) {
+        const manager = process.env.npm_execpath;
+        if (manager === undefined || !isAbsolute(manager))
+          throw new Error('Native worker fixture requires package-manager execution.');
+        execFileSync(
+          process.execPath,
+          [
+            ...engineArguments,
+            manager,
+            '--filter',
+            '@nakh/worker...',
+            '-r',
+            '--workspace-concurrency=1',
+            '--if-present',
+            'build',
+          ],
+          { stdio: 'inherit', timeout: 180000 },
+        );
+      }
       // Match the existing CI service's migrated and verified starting state.
       await runMigrations(database.url, resolve('migrations'));
       await verifyMigrations(database.url, resolve('migrations/verify'));

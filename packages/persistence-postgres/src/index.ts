@@ -256,3 +256,5 @@ export * from './account-deletion-health-store.js';
 
 export { PostgresRetainedSupportContentStore } from './retained-support-content-store.js';
 export * from './candidate-presentation-store.js';
+export * from './telegram-stars-keys.js';
+export * from './stars-refund-authority-store.js';

@@ -754,3 +754,35 @@ available to their owning compositions. The remaining public/operator journeys
 still need process wiring and launch evidence. This does not close M9 or replace
 real-provider, production, operator, cohort or health-review acceptance.
 Retained-data erasure remains disabled pending approved policies.
+
+## Automatic Stars corrections in the ordinary worker
+
+`NAKH_TELEGRAM_STARS_REFUNDS_ENABLED` independently enables the existing native
+refund workflow in the worker. It defaults to false and can remain enabled while
+invoice and product admission are stopped. The worker validates retained financial
+key custody before polling and drains its current refund before shutdown.
+
+Financial key parsing and encryption keep their established format in the
+PostgreSQL adapter, shared by gateway receipt capture and worker correction.
+Claims select only the configured bot and environment. After the native fenced
+`beginProviderCall` commits, the authority reader checks the exact refund lease,
+payment, original receipt, encrypted provider event, payer, charge, amount,
+environment, bot and protected invoice. It does not depend on current product
+sessions, profile data or a current Telegram identity lookup. Historical financial
+keys remain required after deletion and Return.
+
+The bounded provider request sends the original payer and charge using Telegram's
+[refundStarPayment](https://core.telegram.org/bots/api#refundstarpayment) method.
+Only a definite successful acknowledgement completes the native refund. Lost,
+malformed, oversized or unsuccessful responses retain `call_started` for existing
+reconciliation and audited operator resolution. Ordinary polling never retries
+that unknown outcome. A custody or authority failure before any provider request
+may safely return to `not_started` for the existing delayed retry.
+
+Native evidence exercises a complete deletion/approved Return before correction,
+the ordinary worker entry point with real Redis and synthetic provider delivery,
+historical key rotation, competing polls, graceful drain, lost acknowledgement,
+restart quarantine and exact bot/receipt/lease binding. It is implementation
+evidence; real Telegram refunds, reconciliation, operator sign-off and the original
+controlled-launch acceptance remain required. No new retained resource or financial
+retention period is introduced.
