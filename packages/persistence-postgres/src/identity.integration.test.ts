@@ -3,6 +3,7 @@ import {
   M9_SIGNUP_TEXTS,
   M9_PROFILE_TEXTS,
   M9_REPORT_TEXTS,
+  M9_ADMIN_TEXTS,
 } from '@nakh/localization';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -213,7 +214,8 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         Object.keys(M9_SIGNUP_TEXTS).length +
         Object.keys(M9_PREVIEW_TEXTS).length +
         Object.keys(M9_PROFILE_TEXTS).length +
-        Object.keys(M9_REPORT_TEXTS).length,
+        Object.keys(M9_REPORT_TEXTS).length +
+        Object.keys(M9_ADMIN_TEXTS).length,
     );
     expect(Object.keys(english.messages)).toEqual(
       expect.arrayContaining([
@@ -280,6 +282,15 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         .sort(),
     ).toEqual(Object.keys(M9_REPORT_TEXTS).sort());
     for (const [key, value] of Object.entries(M9_REPORT_TEXTS)) {
+      expect(english.messages[key]).toBe(value);
+      expect(inactiveFallback.messages[key]).toBe(value);
+    }
+    expect(
+      Object.keys(english.messages)
+        .filter((key) => key.startsWith('admin.auth.'))
+        .sort(),
+    ).toEqual(Object.keys(M9_ADMIN_TEXTS).sort());
+    for (const [key, value] of Object.entries(M9_ADMIN_TEXTS)) {
       expect(english.messages[key]).toBe(value);
       expect(inactiveFallback.messages[key]).toBe(value);
     }

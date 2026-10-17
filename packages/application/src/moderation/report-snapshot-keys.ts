@@ -48,4 +48,7 @@ export class ReportSnapshotKeyRing implements ReportSnapshotKeyResolver {
       if (Buffer.from(secret).equals(Buffer.from(key)))
         throw new Error('Report snapshot key configuration unavailable.');
   }
+  public assertSeparateKeyRing(other: ReportSnapshotKeyRing): void {
+    for (const key of this.keys.values()) other.assertSeparateNavigationKey(key);
+  }
 }

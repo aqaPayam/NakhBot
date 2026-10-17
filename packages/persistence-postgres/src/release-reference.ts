@@ -36,6 +36,9 @@ export function referenceDigest(value: unknown): string {
 // Every leaf is reviewed. New runtime settings require an explicit projection;
 // neither secrets nor an accidentally added private setting may enter a snapshot.
 const fields = `environment serviceName release http.host http.port
+ administration.enabled administration.publicOrigin administration.totpKeyRingRef
+ administration.actionKeyRef administration.reviewNoteKeyRingRef
+ administration.reviewNoteKeyId administration.reviewNoteKeyVersion
  database.url database.poolMax database.statementTimeoutMs database.lockTimeoutMs
  redis.url redis.queuePrefix telegram.botTokenRef telegram.webhookSecret telegram.actionTokenKeyRef
  telegram.likedByDeliveryEnabled telegram.notificationDeliveryEnabled telegram.supportAppealEnabled

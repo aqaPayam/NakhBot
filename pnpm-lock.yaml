@@ -147,6 +147,9 @@ importers:
       '@nakh/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@nakh/localization':
+        specifier: workspace:*
+        version: link:../../packages/localization
       '@nakh/media-delivery':
         specifier: workspace:*
         version: link:../../packages/media-delivery
@@ -156,6 +159,9 @@ importers:
       '@nakh/persistence-postgres':
         specifier: workspace:*
         version: link:../../packages/persistence-postgres
+      '@nakh/queue-redis':
+        specifier: workspace:*
+        version: link:../../packages/queue-redis
       '@nestjs/common':
         specifier: 'catalog:'
         version: 12.0.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
@@ -186,10 +192,6 @@ importers:
       rxjs:
         specifier: 'catalog:'
         version: 7.8.2
-    devDependencies:
-      '@nakh/queue-redis':
-        specifier: workspace:*
-        version: link:../../packages/queue-redis
 
   apps/scheduler:
     dependencies:

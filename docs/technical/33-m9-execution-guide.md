@@ -811,3 +811,42 @@ TOTP enrollment/sign-in tests now use an exported existing first-factor grant.
 The ordinary administrator process, real Telegram first-factor delivery and
 operator/provider acceptance remain unfinished; this prerequisite does not claim
 that those entry points are deployed or close M9. Retained erasure stays disabled.
+
+## Native administrator entry in ordinary API and Telegram processes
+
+`NAKH_ADMINISTRATION_ENABLED` now composes the existing native TOTP host in the
+ordinary API and private administrator ingress in the gateway. It defaults to
+false. The configured public origin must be canonical HTTPS, with loopback HTTP
+permitted only for local/test operation. Startup requires migration 158, the
+required localized catalog, Redis and distinct authentication, navigation,
+review-note and report-snapshot keys. Historical key versions remain required;
+startup verifies referenced versions and a bounded encrypted sample for each.
+This is a custody check, not a complete corruption scan.
+
+A current staff user's private product menu supplies an encrypted existing-grant
+handoff in the sign-in URL fragment. It preserves the captured native grant and
+expiry. Later-life ordinary starts cannot issue a replacement grant. The page
+removes the fragment before its first request and keeps credentials in memory.
+It uses same-origin scripts, restrictive response headers and no browser storage.
+Enrollment consumes a separately approved invitation, confirmation consumes its
+TOTP counter, and sign-in requires a subsequent code. The API derives identity
+from the native user bearer and rechecks staff eligibility. Public operator
+provisioning and recovery endpoints are absent.
+
+Migration 158 installs fifteen administrator presentation keys without adding a
+retained resource. Legacy upgrade fixtures include the new catalog migration;
+unknown future schema versions remain rejected. The native host fixture launches
+the compiled API and gateway with real isolated PostgreSQL and Redis. Synthetic
+Telegram transport exercises private entry, concurrent retries with one original
+grant, native TOTP, the administrator queue, actual report capture and concurrent
+audited assignment/decision commands with encrypted notes. It also exercises
+revocation, genuine native Root and approved Return, historical factor custody
+without consuming counters, and disabled routes without administrator secrets.
+Deletion provider/absence observations in that fixture remain synthetic.
+
+This completes another process composition, not launch acceptance. Photo provider
+delivery/cache purge, remaining public journeys, operator host provisioning and
+real AWS/R2/domain/Telegram deployment still require completion and evidence.
+The owner has not created those accounts; provide one concrete setup checklist
+after independent implementation. Real operator, cohort and health acceptance
+remain required. Retained-data erasure stays disabled pending approved policies.

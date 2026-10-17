@@ -3,6 +3,17 @@ import { ReportSnapshotKeyRing } from './report-snapshot-keys.js';
 
 const row = { keyId: 'report-key', keyVersion: 1, key: Buffer.alloc(32, 3).toString('base64url') };
 describe('shared retained report snapshot key ring', () => {
+  it('rejects cross-purpose reuse of historical material even under different key names', () => {
+    const first = new ReportSnapshotKeyRing(JSON.stringify([row]));
+    const reused = new ReportSnapshotKeyRing(
+      JSON.stringify([{ ...row, keyId: 'another-purpose', keyVersion: 7 }]),
+    );
+    expect(() => first.assertSeparateKeyRing(reused)).toThrow('configuration unavailable');
+    const separate = new ReportSnapshotKeyRing(
+      JSON.stringify([{ ...row, key: Buffer.alloc(32, 9).toString('base64url') }]),
+    );
+    expect(() => first.assertSeparateKeyRing(separate)).not.toThrow();
+  });
   it('selects an explicit version while retaining historical readers and isolated key copies', () => {
     const ring = new ReportSnapshotKeyRing(
       JSON.stringify([

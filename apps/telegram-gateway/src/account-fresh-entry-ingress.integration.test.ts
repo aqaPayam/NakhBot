@@ -156,7 +156,13 @@ describe.skipIf(url === undefined)('native authenticated fresh primary activatio
   function menu(): RenderedTelegramPhotoMenu {
     const n = send.mock.calls.at(-1)?.[1];
     if (n === undefined) throw Error('missing menu');
-    return n;
+    if (
+      n.replyMarkup.inline_keyboard.some((row) =>
+        row.some((button) => typeof button.callback_data !== 'string' || button.url !== undefined),
+      )
+    )
+      throw new Error('Fresh-entry confirmations require callback buttons.');
+    return n as RenderedTelegramPhotoMenu;
   }
   function confirmation(): string {
     return menu().replyMarkup.inline_keyboard[0]![0]!.callback_data;

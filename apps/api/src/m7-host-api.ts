@@ -8,7 +8,7 @@ import { M7OperationalHealthApiModule } from './m7-operational-health-api.js';
 import type { M7HostApiOptions } from './m7-host-services.js';
 import { M7TotpApiModule } from './m7-totp-api.js';
 import { M8AccountReturnApprovalApiModule } from './m8-account-return-approval-api.js';
-/** Explicit opt-in only; ordinary startup does not register this host. */
+/** Explicit opt-in; ordinary startup registers this host only when administration is enabled. */
 @Module({})
 export class M7HostApiModule {
   public static register(options: M7HostApiOptions): DynamicModule {

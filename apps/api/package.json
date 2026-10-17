@@ -14,9 +14,11 @@
     "@nakh/config": "workspace:*",
     "@nakh/contracts": "workspace:*",
     "@nakh/domain": "workspace:*",
+    "@nakh/localization": "workspace:*",
     "@nakh/media-delivery": "workspace:*",
     "@nakh/observability": "workspace:*",
     "@nakh/persistence-postgres": "workspace:*",
+    "@nakh/queue-redis": "workspace:*",
     "@nestjs/common": "catalog:",
     "@nestjs/core": "catalog:",
     "@nestjs/platform-fastify": "catalog:",
@@ -27,8 +29,5 @@
     "pino": "catalog:",
     "reflect-metadata": "catalog:",
     "rxjs": "catalog:"
-  },
-  "devDependencies": {
-    "@nakh/queue-redis": "workspace:*"
   }
 }

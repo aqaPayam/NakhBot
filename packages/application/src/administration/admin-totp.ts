@@ -162,6 +162,15 @@ export function verifyProtectedAdminTotp(
   return withProtectedSeed(subject, secret, resolver, (seed) => matchAdminTotpCode(seed, code, at));
 }
 
+/** Startup custody verification only; neither reveals a seed nor consumes a code. */
+export function verifyAdminTotpSecretCustody(
+  subject: AdminTotpSubject,
+  secret: ProtectedAdminTotpSecret,
+  resolver: AdminTotpKeyResolver,
+): void {
+  withProtectedSeed(subject, secret, resolver, () => undefined);
+}
+
 /** Only for an authenticated, approved and still-pending enrollment. The native service checks that state. */
 export function recoverAdminTotpEnrollmentUri(
   subject: AdminTotpSubject,

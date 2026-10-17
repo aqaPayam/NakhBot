@@ -18,6 +18,38 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps administration disabled and requires an exact HTTPS origin when enabled', () => {
+    expect(parseConfig(validEnvironment).administration.enabled).toBe(false);
+    const enabled = {
+      ...validEnvironment,
+      NAKH_ADMINISTRATION_ENABLED: 'true',
+      NAKH_ADMIN_PUBLIC_ORIGIN: 'https://admin.example.com',
+    };
+    expect(parseConfig(enabled).administration.publicOrigin).toBe('https://admin.example.com');
+    for (const NAKH_ADMIN_PUBLIC_ORIGIN of [
+      'http://admin.example.com',
+      'https://admin.example.com/',
+      'https://admin.example.com/path',
+      'https://admin.example.com?secret=private',
+      'https://user:private@admin.example.com',
+      'javascript:private',
+    ])
+      expect(() => parseConfig({ ...enabled, NAKH_ADMIN_PUBLIC_ORIGIN })).toThrow(
+        'administrator origin',
+      );
+    expect(
+      parseConfig({ ...enabled, NAKH_ADMIN_PUBLIC_ORIGIN: 'http://127.0.0.1:4321' }).administration
+        .enabled,
+    ).toBe(true);
+    expect(() =>
+      parseConfig({
+        ...enabled,
+        NAKH_ENV: 'production',
+        NAKH_ADMIN_PUBLIC_ORIGIN: 'http://127.0.0.1:4321',
+      }),
+    ).toThrow('administrator origin');
+    expect(() => parseConfig({ ...enabled, NAKH_ADMINISTRATION_ENABLED: 'yes' })).toThrow();
+  });
   it('keeps public reports independent of product admission and selects an explicit snapshot write version', () => {
     expect(parseConfig(validEnvironment).telegram.reportsEnabled).toBe(false);
     const config = parseConfig({

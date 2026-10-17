@@ -152,7 +152,14 @@ describe.skipIf(url === undefined)('native trusted Telegram limited deletion com
   function menu(): RenderedTelegramPhotoMenu {
     const result = send.mock.calls.at(-1)?.[1];
     expect(result).toBeDefined();
-    return result!;
+    if (
+      result === undefined ||
+      result.replyMarkup.inline_keyboard.some((row) =>
+        row.some((button) => typeof button.callback_data !== 'string' || button.url !== undefined),
+      )
+    )
+      throw new Error('Deletion confirmations require callback buttons.');
+    return result as RenderedTelegramPhotoMenu;
   }
   async function roots(userId: string): Promise<number> {
     return (

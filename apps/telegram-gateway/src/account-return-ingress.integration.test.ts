@@ -123,7 +123,13 @@ describe.skipIf(url === undefined)('native Telegram original-grant approved Retu
   function menu(): RenderedTelegramPhotoMenu {
     const n = send.mock.calls.at(-1)?.[1];
     if (n === undefined) throw new Error('missing Return menu');
-    return n;
+    if (
+      n.replyMarkup.inline_keyboard.some((row) =>
+        row.some((button) => typeof button.callback_data !== 'string' || button.url !== undefined),
+      )
+    )
+      throw new Error('Return confirmations require callback buttons.');
+    return n as RenderedTelegramPhotoMenu;
   }
   async function fixture(
     approve = true,
@@ -329,6 +335,7 @@ describe.skipIf(url === undefined)('native Telegram original-grant approved Retu
         '000155_m9_guest_preview_delivery.sql',
         '000156_m9_profile_detail_presentation.sql',
         '000157_m9_public_report_presentation.sql',
+        '000158_m9_administrator_signin_presentation.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(

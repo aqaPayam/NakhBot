@@ -21,6 +21,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sql } from 'kysely';
 import type { Logger } from 'pino';
 import { M7ReportApiModule, type M7ReportApiOptions } from './m7-report-api.js';
+import { createAdministratorApiRuntime } from './admin-runtime.js';
 import { createAccountDeletionApi } from './m8-account-deletion-api.js';
 import { M7SupportApiModule, type M7SupportApiOptions } from './m7-support-api.js';
 import { M7AppealApiModule, type M7AppealApiOptions } from './m7-appeal-api.js';
@@ -55,6 +56,7 @@ export const SAMPLE_HANDLER = Symbol('SAMPLE_HANDLER');
 const addFormats = formatsModule.default as unknown as (
   ajv: InstanceType<typeof Ajv>,
 ) => InstanceType<typeof Ajv>;
+const ADMINISTRATOR_RUNTIME = Symbol('ADMINISTRATOR_RUNTIME');
 
 class TypeBoxPipe implements PipeTransform<unknown, CreateSampleEffectCommand> {
   private readonly validate: ValidateFunction;
@@ -210,9 +212,18 @@ export class ApiModule {
     appeals?: M7AppealApiOptions,
   ): DynamicModule {
     const database = createDatabase(config.database);
+    if (
+      config.administration.enabled &&
+      [reports, adminReports, adminModeration, support, appeals].some(
+        (options) => options !== undefined,
+      )
+    )
+      throw new Error('Administrator host composition conflicts with explicit legacy routes.');
+    const administration = createAdministratorApiRuntime(config, database);
     return {
       module: ApiModule,
       imports: [
+        ...(administration?.imports ?? []),
         ...createAccountDeletionApi(config, database),
         ...createMediaAuthorityApi(config, database),
         ...(reports === undefined ? [] : [M7ReportApiModule.register(reports)]),
@@ -225,6 +236,9 @@ export class ApiModule {
       ],
       controllers: [HealthController, FoundationController],
       providers: [
+        ...(administration === undefined
+          ? []
+          : [{ provide: ADMINISTRATOR_RUNTIME, useValue: administration }]),
         { provide: APP_CONFIG, useValue: config },
         { provide: LOGGER, useValue: logger },
         { provide: DATABASE, useValue: database },

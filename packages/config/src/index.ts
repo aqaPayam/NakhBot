@@ -28,6 +28,15 @@ const ConfigSchema = Type.Object(
       url: Type.String({ minLength: 1 }),
       queuePrefix: Type.String({ minLength: 1, maxLength: 80 }),
     }),
+    administration: Type.Object({
+      enabled: Type.Boolean(),
+      publicOrigin: Type.String({ minLength: 1, maxLength: 253 }),
+      totpKeyRingRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      actionKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      reviewNoteKeyRingRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
+      reviewNoteKeyId: Type.String({ pattern: '^[A-Za-z0-9_-]{8,160}$' }),
+      reviewNoteKeyVersion: Type.Integer({ minimum: 1, maximum: 2147483647 }),
+    }),
     telegram: Type.Object({
       botTokenRef: Type.String({ minLength: 1 }),
       webhookSecret: Type.String({ minLength: 32 }),
@@ -150,6 +159,19 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       url: required(env, 'NAKH_REDIS_URL'),
       queuePrefix: required(env, 'NAKH_QUEUE_PREFIX', 'nakh-local'),
     },
+    administration: {
+      enabled: boolean(env.NAKH_ADMINISTRATION_ENABLED, false),
+      publicOrigin: required(env, 'NAKH_ADMIN_PUBLIC_ORIGIN', 'https://admin.invalid'),
+      totpKeyRingRef: required(env, 'NAKH_ADMIN_TOTP_KEY_RING_REF', 'NAKH_ADMIN_TOTP_KEYS'),
+      actionKeyRef: required(env, 'NAKH_ADMIN_ACTION_KEY_REF', 'NAKH_ADMIN_ACTION_KEY'),
+      reviewNoteKeyRingRef: required(
+        env,
+        'NAKH_ADMIN_REVIEW_NOTE_KEY_RING_REF',
+        'NAKH_ADMIN_REVIEW_NOTE_KEYS',
+      ),
+      reviewNoteKeyId: required(env, 'NAKH_ADMIN_REVIEW_NOTE_KEY_ID', 'review-notes-v1'),
+      reviewNoteKeyVersion: integer(env.NAKH_ADMIN_REVIEW_NOTE_KEY_VERSION, 1),
+    },
     telegram: {
       botTokenRef: required(env, 'NAKH_TELEGRAM_BOT_TOKEN_REF'),
       webhookSecret: required(env, 'NAKH_TELEGRAM_WEBHOOK_SECRET'),
@@ -242,6 +264,25 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   const validate = ajv.compile(ConfigSchema);
   if (!validate(candidate)) {
     throw new Error(`Invalid configuration: ${describeErrors(validate.errors)}`);
+  }
+  {
+    try {
+      const origin = new URL(candidate.administration.publicOrigin);
+      const local =
+        ['local', 'test'].includes(candidate.environment) &&
+        ['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname);
+      if (
+        origin.origin !== candidate.administration.publicOrigin ||
+        origin.username !== '' ||
+        origin.password !== '' ||
+        (origin.protocol !== 'https:' && !(local && origin.protocol === 'http:'))
+      )
+        throw new Error();
+    } catch {
+      throw new Error(
+        'Invalid configuration: administrator origin must be a canonical HTTPS origin.',
+      );
+    }
   }
   if (
     candidate.deletion.workerEnabled &&

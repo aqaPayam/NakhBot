@@ -76,6 +76,7 @@ import { createTelegramStartDelivery } from './start-delivery.js';
 import { createTelegramSignupRuntime, type TelegramSignupRuntimePort } from './signup-runtime.js';
 import { createTelegramStarsRuntime, type TelegramStarsRuntimePort } from './stars-runtime.js';
 import { createTelegramReportRuntime, type TelegramReportRuntimePort } from './report-runtime.js';
+import { createAdministratorTelegramRuntime } from './admin-runtime.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const REPORT_INGRESS = Symbol('REPORT_INGRESS');
@@ -346,12 +347,25 @@ export class TelegramGatewayModule {
     }> = {},
   ): DynamicModule {
     const database = createDatabase(config.database);
+    if (
+      config.administration.enabled &&
+      (m7.adminEvidence !== undefined || m7.adminSafetyContent !== undefined)
+    )
+      throw new Error('Administrator host composition conflicts with explicit legacy ingress.');
     const redis = createRedisConnection(config.redis.url);
     const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
     const identityStore = new PostgresIdentityStore(database);
     const stars = createTelegramStarsRuntime({ config, database });
     const reports = createTelegramReportRuntime({ config, database, redis });
-    const signup = createTelegramSignupRuntime({ config, database, redis, stars, reports });
+    const administration = createAdministratorTelegramRuntime({ config, database, redis });
+    const signup = createTelegramSignupRuntime({
+      config,
+      database,
+      redis,
+      stars,
+      reports,
+      ...(administration === undefined ? {} : { administration }),
+    });
     const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
     const supportAppealIngress = createTelegramSupportAppealIngress({ config, database, redis });
     const accountDeletionIngress = createTelegramAccountDeletionIngress({
@@ -483,7 +497,8 @@ export class TelegramGatewayModule {
         },
         {
           provide: ADMIN_SAFETY_CONTENT_INGRESS,
-          useValue: m7.adminSafetyContent ?? { handle: () => Promise.resolve('unhandled') },
+          useValue: administration ??
+            m7.adminSafetyContent ?? { handle: () => Promise.resolve('unhandled') },
         },
         {
           provide: START_ADAPTER,

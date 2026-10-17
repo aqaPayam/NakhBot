@@ -169,26 +169,29 @@ async function execute(): Promise<void> {
   async function runShard(shard: NativeShard): Promise<IntegrationShardReport> {
     const database = await createIsolatedTestDatabase(url!, `ci_native_${shard}`);
     try {
-      // The ordinary worker entry-point case runs the production compiled
-      // artifact. Build its workspace dependency closure only on its owning
-      // shard; all original native cases, CLI fixtures and time caps remain.
-      if (
-        dispatch.files[shard - 1]!.some(
-          (file) =>
-            relative(resolve('.'), file).replaceAll('\\', '/') ===
-            'apps/worker/src/stars-refund-runtime.integration.test.ts',
-        )
-      ) {
+      // Ordinary process cases run production compiled artifacts. Build only
+      // their owning shard's dependency closure, sharing overlapping filters.
+      // Native inventory, source receipts, CLI fixtures and time caps remain.
+      const owned = new Set(
+        dispatch.files[shard - 1]!.map((file) =>
+          relative(resolve('.'), file).replaceAll('\\', '/'),
+        ),
+      );
+      const buildFilters: string[] = [];
+      if (owned.has('apps/worker/src/stars-refund-runtime.integration.test.ts'))
+        buildFilters.push('@nakh/worker...');
+      if (owned.has('apps/api/src/admin-runtime.integration.test.ts'))
+        buildFilters.push('@nakh/api...', '@nakh/telegram-gateway...');
+      if (buildFilters.length > 0) {
         const manager = process.env.npm_execpath;
         if (manager === undefined || !isAbsolute(manager))
-          throw new Error('Native worker fixture requires package-manager execution.');
+          throw new Error('Native process fixture requires package-manager execution.');
         execFileSync(
           process.execPath,
           [
             ...engineArguments,
             manager,
-            '--filter',
-            '@nakh/worker...',
+            ...buildFilters.flatMap((filter) => ['--filter', filter]),
             '-r',
             '--workspace-concurrency=1',
             '--if-present',

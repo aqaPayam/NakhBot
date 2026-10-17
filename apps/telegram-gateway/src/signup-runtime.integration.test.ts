@@ -1220,7 +1220,13 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           sent.push({
             sender,
             text: menu.text,
-            keyboard: menu.replyMarkup.inline_keyboard.map((row) => [...row]),
+            keyboard: menu.replyMarkup.inline_keyboard.map((row) =>
+              row.map((button) => {
+                if (typeof button.callback_data !== 'string' || button.url !== undefined)
+                  throw new Error('Fresh activation fixture requires callback buttons.');
+                return { text: button.text, callback_data: button.callback_data };
+              }),
+            ),
           });
           return Promise.resolve();
         },

@@ -12,6 +12,14 @@ export type RenderedTelegramPhotoMenu = Readonly<{
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+export type TelegramMenuButton =
+  | Readonly<{ text: string; callback_data: string; url?: never }>
+  | Readonly<{ text: string; url: string; callback_data?: never }>;
+export type RenderedTelegramMenu = Readonly<{
+  text: string;
+  replyMarkup: Readonly<{ inline_keyboard: ReadonlyArray<ReadonlyArray<TelegramMenuButton>> }>;
+}>;
+
 export function renderTelegramPhotoMenu(
   menu: TelegramPhotoMenu,
   render: (intent: LocalizedIntent) => string,
@@ -47,7 +55,7 @@ export class TelegramBotApiMenuClient {
     if (apiOrigin !== 'https://api.telegram.org') throw new Error('Telegram API origin is fixed.');
   }
 
-  public async sendMenu(telegramUserId: string, menu: RenderedTelegramPhotoMenu): Promise<void> {
+  public async sendMenu(telegramUserId: string, menu: RenderedTelegramMenu): Promise<void> {
     if (!/^[1-9][0-9]{0,19}$/u.test(telegramUserId))
       throw new Error('Telegram menu recipient is invalid.');
     await this.call('sendMessage', {

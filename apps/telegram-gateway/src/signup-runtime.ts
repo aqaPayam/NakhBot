@@ -15,6 +15,7 @@ import {
   type UserSessionActor,
 } from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
+import type { AdministratorTelegramPort } from './admin-runtime.js';
 import { ApplicationError, SystemClock, validateNakhText } from '@nakh/domain';
 import {
   CatalogRenderer,
@@ -218,6 +219,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     private readonly exploreDelivery?: GuestPreviewRuntimePort,
     private readonly stars?: TelegramStarsRuntimePort,
     private readonly reports?: TelegramReportRuntimePort,
+    private readonly administration?: Pick<AdministratorTelegramPort, 'link'>,
   ) {
     this.key = Buffer.from(key);
     this.stars?.assertSeparateNavigationKey?.(this.key);
@@ -1093,7 +1095,9 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       group: randomBytes(12).toString('base64url'),
     };
     const tokens = this.tokens(telegramId, actor),
-      keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
+      keyboard: Array<
+        Array<{ text: string; callback_data: string } | { text: string; url: string }>
+      > = [];
     const button = async (label: string, change: Partial<Nav>): Promise<void> => {
       keyboard.push([
         {
@@ -1122,6 +1126,9 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         nav = { ...nav, selection: selected };
     }
     if (screen === 'root') {
+      const administratorLink = await this.administration?.link(actor, context.uiLocale);
+      if (administratorLink !== undefined)
+        keyboard.push([{ text: t('admin.auth.open'), url: administratorLink }]);
       if (
         context.accountState === 'active' &&
         context.profileCompletion === 'complete' &&
@@ -1308,6 +1315,7 @@ export function createTelegramSignupRuntime(
     resolveSecret?: (reference: string) => string;
     stars?: TelegramStarsRuntimePort;
     reports?: TelegramReportRuntimePort;
+    administration?: Pick<AdministratorTelegramPort, 'link'>;
   }>,
 ): TelegramSignupRuntimePort {
   if (!input.config.telegram.signupEnabled) return { handle: () => Promise.resolve('unhandled') };
@@ -1340,5 +1348,6 @@ export function createTelegramSignupRuntime(
     createExploreDeliveryRuntime(input.config, input.database, resolve),
     input.stars,
     input.reports,
+    input.administration,
   );
 }
