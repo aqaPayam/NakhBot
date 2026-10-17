@@ -3,6 +3,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import {
   UserSessionService,
   type UserSessionGrant,
+  type UserSessionActor,
   type UserSessionStore,
 } from './user-session.js';
 
@@ -31,6 +32,90 @@ function fixture(): {
   return { life, grant, store, key, service: new UserSessionService(store, key) };
 }
 describe('opaque original-life user credentials', () => {
+  it('exports only the current grant with its original expiry and never allocates or renews authority', async () => {
+    const f = fixture();
+    const actor = { ...f.life, kind: 'user' as const, sessionGrantId: f.grant.id };
+    const exported = await Promise.all(
+      Array.from({ length: 20 }, () => f.service.exportCurrent(actor)),
+    );
+    expect(f.store.issue).not.toHaveBeenCalled();
+    expect(f.store.revoke).not.toHaveBeenCalled();
+    expect(new Set(exported.map((value) => value.userSessionToken)).size).toBe(20);
+    expect(exported.every((value) => value.expiresAt === f.grant.expiresAt.toISOString())).toBe(
+      true,
+    );
+    for (const value of exported) {
+      expect(value.userSessionToken).not.toContain(actor.userId);
+      expect(value.userSessionToken).not.toContain(actor.sessionGrantId);
+      expect(
+        await f.service.authenticate({ bearerToken: value.userSessionToken, audience: 'user' }),
+      ).toEqual(actor);
+      expect(
+        await f.service.authenticate({ bearerToken: value.userSessionToken, audience: 'admin' }),
+      ).toBeUndefined();
+    }
+  });
+  it('captures the entire existing actor before waiting and rejects substituted native grants', async () => {
+    const f = fixture();
+    const actor = { ...f.life, kind: 'user' as const, sessionGrantId: f.grant.id };
+    const original = { ...actor };
+    let release!: (value: UserSessionGrant) => void;
+    f.store.current.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const pending = f.service.exportCurrent(actor);
+    actor.userId = randomUUID();
+    actor.productEpoch = 1;
+    actor.sessionGrantId = randomUUID();
+    release(f.grant);
+    const exported = await pending;
+    expect(
+      await f.service.authenticate({ bearerToken: exported.userSessionToken, audience: 'user' }),
+    ).toEqual(original);
+    for (const grant of [
+      undefined,
+      { ...f.grant, id: randomUUID() },
+      { ...f.grant, userId: randomUUID() },
+      { ...f.grant, productEpoch: 1 },
+    ]) {
+      f.store.current.mockResolvedValueOnce(grant);
+      await expect(f.service.exportCurrent(original)).rejects.toMatchObject({ status: 401 });
+    }
+    expect(f.store.issue).not.toHaveBeenCalled();
+  });
+  it('rejects malformed handoff actors before querying authority', async () => {
+    const f = fixture();
+    const actor = { ...f.life, kind: 'user', sessionGrantId: f.grant.id };
+    for (const invalid of [
+      null,
+      undefined,
+      {},
+      { ...actor, kind: 'admin' },
+      { ...actor, productEpoch: -1 },
+      { ...actor, sessionGrantId: undefined },
+      { ...actor, sessionGrantId: 'invalid' },
+      { ...actor, userId: 'invalid' },
+    ]) {
+      await expect(f.service.exportCurrent(invalid as UserSessionActor)).rejects.toMatchObject({
+        status: 401,
+      });
+    }
+    expect(f.store.current).not.toHaveBeenCalled();
+    expect(f.store.issue).not.toHaveBeenCalled();
+  });
+  it('cannot keep an exported credential usable after revocation between checking and handing it off', async () => {
+    const f = fixture();
+    const actor = { ...f.life, kind: 'user' as const, sessionGrantId: f.grant.id };
+    const exported = await f.service.exportCurrent(actor);
+    f.store.current.mockResolvedValue(undefined);
+    expect(
+      await f.service.authenticate({ bearerToken: exported.userSessionToken, audience: 'user' }),
+    ).toBeUndefined();
+    await expect(f.service.exportCurrent(actor)).rejects.toMatchObject({ status: 401 });
+    expect(f.store.issue).not.toHaveBeenCalled();
+  });
   it('requires a native grant for every use and never exposes owner or grant in the credential', async () => {
     const f = fixture();
     const issued = await f.service.issue(f.life, randomUUID());

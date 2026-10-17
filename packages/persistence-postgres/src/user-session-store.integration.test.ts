@@ -40,6 +40,49 @@ describe.skipIf(url === undefined)('native original-life session grants', () => 
     await isolated?.destroy();
   });
   const key = Buffer.alloc(32, 103);
+  it('hands off one existing native grant concurrently without new audit facts or extending expiry', async () => {
+    const life = { userId: await createReportUser(database), productEpoch: 0 };
+    const sessions = createPostgresUserSessions(database, key);
+    const issued = await sessions.issue(life, randomUUID());
+    const actor = (await sessions.authenticate({
+      bearerToken: issued.userSessionToken,
+      audience: 'user',
+    }))!;
+    const factsQuery = database
+      .selectFrom('platform.audit_logs')
+      .selectAll()
+      .where('actor_user_id', '=', life.userId)
+      .orderBy('id');
+    const facts = (): ReturnType<typeof factsQuery.execute> => factsQuery.execute();
+    const before = await facts();
+    const exported = await Promise.all(
+      Array.from({ length: 20 }, () => sessions.exportCurrent(actor)),
+    );
+    expect(await facts()).toEqual(before);
+    expect(exported.every((value) => value.expiresAt === issued.expiresAt)).toBe(true);
+    for (const value of exported) {
+      expect(
+        await sessions.authenticate({ bearerToken: value.userSessionToken, audience: 'user' }),
+      ).toEqual(actor);
+      expect(
+        await sessions.authenticate({ bearerToken: value.userSessionToken, audience: 'admin' }),
+      ).toBeUndefined();
+    }
+    for (const borrowed of [
+      { ...actor, userId: await createReportUser(database) },
+      { ...actor, productEpoch: 1 },
+      { ...actor, sessionGrantId: randomUUID() },
+    ])
+      await expect(sessions.exportCurrent(borrowed)).rejects.toMatchObject({ status: 401 });
+    await sessions.revoke(life, issued.userSessionToken, randomUUID());
+    await expect(sessions.exportCurrent(actor)).rejects.toMatchObject({ status: 401 });
+    expect(
+      await sessions.authenticate({ bearerToken: exported[0]!.userSessionToken, audience: 'user' }),
+    ).toBeUndefined();
+    expect(
+      (await facts()).filter((row) => row.event_type === 'identity.user-session-issued.v1'),
+    ).toHaveLength(1);
+  });
   it('fences durable report replay by live grant and original epoch under twenty concurrent retries', async () => {
     const userId = await createReportUser(database),
       target = await createReportUser(database, true);
@@ -245,14 +288,22 @@ describe.skipIf(url === undefined)('native original-life session grants', () => 
   it('denies every issued bearer immediately after actual Root admission and cannot issue to tombstones', async () => {
     const sessions = createPostgresUserSessions(database, key);
     let token!: string;
+    let original!: NonNullable<Awaited<ReturnType<typeof sessions.authenticate>>>;
+    let exported!: string;
     const { userId } = await createDeletionFixture(database, async (subject) => {
       token = (await sessions.issue({ userId: subject, productEpoch: 0 }, randomUUID()))
         .userSessionToken;
       expect(await sessions.authenticate({ bearerToken: token, audience: 'user' })).toMatchObject({
         userId: subject,
       });
+      original = (await sessions.authenticate({ bearerToken: token, audience: 'user' }))!;
+      exported = (await sessions.exportCurrent(original)).userSessionToken;
     });
     expect(await sessions.authenticate({ bearerToken: token, audience: 'user' })).toBeUndefined();
+    expect(
+      await sessions.authenticate({ bearerToken: exported, audience: 'user' }),
+    ).toBeUndefined();
+    await expect(sessions.exportCurrent(original)).rejects.toMatchObject({ status: 401 });
     await expect(sessions.issue({ userId, productEpoch: 0 }, randomUUID())).rejects.toMatchObject({
       status: 401,
     });
@@ -264,6 +315,10 @@ describe.skipIf(url === undefined)('native original-life session grants', () => 
     const userId = await createReportUser(database),
       sessions = createPostgresUserSessions(database, key);
     const old = await sessions.issue({ userId, productEpoch: 0 }, randomUUID());
+    const original = (await sessions.authenticate({
+      bearerToken: old.userSessionToken,
+      audience: 'user',
+    }))!;
     // Privileged fault fixture only: this is not approved native Return evidence.
     await database.transaction().execute(async (tx) => {
       await sql`ALTER TABLE identity.accounts DISABLE TRIGGER USER`.execute(tx);
@@ -280,6 +335,7 @@ describe.skipIf(url === undefined)('native original-life session grants', () => 
     expect(
       await sessions.authenticate({ bearerToken: old.userSessionToken, audience: 'user' }),
     ).toBeUndefined();
+    await expect(sessions.exportCurrent(original)).rejects.toMatchObject({ status: 401 });
     await expect(sessions.issue({ userId, productEpoch: 0 }, randomUUID())).rejects.toMatchObject({
       status: 401,
     });
@@ -330,6 +386,13 @@ describe.skipIf(url === undefined)('native original-life session grants', () => 
         })
         .execute();
       expect(await store.current(life, id)).toBeUndefined();
+      await expect(
+        createPostgresUserSessions(database, key).exportCurrent({
+          ...life,
+          kind: 'user',
+          sessionGrantId: id,
+        }),
+      ).rejects.toMatchObject({ status: 401 });
     }
   });
   it('fails issuance atomically when its immutable audit cannot be written', async () => {

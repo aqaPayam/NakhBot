@@ -108,10 +108,17 @@ describe.skipIf(url === undefined)(
         .where('id', '=', adminId)
         .executeTakeFirstOrThrow();
       const actor = { kind: 'user' as const, userId: admin.user_id };
-      const { userSessionToken: token } = await composition.userSessions.issue(
+      const issued = await composition.userSessions.issue(
         { userId: actor.userId, productEpoch: 0 },
         randomUUID(),
       );
+      const firstFactor = (await composition.userSessions.authenticate({
+        bearerToken: issued.userSessionToken,
+        audience: 'user',
+      }))!;
+      const { userSessionToken: token, expiresAt } =
+        await composition.userSessions.exportCurrent(firstFactor);
+      expect(expiresAt).toBe(issued.expiresAt);
       const approval = await operator.approve({
         actorUserId: actor.userId,
         requestId: randomUUID(),

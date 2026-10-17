@@ -63,11 +63,56 @@ export class UserSessionService {
       !UUID.test(grant.id)
     )
       throw unavailable();
+    return this.seal(grant);
+  }
+  /** Trusted transport handoff of an already authenticated actor. This never issues,
+   * renews or selects a later-life grant; every recipient must still authenticate
+   * the bearer against current native authority. Do not expose actor selection as
+   * a public request field or put the returned bearer in logs or URL queries. */
+  public async exportCurrent(actor: UserSessionActor): Promise<
+    Readonly<{
+      userSessionToken: string;
+      expiresAt: string;
+    }>
+  > {
+    if (
+      !isUserProductLife(actor) ||
+      actor.kind !== 'user' ||
+      typeof actor.sessionGrantId !== 'string' ||
+      !UUID.test(actor.sessionGrantId)
+    )
+      throw unavailable();
+    const captured = Object.freeze({
+      userId: actor.userId,
+      productEpoch: actor.productEpoch,
+      sessionGrantId: actor.sessionGrantId,
+    });
+    const grant = await this.store.current(captured, captured.sessionGrantId);
+    if (
+      grant === undefined ||
+      grant.userId !== captured.userId ||
+      grant.productEpoch !== captured.productEpoch ||
+      grant.id !== captured.sessionGrantId
+    )
+      throw unavailable();
+    return this.seal(grant);
+  }
+  private seal(grant: UserSessionGrant): Readonly<{
+    userSessionToken: string;
+    expiresAt: string;
+  }> {
     const nonce = randomBytes(12),
       cipher = createCipheriv('aes-256-gcm', this.key, nonce);
     cipher.setAAD(AAD);
     const ciphertext = Buffer.concat([
-      cipher.update(JSON.stringify({ version: 1, grantId: grant.id, ...frozen })),
+      cipher.update(
+        JSON.stringify({
+          version: 1,
+          grantId: grant.id,
+          userId: grant.userId,
+          productEpoch: grant.productEpoch,
+        }),
+      ),
       cipher.final(),
     ]);
     return {

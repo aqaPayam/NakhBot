@@ -786,3 +786,28 @@ restart quarantine and exact bot/receipt/lease binding. It is implementation
 evidence; real Telegram refunds, reconciliation, operator sign-off and the original
 controlled-launch acceptance remain required. No new retained resource or financial
 retention period is introduced.
+
+## Existing-grant handoff for administrator first-factor composition
+
+The trusted `UserSessionService.exportCurrent` capability encrypts a bearer for
+an already captured, currently valid native user grant. It never calls issuance,
+selects a new product epoch, changes the original expiry or creates another audit
+grant. Concurrent handoffs produce independently encrypted credentials for the
+same authority. The actor is copied before the native lookup; changed owner,
+epoch or grant responses are rejected. Bearer consumers still authenticate against
+current native authority, so revocation after that lookup cannot preserve access.
+
+This capability is server-internal. It is not an HTTP or Telegram endpoint and
+does not accept user-selected actors. The eventual trusted Telegram handoff must
+use its original authenticated actor and keep credentials out of logs, query
+strings and persistent browser storage. It does not replace authenticator-app
+codes, operator-approved enrollment, current role checks or the separate admin
+session audience.
+
+Native evidence covers twenty concurrent handoffs with unchanged audit facts
+and expiry, borrowed grants, revocation, real Root admission, expired/malformed
+native facts and a separately labelled epoch-change fault fixture. Existing HTTP
+TOTP enrollment/sign-in tests now use an exported existing first-factor grant.
+The ordinary administrator process, real Telegram first-factor delivery and
+operator/provider acceptance remain unfinished; this prerequisite does not claim
+that those entry points are deployed or close M9. Retained erasure stays disabled.
