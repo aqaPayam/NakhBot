@@ -46,6 +46,7 @@ describe('signup navigation integrity and concurrency', () => {
       screen: 'report',
       reference: 'abcdefghijklmnop',
       reason: 'fake_profile',
+      photoId: '30000000-0000-4000-8000-000000000001',
     };
     const report = await reports.button(state),
       signup = await f.tokens.button(f.nav);
@@ -53,6 +54,13 @@ describe('signup navigation integrity and concurrency', () => {
     expect(await f.tokens.callback(report)).toBeUndefined();
     expect(await reports.callback(signup)).toBeUndefined();
     expect(await reports.callback(report)).toEqual(state);
+    expect(report).not.toContain(state.photoId);
+    await expect(reports.button({ ...state, photoId: 'invalid-photo' })).rejects.toThrow(
+      'navigation unavailable',
+    );
+    await expect(f.tokens.button({ ...f.nav, photoId: state.photoId })).rejects.toThrow(
+      'navigation unavailable',
+    );
     await reports.prompt(123, { ...state, action: 'reply' });
     expect(await f.tokens.reply(123)).toBeUndefined();
     expect((await reports.reply(123))?.reason).toBe('fake_profile');

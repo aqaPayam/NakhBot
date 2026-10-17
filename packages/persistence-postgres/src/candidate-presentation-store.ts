@@ -45,6 +45,7 @@ export type CandidateProfileDetail = Readonly<{
   bio: string;
   optional: readonly Readonly<{ labelKey: string; value: string | number | readonly string[] }>[];
   photos: readonly Readonly<{
+    photoId: string;
     authority: AuthorizedMediaDelivery;
     source: MediaSourceAuthorityQuery;
   }>[];
@@ -228,6 +229,7 @@ export class PostgresCandidatePresentationStore {
         requestedVariant: 'thumbnail',
       });
       photos.push({
+        photoId,
         authority,
         source: {
           authorityId: authority.authorityId,

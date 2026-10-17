@@ -409,6 +409,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     nav: Nav,
     deliveryId: string,
     render: (key: string) => string,
+    photoId?: string,
   ): Promise<Array<Array<{ text: string; callback_data: string }>>> {
     const tokens = this.tokens(telegramId, nav.actor);
     const button = async (
@@ -431,7 +432,12 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           ? [
               {
                 text: render('nakh.received.button.report'),
-                callback_data: await this.reports.button(nav.actor, telegramId, deliveryId),
+                callback_data: await this.reports.button(
+                  nav.actor,
+                  telegramId,
+                  deliveryId,
+                  photoId,
+                ),
               },
             ]
           : []),
@@ -671,6 +677,12 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       telegramUserId: telegramId,
       deliveryId: nav.code,
       keyboard,
+      ...(nav.screen === 'explore' && this.reports?.enabled
+        ? {
+            photoKeyboard: (photoId: string) =>
+              this.exploreKeyboard(telegramId, nav, nav.code!, render, photoId),
+          }
+        : {}),
       render,
       sendText: async (text) => {
         await this.client.sendMenu(telegramId, {

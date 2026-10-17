@@ -729,9 +729,28 @@ The actual HTTP factory with real Redis verifies private details, provider
 retries, encrypted snapshots, reporting with product admission stopped and
 historical-key custody across a process restart. Telegram remains synthetic.
 
-This public entry currently offers profile evidence. The existing native photo,
-chat, message and unmatched evidence contracts remain available to their owning
-compositions; photo-object retention and the remaining public/operator journeys
+Show More offers Report on each photo, bound to that exact selected photo;
+the card and full Profile text retain profile reporting. Photo controls contain
+only opaque owner-bound references. The native photo resolver verifies the
+original delivered target and current visible owned thumbnail; submission commits
+one encrypted snapshot and an immutable photo evidence hold in the same transaction.
+Provider retries return the original receipt without another snapshot or hold.
+Existing media cleanup protects these holds, and M8 deletion-media execution
+copies and verifies held thumbnails before deleting public objects. No separate
+photo-retention worker, queue or retained resource is introduced. Real R2 custody
+still requires the provider drill.
+
+Cached report receipts recheck the active/restricted policy as well as the
+original life and grant. Native regression evidence observes an advisory-lock
+wait, applies an actual audited ban or restriction while the retry waits, then
+verifies that a ban denies the cached receipt while restriction still permits it.
+The session remains valid, so this check does not substitute revocation for
+the reporting policy. The full HTTP factory with real Redis also selects the
+second, non-primary photo and verifies its exact thumbnail digest, encrypted
+snapshot, single hold and duplicate delivery behavior.
+
+The existing native chat, message and unmatched evidence contracts remain
+available to their owning compositions. The remaining public/operator journeys
 still need process wiring and launch evidence. This does not close M9 or replace
 real-provider, production, operator, cohort or health-review acceptance.
 Retained-data erasure remains disabled pending approved policies.

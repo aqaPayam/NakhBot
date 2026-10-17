@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as pause } from 'node:timers/promises';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
@@ -25,6 +25,7 @@ import type {
   MarkNotInterestedCommand,
   CreateDirectNakhCommand,
   SubmitReportCommand,
+  ReportSubmissionResult,
 } from '@nakh/contracts';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
@@ -45,6 +46,8 @@ import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createAccountReturnFixture } from './testing/account-return-fixture.js';
 import { PostgresProfileReportSourceStore } from './profile-report-source-store.js';
 import { createPostgresUserReportServices } from './report-services.js';
+import { PostgresAccountModerationWorkflow } from './account-moderation-store.js';
+import { createReportFixtureAdmin } from './testing/report-fixture.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 const man = '20000000-0000-4000-8000-000000000001';
@@ -308,6 +311,114 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
       left.services.submit.execute(left.command, a, a.productEpoch, a.sessionGrantId),
     ).rejects.toMatchObject({ code: 'report_unavailable' });
   });
+
+  it.each(['ban_user', 'restrict_user'] as const)(
+    'rechecks reporting policy after an observed lock wait and an audited %s',
+    async (action) => {
+      const f = await pair(),
+        owner = await actor(f.a),
+        report = await reportFixture(f, owner);
+      const submit = (): Promise<ReportSubmissionResult> =>
+        report.services.submit.execute(
+          report.command,
+          owner,
+          owner.productEpoch,
+          owner.sessionGrantId,
+        );
+      const original = await submit();
+      const adminUserId = await createReportFixtureAdmin(database);
+      await database
+        .insertInto('administration.admin_user_roles')
+        .values({
+          admin_user_id: adminUserId,
+          role_code: 'moderator',
+          assigned_by_admin_id: adminUserId,
+          revoked_by_admin_id: null,
+          revoked_at: null,
+        })
+        .execute();
+      await database
+        .insertInto('notification.notification_preferences')
+        .values({ user_id: f.a, created_at: new Date(), updated_at: new Date() })
+        .onConflict((conflict) => conflict.column('user_id').doNothing())
+        .execute();
+      let entered!: () => void, release!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const holder = database.transaction().execute(async (tx) => {
+        await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${f.b}::text, 0))`.execute(
+          tx,
+        );
+        entered();
+        await gate;
+      });
+      await ready;
+      const retry = submit().then(
+        (value) => ({ value, error: undefined }),
+        (error: unknown) => ({ value: undefined, error }),
+      );
+      try {
+        let observed = false;
+        for (let i = 0; i < 200; i++) {
+          const result = await sql<{
+            waiting: boolean;
+          }>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+            WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock'
+              AND query LIKE '%moderation-threshold:%') AS waiting`.execute(database);
+          if (result.rows[0]?.waiting) {
+            observed = true;
+            break;
+          }
+          await pause(5);
+        }
+        expect(observed).toBe(true);
+        const commandId = randomUUID(),
+          digest = createHash('sha256').update(commandId).digest('hex');
+        expect(
+          await new PostgresAccountModerationWorkflow(database).apply(
+            {
+              logId: randomUUID(),
+              adminUserId,
+              commandId,
+              requestId: randomUUID(),
+              requestDigest: digest,
+              commandCode: 'moderation.apply-account-action',
+              requiredPermission: action,
+              targetType: 'user',
+              targetId: f.a,
+              expectedTargetVersion: 1,
+              reasonDigest: digest,
+              metadata: {},
+              correlationId: randomUUID(),
+            },
+            action,
+          ),
+        ).toMatchObject({ result: 'succeeded' });
+        // Moderation changes reporting permission independently of session revocation.
+        expect(
+          await new PostgresUserSessionStore(database).current(owner, owner.sessionGrantId),
+        ).toBeDefined();
+      } finally {
+        release();
+        await holder;
+      }
+      const outcome = await retry;
+      if (action === 'ban_user')
+        expect(outcome.error).toMatchObject({ code: 'report_unavailable' });
+      else expect(outcome.value).toMatchObject({ reportId: original.reportId, replayed: true });
+      expect(
+        await database
+          .selectFrom('moderation.reports')
+          .select('id')
+          .where('reporter_user_id', '=', f.a)
+          .execute(),
+      ).toHaveLength(1);
+    },
+  );
 
   it('binds concurrent requests to their original reservation after delivery and refuses revoked replay', async () => {
     const f = await pair(),

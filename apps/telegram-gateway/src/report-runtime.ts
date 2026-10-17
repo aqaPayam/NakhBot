@@ -5,6 +5,7 @@ import {
   AesGcmProfileReportSnapshotProtector,
   AesGcmProfileReportSnapshotReader,
   AesGcmPhotoReportSnapshotReader,
+  AesGcmPhotoReportSnapshotProtector,
   AesGcmChatReportSnapshotReader,
   AesGcmUnmatchedReportSnapshotReader,
   type UserSessionActor,
@@ -38,7 +39,12 @@ import {
 export interface TelegramReportRuntimePort {
   readonly enabled: boolean;
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
-  button(actor: UserSessionActor, telegramUserId: string, deliveryId: string): Promise<string>;
+  button(
+    actor: UserSessionActor,
+    telegramUserId: string,
+    deliveryId: string,
+    photoId?: string,
+  ): Promise<string>;
 }
 function unavailable(): ApplicationError {
   return new ApplicationError('report_unavailable', 'error.report.unavailable', 409);
@@ -53,13 +59,14 @@ function operation(parts: readonly unknown[]): string {
   const value = bytes.toString('hex');
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
 }
-/** Public profile-report composition. Photo evidence is not offered until its
- * object-retention worker is connected; existing native photo/report services
- * and administrative capabilities keep their separate composition. */
+/** Public profile and selected-photo reports reuse native evidence capture and
+ * media holds. Existing deletion-media execution preserves held thumbnails;
+ * administrative reveal remains a separate capability. */
 export class TelegramReportRuntime implements TelegramReportRuntimePort {
   public readonly enabled = true;
   private readonly key: Uint8Array;
   private readonly protector: AesGcmProfileReportSnapshotProtector;
+  private readonly photoProtector: AesGcmPhotoReportSnapshotProtector;
   public constructor(
     private readonly database: NakhDatabase,
     private readonly botId: string,
@@ -75,6 +82,11 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
     keys.assertSeparateNavigationKey(this.key);
     const write = keys.writeKey(writeKeyId, writeKeyVersion);
     this.protector = new AesGcmProfileReportSnapshotProtector(
+      write.keyId,
+      write.keyVersion,
+      write.key,
+    );
+    this.photoProtector = new AesGcmPhotoReportSnapshotProtector(
       write.keyId,
       write.keyVersion,
       write.key,
@@ -191,6 +203,7 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
     actor: UserSessionActor,
     telegramUserId: string,
     deliveryId: string,
+    photoId?: string,
   ): Promise<string> {
     const owner = Object.freeze({ ...actor });
     await this.current(owner, telegramUserId);
@@ -200,6 +213,7 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
       screen: 'report',
       action: 'begin',
       code: deliveryId,
+      ...(photoId === undefined ? {} : { photoId }),
       group: randomBytes(12).toString('base64url'),
     });
   }
@@ -213,6 +227,10 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
           protector: this.protector,
           reader: new AesGcmProfileReportSnapshotReader(this.keys),
         },
+        photo: {
+          protector: this.photoProtector,
+          reader: new AesGcmPhotoReportSnapshotReader(this.keys),
+        },
       },
       { actor: nav.actor, deliveryId: nav.code },
     );
@@ -223,6 +241,7 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
     const source = await reportTokens.issueSource(nav.actor.userId, {
       kind: 'delivered_candidate',
       referenceId: nav.code!,
+      ...(nav.photoId === undefined ? {} : { photoId: nav.photoId }),
     });
     const requestId = operation([this.botId, telegramUserId, nav.actor, updateId, 'prepare']);
     const prepared = await this.services(nav).prepare.execute(
@@ -230,7 +249,7 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
         actor: nav.actor,
         requestId,
         sourceActionToken: source.token,
-        requestedEvidenceTypes: ['profile'],
+        requestedEvidenceTypes: [nav.photoId === undefined ? 'profile' : 'photo'],
       },
       nav.actor,
       nav.actor.productEpoch,

@@ -77,7 +77,7 @@ async function assertReportLife(
     .executeTakeFirst();
   if (
     account === undefined ||
-    account.state === 'deleted' ||
+    !canSubmitUserReport(account.state) ||
     account.product_epoch !== (request.productEpoch ?? 0)
   )
     throw reportUnavailable();

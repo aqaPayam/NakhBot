@@ -41,6 +41,7 @@ export interface GuestPreviewRuntimePort {
       telegramUserId: string;
       deliveryId: string;
       keyboard: TelegramCandidateCard['keyboard'];
+      photoKeyboard?: (photoId: string) => Promise<TelegramCandidateCard['keyboard']>;
       render: (key: string, variables: Record<string, string | number>) => string;
       sendText: (text: string) => Promise<void>;
     }>,
@@ -96,6 +97,7 @@ export class GuestPreviewRuntime implements GuestPreviewRuntimePort {
       deliveryId = input.deliveryId,
       telegramUserId = input.telegramUserId,
       keyboard = structuredClone(input.keyboard),
+      photoKeyboard = input.photoKeyboard,
       render = input.render,
       sendText = input.sendText;
     const store = new PostgresCandidatePresentationStore(this.database, this.environment, actor);
@@ -133,7 +135,7 @@ export class GuestPreviewRuntime implements GuestPreviewRuntimePort {
         {
           viewerUserId: actor.userId,
           telegramUserId,
-          keyboard,
+          keyboard: photoKeyboard === undefined ? keyboard : await photoKeyboard(photo.photoId),
           caption: render('profile.ui.photo', {
             name: profile.name,
             position: position + 1,

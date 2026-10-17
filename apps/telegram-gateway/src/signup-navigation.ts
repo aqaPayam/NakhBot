@@ -33,6 +33,7 @@ export type SignupNavigation = Readonly<{
   group?: string | undefined;
   reference?: string | undefined;
   reason?: string | undefined;
+  photoId?: string | undefined;
 }>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export function signupRecord(value: unknown): Record<string, unknown> | undefined {
@@ -181,6 +182,7 @@ export class SignupNavigationTokens {
           'group',
           'reference',
           'reason',
+          'photoId',
         ].includes(k),
       ) &&
       Object.keys(actor).sort().join(',') === 'kind,productEpoch,sessionGrantId,userId' &&
@@ -219,6 +221,8 @@ export class SignupNavigationTokens {
           row[k] === undefined ||
           (typeof row[k] === 'string' && /^[A-Za-z0-9_-]{1,80}$/u.test(row[k])),
       ) &&
+      (row.photoId === undefined ||
+        (this.purpose === 'report' && typeof row.photoId === 'string' && UUID.test(row.photoId))) &&
       (row.page === undefined ||
         (Number.isSafeInteger(row.page) && Number(row.page) >= 0 && Number(row.page) <= 10000)) &&
       (row.group === undefined ||

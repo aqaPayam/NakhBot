@@ -6,7 +6,10 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OpaqueTokenStore } from '@nakh/application';
-import { AesGcmProfileReportSnapshotReader } from '@nakh/application';
+import {
+  AesGcmProfileReportSnapshotReader,
+  AesGcmPhotoReportSnapshotReader,
+} from '@nakh/application';
 import { parseConfig } from '@nakh/config';
 import {
   createDatabase,
@@ -1573,6 +1576,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         ).toBe(0);
         expect(await count()).toBe(4);
         const pendingTarget = await createMediaAuthorityFixture(database);
+        const reportedPhotoId = await createReportPhoto(database, pendingTarget.ownerUserId, false);
         await eligibleExplorePair(exploreUser, pendingTarget.ownerUserId);
         expect(
           (
@@ -1618,6 +1622,16 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           ).statusCode,
         ).toBe(201);
         expectedMediaPurpose = 'profile_card';
+        const profileReport = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Report')!.callback_data;
+        const photoReport = photos
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Report')!.callback_data;
+        expect(photos.at(-1)!.caption).toContain('Photo 2 of 2');
+        expect(photoReport).not.toContain(reportedPhotoId);
         const compose = photos
           .at(-1)!
           .keyboard.flat()
@@ -1737,10 +1751,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             .where('provider_event_id', '=', String(payment.update_id))
             .execute(),
         ).toHaveLength(1);
-        const reportButton = photos
-          .at(-1)!
-          .keyboard.flat()
-          .find((button) => button.text === 'Report')!.callback_data;
+        const reportButton = profileReport;
         expect(reportButton).toMatch(/^m9r:/u);
         expect(
           (
@@ -1868,6 +1879,107 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             .where('reporter_user_id', '=', exploreUser)
             .execute(),
         ).toHaveLength(1);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, photoReport),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const photoReason = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Fake profile')!.callback_data;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, photoReason),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const photoSubmit = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((button) => button.text === 'Submit report')!.callback_data;
+        const photoUpdate = callback(exploreSender, photoSubmit);
+        for (let i = 0; i < 3; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: photoUpdate }))
+              .statusCode,
+          ).toBe(201);
+        const selectedPhoto = await database
+          .selectFrom('moderation.report_evidence as evidence')
+          .innerJoin('moderation.reports as report', 'report.id', 'evidence.report_id')
+          .innerJoin(
+            'moderation.report_snapshots as snapshot',
+            'snapshot.report_evidence_id',
+            'evidence.id',
+          )
+          .innerJoin(
+            'media.report_photo_evidence_holds as hold',
+            'hold.report_evidence_id',
+            'evidence.id',
+          )
+          .select([
+            'report.id as reportId',
+            'report.extra_text',
+            'evidence.id as evidenceId',
+            'evidence.profile_photo_id',
+            'hold.photo_id',
+            'hold.content_sha256',
+            'hold.captured_primary',
+            'snapshot.schema_version',
+            'snapshot.snapshot_type',
+            'snapshot.encryption_key_id',
+            'snapshot.encryption_key_version',
+            'snapshot.nonce',
+            'snapshot.ciphertext',
+            'snapshot.content_sha256 as snapshotSha256',
+          ])
+          .where('report.reporter_user_id', '=', exploreUser)
+          .where('evidence.evidence_type', '=', 'photo')
+          .execute();
+        expect(selectedPhoto).toHaveLength(1);
+        const held = selectedPhoto[0]!;
+        expect(held).toMatchObject({
+          profile_photo_id: reportedPhotoId,
+          photo_id: reportedPhotoId,
+          captured_primary: false,
+          extra_text: null,
+        });
+        const thumbnail = await database
+          .selectFrom('media.profile_photos as photo')
+          .innerJoin('media.photo_variants as variant', 'variant.asset_id', 'photo.asset_id')
+          .select('variant.sha256')
+          .where('photo.id', '=', reportedPhotoId)
+          .where('variant.variant_type', '=', 'thumbnail')
+          .executeTakeFirstOrThrow();
+        expect(
+          new AesGcmPhotoReportSnapshotReader({ resolve: () => Buffer.alloc(32, 73) }).decrypt(
+            { reportId: held.reportId, evidenceId: held.evidenceId },
+            {
+              schemaVersion: held.schema_version,
+              snapshotType: held.snapshot_type,
+              keyId: held.encryption_key_id,
+              keyVersion: held.encryption_key_version,
+              nonce: held.nonce,
+              ciphertext: held.ciphertext,
+              sha256: held.snapshotSha256,
+            },
+          ),
+        ).toEqual({
+          evidenceType: 'photo',
+          evidenceObjectRef: `v1.pe.${held.evidenceId}`,
+          contentSha256: thumbnail.sha256.toString('hex'),
+          primary: false,
+        });
+        expect(held.content_sha256).toBe(thumbnail.sha256.toString('hex'));
         // The original other delivered card remains reportable while product
         // admission is stopped. A new process also verifies retained v1 custody
         // before using v2 for its separately selected write capability.
@@ -1941,8 +2053,10 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           .select(['id', 'target_user_id', 'extra_text'])
           .where('reporter_user_id', '=', exploreUser)
           .execute();
-        expect(afterPause).toHaveLength(2);
-        const noDetails = afterPause.find((report) => report.id !== reports[0]!.id)!;
+        expect(afterPause).toHaveLength(3);
+        const noDetails = afterPause.find(
+          (report) => report.id !== reports[0]!.id && report.id !== held.reportId,
+        )!;
         expect(noDetails).toMatchObject({
           target_user_id: exploreTarget.ownerUserId,
           extra_text: null,
