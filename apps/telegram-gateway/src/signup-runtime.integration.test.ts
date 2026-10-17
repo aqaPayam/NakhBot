@@ -1108,7 +1108,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             result: {
               message_id: serial++,
               from: { id: botId, is_bot: true },
-              chat: { id: Number(sender), type: 'private' },
+              chat: { id: Number(mediaSender), type: 'private' },
             },
           }),
         );
@@ -1283,6 +1283,15 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
               .statusCode,
           ).toBe(201);
         expect(providerCalls).toBe(3);
+        expect(
+          await database
+            .selectFrom('discovery.candidate_deliveries')
+            .select(['mode', 'state', 'target_user_id'])
+            .where('viewer_user_id', '=', exploreUser)
+            .execute(),
+        ).toEqual([
+          { mode: 'explore', state: 'delivered', target_user_id: exploreTarget.ownerUserId },
+        ]);
         const exploreCard = photos.at(-1)!;
         expect(exploreCard.keyboard.flat().map((b) => b.text)).toEqual([
           'Like',
