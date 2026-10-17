@@ -201,6 +201,7 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
       '000152_m9_signup_presentation.sql',
       '000153_m9_candidate_media_authority.sql',
       '000154_m9_preview_consumption_disposition.sql',
+      '000155_m9_guest_preview_delivery.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);

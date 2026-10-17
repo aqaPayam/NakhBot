@@ -316,6 +316,7 @@ describe.skipIf(url === undefined)('M8 session authority migration provenance', 
             '000152_m9_signup_presentation.sql',
             '000153_m9_candidate_media_authority.sql',
             '000154_m9_preview_consumption_disposition.sql',
+            '000155_m9_guest_preview_delivery.sql',
           ]);
           await verifyMigrations(isolated.url, resolve('migrations/verify'));
           expect(

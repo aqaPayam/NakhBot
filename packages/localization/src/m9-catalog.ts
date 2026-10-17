@@ -28,3 +28,13 @@ export const M9_SIGNUP_TEXTS = {
   'signup.ui.review':
     'Name: {name}\nBirth year: {year}\nGender: {gender}\nLooking for: {preference}\nInterests: {interests}\nLocation: {location}\nRelationship goal: {goal}\nHighlight: {highlight}\nOptional details:\n{optional}\nPhotos: {photos}',
 } as const;
+export const M9_PREVIEW_TEXTS = {
+  'preview.ui.card': '{name}, approximately {age}\n{city}\n{highlight}',
+  'preview.ui.next': 'Next profile',
+  'preview.ui.pending':
+    'This delivery is awaiting verification. Please use /start to continue signup or contact support if it remains pending.',
+  'preview.ui.failed':
+    'This profile could not be delivered. Choose Guest Preview again to try another delivery.',
+  'preview.ui.handled':
+    'This profile was already delivered. Use the buttons on your current card or send /start.',
+} as const;

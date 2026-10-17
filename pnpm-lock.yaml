@@ -226,6 +226,9 @@ importers:
       '@nakh/localization':
         specifier: workspace:*
         version: link:../../packages/localization
+      '@nakh/media-delivery':
+        specifier: workspace:*
+        version: link:../../packages/media-delivery
       '@nakh/observability':
         specifier: workspace:*
         version: link:../../packages/observability

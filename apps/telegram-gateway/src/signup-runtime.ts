@@ -12,7 +12,7 @@ import {
 } from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import { ApplicationError, SystemClock } from '@nakh/domain';
-import { CatalogRenderer, M9_SIGNUP_TEXTS } from '@nakh/localization';
+import { CatalogRenderer, M9_SIGNUP_TEXTS, M9_PREVIEW_TEXTS } from '@nakh/localization';
 import { M1Metrics, M1_REASON_CODES, type M1HandlerOperation } from '@nakh/observability';
 import {
   PostgresAccountControlSessionStore,
@@ -39,6 +39,10 @@ import {
   type SignupNavigation as Nav,
 } from './signup-navigation.js';
 import type { TelegramStartDeliveryNotice } from './start-delivery.js';
+import {
+  createGuestPreviewRuntime,
+  type GuestPreviewRuntimePort,
+} from './guest-preview-runtime.js';
 
 type Value = SaveSignupStepWrite['command']['data']['value'];
 type Edit = SaveSignupOptionalDetailsWrite['command']['data']['edit'];
@@ -92,6 +96,15 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       .where('name', '=', '000152_m9_signup_presentation.sql')
       .executeTakeFirst();
     if (migration === undefined) throw new Error('Signup schema unavailable.');
+    if (
+      this.previewDelivery !== undefined &&
+      (await this.database
+        .selectFrom('platform.schema_migrations')
+        .select('name')
+        .where('name', '=', '000155_m9_guest_preview_delivery.sql')
+        .executeTakeFirst()) === undefined
+    )
+      throw new Error('Guest Preview schema unavailable.');
     const locales = await this.database
       .selectFrom('catalog.locales')
       .select('code')
@@ -101,7 +114,10 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       [...new Set([...text.matchAll(/\{([A-Za-z0-9_]+)\}/gu)].map((m) => m[1]))].sort().join(',');
     for (const locale of locales) {
       const catalog = await this.localization.loadActiveCatalog(locale.code);
-      for (const [key, expected] of Object.entries(M9_SIGNUP_TEXTS)) {
+      for (const [key, expected] of Object.entries({
+        ...M9_SIGNUP_TEXTS,
+        ...(this.previewDelivery === undefined ? {} : M9_PREVIEW_TEXTS),
+      })) {
         const value = catalog.messages[key];
         if (
           typeof value !== 'string' ||
@@ -160,6 +176,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     private readonly navigationStore?: (
       life: Readonly<{ userId: string; productEpoch: number }>,
     ) => OpaqueTokenStore,
+    private readonly previewDelivery?: GuestPreviewRuntimePort,
   ) {
     this.key = Buffer.from(key);
     this.identities = new PostgresIdentityStore(database);
@@ -282,6 +299,60 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         data: { expectedDraftVersion: nav.version, value },
       }),
     );
+  }
+  private async showPreview(telegramId: string, updateId: number, nav: Nav): Promise<void> {
+    if (this.previewDelivery === undefined) {
+      await this.render(telegramId, nav.actor);
+      return;
+    }
+    const context = await new PostgresSignupChoices(this.database, nav.actor).context();
+    const catalog = await this.localization.loadActiveCatalog(context.uiLocale);
+    const renderer = new CatalogRenderer(
+      { [catalog.resolvedLocale]: catalog.messages },
+      catalog.resolvedLocale,
+    );
+    const render = (key: string, variables: Record<string, string | number> = {}): string =>
+      renderer.render(catalog.resolvedLocale, { key, variables });
+    const base: Nav = {
+      actor: nav.actor,
+      screen: 'preview',
+      version: context.accountVersion,
+      group: randomBytes(12).toString('base64url'),
+      action: 'preview',
+    };
+    const tokens = this.tokens(telegramId, nav.actor);
+    const keyboard = [
+      [{ text: render('preview.ui.next'), callback_data: await tokens.button(base) }],
+      [
+        {
+          text: render(
+            context.accountState === 'guest' ? 'common.button.sign_up' : 'signup.ui.continue',
+          ),
+          callback_data: await tokens.button({
+            ...base,
+            action: context.accountState === 'guest' ? 'begin' : 'resume',
+          }),
+        },
+      ],
+    ];
+    const result = await this.previewDelivery.show({
+      actor: nav.actor,
+      telegramUserId: telegramId,
+      requestId: this.envelope(nav.actor, telegramId, updateId, 'preview').requestId,
+      keyboard,
+      render,
+    });
+    if (result !== 'sent')
+      await this.notice(
+        telegramId,
+        result === 'empty'
+          ? 'explore.empty'
+          : result === 'delivered'
+            ? 'preview.ui.handled'
+            : result === 'failed'
+              ? 'preview.ui.failed'
+              : 'preview.ui.pending',
+      );
   }
   private async optional(
     telegramId: string,
@@ -439,6 +510,10 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           await this.render(telegramId, nav.actor, claim.next);
           return 'notice';
         }
+        if (nav.action === 'preview') {
+          await this.showPreview(telegramId, updateId, nav);
+          return 'notice';
+        }
         if (nav.action === 'begin')
           await this.measured('signup_start', () =>
             new StartSignupHandler(
@@ -573,6 +648,10 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     } catch (error) {
       if (!(error instanceof ApplicationError) || error.status >= 500)
         throw new ApplicationError('internal_error', 'error.identity.user_context_invalid', 500);
+      if (nav.action === 'preview' && error.code === 'guest_preview_limit_reached') {
+        await this.render(telegramId, nav.actor, undefined, 'explore.guest.limit_reached');
+        return 'notice';
+      }
       if (error.status === 401 || error.status === 403 || error.status === 429) {
         await this.notice(telegramId, 'signup.ui.expired');
         return 'notice';
@@ -657,6 +736,12 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     if (screen === 'root') {
       if (context.accountState === 'guest')
         await button(t('common.button.sign_up'), { action: 'begin' });
+      if (
+        context.accountState === 'guest' &&
+        this.previewDelivery !== undefined &&
+        context.guestPreviewCount < context.guestPreviewLimit
+      )
+        await button(t('common.button.guest_preview'), { action: 'preview' });
     } else if (screen === 'name' || screen === 'birth_year' || screen === 'highlight')
       prompt = true;
     else if (screen === 'age_confirmation')
@@ -763,6 +848,12 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       }
     }
     if (errorKey !== undefined) text = t(errorKey) + '\n' + text;
+    if (
+      context.accountState === 'incomplete' &&
+      this.previewDelivery !== undefined &&
+      context.guestPreviewCount < context.guestPreviewLimit
+    )
+      await button(t('common.button.guest_preview'), { action: 'preview' });
     const checkpoint = async (): Promise<void> => {
       await this.current(actor, telegramId);
       const fresh = await projection.context(),
@@ -844,5 +935,7 @@ export function createTelegramSignupRuntime(
     key,
     new TelegramBotApiMenuClient(token),
     new RedisRateLimiter(input.redis, input.config.redis.queuePrefix),
+    undefined,
+    createGuestPreviewRuntime(input.config, input.database, resolve),
   );
 }

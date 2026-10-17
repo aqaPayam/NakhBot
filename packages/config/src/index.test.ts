@@ -18,6 +18,21 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps Guest Preview delivery inactive until the signup path is ready', () => {
+    expect(parseConfig(validEnvironment).telegram.guestPreviewEnabled).toBe(false);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_GUEST_PREVIEW_ENABLED: 'true' }),
+    ).toThrow('Guest Preview requires');
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_TELEGRAM_GUEST_PREVIEW_ENABLED: 'true',
+        NAKH_TELEGRAM_SIGNUP_ENABLED: 'true',
+        NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
+        NAKH_MEDIA_INGESTION_ENABLED: 'true',
+      }).telegram.guestPreviewEnabled,
+    ).toBe(true);
+  });
   it('keeps signup off and requires the existing start and photo paths when activated', () => {
     expect(parseConfig(validEnvironment).telegram.signupEnabled).toBe(false);
     expect(() =>

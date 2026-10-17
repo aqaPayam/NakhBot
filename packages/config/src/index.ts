@@ -37,6 +37,7 @@ const ConfigSchema = Type.Object(
       supportAppealEnabled: Type.Boolean(),
       startDeliveryEnabled: Type.Boolean(),
       signupEnabled: Type.Boolean(),
+      guestPreviewEnabled: Type.Boolean(),
     }),
     media: Type.Object({
       ingestionEnabled: Type.Boolean(),
@@ -155,6 +156,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       supportAppealEnabled: boolean(env.NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED, false),
       startDeliveryEnabled: boolean(env.NAKH_TELEGRAM_START_DELIVERY_ENABLED, false),
       signupEnabled: boolean(env.NAKH_TELEGRAM_SIGNUP_ENABLED, false),
+      guestPreviewEnabled: boolean(env.NAKH_TELEGRAM_GUEST_PREVIEW_ENABLED, false),
     },
     media: {
       ingestionEnabled: boolean(env.NAKH_MEDIA_INGESTION_ENABLED, false),
@@ -246,6 +248,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     throw new Error(
       'Invalid configuration: signup Telegram requires start delivery and media ingestion.',
     );
+  if (candidate.telegram.guestPreviewEnabled && !candidate.telegram.signupEnabled)
+    throw new Error('Invalid configuration: Guest Preview requires signup Telegram readiness.');
   if (candidate.deletion.returnTelegramEnabled && !candidate.deletion.telegramEnabled)
     throw new Error(
       'Invalid configuration: Return Telegram requires configured deletion Telegram readiness.',

@@ -14,13 +14,26 @@ import {
   PostgresIdentityStore,
   PostgresSignupStore,
   PostgresAccountReturnStore,
+  PostgresMediaDeliveryAuthorization,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection } from '@nakh/queue-redis';
-import { TelegramBotApiMenuClient, TelegramStartAdapter } from '@nakh/telegram';
+import {
+  TelegramBotApiMenuClient,
+  TelegramStartAdapter,
+  TelegramCandidateMediaRelay,
+} from '@nakh/telegram';
 import { seedValidMedia } from '../../../packages/persistence-postgres/src/media-fixtures.js';
 import { createAccountReturnFixture } from '../../../packages/persistence-postgres/src/testing/account-return-fixture.js';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
+import { createMediaAuthorityFixture } from '../../../packages/persistence-postgres/src/testing/media-authority-fixture.js';
+import {
+  HmacMediaDeliveryTokens,
+  EdgeHmacMediaAudienceAuthenticator,
+  HmacMediaAudienceCredentials,
+  MediaDeliveryUrlSigner,
+} from '@nakh/media-delivery';
+import { GuestPreviewRuntime } from './guest-preview-runtime.js';
 import { TelegramGatewayModule } from './app.js';
 import { TelegramSignupRuntime } from './signup-runtime.js';
 import { signupRecord as record, type SignupNavigation } from './signup-navigation.js';
@@ -30,6 +43,11 @@ const botId = 12345,
   botToken = `${botId}:${'a'.repeat(24)}`,
   key = Buffer.alloc(32, 154);
 let serial = 200000;
+function formText(form: FormData, key: string): string {
+  const value = form.get(key);
+  if (typeof value !== 'string') throw new Error('Missing synthetic provider field');
+  return value;
+}
 type Message = {
   id: number;
   sender: string;
@@ -180,6 +198,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
   afterAll(async () => {
     await database?.destroy();
@@ -495,6 +514,166 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
     }
     await runtime.onModuleInit();
   });
+  it.each([0, 9])(
+    'delivers one native guest card under callback replay from prior count %i',
+    async (priorCount) => {
+      await database
+        .updateTable('identity.user_settings')
+        .set({ visibility_enabled: false })
+        .execute();
+      const target = await createMediaAuthorityFixture(database),
+        sender = String(serial++);
+      const tokens = new HmacMediaDeliveryTokens({
+        currentKeyId: 'm9',
+        keys: new Map([['m9', key]]),
+      });
+      const audienceKey = Buffer.alloc(32, 156),
+        audience = new EdgeHmacMediaAudienceAuthenticator(
+          'https://media.invalid',
+          new Map([['m9', audienceKey]]),
+        );
+      let viewer = '',
+        providerCalls = 0,
+        uncertain = false,
+        nextData = '';
+      const relay = new TelegramCandidateMediaRelay(
+        'https://media.invalid',
+        botToken,
+        new HmacMediaAudienceCredentials('https://media.invalid', {
+          currentKeyId: 'm9',
+          keys: new Map([['m9', audienceKey]]),
+        }),
+        async (input, init) => {
+          if (input.startsWith('https://media.invalid/')) {
+            const media = new URL(input);
+            expect(
+              await audience.authenticate(
+                new Request(input, { headers: new Headers(init?.headers) }),
+              ),
+            ).toBe(viewer);
+            const claims = tokens.verify(media.searchParams.get('token')!, {
+              path: media.pathname,
+              audienceId: viewer,
+              now: Math.floor(Date.now() / 1000),
+            });
+            expect(
+              await new PostgresMediaDeliveryAuthorization(database, 'test').isCurrent(claims),
+            ).toBe(true);
+            return new Response(new Uint8Array([82, 73, 70, 70]), {
+              headers: { 'content-type': 'image/webp' },
+            });
+          }
+          expect(input).toBe(`https://api.telegram.org/bot${botToken}/sendPhoto`);
+          const form = init?.body as FormData;
+          expect(form.get('chat_id')).toBe(sender);
+          const markup = JSON.parse(formText(form, 'reply_markup')) as {
+            inline_keyboard: Message['keyboard'];
+          };
+          nextData = markup.inline_keyboard[0]![0]!.callback_data;
+          providerCalls++;
+          if (uncertain) throw new Error('synthetic uncertain provider result');
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: serial++,
+                from: { id: botId, is_bot: true },
+                chat: { id: Number(sender), type: 'private' },
+              },
+            }),
+          );
+        },
+      );
+      runtime = new TelegramSignupRuntime(
+        database,
+        {} as ReturnType<typeof createRedisConnection>,
+        'm9-ui-native',
+        String(botId),
+        key,
+        transport.client,
+        limiter,
+        cache,
+        new GuestPreviewRuntime(
+          database,
+          'test',
+          relay,
+          new MediaDeliveryUrlSigner('https://media.invalid', tokens),
+        ),
+      );
+      await runtime.onModuleInit();
+      viewer = await open(sender);
+      if (priorCount !== 0)
+        await database
+          .updateTable('identity.guest_preview_counters')
+          .set({
+            preview_count: priorCount,
+            first_preview_at: new Date(),
+            last_preview_at: new Date(),
+          })
+          .where('user_id', '=', viewer)
+          .execute();
+      const data = find(sender, (nav) => nav.action === 'preview');
+      if (data === undefined) throw new Error('Missing preview navigation');
+      const update = callback(sender, data);
+      await Promise.all(Array.from({ length: 10 }, () => runtime.handle(update)));
+      expect(providerCalls).toBe(1);
+      const delivered = await database
+        .selectFrom('discovery.candidate_deliveries')
+        .selectAll()
+        .where('viewer_user_id', '=', viewer)
+        .executeTakeFirstOrThrow();
+      expect(delivered.state).toBe('delivered');
+      expect(delivered.target_user_id).toBe(target.ownerUserId);
+      const count = async (): Promise<number> =>
+        (
+          await database
+            .selectFrom('identity.guest_preview_counters')
+            .select('preview_count')
+            .where('user_id', '=', viewer)
+            .executeTakeFirstOrThrow()
+        ).preview_count;
+      expect(await count()).toBe(priorCount + 1);
+      await runtime.handle(update);
+      expect(providerCalls).toBe(1);
+      if (priorCount === 9) {
+        await runtime.handle(callback(sender, nextData));
+        expect(providerCalls).toBe(1);
+        expect(await count()).toBe(10);
+        expect(transport.last(sender).text).toContain('You have used all guest previews.');
+        expect(find(sender, (nav) => nav.action === 'preview')).toBeUndefined();
+        expect(find(sender, (nav) => nav.action === 'begin')).toBeDefined();
+        await open(sender, viewer);
+        expect(find(sender, (nav) => nav.action === 'preview')).toBeUndefined();
+        return;
+      }
+      await createMediaAuthorityFixture(database);
+      uncertain = true;
+      const next = callback(sender, nextData);
+      for (let i = 0; i < 3; i++) await runtime.handle(next);
+      expect(providerCalls).toBe(2);
+      expect(await count()).toBe(1);
+      expect(
+        await database
+          .selectFrom('discovery.candidate_deliveries')
+          .select('id')
+          .where('viewer_user_id', '=', viewer)
+          .where('state', '=', 'reserved')
+          .where('attempt_count', '=', 1)
+          .execute(),
+      ).toHaveLength(1);
+      const profile = await database
+        .selectFrom('profile.profiles')
+        .select(['name', 'highlight'])
+        .where('user_id', '=', target.ownerUserId)
+        .executeTakeFirstOrThrow();
+      for (const map of values.values())
+        for (const value of map.values()) {
+          expect(value).not.toContain(profile.name);
+          expect(value).not.toContain(profile.highlight);
+          expect(value).not.toContain('/media/');
+        }
+    },
+  );
   it.skipIf(redisUrl === undefined)(
     'uses the authenticated process composition and real Redis, including the verified post-Return activation bridge',
     async () => {
@@ -504,6 +683,8 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       let app: NestFastifyApplication | undefined;
       vi.stubEnv('M9_UI_BOT', botToken);
       vi.stubEnv('M9_UI_KEY', key.toString('base64url'));
+      const audienceKey = Buffer.alloc(32, 156);
+      vi.stubEnv('M9_UI_AUDIENCE', audienceKey.toString('base64url'));
       const config = parseConfig({
         NAKH_ENV: 'test',
         NAKH_SERVICE_NAME: 'telegram-gateway',
@@ -515,6 +696,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF: 'M9_UI_KEY',
         NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
         NAKH_TELEGRAM_SIGNUP_ENABLED: 'true',
+        NAKH_TELEGRAM_GUEST_PREVIEW_ENABLED: 'true',
         NAKH_MEDIA_INGESTION_ENABLED: 'true',
         NAKH_MEDIA_TRANSPORT_KEY_REF: 'M9_UI_KEY',
         NAKH_R2_ENDPOINT: 'https://r2.invalid',
@@ -523,6 +705,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         NAKH_R2_SECRET_KEY_REF: 'fake',
         NAKH_MEDIA_CDN_HOST: 'media.invalid',
         NAKH_MEDIA_SIGNING_KEY_REF: 'M9_UI_KEY',
+        NAKH_MEDIA_AUDIENCE_KEY_REF: 'M9_UI_AUDIENCE',
         NAKH_DELETION_TELEGRAM_ENABLED: 'true',
         NAKH_RETURN_TELEGRAM_ENABLED: 'true',
         NAKH_FRESH_ENTRY_TELEGRAM_ENABLED: 'true',
@@ -565,6 +748,74 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           .where('user_id', '=', f.userId)
           .executeTakeFirstOrThrow(),
         sender = identity.telegram_user_id;
+      await database
+        .updateTable('identity.user_settings')
+        .set({ visibility_enabled: false })
+        .execute();
+      const target = await createMediaAuthorityFixture(database);
+      const photos: Array<{ keyboard: Message['keyboard']; caption: string }> = [];
+      let ambiguous = false,
+        providerCalls = 0;
+      const signing = new HmacMediaDeliveryTokens({
+        currentKeyId: config.media.signingKeyId,
+        keys: new Map([[config.media.signingKeyId, key]]),
+      });
+      const audience = new EdgeHmacMediaAudienceAuthenticator(
+        'https://media.invalid',
+        new Map([[config.media.audienceKeyId, audienceKey]]),
+      );
+      vi.stubGlobal('fetch', async (input: string, init?: RequestInit): Promise<Response> => {
+        if (input.startsWith('https://media.invalid/')) {
+          const media = new URL(input);
+          const viewer = await audience.authenticate(
+            new Request(input, { headers: new Headers(init?.headers) }),
+          );
+          expect(viewer).toBe(f.userId);
+          const claims = signing.verify(media.searchParams.get('token')!, {
+            path: media.pathname,
+            audienceId: f.userId,
+            now: Math.floor(Date.now() / 1000),
+          });
+          expect(claims.purpose).toBe('profile_card');
+          expect(
+            await new PostgresMediaDeliveryAuthorization(database, 'test').isCurrent(claims),
+          ).toBe(true);
+          return new Response(new Uint8Array([82, 73, 70, 70]), {
+            headers: { 'content-type': 'image/webp' },
+          });
+        }
+        expect(input).toBe(`https://api.telegram.org/bot${botToken}/sendPhoto`);
+        expect(init?.body).toBeInstanceOf(FormData);
+        const body = init!.body as FormData;
+        expect(body.get('chat_id')).toBe(sender);
+        expect(formText(body, 'caption')).not.toContain('/media/');
+        const keyboard = JSON.parse(formText(body, 'reply_markup')) as {
+          inline_keyboard: Message['keyboard'];
+        };
+        photos.push({ keyboard: keyboard.inline_keyboard, caption: formText(body, 'caption') });
+        providerCalls++;
+        expect(
+          (
+            await database
+              .selectFrom('discovery.candidate_deliveries')
+              .select('attempt_count')
+              .where('viewer_user_id', '=', f.userId)
+              .where('state', '=', 'reserved')
+              .executeTakeFirstOrThrow()
+          ).attempt_count,
+        ).toBe(1);
+        if (ambiguous) throw new Error('synthetic uncertain provider result');
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            result: {
+              message_id: serial++,
+              from: { id: botId, is_bot: true },
+              chat: { id: Number(sender), type: 'private' },
+            },
+          }),
+        );
+      });
       const marker = `${prefix}:owned-action:{${createHash('sha256').update(f.userId).digest('hex')}}:life`;
       await redis.set(marker, 'blocked:0');
       try {
@@ -607,6 +858,61 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             .select('id')
             .where('actor_user_id', '=', f.userId)
             .where('event_type', '=', 'identity.user-session-issued.v1')
+            .execute(),
+        ).toHaveLength(1);
+        const preview = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((b) => b.text === 'Browse as guest')?.callback_data;
+        if (preview === undefined) throw Error('Missing Guest Preview entry');
+        const previewUpdate = callback(sender, preview);
+        const results = await Promise.all(
+          Array.from({ length: 10 }, () =>
+            app!.inject({ method: 'POST', url: route, headers, payload: previewUpdate }),
+          ),
+        );
+        expect(results.every((r) => r.statusCode === 201)).toBe(true);
+        expect(providerCalls).toBe(1);
+        expect(photos[0]!.caption).toContain('approximately');
+        expect(photos[0]!.keyboard.flat().map((b) => b.text)).toEqual(['Next profile', 'Sign up']);
+        const delivered = await database
+          .selectFrom('discovery.candidate_deliveries')
+          .selectAll()
+          .where('viewer_user_id', '=', f.userId)
+          .executeTakeFirstOrThrow();
+        expect(delivered.target_user_id).toBe(target.ownerUserId);
+        expect(delivered.state).toBe('delivered');
+        const count = async (): Promise<number> =>
+          (
+            await database
+              .selectFrom('identity.guest_preview_counters')
+              .select('preview_count')
+              .where('user_id', '=', f.userId)
+              .executeTakeFirstOrThrow()
+          ).preview_count;
+        expect(await count()).toBe(4);
+        expect(
+          (await app.inject({ method: 'POST', url: route, headers, payload: previewUpdate }))
+            .statusCode,
+        ).toBe(201);
+        expect(providerCalls).toBe(1);
+        expect(await count()).toBe(4);
+        await createMediaAuthorityFixture(database);
+        ambiguous = true;
+        const next = callback(sender, photos[0]!.keyboard[0]![0]!.callback_data);
+        for (let i = 0; i < 3; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: next })).statusCode,
+          ).toBe(201);
+        expect(providerCalls).toBe(2);
+        expect(await count()).toBe(4);
+        expect(
+          await database
+            .selectFrom('discovery.candidate_deliveries')
+            .select('id')
+            .where('viewer_user_id', '=', f.userId)
+            .where('state', '=', 'reserved')
+            .where('attempt_count', '=', 1)
             .execute(),
         ).toHaveLength(1);
       } finally {

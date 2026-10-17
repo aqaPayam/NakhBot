@@ -684,3 +684,4 @@ export * from './account-deletion-adapter.js';
 export * from './account-return-adapter.js';
 
 export * from './account-fresh-entry-adapter.js';
+export * from './candidate-media-relay.js';

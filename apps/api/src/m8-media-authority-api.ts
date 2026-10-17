@@ -104,7 +104,7 @@ export function createMediaAuthorityApi(
   database: NakhDatabase,
   resolve: (reference: string) => string = resolveSecretReference,
 ): DynamicModule[] {
-  if (!config.telegram.likedByDeliveryEnabled) return [];
+  if (!config.telegram.likedByDeliveryEnabled && !config.telegram.guestPreviewEnabled) return [];
   const origin = `https://${config.media.cdnHost}`;
   const signingKey = key(config.media.signingKeyRef, resolve);
   const audienceKey = key(config.media.audienceKeyRef, resolve);

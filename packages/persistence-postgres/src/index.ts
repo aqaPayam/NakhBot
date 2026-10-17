@@ -255,3 +255,4 @@ export * from './account-return-activation-store.js';
 export * from './account-deletion-health-store.js';
 
 export { PostgresRetainedSupportContentStore } from './retained-support-content-store.js';
+export * from './candidate-presentation-store.js';

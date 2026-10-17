@@ -5,7 +5,17 @@ export type SignupNavigation = Readonly<{
   actor: UserSessionActor;
   version: number;
   screen: string;
-  action: 'begin' | 'resume' | 'pick' | 'page' | 'save' | 'optional' | 'clear' | 'finish' | 'reply';
+  action:
+    | 'begin'
+    | 'resume'
+    | 'pick'
+    | 'page'
+    | 'save'
+    | 'optional'
+    | 'clear'
+    | 'finish'
+    | 'reply'
+    | 'preview';
   code?: string | undefined;
   selection?: readonly string[] | undefined;
   field?: string | undefined;
@@ -167,9 +177,18 @@ export class SignupNavigationTokens {
       typeof row.screen === 'string' &&
       /^[a-z_]{1,50}$/u.test(row.screen) &&
       typeof row.action === 'string' &&
-      ['begin', 'resume', 'pick', 'page', 'save', 'optional', 'clear', 'finish', 'reply'].includes(
-        row.action,
-      ) &&
+      [
+        'begin',
+        'resume',
+        'pick',
+        'page',
+        'save',
+        'optional',
+        'clear',
+        'finish',
+        'reply',
+        'preview',
+      ].includes(row.action) &&
       ['code', 'field', 'country', 'province'].every(
         (k) =>
           row[k] === undefined ||

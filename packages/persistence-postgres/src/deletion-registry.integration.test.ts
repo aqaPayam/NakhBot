@@ -41,7 +41,7 @@ describe.skipIf(url === undefined)('M8 native deletion registry', () => {
     const actual = await readDeletionCatalog(database);
     expect(actual.tables).toHaveLength(153);
     expect(actual.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1421);
-    expect(actual.schemaVersion).toBe(154);
+    expect(actual.schemaVersion).toBe(155);
     expect(actual.foreignKeys).toHaveLength(307);
     expect(() => assertDeletionCatalogCoverage(actual)).not.toThrow();
     await database.transaction().execute(async (tx) => {

@@ -32,7 +32,7 @@ async function lockUsers(
     .select('id')
     .where('id', 'in', [viewerUserId, targetUserId])
     .orderBy('id')
-    .forUpdate()
+    .forNoKeyUpdate()
     .execute();
   if (users.length !== 2) notFound();
 }
@@ -107,7 +107,7 @@ export class PostgresCandidateDeliveryStore implements CandidateDeliveryStore {
         .updateTable('discovery.candidate_deliveries')
         .set({
           state: 'delivered',
-          attempt_count: sql<number>`attempt_count + 1`,
+          attempt_count: sql<number>`GREATEST(attempt_count,1)`,
           provider_message_id: input.providerMessageId,
           delivered_at: generated.processedAt,
           updated_at: generated.processedAt,
@@ -193,10 +193,18 @@ export class PostgresCandidateDeliveryStore implements CandidateDeliveryStore {
   }
 
   public recordDefinitiveFailure(
-    input: Readonly<{ deliveryId: string; reasonCode: string }>,
+    input: Readonly<{ deliveryId: string; reasonCode: string; onlyIfUnstarted?: boolean }>,
     generated: FailedGenerated,
   ): Promise<CandidateDeliveryResult> {
     return this.database.transaction().execute(async (transaction) => {
+      const snapshot = await transaction
+        .selectFrom('discovery.candidate_deliveries')
+        .select(['viewer_user_id', 'target_user_id'])
+        .where('id', '=', input.deliveryId)
+        .executeTakeFirst();
+      if (snapshot === undefined) notFound();
+      await lockUserPair(transaction, snapshot.viewer_user_id, snapshot.target_user_id);
+      await lockUsers(transaction, snapshot.viewer_user_id, snapshot.target_user_id);
       const delivery = await transaction
         .selectFrom('discovery.candidate_deliveries')
         .selectAll()
@@ -207,11 +215,12 @@ export class PostgresCandidateDeliveryStore implements CandidateDeliveryStore {
       if (delivery.state === 'failed')
         return { deliveryId: delivery.id, mode: delivery.mode, state: 'failed', replayed: true };
       if (delivery.state === 'delivered') conflict();
+      if (input.onlyIfUnstarted === true && delivery.attempt_count !== 0) conflict();
       const failed = await transaction
         .updateTable('discovery.candidate_deliveries')
         .set({
           state: 'failed',
-          attempt_count: sql<number>`attempt_count + 1`,
+          attempt_count: sql<number>`GREATEST(attempt_count,1)`,
           failed_at: generated.processedAt,
           updated_at: generated.processedAt,
         })

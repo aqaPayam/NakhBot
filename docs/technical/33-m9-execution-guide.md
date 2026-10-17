@@ -128,6 +128,49 @@ closed; the generic value list is unchanged. Apply this migration before enablin
 candidate delivery. The schema-153 upgrade test preserves the original event row
 while proving its disposition changes from unclassified to product transport.
 
+`NAKH_TELEGRAM_GUEST_PREVIEW_ENABLED` connects Guest Preview to the running
+signup gateway and the existing API media authority. It defaults to false and
+requires signup/start/media readiness. Apply migration 155 first; enabled startup
+requires its ledger entry and all five new presentation keys in every active
+locale. Guests enter from their menu; incomplete users can enter from a signup
+step. Signed navigation, native session/epoch checks and durable request receipts
+remain authoritative. Redis receives no profile prose, media URL or audience key.
+
+The current card shows the native primary thumbnail, name, approximate age, City
+and highlight, with Next and signup/resume navigation. The server fetches bounded
+audience-authenticated WebP bytes and uploads them directly to the fixed Bot API
+origin. A native compare-and-set checks the captured profile version and current
+media/session authority, then records call-start after the media fetch and before
+the request. The acknowledgement must identify the same private recipient
+and bot. Only known acceptance records consumption and the permanent guest count;
+replays cannot send a different card or increment again. Proven pre-call failure
+uses a native unstarted-only condition; a rejected provider response may settle
+failure without consumption. Unknown/timeout/malformed outcomes remain reserved
+and are not blindly retried. Their expiry is a reconciliation deadline, not proof
+of non-delivery. Pending calls require trusted outcome verification before release.
+
+Migration 155 prevents ordinary product purge from erasing a started, unresolved
+call. Native tests reproduce the former erasure, then prove that purge waits and
+late known acceptance after a real tombstone increments the permanent count once
+before ordinary source removal. Public reads/call-start still reject revoked
+sessions. Existing M8 grace, provider cleanup and Return gates remain required.
+The complete native deletion/approved-Return case also preserves a late accepted
+preview in the permanent counter, using an actual supported ten-second grant and
+its real expiry. Settlement follows the shared pair/sorted User lock order; its
+User locks use `NO KEY UPDATE` so account-first safety writers can finish their
+foreign-key reads. The observed lock-cycle test reproduces PostgreSQL `40P01`
+with the former stronger lock and requires both transactions to complete after
+the repair.
+These tests use synthetic provider responses; deployed provider acceptance and
+operator reconciliation are still external acceptance work. Fixed M1 handler and
+Guest Preview counters report delivery outcomes without user/target labels.
+
+Show More/full-profile navigation, normal Explore interaction actions, remaining
+product/operator entry points, audited uncertain-delivery reconciliation and the
+original release checklist remain unfinished.
+The flag must stay disabled for launch until those applicable journey and operator
+conditions are satisfied; this card-delivery increment does not close M9.
+
 Candidate media composition supplies the original reservation ID and a captured
 native user session to `PostgresMediaDeliveryAuthorization`. Migration 153 adds
 immutable source identifiers to the existing short-lived receipt. Card delivery
