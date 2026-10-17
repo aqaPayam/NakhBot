@@ -19,7 +19,19 @@ locals {
     }
   }
   http_services = { for name, service in local.services : name => service if service.port != null }
-  dns_enabled   = var.public_hostname != null && var.route53_zone_id != null
+  release_capacity = {
+    for name in keys(local.services) : name => lookup(var.release_capacity, name, {
+      desired = var.service_min_replicas
+      min     = var.service_min_replicas
+      max     = var.service_max_replicas
+      suspended = {
+        DynamicScalingInSuspended  = false
+        DynamicScalingOutSuspended = false
+        ScheduledScalingSuspended  = false
+      }
+    })
+  }
+  dns_enabled = var.public_hostname != null && var.route53_zone_id != null
 
   common_environment = [
     { name = "NODE_ENV", value = "production" },
@@ -515,7 +527,7 @@ resource "aws_ecs_service" "service" {
   name                              = each.key
   cluster                           = aws_ecs_cluster.main.id
   task_definition                   = aws_ecs_task_definition.service[each.key].arn
-  desired_count                     = var.activate_services ? var.service_min_replicas : 0
+  desired_count                     = var.activate_services ? local.release_capacity[each.key].desired : 0
   launch_type                       = "FARGATE"
   platform_version                  = "1.4.0"
   health_check_grace_period_seconds = each.value.port == null ? null : 60
@@ -524,8 +536,9 @@ resource "aws_ecs_service" "service" {
   wait_for_steady_state             = true
 
   deployment_circuit_breaker {
-    enable   = true
-    rollback = true
+    enable = true
+    # An older binary is not automatically qualified for a forward-only schema.
+    rollback = false
   }
 
   network_configuration {
@@ -549,11 +562,17 @@ resource "aws_ecs_service" "service" {
 resource "aws_appautoscaling_target" "service" {
   for_each = var.activate_services ? local.services : {}
 
-  max_capacity       = var.service_max_replicas
-  min_capacity       = var.service_min_replicas
+  max_capacity       = local.release_capacity[each.key].max
+  min_capacity       = var.release_scaling_hold ? 0 : local.release_capacity[each.key].min
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.service[each.key].name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
+
+  suspended_state {
+    dynamic_scaling_in_suspended  = var.release_scaling_hold || local.release_capacity[each.key].suspended.DynamicScalingInSuspended
+    dynamic_scaling_out_suspended = var.release_scaling_hold || local.release_capacity[each.key].suspended.DynamicScalingOutSuspended
+    scheduled_scaling_suspended   = var.release_scaling_hold || local.release_capacity[each.key].suspended.ScheduledScalingSuspended
+  }
 }
 
 resource "aws_appautoscaling_policy" "cpu" {

@@ -363,3 +363,45 @@ fallback policy and durable release custody still require composition before a
 release can rely on it. A one-time successful read cannot authorize a concurrent
 migration or prove transport/data compatibility, provider acceptance or operator
 approval. No cloud resources or users are activated by this command.
+
+
+## Controlled staging migration and rollback composition
+
+Both actual staging workflows now call the fixed fleet controller described in
+[the controlled-release runbook](../../deploy/runbooks/m9-controlled-release.md).
+Image preparation stays online; all old producers must be physically stopped
+before targeted migration registration or native migration execution. The
+controller preserves original capacity and operator scaling holds in protected
+phase custody before changes, suspends all scaling categories with minimum zero,
+and checks desired/running/pending counts plus actual task/container stop states.
+Active task identifiers discovered later are journaled and remain pinned across
+controller restarts; list omission is not physical-stop evidence. Unknown active
+standalone producers, missing task details, failed/looping pages and provider
+errors deny progress.
+
+Forward deployment runs the selected image's migration command and then its
+native compatibility command. Rollback runs only compatibility. Task definitions
+must identify the selected digest, source, service, private network and actual
+runtime database-secret reference; terminal task proof checks the exact task,
+command, image digest and zero exit. Conditional preparation claims serialize
+concurrent task starts. A prepared task with unknown outcome is preserved and
+never blindly invoked again. An expired schema observation requires fresh reviewed
+recovery rather than treating an old successful read as current admission.
+
+Activation retains the scaling hold while all selected service tasks and public
+readiness checks pass. Only then does Terraform restore the captured per-service
+capacity and original suspension flags. Unqualified ECS automatic rollback is
+disabled: a previous binary does not gain schema compatibility from a failed new
+deployment. Failure/cancellation requests maintenance for all four owned services;
+actual cancellation/crash behavior remains a required provider drill. Unknown
+standalone tasks and native financial/provider intents are not guessed, retried,
+reset or deleted by this controller.
+
+The new bucket stores private operational phase observations using checksum,
+conditional-create and independent version-bound readback. No user-linked table,
+retention period, private review snapshot, M8 Root completion or erasure authority
+is introduced. It does not yet archive all CI ZIPs and signed attestation bundles;
+complete that separate release archive before relying on historical candidates
+beyond the online evidence lifetime. Protocol tests simulate AWS boundaries;
+native schema tests use actual PostgreSQL. Neither proves real AWS/R2 acceptance,
+production approval, provider canaries, cohort launch or the rest of M9 complete.

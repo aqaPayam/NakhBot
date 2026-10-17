@@ -10,7 +10,7 @@ This root is a production-shaped but staging-sized AWS deployment. It is safe to
 - private Multi-AZ RDS PostgreSQL 17.11 with TLS enforcement, backups, enhanced monitoring, and deletion protection;
 - private two-node ElastiCache Redis OSS with TLS, authentication, encryption, automatic failover, and `noeviction`;
 - Secrets Manager runtime configuration, least-purpose ECS roles, CloudWatch logs, ADOT metric/trace sidecars, alarms, SNS, a budget, WAF, ACM TLS, and Route53 DNS;
-- a zero-service bootstrap state and one-off migration task so migrations run before workloads become active.
+- a zero-service bootstrap state, private versioned release-evidence bucket, and selected-image migration/schema tasks before activation.
 
 The default is `activate_services = false`, which creates zero running application tasks. The manual deployment workflow also requires typing `DEPLOY-STAGING` before it can create billable resources.
 
@@ -39,6 +39,7 @@ In the repository, open **Settings → Secrets and variables → Actions**. Add 
 
 | GitHub repository variable | Value |
 |---|---|
+| `PROJECT_NAME` | optional; defaults to `nakh`, must agree with the existing staging root |
 | `AWS_ACCOUNT_ID` | bootstrap `aws_account_id` output |
 | `AWS_REGION` | chosen staging region |
 | `AWS_DEPLOY_ROLE_ARN` | bootstrap role output |
@@ -64,12 +65,12 @@ These staging workflows currently use repository secrets and a `main`-only OIDC 
 3. Enter `DEPLOY-STAGING`; leave image tag empty to use that commit SHA. An explicit tag must be that same full lowercase SHA; alternate tags are rejected so the image source cannot differ from the checkout.
 4. Confirm that the selected ref is `main`; the workflow and AWS trust policy reject any other branch.
 5. Before AWS access, the workflow requires the selected source's newest CI run to have all six jobs green in the same attempt, with live native/performance/telemetry artifact digest references. Missing, expired or mismatched evidence blocks deployment. It repeats the check before migration and activation and retains a content-free prerequisite receipt; that receipt is not proof of deployed provider acceptance.
-6. On the first deployment, the workflow creates inactive infrastructure. It builds candidate images, attests only those fresh builds, verifies the exact source/workflow and image bytes before assigning the commit tags, then pins all four task images and the API migration image by digest. It registers and runs its migration task without changing live services, then activates two replicas per service and runs safe HTTPS/webhook checks. Later deployments leave the previous release online through image preparation and migration; respect migration-specific quiescence requirements before dispatch.
+6. For the first deployment only, explicitly select `initialize`; the controller requires empty state and definitive absence of the named ECS cluster. Existing deployments leave this off. Provider/read failures never imply an empty environment. Images are prepared, attested and digest-pinned first. The workflow then creates protected phase custody, saves original capacity, suspends scaling with minimum zero and verifies all old tasks physically stopped before registering/running migrations. The selected API image must pass its native schema command. Activation preserves the scaling hold until HTTPS and all selected service tasks pass, then restores the captured capacity and original operator suspensions. See [controlled staging release](../../runbooks/m9-controlled-release.md) for interruption, recovery and external acceptance.
 7. Complete [`../../runbooks/m1-staging-acceptance.md`](../../runbooks/m1-staging-acceptance.md). Do not mark M1 accepted from deployment success alone. M9 release preparation and remaining production gates are tracked in [`../../../docs/technical/33-m9-execution-guide.md`](../../../docs/technical/33-m9-execution-guide.md).
 
 ## Rollback after AWS exists
 
-Use Actions → **Roll back staging (uses existing AWS resources)**. Select `main`, enter an earlier full lowercase commit SHA, type `ROLLBACK-STAGING`, and check the schema-compatibility confirmation only after verifying that the older application version works with every migration already applied to the database. The workflow refuses missing or unprovenanced images, verifies their original deployment workflow/source attestations, pins their exact digests and waits for restored ECS services to become healthy. Historical images without trusted attestations cannot be qualified merely by reusing their tags. The schema checkbox remains a separate operator prerequisite; a native schema/transport compatibility gate is still required before production. It never rolls the database backward.
+Use Actions → **Roll back staging (uses existing AWS resources)**. Select `main`, enter an earlier full lowercase source SHA, type `ROLLBACK-STAGING`, and confirm the separate transport/data review. The workflow requires selected-source CI and original trusted image attestations, drains the fleet, and runs only the selected image's read-only native schema command. It never invokes the migrator on rollback or reverses the database. Exact migration names/checksums must match; the checkbox cannot waive a mismatch or qualify an image without the command. Activation and scaling restoration use the same selected-task health and maintenance controls as deployment. Historical CI archives and signed image proof still need approved durable archive custody before their online evidence expires.
 
 ## Security and operational boundaries
 
@@ -114,3 +115,23 @@ Do not upload private catalog/administrator review snapshots as public artifacts
 The manual deployment can create billable AWS resources. No workflow dispatch,
 Terraform apply, real bot activation or provider signing rehearsal is authorized
 by a local test or by these source changes alone.
+
+
+## Controlled release and recovery
+
+Both workflows use the fixed four-service controller in
+[`scripts/staging-release-cli.ts`](../../../scripts/staging-release-cli.ts).
+The [release runbook](../../runbooks/m9-controlled-release.md) describes its
+private phase evidence, bounded observations, uncertain task handling, original
+capacity restoration and maintenance recovery input. Do not run an ordinary full
+Terraform apply during a controlled release or reconstruct policy from live
+maintenance zeroes. Keep the captured `release_capacity` as the accepted per-service
+policy for subsequent infrastructure applies. `release_scaling_hold` remains true
+until the selected release passes its health gate.
+
+The phase bucket is private, encrypted, versioned and protected from destruction;
+its policy requires conditional creates under `releases/` and denies object/version
+deletes there. This is operational custody, not compliance Object Lock or an
+approved retention period. The broad staging administrator can change policy;
+production permissions and independent review remain separate requirements.
+Private catalog/administrator snapshots must not be uploaded as public artifacts.

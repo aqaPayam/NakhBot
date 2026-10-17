@@ -21,7 +21,7 @@ describe('staging deployment readiness', () => {
     expect(positions[0]!).toBeLessThan(
       workflow.indexOf('uses: aws-actions/configure-aws-credentials'),
     );
-    expect(positions[1]!).toBeLessThan(workflow.indexOf('task_arn=$(aws ecs run-task'));
+    expect(positions[1]!).toBeLessThan(workflow.indexOf('scripts/staging-release-cli.ts migrate'));
     expect(positions[2]!).toBeLessThan(workflow.indexOf('- name: Activate the verified release'));
     expect(workflow.match(/NAKH_RELEASE_SHA: \$\{\{ env\.IMAGE_TAG \}\}/gu) ?? []).toHaveLength(3);
     expect(workflow).toContain('path: artifacts/release-ci.json');
@@ -37,11 +37,18 @@ describe('staging deployment readiness', () => {
     ]);
 
     expect(variables).toMatch(/variable "activate_services"[\s\S]*?default\s*=\s*false/u);
-    expect(compute).toContain('var.activate_services ? var.service_min_replicas : 0');
+    expect(compute).toContain(
+      'var.activate_services ? local.release_capacity[each.key].desired : 0',
+    );
     expect(workflow).toContain('DEPLOY-STAGING');
+    expect(workflow).toContain('init -lockfile=readonly');
+    expect(rollback).toContain('init -lockfile=readonly');
     expect(workflow).toContain('DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}');
     expect(workflow).not.toContain('test "${{ inputs.confirmation }}"');
-    expect(workflow).toContain('leaving it online while the new release is prepared');
+    expect(workflow).toContain('scripts/staging-release-cli.ts bootstrap');
+    expect(workflow).toContain("if: steps.infrastructure.outputs.bootstrap_required == 'true'");
+    expect(workflow).not.toContain('|| echo 0');
+    expect(workflow).not.toContain('2>/dev/null || true');
     expect(workflow).toContain("-target='aws_ecs_task_definition.migration'");
     expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
     expect(workflow).toContain('test "$GITHUB_REF" = "refs/heads/main"');
@@ -75,6 +82,44 @@ describe('staging deployment readiness', () => {
     expect(variables).toContain('variable "telegram_action_token_key"');
     expect(variables).toContain('^[A-Za-z0-9_-]{43}$');
     expect(compute).not.toContain('aws-secretsmanager://');
+  });
+
+  it('binds both actual workflows to drain, native admission, held activation, health and maintenance controls', async () => {
+    const deploy = await source('.github/workflows/deploy-staging.yml');
+    const rollback = await source('.github/workflows/rollback-staging.yml');
+    const compute = await source('deploy/terraform/staging/compute.tf');
+    const custody = await source('deploy/terraform/staging/release-evidence.tf');
+    const cli = await source('scripts/staging-release-cli.ts');
+    for (const workflow of [deploy, rollback]) {
+      const control = 'pnpm exec tsx scripts/staging-release-cli.ts ';
+      expect(workflow.indexOf(control + 'drain')).toBeLessThan(
+        workflow.indexOf("-target='aws_ecs_task_definition.migration'"),
+      );
+      expect(workflow.indexOf(control + 'admission')).toBeLessThan(
+        workflow.indexOf('release_scaling_hold=true'),
+      );
+      expect(workflow.indexOf(control + 'healthy')).toBeLessThan(
+        workflow.indexOf('release_scaling_hold=false'),
+      );
+      expect(workflow.indexOf('release_scaling_hold=false')).toBeLessThan(
+        workflow.indexOf(control + 'complete'),
+      );
+      expect(workflow).toContain('failure() || cancelled()');
+      expect(workflow).toContain(control + 'maintain');
+      expect(workflow).toContain('RELEASE_RECOVERY_INTENT: ${{ inputs.recovery_intent }}');
+    }
+    expect(rollback.indexOf('scripts/staging-release-cli.ts schema')).toBeLessThan(
+      rollback.indexOf('Restore the previous release'),
+    );
+    expect(rollback).not.toContain('scripts/staging-release-cli.ts migrate');
+    expect(cli).toMatch(/release\.task\(\s*'compatibility'/u);
+    expect(compute).toContain('rollback = false');
+    expect(compute).toContain('var.release_scaling_hold ? 0');
+    expect(custody).toContain('prevent_destroy = true');
+    expect(custody).toContain('status = "Enabled"');
+    expect(custody).toContain('sse_algorithm = "AES256"');
+    expect(custody).toContain('s3:if-none-match');
+    expect(custody).toContain('s3:DeleteObjectVersion');
   });
 
   it('keeps data private, encrypted, recoverable, and highly available', async () => {

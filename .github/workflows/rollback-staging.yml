@@ -12,13 +12,19 @@ on:
         required: true
         type: string
       schema_compatible:
-        description: I verified this release works with the current forward-migrated database schema
+        description: I reviewed transport and data compatibility; the native schema check remains mandatory
         required: true
         default: false
         type: boolean
 
+      recovery_intent:
+        description: Protected original intent key for an explicitly reviewed maintenance recovery
+        required: false
+        type: string
+
 permissions:
   contents: read
+  actions: read
   id-token: write
   attestations: read
 
@@ -30,7 +36,7 @@ jobs:
   rollback:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       ROLLBACK_CONFIRMATION: ${{ inputs.confirmation }}
       SCHEMA_COMPATIBLE: ${{ inputs.schema_compatible }}
@@ -38,6 +44,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       RELEASE_AWS_REGION: ${{ vars.AWS_REGION }}
+      RELEASE_RECOVERY_INTENT: ${{ inputs.recovery_intent }}
+      TF_VAR_project_name: ${{ vars.PROJECT_NAME || 'nakh' }}
       TF_IN_AUTOMATION: 'true'
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_public_hostname: ${{ vars.STAGING_HOSTNAME }}
@@ -67,6 +75,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      - name: Require the selected source's six green CI jobs before cloud access
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NAKH_RELEASE_SHA: ${{ env.IMAGE_TAG }}
+        run: pnpm exec tsx scripts/verify-release-ci.ts
+
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
@@ -80,7 +94,7 @@ jobs:
 
       - name: Initialize protected remote state
         run: |
-          terraform -chdir=deploy/terraform/staging init \
+          terraform -chdir=deploy/terraform/staging init -lockfile=readonly \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="key=${{ vars.TF_STATE_KEY }}" \
             -backend-config="region=${{ vars.AWS_REGION }}"
@@ -98,14 +112,71 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Prepare protected release custody without changing live services
+        run: |
+          terraform -chdir=deploy/terraform/staging apply -auto-approve \
+            -target='aws_s3_bucket_policy.release_evidence' \
+            -var="image_tag=$IMAGE_TAG" -var='activate_services=false'
+
+      - name: Suspend scaling and verify all old producers stopped
+        id: drain
+        run: pnpm exec tsx scripts/staging-release-cli.ts drain
+
+      - name: Register the selected image only for native compatibility admission
+        run: |
+          terraform -chdir=deploy/terraform/staging apply -auto-approve \
+            -target='aws_ecs_task_definition.migration' \
+            -var="image_tag=$IMAGE_TAG" -var='activate_services=false'
+
+      - name: Check the selected image against the actual database without applying migrations
+        run: pnpm exec tsx scripts/staging-release-cli.ts schema
+
+      - name: Recheck selected-source CI before rollback activation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NAKH_RELEASE_SHA: ${{ env.IMAGE_TAG }}
+        run: pnpm exec tsx scripts/verify-release-ci.ts
+
+      - name: Refresh scoped credentials before service activation
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Require fresh native schema admission and preserved capacity
+        run: pnpm exec tsx scripts/staging-release-cli.ts admission
+
       - name: Restore the previous release and wait until it is healthy
         run: |
           terraform -chdir=deploy/terraform/staging apply \
             -auto-approve \
             -var="image_tag=$IMAGE_TAG" \
-            -var="activate_services=true"
+            -var="activate_services=true" \
+            -var="release_scaling_hold=true"
 
       - name: Verify public readiness
         run: |
           public_url=$(terraform -chdir=deploy/terraform/staging output -raw public_url)
           curl --fail --retry 30 --retry-all-errors --retry-delay 10 "$public_url/health/ready"
+
+      - name: Verify all selected service tasks before restoring scaling
+        run: pnpm exec tsx scripts/staging-release-cli.ts healthy
+
+      - name: Restore captured capacity and operator scaling suspensions
+        run: terraform -chdir=deploy/terraform/staging apply -auto-approve -var="image_tag=$IMAGE_TAG" -var="activate_services=true" -var="release_scaling_hold=false"
+
+      - name: Verify activated release and restored scaling
+        run: pnpm exec tsx scripts/staging-release-cli.ts complete
+
+      - name: Refresh scoped credentials for failed-release maintenance
+        if: ${{ (failure() || cancelled()) && steps.drain.outcome != 'skipped' && steps.drain.outcome != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Keep failed or cancelled releases in maintenance
+        if: ${{ (failure() || cancelled()) && steps.drain.outcome != 'skipped' && steps.drain.outcome != '' }}
+        run: pnpm exec tsx scripts/staging-release-cli.ts maintain

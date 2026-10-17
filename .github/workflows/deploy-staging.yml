@@ -12,6 +12,16 @@ on:
         required: false
         type: string
 
+      initialize:
+        description: First deployment only; requires empty state and no existing named ECS cluster
+        required: true
+        default: false
+        type: boolean
+      recovery_intent:
+        description: Protected original intent key for an explicitly reviewed maintenance recovery
+        required: false
+        type: string
+
 permissions:
   contents: read
   actions: read
@@ -33,6 +43,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       RELEASE_AWS_REGION: ${{ vars.AWS_REGION }}
+      RELEASE_INITIALIZE: ${{ inputs.initialize }}
+      RELEASE_RECOVERY_INTENT: ${{ inputs.recovery_intent }}
+      TF_VAR_project_name: ${{ vars.PROJECT_NAME || 'nakh' }}
       TF_IN_AUTOMATION: 'true'
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_public_hostname: ${{ vars.STAGING_HOSTNAME }}
@@ -87,30 +100,18 @@ jobs:
 
       - name: Initialize protected remote state
         run: |
-          terraform -chdir=deploy/terraform/staging init \
+          terraform -chdir=deploy/terraform/staging init -lockfile=readonly \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="key=${{ vars.TF_STATE_KEY }}" \
             -backend-config="region=${{ vars.AWS_REGION }}"
 
-      - name: Prepare first deployment without interrupting an existing release
-        run: |
-          cluster=$(terraform -chdir=deploy/terraform/staging output -raw ecs_cluster_name 2>/dev/null || true)
-          desired_count=0
-          if [ -n "$cluster" ]; then
-            desired_count=$(aws ecs describe-services \
-              --cluster "$cluster" \
-              --services api \
-              --query 'services[0].desiredCount' \
-              --output text 2>/dev/null || echo 0)
-          fi
-          if [ "$desired_count" != "None" ] && [ "$desired_count" -gt 0 ] 2>/dev/null; then
-            echo "An active release exists; leaving it online while the new release is prepared."
-          else
-            terraform -chdir=deploy/terraform/staging apply \
-              -auto-approve \
-              -var="image_tag=bootstrap" \
-              -var="activate_services=false"
-          fi
+      - name: Check explicit first-deployment admission without guessing from provider errors
+        id: infrastructure
+        run: pnpm exec tsx scripts/staging-release-cli.ts bootstrap
+
+      - name: Create explicitly authorized inactive infrastructure
+        if: steps.infrastructure.outputs.bootstrap_required == 'true'
+        run: terraform -chdir=deploy/terraform/staging apply -auto-approve -var='image_tag=bootstrap' -var='activate_services=false'
 
       - uses: aws-actions/amazon-ecr-login@v2
 
@@ -135,6 +136,16 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Prepare protected release custody without changing live services
+        run: |
+          terraform -chdir=deploy/terraform/staging apply -auto-approve \
+            -target='aws_s3_bucket_policy.release_evidence' \
+            -var="image_tag=$IMAGE_TAG" -var='activate_services=false'
+
+      - name: Suspend scaling and verify all old producers stopped
+        id: drain
+        run: pnpm exec tsx scripts/staging-release-cli.ts drain
+
       - name: Register the new migration task without changing live services
         run: |
           terraform -chdir=deploy/terraform/staging apply \
@@ -149,24 +160,8 @@ jobs:
           NAKH_RELEASE_SHA: ${{ env.IMAGE_TAG }}
         run: pnpm exec tsx scripts/verify-release-ci.ts
 
-      - name: Run the one-off migration task before activation
-        run: |
-          cluster=$(terraform -chdir=deploy/terraform/staging output -raw ecs_cluster_name)
-          task_definition=$(terraform -chdir=deploy/terraform/staging output -raw migration_task_definition_arn)
-          subnets=$(terraform -chdir=deploy/terraform/staging output -json private_subnet_ids | jq -r 'join(",")')
-          security_group=$(terraform -chdir=deploy/terraform/staging output -raw service_security_group_id)
-          task_arn=$(aws ecs run-task \
-            --cluster "$cluster" \
-            --task-definition "$task_definition" \
-            --launch-type FARGATE \
-            --platform-version 1.4.0 \
-            --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$security_group],assignPublicIp=DISABLED}" \
-            --query 'tasks[0].taskArn' \
-            --output text)
-          test "$task_arn" != "None"
-          aws ecs wait tasks-stopped --cluster "$cluster" --tasks "$task_arn"
-          exit_code=$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0].containers[?name==`migration`].exitCode | [0]' --output text)
-          test "$exit_code" = "0"
+      - name: Run the selected migration and native schema check while drained
+        run: pnpm exec tsx scripts/staging-release-cli.ts migrate
 
       - name: Recheck CI before service activation
         env:
@@ -182,8 +177,18 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Refresh scoped credentials before service activation
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Require fresh native schema admission and preserved capacity
+        run: pnpm exec tsx scripts/staging-release-cli.ts admission
+
       - name: Activate the verified release
-        run: terraform -chdir=deploy/terraform/staging apply -auto-approve -var="image_tag=$IMAGE_TAG" -var="activate_services=true"
+        run: terraform -chdir=deploy/terraform/staging apply -auto-approve -var="image_tag=$IMAGE_TAG" -var="activate_services=true" -var="release_scaling_hold=true"
 
       - name: Run safe deployment smoke checks
         run: |
@@ -203,3 +208,24 @@ jobs:
             --data '{"update_id":990000001,"message":{"text":"/start","from":{"id":990000001}}}' \
             "$public_url/v1/providers/telegram/webhook")
           test "$valid_status" = "201"
+
+      - name: Verify all selected service tasks before restoring scaling
+        run: pnpm exec tsx scripts/staging-release-cli.ts healthy
+
+      - name: Restore captured capacity and operator scaling suspensions
+        run: terraform -chdir=deploy/terraform/staging apply -auto-approve -var="image_tag=$IMAGE_TAG" -var="activate_services=true" -var="release_scaling_hold=false"
+
+      - name: Verify activated release and restored scaling
+        run: pnpm exec tsx scripts/staging-release-cli.ts complete
+
+      - name: Refresh scoped credentials for failed-release maintenance
+        if: ${{ (failure() || cancelled()) && steps.drain.outcome != 'skipped' && steps.drain.outcome != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Keep failed or cancelled releases in maintenance
+        if: ${{ (failure() || cancelled()) && steps.drain.outcome != 'skipped' && steps.drain.outcome != '' }}
+        run: pnpm exec tsx scripts/staging-release-cli.ts maintain

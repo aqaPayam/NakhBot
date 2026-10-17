@@ -16,6 +16,14 @@ output "ecs_cluster_name" {
   value = aws_ecs_cluster.main.name
 }
 
+output "release_evidence_bucket" {
+  value = aws_s3_bucket.release_evidence.id
+}
+
+output "release_default_capacity" {
+  value = { min = var.service_min_replicas, max = var.service_max_replicas }
+}
+
 output "migration_task_definition_arn" {
   value = aws_ecs_task_definition.migration.arn
 }

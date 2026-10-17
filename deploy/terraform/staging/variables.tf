@@ -92,6 +92,34 @@ variable "service_min_replicas" {
   }
 }
 
+variable "release_scaling_hold" {
+  description = "Hold all scaling categories with min zero during the controlled release. Restore only after selected-image health checks."
+  type        = bool
+  default     = false
+}
+
+variable "release_capacity" {
+  description = "Private release-controller snapshot preserving per-service capacity and original operator scaling suspensions."
+  type = map(object({
+    desired = number
+    min     = number
+    max     = number
+    suspended = object({
+      DynamicScalingInSuspended  = bool
+      DynamicScalingOutSuspended = bool
+      ScheduledScalingSuspended  = bool
+    })
+  }))
+  default = {}
+  validation {
+    condition = length(var.release_capacity) == 0 || (
+      toset(keys(var.release_capacity)) == toset(["api", "telegram-gateway", "worker", "scheduler"]) &&
+      alltrue([for c in values(var.release_capacity) : c.min >= 2 && c.max <= 100 && c.desired >= c.min && c.desired <= c.max && floor(c.min) == c.min && floor(c.max) == c.max && floor(c.desired) == c.desired])
+    )
+    error_message = "Release capacity must preserve exactly four bounded whole-number service policies."
+  }
+}
+
 variable "service_max_replicas" {
   description = "Maximum replicas for target-tracking autoscaling."
   type        = number
