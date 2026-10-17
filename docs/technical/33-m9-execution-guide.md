@@ -590,3 +590,45 @@ acceptance. Nakh prompts, Report, filter controls and the other complete product
 menus remain to be connected before enabling this flow for canaries. This is not
 M9 completion or permission to launch; operator, infrastructure, real-provider,
 cohort and health-review acceptance remains required. Retained erasure stays off.
+
+## Credit and consented Pending Nakh from Explore
+
+The enabled Explore gateway now offers Send Nakh on an owned delivered card.
+The funding screen shows the existing canonical credit/Stars costs and explicit
+consent to later automatic FIFO settlement. Selecting credits or Save as Pending
+Nakh opens a private, exact bot-message reply prompt. Sending that reply is the
+commit action. No opening text or compose draft enters Redis; signed navigation
+contains only the funding selector, original delivery reference and current native
+session. The first reply transition wins. An invalid text can be corrected under
+the same prompt group. An insufficient-credit transaction rolls back, returns to
+the funding choice and requires a new private reply instead of retaining its text.
+
+The credit path invokes the existing source/session-bound direct Nakh writer.
+The pending path invokes `PostgresPendingNakhStore(database, actor, deliveryId)`.
+It captures actor and full writes before waits, takes the original counter/pair/
+User/Account locks, and checks the current session and exact delivered Explore
+source before an idempotency claim or cached reply. Missing, foreign, Guest
+Preview, unconfirmed and earlier-life receipts cannot create a Pending Nakh.
+The source participates in the creation hash; trusted construction preserves its
+old hash. Costs, original flow lives, five-pending limit, fourteen-day deadline,
+funding intent, FIFO settlement and transactional effects remain unchanged.
+
+Session-bound pending reads, edits and cancellation also check the owning current
+grant. Editing/cancelling an existing pending flow does not require a fresh card.
+Bound reads use read committed with User/Account locks so an actual revocation
+committed while the first lock waits is visible to the grant check. Trusted reads
+retain their original read-only repeatable snapshot. Background settlement keeps
+its independent authority and does not require a live user session.
+
+Native evidence exercises source/cached-reply fences, concurrent creation/edit/
+cancellation, captured writes during observed waits, a disappearing source,
+genuine queued revocation, and deletion/approved Return of the counterpart.
+Gateway tests exercise one credit debit, sender-only pending creation, explicit
+consent, invalid and duplicate replies, insufficient credit, borrowed navigation,
+revocation and ambiguous cards. The actual HTTP factory/real Redis rehearsal also
+submits a pending opening through Bot API force-reply serialization. Telegram and
+media remain synthetic providers in those checks. Direct Stars invoice/payment
+ingress, Report, filter editing, full remaining menus and original operator/
+production/provider/cohort/health acceptance are still outstanding. Explore stays
+false by default. There is no new migration or retained resource; retained-data
+erasure remains disabled pending approved policies.

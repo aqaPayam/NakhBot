@@ -6,6 +6,8 @@ import {
   StartSignupHandler,
   SendLikeHandler,
   MarkNotInterestedHandler,
+  CreateDirectNakhHandler,
+  CreatePendingNakhHandler,
   routeStart,
   type SaveSignupStepWrite,
   type SaveSignupOptionalDetailsWrite,
@@ -13,13 +15,14 @@ import {
   type UserSessionActor,
 } from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
-import { ApplicationError, SystemClock } from '@nakh/domain';
+import { ApplicationError, SystemClock, validateNakhText } from '@nakh/domain';
 import {
   CatalogRenderer,
   M9_SIGNUP_TEXTS,
   M9_PREVIEW_TEXTS,
   M9_PROFILE_TEXTS,
   englishCatalogFromManifest,
+  M5_LOCALIZATION_ENTRIES,
 } from '@nakh/localization';
 import { M1Metrics, M1_REASON_CODES, type M1HandlerOperation } from '@nakh/observability';
 import {
@@ -33,6 +36,8 @@ import {
   PostgresTelegramUserResolver,
   PostgresUserSessionStore,
   PostgresInteractionStore,
+  PostgresDirectNakhStore,
+  PostgresPendingNakhStore,
   SystemIdGenerator,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -142,6 +147,12 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
                 'matching.match.created',
               ].map((key) => [key, englishCatalogFromManifest()[key]!]),
             )),
+        ...(this.exploreDelivery === undefined
+          ? {}
+          : {
+              ...Object.fromEntries(M5_LOCALIZATION_ENTRIES.map((e) => [e.key, e.english])),
+              'error.billing.insufficient_credits': '',
+            }),
       })) {
         const value = catalog.messages[key];
         if (
@@ -406,6 +417,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     return [
       [
         await button('explore.button.like', 'like', deliveryId),
+        await button('nakh.compose.title', 'nakh', deliveryId),
         await button('explore.button.not_interested', 'reject', deliveryId),
       ],
       [await button('profile.ui.more', 'detail', deliveryId)],
@@ -486,6 +498,103 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           ? 'interaction.like.sent'
           : 'interaction.not_interested.saved',
     );
+    await this.showExplore(telegramId, updateId, nav);
+  }
+  private async nakhTarget(nav: Nav): Promise<string> {
+    if (this.exploreDelivery === undefined || typeof nav.code !== 'string') throw denied();
+    const source = await this.database
+      .selectFrom('discovery.candidate_deliveries')
+      .select('target_user_id')
+      .where('id', '=', nav.code)
+      .where('viewer_user_id', '=', nav.actor.userId)
+      .where('mode', '=', 'explore')
+      .where('state', '=', 'delivered')
+      .executeTakeFirst();
+    if (source === undefined) throw denied();
+    return source.target_user_id;
+  }
+  private async openNakh(telegramId: string, nav: Nav): Promise<void> {
+    await this.nakhTarget(nav);
+    const context = await new PostgresSignupChoices(this.database, nav.actor).context(),
+      catalog = await this.localization.loadActiveCatalog(context.uiLocale),
+      renderer = new CatalogRenderer(
+        { [catalog.resolvedLocale]: catalog.messages },
+        catalog.resolvedLocale,
+      );
+    const t = (key: string): string =>
+      renderer.render(catalog.resolvedLocale, { key, variables: {} });
+    const tokens = this.tokens(telegramId, nav.actor);
+    await this.current(nav.actor, telegramId);
+    if (nav.action === 'nakh') {
+      const base: Nav = { ...nav, screen: 'nakh', group: randomBytes(12).toString('base64url') };
+      const keyboard = await Promise.all(
+        (
+          [
+            ['nakh.button.send_credits', 'nakh_credits'],
+            ['nakh.button.save_pending', 'nakh_pending'],
+            ['signup.ui.back', 'resume'],
+          ] as const
+        ).map(async ([label, action]) => [
+          { text: t(label), callback_data: await tokens.button({ ...base, action }) },
+        ]),
+      );
+      await this.current(nav.actor, telegramId);
+      await this.client.sendMenu(telegramId, {
+        text: [
+          t('nakh.compose.title'),
+          t('nakh.compose.cost.credits'),
+          t('nakh.compose.cost.stars'),
+          t('nakh.compose.auto_settle_consent'),
+        ].join('\n'),
+        replyMarkup: { inline_keyboard: keyboard },
+      });
+      return;
+    }
+    const screen = nav.action === 'reply' ? nav.screen : nav.action;
+    if (screen !== 'nakh_credits' && screen !== 'nakh_pending') throw denied();
+    const prompt = await this.client.sendPrompt(
+      telegramId,
+      [
+        t('nakh.compose.title'),
+        t(screen === 'nakh_credits' ? 'nakh.compose.cost.credits' : 'nakh.compose.cost.stars'),
+        ...(screen === 'nakh_pending' ? [t('nakh.compose.auto_settle_consent')] : []),
+        t('nakh.compose.prompt'),
+        t('signup.ui.reply'),
+      ].join('\n'),
+    );
+    await this.current(nav.actor, telegramId);
+    await tokens.prompt(prompt, {
+      ...nav,
+      screen,
+      action: 'reply',
+      group: nav.action === 'reply' ? nav.group : randomBytes(12).toString('base64url'),
+    });
+  }
+  private async sendNakh(
+    telegramId: string,
+    updateId: number,
+    nav: Nav,
+    text: string,
+  ): Promise<void> {
+    const targetUserId = await this.nakhTarget(nav),
+      envelope = this.envelope(nav.actor, telegramId, updateId, nav.screen);
+    if (nav.screen === 'nakh_credits') {
+      await new CreateDirectNakhHandler(
+        new PostgresDirectNakhStore(this.database, nav.actor, nav.code),
+        this.ids,
+      ).execute({ ...envelope, commandType: 'nakh.create-direct', data: { targetUserId, text } });
+      await this.notice(telegramId, 'nakh.delivery.sent');
+    } else if (nav.screen === 'nakh_pending') {
+      await new CreatePendingNakhHandler(
+        new PostgresPendingNakhStore(this.database, nav.actor, nav.code),
+        this.ids,
+      ).execute({
+        ...envelope,
+        commandType: 'nakh.create-pending',
+        data: { targetUserId, text, autoSettleAuthorized: true },
+      });
+      await this.notice(telegramId, 'nakh.pending.created');
+    } else throw denied();
     await this.showExplore(telegramId, updateId, nav);
   }
   private async showDetail(telegramId: string, nav: Nav): Promise<void> {
@@ -715,6 +824,10 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           await this.exploreInteraction(telegramId, updateId, nav);
           return 'notice';
         }
+        if (['nakh', 'nakh_credits', 'nakh_pending'].includes(nav.action)) {
+          await this.openNakh(telegramId, nav);
+          return 'notice';
+        }
         if (nav.action === 'begin')
           await this.measured('signup_start', () =>
             new StartSignupHandler(
@@ -818,6 +931,21 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         await this.render(telegramId, nav.actor, next);
       } else {
         const value = String(text);
+        if (nav.screen === 'nakh_credits' || nav.screen === 'nakh_pending') {
+          validateNakhText(value);
+          const claim = await tokens.claim(
+            nav,
+            updateId,
+            tokens.replyId(Number(reply?.message_id)),
+            nav,
+          );
+          if (!claim.accepted) {
+            await this.render(telegramId, nav.actor);
+            return 'notice';
+          }
+          await this.sendNakh(telegramId, updateId, nav, value);
+          return 'notice';
+        }
         if (nav.screen === 'name' || nav.screen === 'birth_year' || nav.screen === 'highlight')
           await this.save(telegramId, updateId, nav, { step: nav.screen, value });
         else if (
@@ -849,6 +977,19 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     } catch (error) {
       if (!(error instanceof ApplicationError) || error.status >= 500)
         throw new ApplicationError('internal_error', 'error.identity.user_context_invalid', 500);
+      if (
+        (nav.screen === 'nakh_credits' || nav.screen === 'nakh_pending') &&
+        error.code === 'nakh_text_invalid'
+      ) {
+        await this.notice(telegramId, 'error.nakh.text_invalid');
+        await this.openNakh(telegramId, nav);
+        return 'notice';
+      }
+      if (nav.screen === 'nakh_credits' && error.code === 'insufficient_credits') {
+        await this.notice(telegramId, 'error.billing.insufficient_credits');
+        await this.openNakh(telegramId, { ...nav, action: 'nakh' });
+        return 'notice';
+      }
       if (nav.action === 'preview' && error.code === 'guest_preview_limit_reached') {
         await this.render(telegramId, nav.actor, undefined, 'explore.guest.limit_reached');
         return 'notice';

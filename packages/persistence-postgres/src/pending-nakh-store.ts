@@ -12,6 +12,7 @@ import type {
   PendingNakhReadStore,
   PendingNakhStore,
   SenderPendingNakhReadPage,
+  UserSessionActor,
 } from '@nakh/application';
 import type {
   CancelPendingNakhCommand,
@@ -29,9 +30,12 @@ import {
 
 import type { NakhDatabase } from './database.js';
 import { lockNakhLifecyclePair } from './nakh-lifecycle-authority.js';
+import { requireCurrentUserSession } from './user-session-store.js';
+import { captureExploreCardSource, requireDeliveredExploreSource } from './explore-card-source.js';
 
 function commandHash(
   command: CreatePendingNakhCommand | EditPendingNakhCommand | CancelPendingNakhCommand,
+  candidateDeliveryId?: string,
 ): string {
   return createHash('sha256')
     .update(
@@ -40,6 +44,7 @@ function commandHash(
         schemaVersion: command.schemaVersion,
         actor: command.actor,
         data: command.data,
+        ...(candidateDeliveryId === undefined ? {} : { candidateDeliveryId }),
       }),
     )
     .digest('hex');
@@ -59,12 +64,23 @@ function replayResult(value: Readonly<Record<string, unknown>>): PendingNakhResu
 export class PostgresPendingNakhStore
   implements PendingNakhStore, PendingNakhReadStore, PendingNakhEditStore, PendingNakhCancelStore
 {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  private readonly candidateDeliveryId: string | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+    candidateDeliveryId?: string,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+    this.candidateDeliveryId = captureExploreCardSource(candidateDeliveryId, this.owner);
+  }
 
   public readSenderPage(
-    query: GetPendingNakhPageQuery,
-    after?: PendingNakhKeyset,
+    input: GetPendingNakhPageQuery,
+    cursor?: PendingNakhKeyset,
   ): Promise<SenderPendingNakhReadPage> {
+    const query = structuredClone(input),
+      after = structuredClone(cursor);
     if (query.actor.kind !== 'user')
       return Promise.reject(
         new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
@@ -75,9 +91,11 @@ export class PostgresPendingNakhStore
       );
     return this.database
       .transaction()
-      .setIsolationLevel('repeatable read')
-      .setAccessMode('read only')
+      .setIsolationLevel(this.owner === undefined ? 'repeatable read' : 'read committed')
+      .setAccessMode(this.owner === undefined ? 'read only' : 'read write')
       .execute(async (transaction) => {
+        if (this.owner !== undefined)
+          await requireCurrentUserSession(transaction, query.actor.userId, this.owner);
         const sender = await transaction
           .selectFrom('identity.accounts')
           .select('state')
@@ -148,8 +166,14 @@ export class PostgresPendingNakhStore
       });
   }
 
-  public async editPending(write: EditPendingNakhWrite): Promise<PendingNakhResult> {
+  public async editPending(input: EditPendingNakhWrite): Promise<PendingNakhResult> {
+    const write = structuredClone(input);
     const { command } = write;
+    if (
+      command.actor.kind !== 'user' ||
+      (this.owner !== undefined && this.owner.userId !== command.actor.userId)
+    )
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const senderUserId = command.actor.userId;
     const requestHash = commandHash(command);
     return this.database.transaction().execute(async (transaction) => {
@@ -178,6 +202,9 @@ export class PostgresPendingNakhStore
         locator.receiver_user_id,
         locator.nakh_flow_id,
       );
+
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, senderUserId, this.owner);
 
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
@@ -288,8 +315,14 @@ export class PostgresPendingNakhStore
     });
   }
 
-  public async cancelPending(write: CancelPendingNakhWrite): Promise<PendingNakhResult> {
+  public async cancelPending(input: CancelPendingNakhWrite): Promise<PendingNakhResult> {
+    const write = structuredClone(input);
     const { command } = write;
+    if (
+      command.actor.kind !== 'user' ||
+      (this.owner !== undefined && this.owner.userId !== command.actor.userId)
+    )
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const senderUserId = command.actor.userId;
     const requestHash = commandHash(command);
     return this.database.transaction().execute(async (transaction) => {
@@ -320,6 +353,8 @@ export class PostgresPendingNakhStore
         receiverUserId,
         locator.nakh_flow_id,
       );
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, senderUserId, this.owner);
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -814,11 +849,17 @@ export class PostgresPendingNakhStore
     });
   }
 
-  public async createPending(write: CreatePendingNakhWrite): Promise<PendingNakhResult> {
+  public async createPending(input: CreatePendingNakhWrite): Promise<PendingNakhResult> {
+    const write = structuredClone(input);
     const { command } = write;
+    if (
+      command.actor.kind !== 'user' ||
+      (this.owner !== undefined && this.owner.userId !== command.actor.userId)
+    )
+      throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const senderUserId = command.actor.userId;
     const targetUserId = command.data.targetUserId;
-    const requestHash = commandHash(command);
+    const requestHash = commandHash(command, this.candidateDeliveryId);
     return this.database.transaction().execute(async (transaction) => {
       const counter = await transaction
         .selectFrom('platform.user_counters')
@@ -830,6 +871,15 @@ export class PostgresPendingNakhStore
         throw new ApplicationError('nakh_unavailable', 'error.nakh.unavailable', 409);
 
       const pair = await lockNakhLifecyclePair(transaction, senderUserId, targetUserId);
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, senderUserId, this.owner);
+      if (this.candidateDeliveryId !== undefined)
+        await requireDeliveredExploreSource(
+          transaction,
+          this.candidateDeliveryId,
+          senderUserId,
+          targetUserId,
+        );
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({

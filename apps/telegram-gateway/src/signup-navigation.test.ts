@@ -40,7 +40,14 @@ describe('signup navigation integrity and concurrency', () => {
     expect(await f.tokens.callback(token)).toEqual(nav);
     const borrowed = new SignupNavigationTokens(f.store, Buffer.alloc(32, 1), '12345', '456', life);
     expect(await borrowed.callback(token)).toBeUndefined();
-    for (const action of ['explore', 'like', 'reject'] as const) {
+    for (const action of [
+      'explore',
+      'like',
+      'reject',
+      'nakh',
+      'nakh_credits',
+      'nakh_pending',
+    ] as const) {
       const explore = { ...nav, screen: 'explore', action };
       const reference = await f.tokens.button(explore);
       expect(reference).not.toContain(delivery);

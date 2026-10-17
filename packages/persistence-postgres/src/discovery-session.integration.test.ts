@@ -7,11 +7,14 @@ import {
   ExecuteAccountDeletionMedia,
   type AccountDeletionLease,
   type AccountDeletionMediaObjects,
+  EditPendingNakhHandler,
+  CancelPendingNakhHandler,
+  type CreatePendingNakhWrite,
 } from '@nakh/application';
 import { PostgresAccountDeletionProfileStore } from './account-deletion-profile-store.js';
 import { PostgresAccountDeletionPhotoStore } from './account-deletion-photo-store.js';
 import { PostgresAccountDeletionMediaStore } from './account-deletion-media-store.js';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { InteractionStore, UserSessionActor, CreateDirectNakhWrite } from '@nakh/application';
 import type {
   SaveExploreFilterCommand,
@@ -26,6 +29,8 @@ import { PostgresCandidateReservationStore } from './candidate-reservation-store
 import { PostgresCandidateDeliveryStore } from './candidate-delivery-store.js';
 import { PostgresInteractionStore } from './interaction-store.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
+import { PostgresPendingNakhStore } from './pending-nakh-store.js';
+import { SystemIdGenerator } from './foundation-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
 import { createMediaAuthorityFixture } from './testing/media-authority-fixture.js';
 import { PostgresUserSessionStore } from './user-session-store.js';
@@ -562,6 +567,11 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
     ).rejects.toMatchObject({ status: 403 });
     expect(() => new PostgresInteractionStore(database, undefined, selected.deliveryId)).toThrow();
     expect(() => new PostgresDirectNakhStore(database, undefined, selected.deliveryId)).toThrow();
+    await expect(
+      new PostgresPendingNakhStore(database, session, selected.deliveryId).createPending(
+        pendingNakh(f),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
     expect(() => new PostgresInteractionStore(database, session, 'not-a-source')).toThrow();
   });
   it('checks direct Nakh session and source before spending or returning a cached result', async () => {
@@ -694,7 +704,298 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
     ).toBe(text);
     expect(await balance(f.a)).toBe(5n - NAKH_CREDIT_COST);
   });
-  it.each(['like', 'not_interested', 'nakh'] as const)(
+  function pendingNakh(f: { a: string; b: string }): CreatePendingNakhWrite {
+    return {
+      command: {
+        ...envelope(f.a),
+        commandType: 'nakh.create-pending',
+        data: { targetUserId: f.b, text: 'Private pending opening', autoSettleAuthorized: true },
+      },
+      flowId: randomUUID(),
+      pendingNakhId: randomUUID(),
+      pendingPaymentId: randomUUID(),
+      flowEventId: randomUUID(),
+      pendingEventId: randomUUID(),
+    };
+  }
+  it('binds pending creation to its original delivered source before claims and cached replies', async () => {
+    const f = await pair(),
+      session = await actor(f.a),
+      source = await card(f, session, false),
+      input = pendingNakh(f);
+    const store = new PostgresPendingNakhStore(database, session, source);
+    await expect(store.createPending(input)).rejects.toMatchObject({ status: 403 });
+    expect(
+      await database
+        .selectFrom('platform.idempotency_records')
+        .select('id')
+        .where('actor_user_id', '=', f.a)
+        .where('scope', '=', 'nakh.create-pending')
+        .execute(),
+    ).toHaveLength(0);
+    await new PostgresCandidateDeliveryStore(database).recordDelivered(
+      { deliveryId: source, providerMessageId: '7850' },
+      {
+        auditId: randomUUID(),
+        deliveryEventId: randomUUID(),
+        consumptionEventId: randomUUID(),
+        processedAt: new Date(),
+      },
+    );
+    await expect(
+      new PostgresPendingNakhStore(database, await actor(f.b), source).createPending(input),
+    ).rejects.toMatchObject({ status: 401 });
+    await expect(
+      new PostgresPendingNakhStore(database, session, randomUUID()).createPending(input),
+    ).rejects.toMatchObject({ status: 403 });
+    const foreignSource = await card({ a: f.b, b: f.a }, await actor(f.b));
+    await expect(
+      new PostgresPendingNakhStore(database, session, foreignSource).createPending(input),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      store.createPending(pendingNakh({ a: f.a, b: await user(f.cityId, true) })),
+    ).rejects.toMatchObject({ status: 403 });
+    const results = await Promise.all(Array.from({ length: 10 }, () => store.createPending(input)));
+    expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+    expect(new Set(results.map((r) => r.pendingNakhId)).size).toBe(1);
+    const row = await database
+      .selectFrom('nakh.pending_nakhes')
+      .selectAll()
+      .where('id', '=', input.pendingNakhId)
+      .executeTakeFirstOrThrow();
+    expect(row.text).toBe(input.command.data.text);
+    expect(row.expires_at.getTime() - row.created_at.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
+    const payment = await database
+      .selectFrom('billing.pending_payments')
+      .selectAll()
+      .where('id', '=', input.pendingPaymentId)
+      .executeTakeFirstOrThrow();
+    expect(payment.required_stars).toBe('2');
+    expect(payment.expires_at).toEqual(row.expires_at);
+    expect(
+      await database
+        .selectFrom('nakh.nakhes')
+        .select('id')
+        .where('nakh_flow_id', '=', input.flowId)
+        .execute(),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .selectFrom('interaction.likes')
+        .select('id')
+        .where('sender_user_id', '=', f.a)
+        .execute(),
+    ).toHaveLength(0);
+    await expect(
+      new PostgresPendingNakhStore(database, session, await aliasCard(source)).createPending(input),
+    ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+    await revoke(session);
+    await expect(store.createPending(input)).rejects.toMatchObject({ status: 401 });
+    await expect(
+      new PostgresPendingNakhStore(database, await actor(f.a), source).createPending(input),
+    ).resolves.toMatchObject({ replayed: true });
+    expect(() => new PostgresPendingNakhStore(database, undefined, source)).toThrow();
+    expect(() => new PostgresPendingNakhStore(database, session, 'invalid')).toThrow();
+  });
+  it('fences pending reads, edits and cancellation retries with their current owning session', async () => {
+    const f = await pair(),
+      session = await actor(f.a),
+      source = await card(f, session),
+      input = pendingNakh(f);
+    await new PostgresPendingNakhStore(database, session, source).createPending(input);
+    const query = {
+      actor: { kind: 'user' as const, userId: f.a },
+      requestId: randomUUID(),
+      limit: 10,
+    };
+    const store = new PostgresPendingNakhStore(database, session),
+      ids = new SystemIdGenerator();
+    await expect(
+      new PostgresPendingNakhStore(database, await actor(f.b)).readSenderPage(query),
+    ).rejects.toMatchObject({ status: 401 });
+    expect((await store.readSenderPage(query)).totalCount).toBe(1);
+    const edit = {
+      ...envelope(f.a),
+      commandType: 'nakh.edit-pending' as const,
+      data: {
+        pendingNakhId: input.pendingNakhId,
+        expectedVersion: 1,
+        text: 'Edited private pending text',
+      },
+    };
+    const editor = new EditPendingNakhHandler(store, ids);
+    const edits = await Promise.all(Array.from({ length: 10 }, () => editor.execute(edit)));
+    expect(edits.filter((r) => !r.replayed)).toHaveLength(1);
+    await revoke(session);
+    await expect(editor.execute(edit)).rejects.toMatchObject({ status: 401 });
+    await expect(store.readSenderPage(query)).rejects.toMatchObject({ status: 401 });
+    const fresh = await actor(f.a),
+      current = new PostgresPendingNakhStore(database, fresh);
+    await expect(new EditPendingNakhHandler(current, ids).execute(edit)).resolves.toMatchObject({
+      replayed: true,
+    });
+    const page = await current.readSenderPage(query);
+    expect(JSON.stringify(page)).toContain(edit.data.text);
+    // The original pending flow owns cancellation, independently of the card.
+    await database.deleteFrom('discovery.candidate_deliveries').where('id', '=', source).execute();
+    const cancel = {
+      ...envelope(f.a),
+      commandType: 'nakh.cancel-pending' as const,
+      data: {
+        pendingNakhId: input.pendingNakhId,
+        expectedVersion: edits[0]!.version,
+        resolution: 'converted_to_not_interested' as const,
+      },
+    };
+    const canceller = new CancelPendingNakhHandler(current, ids);
+    expect(
+      (await Promise.all(Array.from({ length: 10 }, () => canceller.execute(cancel)))).filter(
+        (r) => !r.replayed,
+      ),
+    ).toHaveLength(1);
+    await revoke(fresh);
+    await expect(canceller.execute(cancel)).rejects.toMatchObject({ status: 401 });
+  });
+  async function observedIdentityWait(kind: 'counter' | 'user'): Promise<void> {
+    for (let i = 0; i < 200; i++) {
+      const r = await sql<{ waiting: boolean }>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+        WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock'
+          AND query LIKE ${kind === 'counter' ? '%user_counters%' : '%identity%users%'}) AS waiting`.execute(
+        database,
+      );
+      if (r.rows[0]?.waiting) return;
+      await pause(5);
+    }
+    throw new Error('Native identity lock wait was not observed.');
+  }
+  it('captures pending write and owner before an observed counter wait', async () => {
+    const f = await pair(),
+      owner = { ...(await actor(f.a)) },
+      source = await card(f, owner),
+      input = pendingNakh(f);
+    const store = new PostgresPendingNakhStore(database, owner, source),
+      id = input.pendingNakhId,
+      text = input.command.data.text;
+    let entered!: () => void, release!: () => void;
+    const ready = new Promise<void>((r) => {
+        entered = r;
+      }),
+      gate = new Promise<void>((r) => {
+        release = r;
+      });
+    const holder = database.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('platform.user_counters')
+        .select('user_id')
+        .where('user_id', '=', f.a)
+        .forUpdate()
+        .execute();
+      entered();
+      await gate;
+    });
+    await ready;
+    const creating = store.createPending(input);
+    try {
+      await observedIdentityWait('counter');
+      owner.sessionGrantId = randomUUID();
+      input.command.data.text = 'Changed after enqueue';
+      input.command.data.targetUserId = randomUUID();
+      (input as { pendingNakhId: string }).pendingNakhId = randomUUID();
+    } finally {
+      release();
+      await holder;
+    }
+    await expect(creating).resolves.toMatchObject({ pendingNakhId: id, replayed: false });
+    expect(
+      (
+        await database
+          .selectFrom('nakh.pending_nakhes')
+          .select('text')
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow()
+      ).text,
+    ).toBe(text);
+  });
+  it('rechecks a pending source after an observed pair wait', async () => {
+    const f = await pair(),
+      session = await actor(f.a),
+      source = await card(f, session),
+      input = pendingNakh(f);
+    let entered!: () => void, release!: () => void;
+    const ready = new Promise<void>((r) => {
+        entered = r;
+      }),
+      gate = new Promise<void>((r) => {
+        release = r;
+      });
+    const holder = database.transaction().execute(async (tx) => {
+      await lockUserPair(tx, f.a, f.b);
+      entered();
+      await gate;
+      await tx.deleteFrom('discovery.candidate_deliveries').where('id', '=', source).execute();
+    });
+    await ready;
+    const creating = new PostgresPendingNakhStore(database, session, source).createPending(input);
+    const denied = expect(creating).rejects.toMatchObject({ status: 403 });
+    try {
+      await observedPairWait();
+    } finally {
+      release();
+      await holder;
+    }
+    await denied;
+    expect(
+      await database
+        .selectFrom('nakh.pending_nakhes')
+        .select('id')
+        .where('sender_user_id', '=', f.a)
+        .execute(),
+    ).toHaveLength(0);
+  });
+  it('observes a real session revocation committed while a pending read waits for its User lock', async () => {
+    const f = await pair(),
+      session = await actor(f.a),
+      source = await card(f, session);
+    await new PostgresPendingNakhStore(database, session, source).createPending(pendingNakh(f));
+    let entered!: () => void, release!: () => void;
+    const ready = new Promise<void>((r) => {
+        entered = r;
+      }),
+      gate = new Promise<void>((r) => {
+        release = r;
+      });
+    const builder = database.transaction(),
+      execute = builder.execute.bind(builder);
+    builder.execute = (run) =>
+      execute(async (tx) => {
+        const result = await run(tx);
+        entered();
+        await gate;
+        return result;
+      });
+    const intercept = vi.spyOn(database, 'transaction').mockReturnValueOnce(builder);
+    const revoking = new PostgresUserSessionStore(database).revoke(
+      session,
+      session.sessionGrantId,
+      randomUUID(),
+    );
+    await ready;
+    const reading = new PostgresPendingNakhStore(database, session).readSenderPage({
+      actor: { kind: 'user', userId: f.a },
+      requestId: randomUUID(),
+      limit: 10,
+    });
+    const denied = expect(reading).rejects.toMatchObject({ status: 401 });
+    try {
+      await observedIdentityWait('user');
+    } finally {
+      release();
+      await revoking;
+      intercept.mockRestore();
+    }
+    await denied;
+  });
+  it.each(['like', 'not_interested', 'nakh', 'pending'] as const)(
     'requires a fresh delivered source for %s after the counterpart completes deletion and Return',
     async (mode) => {
       const seed = await pair(),
@@ -756,7 +1057,11 @@ describe.skipIf(url === undefined)('native sessions at public discovery boundari
                 reject(f.a, f.b),
                 rejectEffects(),
               )
-            : new PostgresDirectNakhStore(database, session, source).createDirect(direct(f));
+            : mode === 'pending'
+              ? new PostgresPendingNakhStore(database, session, source).createPending(
+                  pendingNakh(f),
+                )
+              : new PostgresDirectNakhStore(database, session, source).createDirect(direct(f));
       await expect(act(originalSource)).rejects.toMatchObject({ status: 403 });
       if (mode === 'nakh') expect(await balance(f.a)).toBe(5n);
       const fresh = await card(f, session);

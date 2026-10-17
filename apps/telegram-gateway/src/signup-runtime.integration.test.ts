@@ -16,6 +16,7 @@ import {
   PostgresAccountReturnStore,
   PostgresMediaDeliveryAuthorization,
   PostgresUserSessionStore,
+  PostgresCreditLedgerStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { createRedisConnection } from '@nakh/queue-redis';
@@ -752,7 +753,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         }
     },
   );
-  it.each(['like', 'reject'] as const)(
+  it.each(['like', 'reject', 'nakh_credits', 'nakh_pending'] as const)(
     'performs Explore %s through delivered opaque cards without guest quota and fences replay',
     async (kind) => {
       await database
@@ -765,6 +766,23 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       await createMediaAuthorityFixture(database, 'owner_preview', viewer);
       const target = await createMediaAuthorityFixture(database);
       await eligibleExplorePair(viewer, target.ownerUserId);
+      const isNakh = kind === 'nakh_credits' || kind === 'nakh_pending';
+      if (isNakh)
+        for (const userId of [viewer, target.ownerUserId])
+          await database
+            .insertInto('notification.notification_preferences')
+            .values({ user_id: userId, created_at: new Date(), updated_at: new Date() })
+            .onConflict((c) => c.column('user_id').doNothing())
+            .execute();
+      if (kind === 'nakh_credits')
+        await new PostgresCreditLedgerStore(database).append({
+          transactionId: randomUUID(),
+          userId: viewer,
+          transactionType: 'admin_adjustment',
+          amount: 5n,
+          idempotencyKey: randomUUID(),
+          correlationId: randomUUID(),
+        });
       const tokens = new HmacMediaDeliveryTokens({
         currentKeyId: 'm9',
         keys: new Map([['m9', key]]),
@@ -852,14 +870,14 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       const button = (label: string): string =>
         card.keyboard.flat().find((b) => b.text === label)!.callback_data;
       const more = button('Show More'),
-        intent = button(kind === 'like' ? 'Like' : 'Not interested');
+        intent = button(isNakh ? 'Send Nakh' : kind === 'like' ? 'Like' : 'Not interested');
       const source = state(sender, intent);
       expect(intent).not.toContain(target.ownerUserId);
       expect(source.code).toBeDefined();
       expect(state(sender, more).group).toBe(source.group);
       await runtime.handle(callback(sender, more));
       expect(details).toBe(1);
-      const detailIntent = find(sender, (n) => n.action === kind)!;
+      const detailIntent = find(sender, (n) => n.action === (isNakh ? 'nakh' : kind))!;
       expect(state(sender, detailIntent).group).toBe(source.group);
       const foreign = String(serial++);
       await open(foreign);
@@ -867,15 +885,100 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       expect(transport.last(foreign).text).not.toContain('Private report fixture');
       const update = callback(sender, intent);
       await Promise.all(Array.from({ length: 10 }, () => runtime.handle(update)));
-      const table = kind === 'like' ? 'interaction.likes' : 'interaction.not_interested';
+      const privateOpening = 'Private original Nakh opening 🌱';
+      if (isNakh) {
+        expect(
+          await database
+            .selectFrom('nakh.nakh_flows')
+            .select('id')
+            .where('sender_user_id', '=', viewer)
+            .execute(),
+        ).toHaveLength(0);
+        expect(transport.last(sender).text).toContain('2 credits');
+        expect(transport.last(sender).text).toContain('automatically');
+        if (kind === 'nakh_pending') {
+          await action(sender, 'nakh_credits');
+          const unfundedPrompt = transport.last(sender);
+          await runtime.handle(response(sender, privateOpening, unfundedPrompt.id));
+          expect(
+            transport.messages.some(
+              (m) => m.sender === sender && m.text.includes('do not have enough credits'),
+            ),
+          ).toBe(true);
+          expect(
+            await database
+              .selectFrom('nakh.nakh_flows')
+              .select('id')
+              .where('sender_user_id', '=', viewer)
+              .execute(),
+          ).toHaveLength(0);
+        }
+        await action(sender, kind);
+        let prompt = transport.last(sender);
+        expect(prompt.prompt).toBe(true);
+        if (kind === 'nakh_pending') expect(prompt.text).toContain('automatically');
+        await runtime.handle(response(sender, '', prompt.id));
+        prompt = transport.last(sender);
+        expect(prompt.prompt).toBe(true);
+        const opening = response(sender, privateOpening, prompt.id);
+        await Promise.all(Array.from({ length: 10 }, () => runtime.handle(opening)));
+        await runtime.handle(response(sender, 'Changed duplicate opening', prompt.id));
+      }
+      const table =
+        kind === 'like'
+          ? 'interaction.likes'
+          : kind === 'reject'
+            ? 'interaction.not_interested'
+            : kind === 'nakh_credits'
+              ? 'nakh.nakhes'
+              : 'nakh.pending_nakhes';
       expect(
         await database
           .selectFrom(table)
           .select('id')
           .where('sender_user_id', '=', viewer)
-          .where('receiver_user_id', '=', target.ownerUserId)
           .execute(),
       ).toHaveLength(1);
+      if (isNakh) {
+        expect(
+          await database
+            .selectFrom('nakh.nakh_flows')
+            .select('receiver_user_id')
+            .where('sender_user_id', '=', viewer)
+            .execute(),
+        ).toEqual([{ receiver_user_id: target.ownerUserId }]);
+        const row = await database
+          .selectFrom(kind === 'nakh_credits' ? 'nakh.nakhes' : 'nakh.pending_nakhes')
+          .select('text')
+          .where('sender_user_id', '=', viewer)
+          .executeTakeFirstOrThrow();
+        expect(row.text).toBe(privateOpening);
+        expect(
+          (
+            await database
+              .selectFrom('billing.credit_accounts')
+              .select('balance')
+              .where('user_id', '=', viewer)
+              .executeTakeFirstOrThrow()
+          ).balance,
+        ).toBe(kind === 'nakh_credits' ? '3' : '0');
+        if (kind === 'nakh_pending')
+          expect(
+            await database
+              .selectFrom('nakh.nakhes')
+              .select('id')
+              .where('receiver_user_id', '=', target.ownerUserId)
+              .execute(),
+          ).toHaveLength(0);
+      } else {
+        expect(
+          await database
+            .selectFrom(kind === 'like' ? 'interaction.likes' : 'interaction.not_interested')
+            .select('receiver_user_id')
+            .where('sender_user_id', '=', viewer)
+            .execute(),
+        ).toEqual([{ receiver_user_id: target.ownerUserId }]);
+      }
       await runtime.handle(callback(sender, detailIntent));
       expect(
         await database
@@ -927,7 +1030,10 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           sender,
           uncertainCard.keyboard
             .flat()
-            .find((b) => b.text === (kind === 'like' ? 'Like' : 'Not interested'))!.callback_data,
+            .find(
+              (b) =>
+                b.text === (isNakh ? 'Send Nakh' : kind === 'like' ? 'Like' : 'Not interested'),
+            )!.callback_data,
         ),
       );
       expect(
@@ -956,6 +1062,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       for (const map of values.values())
         for (const value of map.values()) {
           expect(value).not.toContain('Private report fixture');
+          expect(value).not.toContain(privateOpening);
           expect(value).not.toContain('/media/');
         }
     },
@@ -1048,6 +1155,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         providerCalls = 0,
         detailProviderCalls = 0;
       let expectedMediaPurpose: 'profile_card' | 'profile_detail' = 'profile_card';
+      let forceReplyId = 0;
       const signing = new HmacMediaDeliveryTokens({
         currentKeyId: config.media.signingKeyId,
         keys: new Map([[config.media.signingKeyId, key]]),
@@ -1057,6 +1165,28 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         new Map([[config.media.audienceKeyId, audienceKey]]),
       );
       vi.stubGlobal('fetch', async (input: string, init?: RequestInit): Promise<Response> => {
+        if (input === `https://api.telegram.org/bot${botToken}/sendMessage`) {
+          if (typeof init?.body !== 'string') throw new Error('Missing synthetic prompt body');
+          const body = JSON.parse(init.body) as {
+            chat_id: string;
+            text: string;
+            reply_markup: { force_reply: boolean };
+          };
+          expect(String(body.chat_id)).toBe(mediaSender);
+          expect(body.reply_markup.force_reply).toBe(true);
+          expect(body.text).toContain('automatically');
+          forceReplyId = serial++;
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: forceReplyId,
+                from: { id: botId, is_bot: true },
+                chat: { id: Number(mediaSender), type: 'private' },
+              },
+            }),
+          );
+        }
         if (input.startsWith('https://media.invalid/')) {
           const media = new URL(input);
           const viewer = await audience.authenticate(
@@ -1295,6 +1425,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         const exploreCard = photos.at(-1)!;
         expect(exploreCard.keyboard.flat().map((b) => b.text)).toEqual([
           'Like',
+          'Send Nakh',
           'Not interested',
           'Show More',
           'Next',
@@ -1326,6 +1457,83 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
           ).preview_count,
         ).toBe(0);
         expect(await count()).toBe(4);
+        const pendingTarget = await createMediaAuthorityFixture(database);
+        await eligibleExplorePair(exploreUser, pendingTarget.ownerUserId);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: incoming(exploreSender),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const pendingExplore = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((b) => b.text === 'Explore')!.callback_data;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, pendingExplore),
+            })
+          ).statusCode,
+        ).toBe(201);
+        const compose = photos
+          .at(-1)!
+          .keyboard.flat()
+          .find((b) => b.text === 'Send Nakh')!.callback_data;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, compose),
+            })
+          ).statusCode,
+        ).toBe(201);
+        expect(sent.at(-1)!.text).toContain('automatically');
+        const savePending = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((b) => b.text === 'Save as Pending Nakh')!.callback_data;
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: callback(exploreSender, savePending),
+            })
+          ).statusCode,
+        ).toBe(201);
+        expect(forceReplyId).toBeGreaterThan(0);
+        const pendingOpening = response(exploreSender, 'Private host Nakh opening', forceReplyId);
+        for (let i = 0; i < 3; i++)
+          expect(
+            (await app.inject({ method: 'POST', url: route, headers, payload: pendingOpening }))
+              .statusCode,
+          ).toBe(201);
+        expect(
+          await database
+            .selectFrom('nakh.pending_nakhes')
+            .select('text')
+            .where('sender_user_id', '=', exploreUser)
+            .execute(),
+        ).toEqual([{ text: 'Private host Nakh opening' }]);
+        expect(
+          await database
+            .selectFrom('nakh.nakhes')
+            .select('id')
+            .where('receiver_user_id', '=', pendingTarget.ownerUserId)
+            .execute(),
+        ).toHaveLength(0);
+        expect(providerCalls).toBe(4);
       } finally {
         await app?.close();
         const index = `${prefix}:owned-action:{${createHash('sha256').update(f.userId).digest('hex')}}:1:index`;
