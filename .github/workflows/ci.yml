@@ -294,6 +294,7 @@ jobs:
         if: matrix.app == 'api'
         run: |
           docker run --rm --entrypoint test nakh-api:${{ github.sha }} -f /app/node_modules/@nakh/persistence-postgres/dist/cli/migrate.js
+          docker run --rm --entrypoint test nakh-api:${{ github.sha }} -f /app/node_modules/@nakh/persistence-postgres/dist/cli/compatibility.js
           docker run --rm --entrypoint test nakh-api:${{ github.sha }} -d /app/migrations
       - uses: pnpm/action-setup@v6
         if: matrix.nativeShard != 0

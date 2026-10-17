@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { AppConfig } from '@nakh/config';
 import {
@@ -129,22 +127,7 @@ export const RELEASE_REFERENCE_COLUMNS = Object.freeze({
   'administration.admin_user_roles':
     'admin_user_id role_code assigned_by_admin_id assigned_at revoked_by_admin_id revoked_at',
 });
-export async function sourceMigrationDigests(
-  directory: string,
-): Promise<readonly { name: string; sha256: string }[]> {
-  const names = (await readdir(directory))
-    .filter((name) => /^\d{6}_[a-z0-9_]+\.sql$/u.test(name))
-    .sort();
-  if (names.length === 0) unavailable();
-  return Promise.all(
-    names.map(async (name) => ({
-      name,
-      sha256: createHash('sha256')
-        .update(await readFile(join(directory, name), 'utf8'))
-        .digest('hex'),
-    })),
-  );
-}
+export { sourceMigrationDigests } from './migrations.js';
 export type ReleaseReference = Readonly<{
   format: 1;
   environment: AppConfig['environment'];

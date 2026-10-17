@@ -14,6 +14,68 @@ async function migrationFiles(directory: string): Promise<string[]> {
     .sort((left, right) => left.localeCompare(right));
 }
 
+/** Exact source inventory shared by release review and in-image admission. */
+export async function sourceMigrationDigests(
+  directory: string,
+): Promise<readonly { name: string; sha256: string }[]> {
+  const names = await migrationFiles(directory);
+  if (names.length === 0) throw new Error('Source migration inventory unavailable.');
+  return Promise.all(
+    names.map(async (name) => ({
+      name,
+      sha256: createHash('sha256')
+        .update(await readFile(join(directory, name), 'utf8'))
+        .digest('hex'),
+    })),
+  );
+}
+
+/** Read-only admission for one selected image. No unknown newer/older ledger
+ * is treated as compatible merely because all known files already applied. */
+export async function verifyMigrationLedger(
+  databaseUrl: string,
+  directory: string,
+): Promise<Readonly<{ migrations: number; ledgerDigest: string }>> {
+  const expected = await sourceMigrationDigests(directory);
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    application_name: 'nakh-schema-compatibility',
+    connectionTimeoutMillis: 5000,
+    statement_timeout: 15000,
+  });
+  let client: pg.PoolClient | undefined;
+  let locked = false,
+    transaction = false;
+  try {
+    client = await pool.connect();
+    // Acquire the session lock before BEGIN: taking a repeatable-read snapshot
+    // before waiting for an in-flight migrator would admit its stale ledger.
+    await client.query("SELECT pg_advisory_lock_shared(hashtext('nakh-schema-migrations'))");
+    locked = true;
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    transaction = true;
+    const result = await client.query<{ name: string; sha256: string }>(
+      'SELECT name,sha256 FROM platform.schema_migrations ORDER BY name',
+    );
+    if (JSON.stringify(result.rows) !== JSON.stringify(expected))
+      throw new Error('Selected image schema is not compatible.');
+    await client.query('COMMIT');
+    transaction = false;
+    return {
+      migrations: expected.length,
+      ledgerDigest: createHash('sha256').update(JSON.stringify(expected)).digest('hex'),
+    };
+  } finally {
+    if (transaction) await client?.query('ROLLBACK').catch(() => undefined);
+    if (locked)
+      await client
+        ?.query("SELECT pg_advisory_unlock_shared(hashtext('nakh-schema-migrations'))")
+        .catch(() => undefined);
+    client?.release();
+    await pool.end();
+  }
+}
+
 export async function runMigrations(
   databaseUrl: string,
   directory: string,

@@ -334,3 +334,32 @@ rollback compatibility, migration quiescence, durable release custody, protected
 production approval, production infrastructure and the rest of the original M9
 release table remain required. No cloud deployment or real-user launch follows
 from a matching image receipt alone.
+
+
+## Selected-image native schema prerequisite
+
+The API image includes
+`node node_modules/@nakh/persistence-postgres/dist/cli/compatibility.js`.
+Run with the selected image's source SHA in `NAKH_RELEASE`, its ordinary protected
+configuration and `/app` as the working directory. This read-only command compares
+all source migration names and checksums with the actual native ledger. Missing,
+additional or changed entries deny admission; an older image cannot pass merely
+because its own migrations have already applied. Success prints only the selected
+source SHA, migration count and ledger digest. Failure prints a fixed message and
+returns nonzero without connection strings, paths or database errors.
+
+The reader shares the existing migrator's advisory lock. It acquires that lock
+before opening its repeatable-read transaction, so a concurrent migration must
+finish before the reader takes its snapshot. It never applies or reverses a
+migration. Native tests cover exact identity, modified/missing/additional rows,
+an actual older source inventory and an observed lock wait followed by a newly
+committed migration. A subprocess test executes the compiled command outside a
+Git checkout and checks sanitized rejection; container CI also checks that the
+actual API image contains the command.
+
+This increment packages and verifies the native prerequisite. Deployment/rollback
+workflow admission, producer drain, safe scaling restoration, circuit-breaker
+fallback policy and durable release custody still require composition before a
+release can rely on it. A one-time successful read cannot authorize a concurrent
+migration or prove transport/data compatibility, provider acceptance or operator
+approval. No cloud resources or users are activated by this command.
