@@ -255,6 +255,10 @@ const machineValues = new Set([
 ]);
 
 const booleanFields = ['notificationEligible', 'muted', 'visibilityEnabled', 'final'];
+// Keep the historical transport spelling without granting new evidence access.
+// Native report admission continues to use the five canonical evidence types.
+const evidenceTypes = ['profile', 'photo', 'chat', 'message', 'unmatched_user', 'unmatch'];
+const maximumEvidenceTypes = 5;
 const quantityFields = ['amount', 'balanceAfter', 'throughSequenceNumber', 'bytes'];
 const codeFields = ['reasonCode', 'errorCode', 'resultCode'];
 const counterFields = [
@@ -288,6 +292,8 @@ export const DELETION_EVENT_POLICY = Object.freeze({
   quantityFields: Object.freeze(quantityFields),
   codeFields: Object.freeze(codeFields),
   counterFields: Object.freeze(counterFields),
+  evidenceTypes: Object.freeze(evidenceTypes),
+  maximumEvidenceTypes,
 });
 
 function fieldValid(key: string, value: unknown): boolean {
@@ -303,10 +309,8 @@ function fieldValid(key: string, value: unknown): boolean {
     return (
       Array.isArray(value) &&
       value.length > 0 &&
-      value.length <= 4 &&
-      value.every(
-        (v) => typeof v === 'string' && ['profile', 'photo', 'chat', 'unmatch'].includes(v),
-      )
+      value.length <= maximumEvidenceTypes &&
+      value.every((v) => typeof v === 'string' && evidenceTypes.includes(v))
     );
   if (booleanFields.includes(key)) return typeof value === 'boolean';
   if (quantityFields.includes(key))

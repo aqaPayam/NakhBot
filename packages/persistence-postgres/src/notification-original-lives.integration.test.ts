@@ -168,6 +168,7 @@ describe.skipIf(url === undefined)('M8 populated original notification-life upgr
       '000158_m9_administrator_signin_presentation.sql',
       '000159_m9_chat_presentation.sql',
       '000160_m9_chat_relay_presentation.sql',
+      '000161_m9_chat_reporting.sql',
     ]);
     expect(await snapshot()).toEqual(original);
     expect(

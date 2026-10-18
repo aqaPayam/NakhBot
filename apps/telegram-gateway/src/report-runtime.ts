@@ -8,6 +8,10 @@ import {
   AesGcmPhotoReportSnapshotProtector,
   AesGcmChatReportSnapshotReader,
   AesGcmUnmatchedReportSnapshotReader,
+  AesGcmChatReportSnapshotProtector,
+  AesGcmUnmatchedReportSnapshotProtector,
+  IntegrityMessageReportSnapshotReader,
+  type ReportSource,
   type UserSessionActor,
   type UserProductLife,
   type OpaqueTokenStore,
@@ -22,6 +26,10 @@ import {
   PostgresLocalizationStore,
   PostgresTelegramUserResolver,
   PostgresUserSessionStore,
+  captureUserReportScope,
+  type ConversationReportScope,
+  type UserReportScope,
+  type ReportEvidenceCapabilities,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -45,6 +53,11 @@ export interface TelegramReportRuntimePort {
     deliveryId: string,
     photoId?: string,
   ): Promise<string>;
+  conversationButton(
+    actor: UserSessionActor,
+    telegramUserId: string,
+    conversation: ConversationReportScope['conversation'],
+  ): Promise<string>;
 }
 function unavailable(): ApplicationError {
   return new ApplicationError('report_unavailable', 'error.report.unavailable', 409);
@@ -67,6 +80,8 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
   private readonly key: Uint8Array;
   private readonly protector: AesGcmProfileReportSnapshotProtector;
   private readonly photoProtector: AesGcmPhotoReportSnapshotProtector;
+  private readonly chatProtector: AesGcmChatReportSnapshotProtector;
+  private readonly unmatchedProtector: AesGcmUnmatchedReportSnapshotProtector;
   public constructor(
     private readonly database: NakhDatabase,
     private readonly botId: string,
@@ -87,6 +102,16 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
       write.key,
     );
     this.photoProtector = new AesGcmPhotoReportSnapshotProtector(
+      write.keyId,
+      write.keyVersion,
+      write.key,
+    );
+    this.chatProtector = new AesGcmChatReportSnapshotProtector(
+      write.keyId,
+      write.keyVersion,
+      write.key,
+    );
+    this.unmatchedProtector = new AesGcmUnmatchedReportSnapshotProtector(
       write.keyId,
       write.keyVersion,
       write.key,
@@ -134,6 +159,14 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
     return (key) => renderer.render(catalog.resolvedLocale, { key, variables: {} });
   }
   public async onModuleInit(): Promise<void> {
+    if (
+      (await this.database
+        .selectFrom('platform.schema_migrations')
+        .select('name')
+        .where('name', '=', '000161_m9_chat_reporting.sql')
+        .executeTakeFirst()) === undefined
+    )
+      throw Error('Report schema unavailable.');
     const readers = {
       profile: new AesGcmProfileReportSnapshotReader(this.keys),
       photo: new AesGcmPhotoReportSnapshotReader(this.keys),
@@ -219,37 +252,108 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
   }
   private services(nav: Nav): ReturnType<typeof createPostgresUserReportServices> {
     if (nav.code === undefined) throw unavailable();
+    const selection = this.selection(nav);
+    const capabilities: ReportEvidenceCapabilities = {
+      profile: {
+        protector: this.protector,
+        reader: new AesGcmProfileReportSnapshotReader(this.keys),
+      },
+      photo: {
+        protector: this.photoProtector,
+        reader: new AesGcmPhotoReportSnapshotReader(this.keys),
+      },
+      chat: {
+        protector: this.chatProtector,
+        reader: new AesGcmChatReportSnapshotReader(this.keys),
+      },
+      unmatched_user: {
+        protector: this.unmatchedProtector,
+        reader: new AesGcmUnmatchedReportSnapshotReader(this.keys),
+      },
+      message: { reader: new IntegrityMessageReportSnapshotReader() },
+    };
     return createPostgresUserReportServices(
       this.database,
       ReportTokens.forLife(this.store(nav.actor), this.key, nav.actor),
-      {
-        profile: {
-          protector: this.protector,
-          reader: new AesGcmProfileReportSnapshotReader(this.keys),
-        },
-        photo: {
-          protector: this.photoProtector,
-          reader: new AesGcmPhotoReportSnapshotReader(this.keys),
-        },
-      },
-      { actor: nav.actor, deliveryId: nav.code },
+      { [selection.type]: capabilities[selection.type] },
+      selection.scope,
     );
+  }
+  private selection(nav: Nav): {
+    source: ReportSource;
+    type: 'profile' | 'photo' | 'chat' | 'message' | 'unmatched_user';
+    scope: UserReportScope;
+  } {
+    if (nav.code === undefined) throw unavailable();
+    if (nav.field === undefined)
+      return {
+        source: {
+          kind: 'delivered_candidate',
+          referenceId: nav.code,
+          ...(nav.photoId === undefined ? {} : { photoId: nav.photoId }),
+        },
+        type: nav.photoId === undefined ? 'profile' : 'photo',
+        scope: { actor: nav.actor, deliveryId: nav.code },
+      };
+    if (
+      !['chat', 'message', 'unmatched_user'].includes(nav.field) ||
+      nav.selection?.length !== 2 ||
+      nav.photoId !== undefined
+    )
+      throw unavailable();
+    const kind = nav.field === 'chat' ? 'match' : nav.field === 'message' ? 'message' : 'unmatched';
+    const scope = captureUserReportScope({
+      actor: nav.actor,
+      conversation: {
+        matchId: nav.selection[0]!,
+        chatSessionId: nav.selection[1]!,
+        source: { kind, referenceId: nav.code },
+      },
+    });
+    if (scope === undefined || !('conversation' in scope)) throw unavailable();
+    return {
+      source: scope.conversation.source,
+      type: nav.field as 'chat' | 'message' | 'unmatched_user',
+      scope,
+    };
+  }
+  public async conversationButton(
+    actor: UserSessionActor,
+    telegramUserId: string,
+    conversation: ConversationReportScope['conversation'],
+  ): Promise<string> {
+    const scope = captureUserReportScope({ actor, conversation });
+    if (scope === undefined || !('conversation' in scope)) throw unavailable();
+    await this.current(scope.actor, telegramUserId);
+    const c = scope.conversation;
+    return this.tokens(telegramUserId, scope.actor).button({
+      actor: scope.actor,
+      version: 1,
+      screen: 'report',
+      action: 'begin',
+      code: c.source.referenceId,
+      field:
+        c.source.kind === 'match'
+          ? 'chat'
+          : c.source.kind === 'message'
+            ? 'message'
+            : 'unmatched_user',
+      selection: [c.matchId, c.chatSessionId],
+      group: randomBytes(12).toString('base64url'),
+    });
   }
   private async chooseReason(telegramUserId: string, nav: Nav, updateId: number): Promise<void> {
     const tokens = this.tokens(telegramUserId, nav.actor),
       reportTokens = ReportTokens.forLife(this.store(nav.actor), this.key, nav.actor);
-    const source = await reportTokens.issueSource(nav.actor.userId, {
-      kind: 'delivered_candidate',
-      referenceId: nav.code!,
-      ...(nav.photoId === undefined ? {} : { photoId: nav.photoId }),
-    });
+    const selection = this.selection(nav);
+    const source = await reportTokens.issueSource(nav.actor.userId, selection.source);
     const requestId = operation([this.botId, telegramUserId, nav.actor, updateId, 'prepare']);
     const prepared = await this.services(nav).prepare.execute(
       {
         actor: nav.actor,
         requestId,
         sourceActionToken: source.token,
-        requestedEvidenceTypes: [nav.photoId === undefined ? 'profile' : 'photo'],
+        requestedEvidenceTypes: [selection.type],
       },
       nav.actor,
       nav.actor.productEpoch,
@@ -498,6 +602,7 @@ export function createTelegramReportRuntime(
       enabled: false,
       handle: () => Promise.resolve('unhandled'),
       button: () => Promise.reject(unavailable()),
+      conversationButton: () => Promise.reject(unavailable()),
     };
   const resolve = input.resolveSecret ?? resolveSecretReference,
     token = resolve(input.config.telegram.botTokenRef),

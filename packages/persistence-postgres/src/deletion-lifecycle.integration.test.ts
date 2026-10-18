@@ -277,6 +277,7 @@ describe.skipIf(url === undefined)('M8 original deletion lifecycle binding', () 
             '000158_m9_administrator_signin_presentation.sql',
             '000159_m9_chat_presentation.sql',
             '000160_m9_chat_relay_presentation.sql',
+            '000161_m9_chat_reporting.sql',
           ]);
           expect(await original(item.recordId, legacy)).toEqual({ ...before, product_epoch: 0 });
           expect(

@@ -3,6 +3,47 @@ import { classifyDeletionEvent } from './deletion-event-policy.js';
 
 const id = '10000000-0000-4000-8000-000000000001';
 describe('M8 typed operational event disposition', () => {
+  it.each(['message', 'unmatched_user'])(
+    'retains emitted %s report events as safety proof',
+    (type) => {
+      expect(
+        classifyDeletionEvent('moderation.report-submitted.v1', 1, {
+          reportId: id,
+          evidenceTypes: [type],
+          status: 'pending_review',
+        }),
+      ).toBe('safety_proof');
+    },
+  );
+  it('retains all five canonical evidence kinds and the historical transport spelling', () => {
+    for (const evidenceTypes of [
+      ['profile', 'photo', 'chat', 'message', 'unmatched_user'],
+      ['unmatch'],
+    ])
+      expect(
+        classifyDeletionEvent('moderation.report-submitted.v1', 1, {
+          reportId: id,
+          evidenceTypes,
+          status: 'pending_review',
+        }),
+      ).toBe('safety_proof');
+  });
+  it('keeps malformed, unknown and content-bearing report events unclassified', () => {
+    const body = { reportId: id, evidenceTypes: ['message'], status: 'pending_review' };
+    for (const evidenceTypes of [
+      [],
+      ['unknown'],
+      ['unmatched'],
+      Array.from({ length: 6 }, () => 'message'),
+    ])
+      expect(
+        classifyDeletionEvent('moderation.report-submitted.v1', 1, { ...body, evidenceTypes }),
+      ).toBe('unclassified');
+    expect(
+      classifyDeletionEvent('moderation.report-submitted.v1', 1, { ...body, text: 'private' }),
+    ).toBe('unclassified');
+    expect(classifyDeletionEvent('moderation.report-submitted.v1', 2, body)).toBe('unclassified');
+  });
   it('classifies optional draft transport without permitting a copy of the answers', () => {
     const body = { userId: id, currentStep: 'optional_details', draftVersion: 13 };
     expect(classifyDeletionEvent('identity.signup-optional-details-saved.v1', 1, body)).toBe(

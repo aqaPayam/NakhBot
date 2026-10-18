@@ -323,8 +323,9 @@ export async function createReportChat(
   first: string,
   second: string,
   now = new Date(),
+  lives?: Readonly<{ first: number; second: number }>,
 ): Promise<Readonly<{ matchId: string; chatSessionId: string }>> {
-  const matchId = await createReportMatch(database, first, second, now),
+  const matchId = await createReportMatch(database, first, second, now, lives),
     chatSessionId = randomUUID();
   await database.transaction().execute(async (transaction) => {
     await transaction
@@ -360,11 +361,24 @@ export async function createReportMatch(
   first: string,
   second: string,
   now = new Date(),
+  lives?: Readonly<{ first: number; second: number }>,
 ): Promise<string> {
   const id = randomUUID();
   const [low, high] = [first, second].sort() as [string, string];
-  const a = await createReportLike(database, first, second, now),
-    b = await createReportLike(database, second, first, now);
+  const a = await createReportLike(
+      database,
+      first,
+      second,
+      now,
+      lives === undefined ? undefined : { sender: lives.second, receiver: lives.first },
+    ),
+    b = await createReportLike(
+      database,
+      second,
+      first,
+      now,
+      lives === undefined ? undefined : { sender: lives.first, receiver: lives.second },
+    );
   await database.transaction().execute(async (transaction) => {
     await transaction
       .insertInto('matching.matches')

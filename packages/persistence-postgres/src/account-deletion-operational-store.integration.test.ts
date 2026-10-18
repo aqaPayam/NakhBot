@@ -103,6 +103,40 @@ describe.skipIf(url === undefined)('M8 owned operational cancellation', () => {
         }>`SELECT platform.deletion_event_policy() AS policy`.execute(database)
       ).rows[0]!.policy,
     ).toEqual(DELETION_EVENT_POLICY);
+    for (const evidenceTypes of [
+      ['message'],
+      ['unmatched_user'],
+      ['unmatch'],
+      ['profile', 'photo', 'chat', 'message', 'unmatched_user'],
+      [],
+      ['unknown'],
+      ['unmatched'],
+      Array.from({ length: 6 }, () => 'message'),
+    ]) {
+      const body = { reportId: randomUUID(), evidenceTypes, status: 'pending_review' };
+      const valid =
+        evidenceTypes.length > 0 &&
+        evidenceTypes.length <= 5 &&
+        evidenceTypes.every((type) =>
+          ['profile', 'photo', 'chat', 'message', 'unmatched_user', 'unmatch'].includes(type),
+        );
+      const row = (
+        await sql<{ disposition: string }>`SELECT platform.deletion_event_disposition(
+        'moderation.report-submitted.v1',1,${JSON.stringify(body)}::jsonb) AS disposition`.execute(
+          database,
+        )
+      ).rows[0]!;
+      expect(row.disposition).toBe(valid ? 'safety_proof' : 'unclassified');
+      const withContent = { ...body, text: 'Private report body must remain out of proof' };
+      expect(
+        (
+          await sql<{ disposition: string }>`SELECT platform.deletion_event_disposition(
+        'moderation.report-submitted.v1',1,${JSON.stringify(withContent)}::jsonb) AS disposition`.execute(
+            database,
+          )
+        ).rows[0]!.disposition,
+      ).toBe('unclassified');
+    }
     const catalog = await readDeletionCatalog(database);
     expect(catalog.tables).toHaveLength(153);
     expect(catalog.tables.reduce((n, row) => n + row.columns.length, 0)).toBe(1421);

@@ -988,7 +988,10 @@ process.on('message', message => {
           .execute();
       const original = await grants();
       expect(original).toHaveLength(1);
-      const host = await start('telegram-gateway', { NAKH_TELEGRAM_CHAT_ENABLED: 'true' });
+      const host = await start('telegram-gateway', {
+        NAKH_TELEGRAM_CHAT_ENABLED: 'true',
+        NAKH_TELEGRAM_REPORTS_ENABLED: 'true',
+      });
       const send = (payload: unknown): Promise<Response> =>
         localRequest(host.origin + '/v1/providers/telegram/webhook', {
           method: 'POST',
@@ -1214,6 +1217,37 @@ process.on('message', message => {
       } finally {
         await worker.stop();
       }
+      await click(selected);
+      const conversationReport = button('Report conversation'),
+        messageReport = button('Report message 3');
+      for (const token of [conversationReport, messageReport]) {
+        expect(token).toMatch(/^m9r:/u);
+        expect(token).not.toContain(chat.matchId);
+        await click(token);
+        const reason = host.menus.filter((m) => String(m.chat_id) === owner.telegramUserId).at(-1)!
+          .reply_markup!.inline_keyboard![0]![0]!.callback_data!;
+        await click(reason);
+        const submit = host.menus
+          .toReversed()
+          .filter((m) => String(m.chat_id) === owner.telegramUserId)
+          .flatMap((m) => m.reply_markup?.inline_keyboard?.flat() ?? [])
+          .find((b) => b.text === 'Submit report')!.callback_data!;
+        const event = ++updateId;
+        await Promise.all(Array.from({ length: 8 }, () => click(submit, event)));
+      }
+      expect(
+        (
+          await database
+            .selectFrom('moderation.reports as report')
+            .innerJoin('moderation.report_evidence as evidence', 'evidence.report_id', 'report.id')
+            .select('evidence.evidence_type')
+            .where('report.reporter_user_id', '=', owner.userId)
+            .execute()
+        )
+          .map((r) => r.evidence_type)
+          .sort(),
+      ).toEqual(['chat', 'message']);
+      expect(await grants()).toEqual(original);
       const borrower = await register();
       await click(question, ++updateId, borrower.telegramUserId);
       const before = host.menus.filter((m) => String(m.chat_id) === owner.telegramUserId).length;

@@ -590,6 +590,7 @@ describe.skipIf(url === undefined)('M9 candidate-bound native media authority', 
         '000158_m9_administrator_signin_presentation.sql',
         '000159_m9_chat_presentation.sql',
         '000160_m9_chat_relay_presentation.sql',
+        '000161_m9_chat_reporting.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(

@@ -362,7 +362,7 @@ export class TelegramGatewayModule {
     const stars = createTelegramStarsRuntime({ config, database });
     const reports = createTelegramReportRuntime({ config, database, redis });
     const administration = createAdministratorTelegramRuntime({ config, database, redis });
-    const chat = createTelegramChatRuntime({ config, database, redis });
+    const chat = createTelegramChatRuntime({ config, database, redis, reports });
     const signup = createTelegramSignupRuntime({
       config,
       database,

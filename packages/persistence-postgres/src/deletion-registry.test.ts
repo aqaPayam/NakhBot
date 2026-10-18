@@ -41,7 +41,8 @@ describe('M8 schema coverage denial', () => {
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 157 })).not.toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 159 })).not.toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 160 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 161 })).toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 161 })).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 162 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion: 153 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 152 })).toThrow();
     for (const schemaVersion of [Number.NaN, 0, 136, 159, 152.5])

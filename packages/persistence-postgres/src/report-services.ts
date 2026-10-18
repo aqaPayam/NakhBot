@@ -27,9 +27,11 @@ import {
   PostgresSingleEvidenceReportSubmissionStore,
   captureProfileReportEvidence,
   type SingleReportEvidenceCapture,
-  type DeliveredReportScope,
-  captureDeliveredReportScope,
-  lockDeliveredReportScope,
+  type UserReportScope,
+  captureUserReportScope,
+  lockUserReportScope,
+  matchesUserReportScope,
+  requireUserReportSelection,
 } from './profile-report-submission-store.js';
 import { captureChatReportEvidence } from './chat-report-submission-store.js';
 import { captureUnmatchedReportEvidence } from './unmatched-report-submission-store.js';
@@ -62,14 +64,14 @@ function reportServiceParts(
   database: NakhDatabase,
   reportTokens: ReportTokens | ReportTokenReferences,
   capabilities: ReportEvidenceCapabilities,
-  publicScope?: DeliveredReportScope,
+  publicScope?: UserReportScope,
 ): Readonly<{
   prepare: PrepareSingleReportEvidenceHandler;
   submit: SubmitSingleEvidenceReportHandler;
   readers: ReportEvidenceReaders;
   types: readonly ReportEvidenceType[];
 }> {
-  const scope = captureDeliveredReportScope(publicScope);
+  const scope = captureUserReportScope(publicScope);
   type SourceResolver = (
     context: NakhDatabase,
     actor: string,
@@ -128,11 +130,11 @@ function reportServiceParts(
                 actor !== scope.actor.userId ||
                 authority?.productEpoch !== scope.actor.productEpoch ||
                 authority.sessionGrantId !== scope.actor.sessionGrantId ||
-                source.kind !== 'delivered_candidate' ||
-                source.referenceId !== scope.deliveryId
+                !matchesUserReportScope(scope, source)
               )
                 throw reportUnavailable();
-              await lockDeliveredReportScope(transaction, scope);
+              await lockUserReportScope(transaction, scope);
+              await requireUserReportSelection(transaction, scope);
             }
             const account = await transaction
               .selectFrom('identity.accounts')
@@ -186,12 +188,14 @@ export function createPostgresUserReportServices(
   database: NakhDatabase,
   reportTokens: ReportTokens | ReportTokenReferences,
   capabilities: ReportEvidenceCapabilities,
-  scope: DeliveredReportScope,
+  scope: UserReportScope,
 ): Readonly<{
   prepare: PrepareSingleReportEvidenceHandler;
   submit: SubmitSingleEvidenceReportHandler;
 }> {
-  const { prepare, submit } = reportServiceParts(database, reportTokens, capabilities, scope);
+  const captured = captureUserReportScope(scope);
+  if (captured === undefined) throw reportUnavailable();
+  const { prepare, submit } = reportServiceParts(database, reportTokens, capabilities, captured);
   return Object.freeze({ prepare, submit });
 }
 

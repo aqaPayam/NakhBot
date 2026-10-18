@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { SpendCreditsForPaidActionHandler, type UserSessionActor } from '@nakh/application';
+import {
+  ReportSnapshotKeyRing,
+  SpendCreditsForPaidActionHandler,
+  type UserSessionActor,
+} from '@nakh/application';
 import { parseConfig } from '@nakh/config';
 import {
   createDatabase,
@@ -22,8 +26,10 @@ import { createIsolatedTestDatabase } from '../../../packages/persistence-postgr
 import {
   createReportChat,
   createReportUser,
+  createReportMessage,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { TelegramChatRuntime } from './chat-runtime.js';
+import { TelegramReportRuntime } from './report-runtime.js';
 import { SignupNavigationTokens, type SignupNavigation } from './signup-navigation.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL,
@@ -51,6 +57,8 @@ type Callback = {
 };
 type Fixture = {
   runtime: TelegramChatRuntime;
+  reports?: TelegramReportRuntime;
+  peer: string;
   actor: UserSessionActor;
   recipient: string;
   menus: Menu[];
@@ -101,7 +109,7 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       await database?.destroy();
       await isolated?.destroy();
     });
-    async function fixture(): Promise<Fixture> {
+    async function fixture(withReports = false): Promise<Fixture> {
       const first = await createReportUser(database, true),
         second = await createReportUser(database, true),
         recipient = String(5000000000 + Math.floor(Math.random() * 1000000000)),
@@ -186,14 +194,38 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
           ),
         );
       });
+      const client = new TelegramBotApiMenuClient(`12345:${'a'.repeat(24)}`, fetcher);
+      const reports = withReports
+        ? new TelegramReportRuntime(
+            database,
+            '12345',
+            key,
+            new ReportSnapshotKeyRing(
+              JSON.stringify([
+                {
+                  keyId: 'native-chat-report',
+                  keyVersion: 1,
+                  key: Buffer.alloc(32, 82).toString('base64url'),
+                },
+              ]),
+            ),
+            'native-chat-report',
+            1,
+            client,
+            new RedisRateLimiter(redis, prefix),
+            (life) => new RedisOwnedOpaqueTokenStore(redis, prefix, life),
+          )
+        : undefined;
+      await reports?.onModuleInit();
       const runtime = new TelegramChatRuntime(
         { ...config, redis: { ...config.redis, queuePrefix: prefix } },
         database,
         redis,
         '12345',
         key,
-        new TelegramBotApiMenuClient(`12345:${'a'.repeat(24)}`, fetcher),
+        client,
         new RedisRateLimiter(redis, prefix),
+        reports,
       );
       await runtime.onModuleInit();
       const tokens = new SignupNavigationTokens(
@@ -238,6 +270,8 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       };
       return {
         runtime,
+        ...(reports === undefined ? {} : { reports }),
+        peer: second,
         actor,
         recipient,
         menus,
@@ -252,6 +286,83 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
         },
       };
     }
+    it('submits conversation, visible message and post-Unmatch reports with the original grant', async () => {
+      const f = await fixture(true),
+        reports = f.reports!;
+      await createReportMessage(
+        database,
+        f.chat.chatSessionId,
+        f.peer,
+        'Native report selection body',
+      );
+      await f.runtime.handle(f.callback(await f.tokens.button(f.nav('chat_view'))));
+      const chatReport = f.button('Report conversation'),
+        messageReport = f.button('Report message 1');
+      for (const token of [chatReport, messageReport]) {
+        expect(token).toMatch(/^m9r:/u);
+        for (const id of [
+          f.actor.userId,
+          f.peer,
+          f.actor.sessionGrantId,
+          f.chat.matchId,
+          f.chat.chatSessionId,
+        ])
+          expect(token).not.toContain(id);
+      }
+      let event = 20000;
+      const report = async (token: string, retries = 1): Promise<void> => {
+        await reports.handle(f.callback(token, event++));
+        const reason = f.menus.at(-1)!.reply_markup!.inline_keyboard![0]![0]!.callback_data;
+        await reports.handle(f.callback(reason, event++));
+        const submit = f.menus
+          .toReversed()
+          .flatMap((m) => m.reply_markup?.inline_keyboard?.flat() ?? [])
+          .find((b) => b.text === 'Submit report')!.callback_data;
+        const update = f.callback(submit, event++);
+        await Promise.all(Array.from({ length: retries }, () => reports.handle(update)));
+      };
+      await report(chatReport, 8);
+      await report(messageReport);
+      await f.runtime.handle(f.callback(await f.tokens.button(f.nav('chat_unmatch'))));
+      await f.runtime.handle(f.callback(f.button('Confirm')));
+      await f.runtime.open(f.recipient, f.actor);
+      await f.runtime.handle(f.callback(f.button('Ended chats')));
+      const endedReport = f.menus.at(-1)!.reply_markup!.inline_keyboard![0]![0]!.callback_data;
+      await report(endedReport);
+      const rows = await database
+        .selectFrom('moderation.reports as report')
+        .innerJoin('moderation.report_evidence as evidence', 'evidence.report_id', 'report.id')
+        .select(['evidence.evidence_type', 'report.target_user_id'])
+        .where('report.reporter_user_id', '=', f.actor.userId)
+        .execute();
+      expect(rows.map((r) => r.evidence_type).sort()).toEqual([
+        'chat',
+        'message',
+        'unmatched_user',
+      ]);
+      expect(rows.every((r) => r.target_user_id === f.peer)).toBe(true);
+      expect(
+        await database
+          .selectFrom('platform.audit_logs')
+          .select('id')
+          .where('actor_user_id', '=', f.actor.userId)
+          .where('event_type', '=', 'identity.user-session-issued.v1')
+          .execute(),
+      ).toHaveLength(1);
+      await new PostgresUserSessionStore(database).revoke(
+        f.actor,
+        f.actor.sessionGrantId,
+        randomUUID(),
+      );
+      await reports.handle(f.callback(endedReport, event++));
+      expect(
+        await database
+          .selectFrom('moderation.reports')
+          .select('id')
+          .where('reporter_user_id', '=', f.actor.userId)
+          .execute(),
+      ).toHaveLength(3);
+    });
     it('bounds rejected callback audit writes without recording the callback body', async () => {
       const f = await fixture(),
         marker = 'PRIVATE_CALLBACK_BODY';

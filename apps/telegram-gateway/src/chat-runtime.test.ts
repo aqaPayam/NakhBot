@@ -4,6 +4,18 @@ import type { NakhDatabase } from '@nakh/persistence-postgres';
 import type { createRedisConnection } from '@nakh/queue-redis';
 import { createTelegramChatRuntime } from './chat-runtime.js';
 describe('chat runtime activation', () => {
+  it('fails closed when enabled reports lack their public host adapter', () => {
+    const resolveSecret = vi.fn(() => 'unused');
+    expect(() =>
+      createTelegramChatRuntime({
+        config: { telegram: { chatEnabled: true, reportsEnabled: true } } as AppConfig,
+        database: {} as NakhDatabase,
+        redis: {} as ReturnType<typeof createRedisConnection>,
+        resolveSecret,
+      }),
+    ).toThrow('Chat report composition unavailable');
+    expect(resolveSecret).not.toHaveBeenCalled();
+  });
   it('keeps chat dormant without resolving secrets or touching native services', async () => {
     const resolveSecret = vi.fn(() => {
       throw Error('Unexpected secret access');

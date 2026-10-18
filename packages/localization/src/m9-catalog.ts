@@ -69,6 +69,10 @@ export const M9_CHAT_TEXTS = {
   'chat.relay.open': 'Open chat',
   'chat.relay.resume': 'Open /start, then Chats, to continue this conversation.',
   'chat.relay.reply': 'Reply to this message or open the chat.',
+  'chat.report.conversation': 'Report conversation',
+  'chat.report.message': 'Report message {number}',
+  'chat.report.ended': 'Ended chats',
+  'chat.report.ended_empty': 'No ended chats are currently eligible for reporting.',
 } as const;
 
 export const M9_ADMIN_TEXTS = {

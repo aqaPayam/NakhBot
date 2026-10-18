@@ -13,9 +13,10 @@ import {
   type ProfileReportSubmissionStore,
   type ReportTokens,
   type UserSessionActor,
+  type ReportSource,
 } from '@nakh/application';
 import type { ReportSubmissionResult } from '@nakh/contracts';
-import { ApplicationError, canSubmitUserReport } from '@nakh/domain';
+import { ApplicationError, canSubmitUserReport, CHAT_VISIBLE_MESSAGE_LIMIT } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
 import { SystemIdGenerator } from './foundation-store.js';
 import { resolveProfileReportSource } from './profile-report-source-store.js';
@@ -26,6 +27,129 @@ import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 import { captureExploreCardSource, requireDeliveredExploreSource } from './explore-card-source.js';
 
 export type DeliveredReportScope = Readonly<{ actor: UserSessionActor; deliveryId: string }>;
+export type ConversationReportScope = Readonly<{
+  actor: UserSessionActor;
+  conversation: Readonly<{
+    matchId: string;
+    chatSessionId: string;
+    source: Readonly<{ kind: 'match' | 'message' | 'unmatched'; referenceId: string }>;
+  }>;
+}>;
+export type UserReportScope = DeliveredReportScope | ConversationReportScope;
+const REPORT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+/** Metadata-only, keyset-paged entry to native post-Unmatch reporting. Anchors
+ * neither reopen chat history nor extend the immutable reporting deadline. */
+export async function listEndedReportConversations(
+  database: NakhDatabase,
+  input: UserSessionActor,
+  after?: string,
+): Promise<readonly Readonly<{ matchId: string; chatSessionId: string }>[]> {
+  const actor = Object.freeze({ ...input });
+  if (after !== undefined && !REPORT_UUID.test(after)) throw reportUnavailable();
+  return database.transaction().execute(async (tx) => {
+    await requireCurrentUserSession(tx, actor.userId, actor);
+    return (
+      await sql<{ matchId: string; chatSessionId: string }>`
+      SELECT pair.id AS "matchId",chat.id AS "chatSessionId"
+      FROM matching.match_reference_anchors pair
+      JOIN chat.chat_reference_anchors chat ON chat.match_id=pair.id
+      JOIN matching.unmatch_records ended ON ended.match_id=pair.id
+      JOIN matching.match_lifecycle_facts fact ON fact.id=pair.id AND fact.status='unmatched'
+      WHERE ((pair.user_low_id=${actor.userId}::uuid AND pair.low_product_epoch=${actor.productEpoch})
+        OR (pair.user_high_id=${actor.userId}::uuid AND pair.high_product_epoch=${actor.productEpoch}))
+        AND ended.unmatched_at<=clock_timestamp() AND ended.report_window_expires_at>clock_timestamp()
+        ${after === undefined ? sql`` : sql`AND pair.id>${after}::uuid`}
+      ORDER BY pair.id LIMIT 21`.execute(tx)
+    ).rows;
+  });
+}
+export function captureUserReportScope(input?: UserReportScope): UserReportScope | undefined {
+  if (input === undefined || !('conversation' in input)) return captureDeliveredReportScope(input);
+  const actor = Object.freeze({ ...input.actor }),
+    c = structuredClone(input.conversation);
+  if (
+    actor.kind !== 'user' ||
+    !REPORT_UUID.test(actor.userId) ||
+    !REPORT_UUID.test(actor.sessionGrantId) ||
+    !Number.isSafeInteger(actor.productEpoch) ||
+    actor.productEpoch < 0 ||
+    ![c.matchId, c.chatSessionId, c.source.referenceId].every((v) => REPORT_UUID.test(v)) ||
+    !['match', 'message', 'unmatched'].includes(c.source.kind) ||
+    (c.source.kind !== 'message' && c.source.referenceId !== c.matchId)
+  )
+    throw reportUnavailable();
+  return Object.freeze({
+    actor,
+    conversation: Object.freeze({ ...c, source: Object.freeze(c.source) }),
+  });
+}
+export function matchesUserReportScope(scope: UserReportScope, source: ReportSource): boolean {
+  return 'conversation' in scope
+    ? source.kind === scope.conversation.source.kind &&
+        source.referenceId === scope.conversation.source.referenceId &&
+        source.photoId === undefined
+    : source.kind === 'delivered_candidate' && source.referenceId === scope.deliveryId;
+}
+/** Anchors identify the original incident only. Current grants and the native
+ * evidence resolvers independently authorize preparation and new capture. */
+export async function lockUserReportScope(
+  database: NakhDatabase,
+  scope: UserReportScope,
+): Promise<string> {
+  if (!('conversation' in scope)) return lockDeliveredReportScope(database, scope);
+  const c = scope.conversation;
+  const original = (
+    await sql<{
+      user_low_id: string;
+      user_high_id: string;
+      low_product_epoch: number;
+      high_product_epoch: number;
+    }>`
+    SELECT pair.user_low_id,pair.user_high_id,pair.low_product_epoch,pair.high_product_epoch
+    FROM matching.match_reference_anchors pair JOIN chat.chat_reference_anchors chat ON chat.match_id=pair.id
+    WHERE pair.id=${c.matchId}::uuid AND chat.id=${c.chatSessionId}::uuid`.execute(database)
+  ).rows[0];
+  if (original === undefined) throw reportUnavailable();
+  const low = original.user_low_id === scope.actor.userId;
+  if (
+    (!low && original.user_high_id !== scope.actor.userId) ||
+    (low ? original.low_product_epoch : original.high_product_epoch) !== scope.actor.productEpoch
+  )
+    throw reportUnavailable();
+  const target = low ? original.user_high_id : original.user_low_id;
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${target}::text, 0))`.execute(
+    database,
+  );
+  const pair = await lockUserPair(database, scope.actor.userId, target);
+  if ((await lockUserPairAccounts(database, pair)).length !== 2) throw reportUnavailable();
+  await requireCurrentUserSession(database, scope.actor.userId, scope.actor);
+  return target;
+}
+/** New message evidence must still be selectable in this exact conversation.
+ * Cached receipts retain their existing native replay rules after capture. */
+export async function requireUserReportSelection(
+  database: NakhDatabase,
+  scope: UserReportScope,
+): Promise<void> {
+  if (!('conversation' in scope) || scope.conversation.source.kind !== 'message') return;
+  const c = scope.conversation;
+  const visible = database
+    .selectFrom('chat.chat_messages')
+    .select('id')
+    .where('chat_session_id', '=', c.chatSessionId)
+    .orderBy('sequence_number', 'desc')
+    .limit(CHAT_VISIBLE_MESSAGE_LIMIT);
+  const message = await database
+    .selectFrom('chat.chat_messages')
+    .select('id')
+    .where('id', '=', c.source.referenceId)
+    .where('chat_session_id', '=', c.chatSessionId)
+    .where('sender_user_id', 'is not', null)
+    .where('sender_user_id', '!=', scope.actor.userId)
+    .where('id', 'in', visible)
+    .executeTakeFirst();
+  if (message === undefined) throw reportUnavailable();
+}
 export function captureDeliveredReportScope(
   input?: DeliveredReportScope,
 ): DeliveredReportScope | undefined {
@@ -148,13 +272,13 @@ export interface SingleReportEvidenceCapture {
 }
 
 export class PostgresSingleEvidenceReportSubmissionStore implements ProfileReportSubmissionStore {
-  private readonly scope: DeliveredReportScope | undefined;
+  private readonly scope: UserReportScope | undefined;
   public constructor(
     private readonly database: NakhDatabase,
     private readonly capture: SingleReportEvidenceCapture,
-    scope?: DeliveredReportScope,
+    scope?: UserReportScope,
   ) {
-    this.scope = captureDeliveredReportScope(scope);
+    this.scope = captureUserReportScope(scope);
   }
   private assertOwner(request: ProfileReportRequest): void {
     if (
@@ -171,7 +295,7 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
     const scope = this.scope;
     if (scope === undefined) return replay(this.database, request);
     return this.database.transaction().execute(async (transaction) => {
-      await lockDeliveredReportScope(transaction, scope);
+      await lockUserReportScope(transaction, scope);
       return replay(transaction, request);
     });
   }
@@ -179,11 +303,7 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
     const write = structuredClone(input);
     this.assertOwner(write);
     const scope = this.scope;
-    if (
-      scope !== undefined &&
-      (write.intent.source.kind !== 'delivered_candidate' ||
-        write.intent.source.referenceId !== scope.deliveryId)
-    )
+    if (scope !== undefined && !matchesUserReportScope(scope, write.intent.source))
       throw reportUnavailable();
     return this.database
       .transaction()
@@ -196,11 +316,12 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
         );
         if (
           scope !== undefined &&
-          (await lockDeliveredReportScope(transaction, scope)) !== write.intent.targetUserId
+          (await lockUserReportScope(transaction, scope)) !== write.intent.targetUserId
         )
           throw reportUnavailable();
         const previous = await replay(transaction, write);
         if (previous !== undefined) return previous;
+        if (scope !== undefined) await requireUserReportSelection(transaction, scope);
         await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${write.intent.targetUserId}::text, 0))`.execute(
           transaction,
         );

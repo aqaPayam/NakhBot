@@ -952,4 +952,51 @@ ordinary-host fixture now starts the worker, while that shard's build closure
 included only API and gateway. The worker entry point was absent on the clean
 runner. The repair adds the worker dependency closure to the same shard build.
 It preserves every native case, all four source receipts, six jobs and their
-existing time limits. Acceptance still requires a new fully green source commit.
+existing time limits. Repair `1320593` passed all six jobs; its source receipts
+and four archived evidence bundles were verified.
+
+## Conversation, message and post-Unmatch reporting
+
+The public report host accepts separately captured conversation scopes alongside
+delivered-card scopes. Every scope freezes the original user grant and exact
+selection. Native Match anchors establish the reporter's original product epoch;
+they do not grant chat access or authorize evidence capture. Preparation, new
+submission and cached receipts use the existing threshold, pair and sorted
+identity/Account lock order and recheck that original grant. Native M7 resolvers,
+capture, rate limits, snapshots, review and retention controls remain authoritative.
+Public services expose preparation and submission without administrative reveal.
+
+Enabled chat/report hosts offer conversation reporting and numbered peer-message
+selection from the current fifty-message window. Ended-chat entries expose only
+opaque context and aliases, with twenty-row keyset pages and the existing native
+Unmatch deadline. They do not reopen history or extend reporting eligibility.
+Report menus and source/selection cache values omit private message bodies. Reporting
+does not issue or renew a user grant. Enabled report startup requires migration 161.
+
+Migration 161 installs four presentation texts and aligns minimal publication
+classification with the canonical `message` and `unmatched_user` evidence kinds.
+The old classifier omitted both and accepted the historical spelling `unmatch`,
+which made real report events block the fail-closed deletion publication gate.
+The migration preserves that historical spelling as safety proof, recognizes the
+five canonical kinds, and continues rejecting unknown shapes, private content and
+unsupported schema versions. Classification grants no capture, purge or release
+authority. SQL/TypeScript policy parity and a genuine Root/Return after report
+submission verify this composition without bypassing the publication checkpoint.
+
+Native evidence covers twenty concurrent submissions with one capture, borrowed
+and revoked grants, exact conversation/message selection, visibility bounds,
+twenty-row paging across twenty-two ended contexts, immutable deadlines and
+original-life denial after genuine Root and approved Return. An authentic later-life
+grant succeeds for a new conversation and remains denied for the old one. The
+ordinary compiled API/gateway/worker fixture also exercises report submission and
+replay alongside private chat and existing administrator journeys. Provider
+transports and lifecycle provider observations remain synthetic.
+
+Dispatch estimates are refreshed from all 166 completed passing suite timings in
+accepted run 39073210547 at `1320593`. The new suite retains the existing unknown-file
+fallback; independent complete coverage still governs acceptance. All native
+cases, four source receipts, six jobs and twenty-minute caps remain required.
+Trusted operator provisioning, production composition and actual launch acceptance
+remain open. The owner still needs one concrete provider setup checklist after
+independent implementation. Retained-data erasure stays disabled pending approved
+policies.

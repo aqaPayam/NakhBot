@@ -28,6 +28,7 @@ import {
   PostgresSignupStore,
   SystemIdGenerator,
   requireCurrentUserSession,
+  listEndedReportConversations,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import {
@@ -41,6 +42,7 @@ import {
   signupRecord as record,
   type SignupNavigation as Nav,
 } from './signup-navigation.js';
+import type { TelegramReportRuntimePort } from './report-runtime.js';
 
 export interface TelegramChatRuntimePort {
   readonly enabled: boolean;
@@ -80,6 +82,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
     private readonly key: Uint8Array,
     private readonly client: TelegramBotApiMenuClient,
     private readonly limiter: Pick<RedisRateLimiter, 'consume'>,
+    private readonly reports?: TelegramReportRuntimePort,
   ) {
     this.key = Uint8Array.from(key);
     this.users = new PostgresTelegramUserResolver(database);
@@ -242,10 +245,60 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
           ),
         },
       ]);
+    if (this.reports?.enabled)
+      buttons.push([
+        {
+          text: await this.text(actor, 'chat.report.ended'),
+          callback_data: await tokens.button(this.nav(actor, 'chat_ended')),
+        },
+      ]);
     await this.send(
       recipient,
       actor,
       await this.text(actor, rows.length === 0 ? 'chat.list.empty' : 'chat.list.title'),
+      buttons,
+    );
+  }
+  private async ended(recipient: string, nav: Nav): Promise<void> {
+    if (!this.reports?.enabled) throw unavailable();
+    const rows = await listEndedReportConversations(this.database, nav.actor, nav.reference),
+      tokens = this.tokens(recipient, nav.actor),
+      buttons: TelegramMenuButton[][] = [];
+    for (const row of rows.slice(0, 20))
+      buttons.push([
+        {
+          text:
+            (await this.text(nav.actor, 'chat.report.conversation')) +
+            ' ' +
+            telegramChatAlias(this.key, nav.actor, row.matchId),
+          callback_data: await this.reports.conversationButton(nav.actor, recipient, {
+            ...row,
+            source: { kind: 'unmatched', referenceId: row.matchId },
+          }),
+        },
+      ]);
+    if (rows.length > 20)
+      buttons.push([
+        {
+          text: await this.text(nav.actor, 'chat.history.older'),
+          callback_data: await tokens.button(
+            this.nav(nav.actor, 'chat_ended', { reference: rows[19]!.matchId }),
+          ),
+        },
+      ]);
+    buttons.push([
+      {
+        text: await this.text(nav.actor, 'chat.button.back'),
+        callback_data: await tokens.button(this.nav(nav.actor, 'chat_list')),
+      },
+    ]);
+    await this.send(
+      recipient,
+      nav.actor,
+      await this.text(
+        nav.actor,
+        rows.length === 0 ? 'chat.report.ended_empty' : 'chat.report.ended',
+      ),
       buttons,
     );
   }
@@ -386,7 +439,10 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
       ...(nav.action === 'page' ? { cursor: s.cursorToken } : {}),
     });
     const lines: string[] = [];
-    for (const message of page.items.toReversed()) lines.push(await this.message(actor, message));
+    for (const [index, message] of page.items.toReversed().entries())
+      lines.push(
+        (this.reports?.enabled ? `${index + 1}. ` : '') + (await this.message(actor, message)),
+      );
     if (lines.length > 0) {
       let chunk = '';
       for (const char of lines.join('\n')) {
@@ -422,6 +478,31 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
         code: s.cursor()!.beforeSequenceNumber,
       });
     if (cap.canSendPredefined) await button('chat.button.questions', 'chat_questions');
+    if (this.reports?.enabled) {
+      buttons.push([
+        {
+          text: await this.text(actor, 'chat.report.conversation'),
+          callback_data: await this.reports.conversationButton(actor, recipient, {
+            matchId: nav.reference,
+            chatSessionId: nav.field,
+            source: { kind: 'match', referenceId: nav.reference },
+          }),
+        },
+      ]);
+      for (const [index, message] of page.items.toReversed().entries()) {
+        if (message.sender !== 'match') continue;
+        buttons.push([
+          {
+            text: await this.text(actor, 'chat.report.message', { number: index + 1 }),
+            callback_data: await this.reports.conversationButton(actor, recipient, {
+              matchId: nav.reference,
+              chatSessionId: nav.field,
+              source: { kind: 'message', referenceId: message.messageId },
+            }),
+          },
+        ]);
+      }
+    }
     for (const message of page.items
       .filter((m) => m.sender === 'match' && m.messageType === 'predefined_question')
       .slice(0, 3)) {
@@ -732,6 +813,9 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
           return 'notice';
         }
         switch (nav.screen) {
+          case 'chat_ended':
+            await this.ended(recipient, nav);
+            break;
           case 'chat_list':
             await this.list(recipient, nav);
             break;
@@ -846,6 +930,7 @@ export function createTelegramChatRuntime(
     database: NakhDatabase;
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
+    reports?: TelegramReportRuntimePort;
   }>,
 ): TelegramChatRuntimePort {
   if (!input.config.telegram.chatEnabled)
@@ -854,6 +939,8 @@ export function createTelegramChatRuntime(
       open: () => Promise.reject(unavailable()),
       handle: () => Promise.resolve('unhandled'),
     };
+  if (input.config.telegram.reportsEnabled && !input.reports?.enabled)
+    throw new Error('Chat report composition unavailable.');
   const resolve = input.resolveSecret ?? resolveSecretReference,
     token = resolve(input.config.telegram.botTokenRef),
     bot = /^([1-9][0-9]{0,19}):[A-Za-z0-9_-]{20,}$/u.exec(token),
@@ -874,5 +961,6 @@ export function createTelegramChatRuntime(
     key,
     new TelegramBotApiMenuClient(token),
     new RedisRateLimiter(input.redis, input.config.redis.queuePrefix),
+    input.reports,
   );
 }
