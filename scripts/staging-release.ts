@@ -1,3 +1,8 @@
+import {
+  releaseEnvironment,
+  clusterEnvironment,
+  type ReleaseEnvironment,
+} from './release-target.js';
 import { createHash } from 'node:crypto';
 import { RELEASE_SERVICES, type ReleaseService } from './release-images.js';
 import { productScannerTaskHealthy, verifyProductScannerDefinition } from './runtime-product.js';
@@ -61,7 +66,7 @@ type Intent = {
   taskArns: string[];
   recoveryFrom: string | null;
 };
-type TaskKind = 'migration' | 'roles' | 'compatibility';
+type TaskKind = 'migration' | 'roles' | 'role-verification' | 'compatibility';
 const HOLD: Suspension = {
   DynamicScalingInSuspended: true,
   DynamicScalingOutSuspended: true,
@@ -73,9 +78,7 @@ const RESUME: Suspension = {
   ScheduledScalingSuspended: false,
 };
 function denied(): never {
-  throw new Error(
-    'Staging release verification unavailable. Keep maintenance until reviewed recovery.',
-  );
+  throw new Error('Release verification unavailable. Keep maintenance until reviewed recovery.');
 }
 export function releaseHash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -123,8 +126,10 @@ export function stagingBootstrapAdmission(
     outputs: unknown;
     stateNames: string;
     clusters?: unknown;
+    environment?: ReleaseEnvironment;
   }>,
 ): boolean {
+  const environment = releaseEnvironment(input.environment);
   const { initialize, project, accountId, region } = input,
     outputs = record(input.outputs);
   if (
@@ -136,7 +141,7 @@ export function stagingBootstrapAdmission(
     denied();
   if (!initialize) {
     if (
-      record(outputs.ecs_cluster_name).value !== project + '-staging' ||
+      record(outputs.ecs_cluster_name).value !== project + '-' + environment ||
       record(outputs.aws_account_id).value !== accountId ||
       record(outputs.aws_region).value !== region
     )
@@ -151,8 +156,8 @@ export function stagingBootstrapAdmission(
   if (
     missing.reason !== 'MISSING' ||
     ![
-      project + '-staging',
-      `arn:${partition(region)}:ecs:${region}:${accountId}:cluster/${project}-staging`,
+      project + '-' + environment,
+      `arn:${partition(region)}:ecs:${region}:${accountId}:cluster/${project}-${environment}`,
     ].includes(String(missing.arn))
   )
     denied();
@@ -160,6 +165,8 @@ export function stagingBootstrapAdmission(
 }
 export function captureStagingContext(input: StagingReleaseContext): StagingReleaseContext {
   const c = structuredClone(input);
+  const environment = clusterEnvironment(c.cluster);
+  if (environment === 'production' && c.databaseRoleIsolation !== true) denied();
   if (c.databaseRoleIsolation !== undefined && c.databaseRoleIsolation !== true) denied();
   if (
     !/^[a-f0-9]{40}$/u.test(c.sourceSha) ||
@@ -167,7 +174,6 @@ export function captureStagingContext(input: StagingReleaseContext): StagingRele
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(c.repository) ||
     !/^[0-9]{12}$/u.test(c.accountId) ||
     !/^[a-z]{2}(?:-gov)?-[a-z]+-[1-9][0-9]*$/u.test(c.region) ||
-    !/^[a-z][a-z0-9-]{1,19}-staging$/u.test(c.cluster) ||
     !/^[1-9][0-9]{0,19}$/u.test(c.runId) ||
     !Number.isSafeInteger(c.attempt) ||
     c.attempt < 1 ||
@@ -238,7 +244,7 @@ export function captureStagingContext(input: StagingReleaseContext): StagingRele
   };
 }
 
-/** Fixed staging fleet only. AWS protocol tests are separate from real-provider acceptance. */
+/** Fixed environment-scoped fleet only. AWS protocol tests are separate from real-provider acceptance. */
 export class StagingRelease {
   readonly context: StagingReleaseContext;
   private readonly observedTasks = new Set<string>();
@@ -729,7 +735,9 @@ export class StagingRelease {
           e.value === (bootstrap ? 'bootstrap' : this.context.sourceSha),
       ) ||
       env.filter((e) => e.name === 'NAKH_ENV').length !== 1 ||
-      !env.some((e) => e.name === 'NAKH_ENV' && e.value === 'staging') ||
+      !env.some(
+        (e) => e.name === 'NAKH_ENV' && e.value === clusterEnvironment(this.context.cluster),
+      ) ||
       env.filter((e) => e.name === 'NAKH_SERVICE_NAME').length !== 1 ||
       !env.some((e) => e.name === 'NAKH_SERVICE_NAME' && e.value === name) ||
       !verifyDatabaseSecretBindings(
@@ -762,18 +770,24 @@ export class StagingRelease {
       (this.context.databaseRoleIsolation !== true || !(await this.read('migration-succeeded')))
     )
       denied();
+    if (kind === 'role-verification' && this.context.databaseRoleIsolation !== true) denied();
     if (
       kind === 'compatibility' &&
       this.context.databaseRoleIsolation === true &&
-      !(await this.read('roles-succeeded'))
+      !(await this.read('roles-succeeded')) &&
+      !(await this.read('role-verification-succeeded'))
     )
       denied();
     const roleHash = releaseHash(['nakh-runtime-roles-v1', this.context]);
     const roleCommandId = `${roleHash.slice(0, 8)}-${roleHash.slice(8, 12)}-4${roleHash.slice(13, 16)}-8${roleHash.slice(17, 20)}-${roleHash.slice(20, 32)}`;
     const command = [
       'node',
-      `node_modules/@nakh/persistence-postgres/dist/cli/${kind === 'migration' ? 'migrate' : kind === 'roles' ? 'provision-runtime-roles' : 'compatibility'}.js`,
-      ...(kind === 'roles' ? [roleCommandId, this.context.sourceSha] : []),
+      `node_modules/@nakh/persistence-postgres/dist/cli/${kind === 'migration' ? 'migrate' : kind === 'roles' ? 'provision-runtime-roles' : kind === 'role-verification' ? 'verify-runtime-roles' : 'compatibility'}.js`,
+      ...(kind === 'roles'
+        ? [roleCommandId, this.context.sourceSha]
+        : kind === 'role-verification'
+          ? [this.context.sourceSha]
+          : []),
     ];
     const request = {
       cluster: this.context.cluster,
@@ -885,7 +899,11 @@ export class StagingRelease {
   }
   async admission(): Promise<Record<ReleaseService, ReleaseCapacity>> {
     await this.requireQuiet();
-    if (this.context.databaseRoleIsolation === true && !(await this.read('roles-succeeded')))
+    if (
+      this.context.databaseRoleIsolation === true &&
+      !(await this.read('roles-succeeded')) &&
+      !(await this.read('role-verification-succeeded'))
+    )
       denied();
     const proof = await this.read('compatibility-succeeded');
     if (
@@ -912,7 +930,9 @@ export class StagingRelease {
       caps = await this.capacities();
     if (
       !(await this.read('compatibility-succeeded')) ||
-      (this.context.databaseRoleIsolation === true && !(await this.read('roles-succeeded')))
+      (this.context.databaseRoleIsolation === true &&
+        !(await this.read('roles-succeeded')) &&
+        !(await this.read('role-verification-succeeded')))
     )
       denied();
     for (let i = 0; i < 60; i++) {

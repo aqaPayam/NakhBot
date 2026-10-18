@@ -17,7 +17,10 @@ type Raw = Record<string, unknown>;
 function obj(value: unknown): Raw {
   return value as Raw;
 }
-function fixture(databaseRoleIsolation = false): {
+function fixture(
+  databaseRoleIsolation = false,
+  environment: 'staging' | 'production' = 'staging',
+): {
   context: StagingReleaseContext;
   release: () => StagingRelease;
   records: Map<string, string>;
@@ -50,7 +53,7 @@ function fixture(databaseRoleIsolation = false): {
   definition: string;
 } {
   const context: StagingReleaseContext = {
-      ...stagingContext(),
+      ...stagingContext(environment),
       ...(databaseRoleIsolation ? { databaseRoleIsolation: true as const } : {}),
     },
     clock = { now: 1800000000000 },
@@ -209,7 +212,7 @@ function fixture(databaseRoleIsolation = false): {
             name: 'NAKH_RELEASE',
             value: fault.bootstrap && name !== 'migration' ? 'bootstrap' : context.sourceSha,
           },
-          { name: 'NAKH_ENV', value: 'staging' },
+          { name: 'NAKH_ENV', value: environment },
           { name: 'NAKH_SERVICE_NAME', value: name },
           ...(context.databaseRoleIsolation === true
             ? [{ name: 'NAKH_DATABASE_ROLE_ISOLATION_ENABLED', value: 'true' }]
@@ -793,44 +796,52 @@ describe('actual staging release orchestration protocol', () => {
     f.records.set(r.prefix + 'intent.json', JSON.stringify(raw));
     await expect(f.release().drain()).rejects.toThrow();
   });
-  it('requires migrated, source-bound role provisioning before compatibility and activation, and resumes it once', async () => {
-    const f = fixture(true),
-      r = f.release();
-    await r.drain();
-    await expect(r.task('roles', f.definition)).rejects.toThrow();
-    expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(0);
-    await r.task('migration', f.definition);
-    await expect(r.task('compatibility', f.definition)).rejects.toThrow();
-    await r.task('roles', f.definition);
-    const roleCall = f.calls.filter((call) => call.operation === 'run-task').at(-1)!;
-    const override = (obj(roleCall.input.overrides).containerOverrides as Raw[])[0]!;
-    const command = override.command as string[];
-    expect(command.slice(0, 2)).toEqual([
-      'node',
-      'node_modules/@nakh/persistence-postgres/dist/cli/provision-runtime-roles.js',
-    ]);
-    expect(command[2]).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-8[a-f0-9]{3}-[a-f0-9]{12}$/u);
-    expect(command[3]).toBe(f.context.sourceSha);
-    await f.release().task('roles', f.definition);
-    expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(2);
-    await r.task('compatibility', f.definition);
-    const caps = await r.admission();
-    f.activate(caps);
-    await r.healthy();
-  });
-  it('keeps a failed role task from granting compatibility or activation', async () => {
-    const f = fixture(true),
-      r = f.release();
-    await r.drain();
-    await r.task('migration', f.definition);
-    f.fault.badExit = true;
-    await expect(r.task('roles', f.definition)).rejects.toThrow();
-    f.fault.badExit = false;
-    await expect(r.task('compatibility', f.definition)).rejects.toThrow();
-    await expect(r.admission()).rejects.toThrow();
-    expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(2);
-    expect([...f.services.values()].every((service) => service.desiredCount === 0)).toBe(true);
-  });
+  it.each(['staging', 'production'] as const)(
+    'requires migrated, source-bound role provisioning before compatibility and activation, and resumes it once (%s)',
+    async (environment) => {
+      const f = fixture(true, environment),
+        r = f.release();
+      await r.drain();
+      await expect(r.task('roles', f.definition)).rejects.toThrow();
+      expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(0);
+      await r.task('migration', f.definition);
+      await expect(r.task('compatibility', f.definition)).rejects.toThrow();
+      await r.task('roles', f.definition);
+      const roleCall = f.calls.filter((call) => call.operation === 'run-task').at(-1)!;
+      const override = (obj(roleCall.input.overrides).containerOverrides as Raw[])[0]!;
+      const command = override.command as string[];
+      expect(command.slice(0, 2)).toEqual([
+        'node',
+        'node_modules/@nakh/persistence-postgres/dist/cli/provision-runtime-roles.js',
+      ]);
+      expect(command[2]).toMatch(
+        /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-8[a-f0-9]{3}-[a-f0-9]{12}$/u,
+      );
+      expect(command[3]).toBe(f.context.sourceSha);
+      await f.release().task('roles', f.definition);
+      expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(2);
+      await r.task('compatibility', f.definition);
+      const caps = await r.admission();
+      f.activate(caps);
+      await r.healthy();
+    },
+  );
+  it.each(['staging', 'production'] as const)(
+    'keeps a failed role task from granting compatibility or activation (%s)',
+    async (environment) => {
+      const f = fixture(true, environment),
+        r = f.release();
+      await r.drain();
+      await r.task('migration', f.definition);
+      f.fault.badExit = true;
+      await expect(r.task('roles', f.definition)).rejects.toThrow();
+      f.fault.badExit = false;
+      await expect(r.task('compatibility', f.definition)).rejects.toThrow();
+      await expect(r.admission()).rejects.toThrow();
+      expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(2);
+      expect([...f.services.values()].every((service) => service.desiredCount === 0)).toBe(true);
+    },
+  );
   it('does not enable role provisioning for a legacy release or reuse its receipts after a flag change', async () => {
     const f = fixture(),
       r = f.release();
@@ -845,5 +856,61 @@ describe('actual staging release orchestration protocol', () => {
     );
     await expect(changed.drain()).rejects.toThrow();
     expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(0);
+  });
+  it('rejects a production task carrying staging environment before launching it', async () => {
+    const f = fixture(true, 'production');
+    await f.release().drain();
+    const aws: AwsReleaseCall = async (...args) => {
+      const value = await f.aws(...args);
+      if (args[1] === 'describe-task-definition') {
+        const definition = obj(obj(value).taskDefinition);
+        for (const container of definition.containerDefinitions as Raw[]) {
+          for (const entry of container.environment as Raw[])
+            if (entry.name === 'NAKH_ENV') entry.value = 'staging';
+        }
+      }
+      return value;
+    };
+    const release = new StagingRelease(f.context, aws, f.custody, f.pause, () => f.clock.now);
+    await expect(release.task('migration', f.definition)).rejects.toThrow();
+    expect(f.calls.filter((c) => c.operation === 'run-task')).toHaveLength(0);
+    const legacy = { ...f.context };
+    delete legacy.databaseRoleIsolation;
+    expect(() => captureStagingContext(legacy)).toThrow();
+  });
+  it.each(['staging', 'production'] as const)(
+    'qualifies rollback roles read-only without migration or provisioning (%s)',
+    async (environment) => {
+      const f = fixture(true, environment),
+        release = f.release();
+      await release.drain();
+      await expect(release.task('compatibility', f.definition)).rejects.toThrow();
+      await release.task('role-verification', f.definition);
+      await f.release().task('role-verification', f.definition);
+      await release.task('compatibility', f.definition);
+      const calls = f.calls.filter((call) => call.operation === 'run-task');
+      expect(calls).toHaveLength(2);
+      const command = (obj(calls[0]!.input.overrides).containerOverrides as Raw[])[0]!.command;
+      expect(command).toEqual([
+        'node',
+        'node_modules/@nakh/persistence-postgres/dist/cli/verify-runtime-roles.js',
+        f.context.sourceSha,
+      ]);
+      expect(f.records.has(release.prefix + 'migration-succeeded.json')).toBe(false);
+      expect(f.records.has(release.prefix + 'roles-succeeded.json')).toBe(false);
+      f.activate(await release.admission());
+      await release.healthy();
+    },
+  );
+  it('keeps failed read-only role checks from authorizing production rollback', async () => {
+    const f = fixture(true, 'production'),
+      release = f.release();
+    await release.drain();
+    f.fault.badExit = true;
+    await expect(release.task('role-verification', f.definition)).rejects.toThrow();
+    f.fault.badExit = false;
+    await expect(release.task('compatibility', f.definition)).rejects.toThrow();
+    await expect(release.admission()).rejects.toThrow();
+    expect([...f.services.values()].every((service) => service.desiredCount === 0)).toBe(true);
   });
 });

@@ -54,6 +54,7 @@ jobs:
       TF_VAR_project_name: ${{ vars.PROJECT_NAME || 'nakh' }}
       TF_IN_AUTOMATION: 'true'
       TF_VAR_product_runtime: ${{ vars.STAGING_PRODUCT_RUNTIME || 'null' }}
+      TF_VAR_database_role_isolation_enabled: ${{ vars.STAGING_DATABASE_ROLE_ISOLATION_ENABLED || 'false' }}
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_public_hostname: ${{ vars.STAGING_HOSTNAME }}
       TF_VAR_route53_zone_id: ${{ vars.STAGING_ROUTE53_ZONE_ID }}
@@ -132,7 +133,7 @@ jobs:
       - name: Prepare protected release custody without changing live services
         run: |
           terraform -chdir=deploy/terraform/staging apply -auto-approve \
-            -target='aws_s3_bucket_policy.release_evidence' \
+            -target='module.runtime.aws_s3_bucket_policy.release_evidence' \
             -var="image_tag=$IMAGE_TAG" -var='activate_services=false'
 
       - name: Suspend scaling and verify all old producers stopped

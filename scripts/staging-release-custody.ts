@@ -1,3 +1,4 @@
+import { clusterEnvironment } from './release-target.js';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -43,11 +44,11 @@ function versionedObjects(
   checked: (key: string) => string,
 ): ReleaseBlobs {
   const c = structuredClone(input);
+  clusterEnvironment(c.cluster);
   let sequence = 0;
   if (
     !/^[0-9]{12}$/u.test(c.accountId) ||
     !/^[a-z]{2}(?:-gov)?-[a-z]+-[1-9][0-9]*$/u.test(c.region) ||
-    !/^[a-z][a-z0-9-]{1,19}-staging$/u.test(c.cluster) ||
     c.bucket !==
       c.cluster +
         '-release-' +

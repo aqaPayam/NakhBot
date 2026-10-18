@@ -813,6 +813,73 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
       });
     }
   });
+
+  it('runs read-only rollback qualification without migrations, role repair or private output', async () => {
+    const env = {
+      ...process.env,
+      NAKH_ENV: 'staging',
+      NAKH_RELEASE: input.sourceSha,
+      NAKH_DATABASE_ROLE_ISOLATION_ENABLED: 'true',
+      NAKH_DATABASE_URL: isolated!.url,
+      NAKH_USER_DATABASE_URL: input.urls.user,
+      NAKH_FINANCIAL_DATABASE_URL: input.urls.financial,
+      NAKH_ADMIN_DATABASE_URL: input.urls.administration,
+      NAKH_MAINTENANCE_DATABASE_URL: input.urls.maintenance,
+      NAKH_SCHEDULER_DATABASE_URL: input.urls.scheduler,
+    };
+    const snapshot = async (): Promise<{ audits: string; migrations: string } | undefined> =>
+      (
+        await sql<{ audits: string; migrations: string }>`SELECT
+      (SELECT count(*)::text FROM platform.audit_logs) AS audits,
+      (SELECT count(*)::text FROM platform.schema_migrations) AS migrations`.execute(database)
+      ).rows[0];
+    const before = await snapshot();
+    const command = [
+      '--no-opt',
+      resolve('packages/persistence-postgres/dist/cli/verify-runtime-roles.js'),
+      input.sourceSha,
+    ];
+    const result = await execute(process.execPath, command, { env, timeout: 30000 });
+    expect(JSON.parse(result.stdout)).toEqual({
+      verified: true,
+      sourceSha: input.sourceSha,
+      roles: 5,
+      readOnly: true,
+    });
+    expect(result.stderr).toBe('');
+    expect(await snapshot()).toEqual(before);
+    await sql`GRANT UPDATE ON platform.audit_logs TO nakh_user`.execute(database);
+    try {
+      await expect(
+        execute(process.execPath, command, { env, timeout: 30000 }),
+      ).rejects.toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: 'Runtime database role verification unavailable.\n',
+      });
+      const drift = (
+        await sql<{
+          allowed: boolean;
+        }>`SELECT has_table_privilege('nakh_user','platform.audit_logs','UPDATE') AS allowed`.execute(
+          database,
+        )
+      ).rows[0];
+      expect(drift?.allowed).toBe(true);
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await sql`REVOKE UPDATE ON platform.audit_logs FROM nakh_user`.execute(database);
+    }
+    await expect(
+      execute(process.execPath, command, {
+        env: { ...env, NAKH_ADMIN_DATABASE_URL: input.urls.user },
+        timeout: 30000,
+      }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'Runtime database role verification unavailable.\n',
+    });
+  });
   it('observes a migration committed while waiting on the migrator lock', async () => {
     let release!: () => void, ready!: () => void;
     const held = new Promise<void>((resolveHeld) => {

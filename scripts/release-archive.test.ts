@@ -54,39 +54,42 @@ describe('signed durable release archive protocol', () => {
     await retainArchiveFiles(f.context, f.ci, f.images, f.files, s.port);
     expect(s.blobs.size).toBe(new Set(m.files.map((f) => f.sha256)).size);
   });
-  it('requires independent signature and image verification before publishing a complete seal', async () => {
-    const f = archiveFixture(),
-      s = store(),
-      m = await retainArchiveFiles(f.context, f.ci, f.images, f.files, s.port),
-      calls: string[] = [];
-    const bytes = Buffer.from(JSON.stringify(m)),
-      bundle = Buffer.from('synthetic-signature');
-    const verify: ArchiveVerification = {
-      manifest: async (b, sig) => {
-        await Promise.resolve();
-        expect(archiveSha(b)).toBe(archiveSha(bytes));
-        expect(sig.equals(bundle)).toBe(true);
-        calls.push('signature');
-      },
-      images: async () => {
-        await Promise.resolve();
-        calls.push('images');
-      },
-      latest: () => Promise.resolve(f.ci),
-    };
-    await sealArchive(f.context, bytes, bundle, s.port, verify);
-    expect(calls).toEqual(['signature', 'images']);
-    const old = { ...f.context, controllerSha: 'b'.repeat(40), runId: '999' };
-    await restoreArchive(
-      old,
-      archivePrefix(f.context) + 'manifest.json',
-      bytes,
-      bundle,
-      s.port,
-      verify,
-    );
-    expect(s.blobs.has(archivePrefix(f.context) + 'complete.json')).toBe(true);
-  });
+  it.each(['staging', 'production'] as const)(
+    'requires independent signature and image verification before publishing a complete seal (%s)',
+    async (environment) => {
+      const f = archiveFixture(undefined, environment),
+        s = store(),
+        m = await retainArchiveFiles(f.context, f.ci, f.images, f.files, s.port),
+        calls: string[] = [];
+      const bytes = Buffer.from(JSON.stringify(m)),
+        bundle = Buffer.from('synthetic-signature');
+      const verify: ArchiveVerification = {
+        manifest: async (b, sig) => {
+          await Promise.resolve();
+          expect(archiveSha(b)).toBe(archiveSha(bytes));
+          expect(sig.equals(bundle)).toBe(true);
+          calls.push('signature');
+        },
+        images: async () => {
+          await Promise.resolve();
+          calls.push('images');
+        },
+        latest: () => Promise.resolve(f.ci),
+      };
+      await sealArchive(f.context, bytes, bundle, s.port, verify);
+      expect(calls).toEqual(['signature', 'images']);
+      const old = { ...f.context, controllerSha: 'b'.repeat(40), runId: '999' };
+      await restoreArchive(
+        old,
+        archivePrefix(f.context) + 'manifest.json',
+        bytes,
+        bundle,
+        s.port,
+        verify,
+      );
+      expect(s.blobs.has(archivePrefix(f.context) + 'complete.json')).toBe(true);
+    },
+  );
   it('does not publish or accept a complete archive when signatures or actual image proof fail', async () => {
     for (const kind of ['signature', 'images'] as const) {
       const f = archiveFixture(),

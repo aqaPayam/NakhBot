@@ -1,0 +1,255 @@
+name: Deploy production (creates billable AWS resources)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DEPLOY-PRODUCTION to confirm AWS charges and deployment
+        required: true
+        type: string
+      image_tag:
+        description: Exact selected main commit SHA; defaults to that SHA (no alternate tags)
+        required: false
+        type: string
+
+      initialize:
+        description: First deployment only; requires empty state and no existing named ECS cluster
+        required: true
+        default: false
+        type: boolean
+      recovery_intent:
+        description: Protected original intent key for an explicitly reviewed maintenance recovery
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_AWS_ACCOUNT_ID: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
+      RELEASE_AWS_REGION: ${{ vars.PRODUCTION_AWS_REGION }}
+      RELEASE_ARCHIVE_REQUIRED: 'true'
+      RELEASE_INITIALIZE: ${{ inputs.initialize }}
+      RELEASE_RECOVERY_INTENT: ${{ inputs.recovery_intent }}
+      TF_VAR_project_name: ${{ vars.PROJECT_NAME || 'nakh' }}
+      RELEASE_ENVIRONMENT: production
+      TF_VAR_expected_aws_account_id: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
+      TF_VAR_staging_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_database_instance_class: ${{ vars.PRODUCTION_DATABASE_INSTANCE_CLASS }}
+      TF_VAR_redis_node_type: ${{ vars.PRODUCTION_REDIS_NODE_TYPE }}
+      TF_VAR_monthly_budget_usd: ${{ vars.PRODUCTION_MONTHLY_BUDGET_USD }}
+      TF_IN_AUTOMATION: 'true'
+      TF_VAR_product_runtime: ${{ vars.PRODUCTION_PRODUCT_RUNTIME || 'null' }}
+      TF_VAR_database_role_isolation_enabled: 'true'
+      TF_VAR_aws_region: ${{ vars.PRODUCTION_AWS_REGION }}
+      TF_VAR_public_hostname: ${{ vars.PRODUCTION_HOSTNAME }}
+      TF_VAR_route53_zone_id: ${{ vars.PRODUCTION_ROUTE53_ZONE_ID }}
+      TF_VAR_alert_email: ${{ vars.PRODUCTION_ALERT_EMAIL }}
+      TF_VAR_telegram_bot_token: ${{ secrets.PRODUCTION_TELEGRAM_BOT_TOKEN }}
+      TF_VAR_telegram_webhook_secret: ${{ secrets.PRODUCTION_TELEGRAM_WEBHOOK_SECRET }}
+      TF_VAR_telegram_action_token_key: ${{ secrets.PRODUCTION_TELEGRAM_ACTION_TOKEN_KEY }}
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+    steps:
+      - name: Require explicit confirmation and configuration
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$RELEASE_AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
+          [[ "$TF_VAR_staging_aws_account_id" =~ ^[0-9]{12}$ ]]
+          test "$RELEASE_AWS_ACCOUNT_ID" != "$TF_VAR_staging_aws_account_id"
+          test -n "$TF_VAR_database_instance_class"
+          test -n "$TF_VAR_redis_node_type"
+          test -n "$TF_VAR_monthly_budget_usd"
+          test "$DEPLOY_CONFIRMATION" = "DEPLOY-PRODUCTION"
+          test -n "$TF_VAR_aws_region"
+          test -n "$TF_VAR_public_hostname"
+          test -n "$TF_VAR_route53_zone_id"
+          test -n "$TF_VAR_alert_email"
+          test -n "$TF_VAR_telegram_action_token_key"
+          test "${#TF_VAR_telegram_bot_token}" -ge 20
+          test "${#TF_VAR_telegram_webhook_secret}" -ge 32
+          test "$IMAGE_TAG" != "latest"
+          [[ "$IMAGE_TAG" =~ ^[a-f0-9]{40}$ ]]
+          test "$IMAGE_TAG" = "$GITHUB_SHA"
+
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Require the exact source's six green CI jobs before cloud access
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NAKH_RELEASE_SHA: ${{ env.IMAGE_TAG }}
+        run: pnpm exec tsx scripts/verify-release-ci.ts
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.PRODUCTION_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.PRODUCTION_AWS_REGION }}
+          allowed-account-ids: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.9
+          terraform_wrapper: false
+
+      - name: Initialize protected remote state
+        run: |
+          terraform -chdir=deploy/terraform/production init -lockfile=readonly \
+            -backend-config="bucket=${{ vars.PRODUCTION_TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ vars.PRODUCTION_TF_STATE_KEY }}" \
+            -backend-config="region=${{ vars.PRODUCTION_AWS_REGION }}"
+
+      - name: Check explicit first-deployment admission without guessing from provider errors
+        id: infrastructure
+        run: pnpm exec tsx scripts/staging-release-cli.ts bootstrap
+
+      - name: Create explicitly authorized inactive infrastructure
+        if: steps.infrastructure.outputs.bootstrap_required == 'true'
+        run: terraform -chdir=deploy/terraform/production apply -auto-approve -var='image_tag=bootstrap' -var='activate_services=false'
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build candidates or verify existing source attestations
+        id: prepare_images
+        run: pnpm exec tsx scripts/release-images-cli.ts prepare
+
+      - name: Attest only images built by this exact source workflow
+        if: steps.prepare_images.outputs.new_subjects == 'true'
+        uses: actions/attest@v4
+        with:
+          subject-checksums: artifacts/release-image-subjects.txt
+
+      - name: Verify all four attestations and promote digest-pinned images
+        run: pnpm exec tsx scripts/release-images-cli.ts verify
+
+      - name: Retain content-free image provenance receipt
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-images-production-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-images.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Prepare protected release custody without changing live services
+        run: |
+          terraform -chdir=deploy/terraform/production apply -auto-approve \
+            -target='module.runtime.aws_s3_bucket_policy.release_evidence' \
+            -var="image_tag=$IMAGE_TAG" -var='activate_services=false'
+
+      - name: Retain verified CI bytes and image bundles before drain
+        id: prepare_archive
+        run: pnpm exec tsx scripts/release-archive-cli.ts prepare
+
+      - name: Attest the exact release archive manifest
+        id: attest_archive
+        uses: actions/attest@v4
+        with:
+          subject-name: nakh-release-archive
+          subject-digest: ${{ steps.prepare_archive.outputs.manifest_digest }}
+
+      - name: Seal and independently verify protected archive custody
+        env:
+          ARCHIVE_BUNDLE_PATH: ${{ steps.attest_archive.outputs.bundle-path }}
+        run: pnpm exec tsx scripts/release-archive-cli.ts seal
+
+      - name: Suspend scaling and verify all old producers stopped
+        id: drain
+        run: pnpm exec tsx scripts/staging-release-cli.ts drain
+
+      - name: Register the new migration task without changing live services
+        run: |
+          terraform -chdir=deploy/terraform/production apply \
+            -auto-approve \
+            -target='module.runtime.aws_ecs_task_definition.migration' \
+            -var="image_tag=$IMAGE_TAG" \
+            -var="activate_services=false"
+
+      - name: Recheck CI before database migration
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NAKH_RELEASE_SHA: ${{ env.IMAGE_TAG }}
+        run: pnpm exec tsx scripts/verify-release-ci.ts
+
+      - name: Run the selected migration and native schema check while drained
+        run: pnpm exec tsx scripts/staging-release-cli.ts migrate
+
+      - name: Recheck CI before service activation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NAKH_RELEASE_SHA: ${{ env.IMAGE_TAG }}
+        run: pnpm exec tsx scripts/verify-release-ci.ts
+
+      - name: Retain the source-bound CI prerequisite receipt
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-ci-production-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-ci.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Refresh scoped credentials before service activation
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.PRODUCTION_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.PRODUCTION_AWS_REGION }}
+          allowed-account-ids: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
+
+      - name: Require fresh native schema admission and preserved capacity
+        run: pnpm exec tsx scripts/staging-release-cli.ts admission
+
+      - name: Activate the verified release
+        run: terraform -chdir=deploy/terraform/production apply -auto-approve -var="image_tag=$IMAGE_TAG" -var="activate_services=true" -var="release_scaling_hold=true"
+
+      - name: Run safe deployment smoke checks
+        run: |
+          public_url=$(terraform -chdir=deploy/terraform/production output -raw public_url)
+          curl --fail --retry 30 --retry-all-errors --retry-delay 10 "$public_url/health/ready"
+          invalid_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --header 'x-telegram-bot-api-secret-token: invalid' \
+            --data '{"update_id":990000001,"message":{"text":"/start","from":{"id":990000001}}}' \
+            "$public_url/v1/providers/telegram/webhook")
+          test "$invalid_status" = "401"
+
+      - name: Verify all selected service tasks before restoring scaling
+        run: pnpm exec tsx scripts/staging-release-cli.ts healthy
+
+      - name: Restore captured capacity and operator scaling suspensions
+        run: terraform -chdir=deploy/terraform/production apply -auto-approve -var="image_tag=$IMAGE_TAG" -var="activate_services=true" -var="release_scaling_hold=false"
+
+      - name: Verify activated release and restored scaling
+        run: pnpm exec tsx scripts/staging-release-cli.ts complete
+
+      - name: Refresh scoped credentials for failed-release maintenance
+        if: ${{ (failure() || cancelled()) && steps.drain.outcome != 'skipped' && steps.drain.outcome != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.PRODUCTION_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.PRODUCTION_AWS_REGION }}
+          allowed-account-ids: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
+
+      - name: Keep failed or cancelled releases in maintenance
+        if: ${{ (failure() || cancelled()) && steps.drain.outcome != 'skipped' && steps.drain.outcome != '' }}
+        run: pnpm exec tsx scripts/staging-release-cli.ts maintain

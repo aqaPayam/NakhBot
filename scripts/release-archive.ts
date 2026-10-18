@@ -1,3 +1,4 @@
+import { clusterEnvironment } from './release-target.js';
 import { createHash } from 'node:crypto';
 import { RELEASE_CI_JOBS, type ReleaseCiReceipt } from './release-ci.js';
 import {
@@ -158,6 +159,9 @@ export function parseArchive(value: unknown, scope: ArchiveScope): ReleaseArchiv
   ) as Record<(typeof RELEASE_SERVICES)[number], string>;
   const imageContext = captureImageContext({
     ...scope,
+    ...(clusterEnvironment(scope.cluster) === 'production'
+      ? { environment: 'production' as const }
+      : {}),
     buildId: String(p.runId) + '-' + String(p.attempt),
     repositories,
   });

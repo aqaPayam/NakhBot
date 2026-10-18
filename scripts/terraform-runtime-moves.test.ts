@@ -45,6 +45,11 @@ describe('accepted staging state address migration', () => {
       const text = readFileSync(join('.github/workflows', name), 'utf8');
       expect(text).toContain("-target='module.runtime.aws_ecs_task_definition.migration'");
       expect(text).not.toContain("-target='aws_ecs_task_definition.migration'");
+      expect(text).toContain("-target='module.runtime.aws_s3_bucket_policy.release_evidence'");
+      expect(text).toContain(
+        "TF_VAR_database_role_isolation_enabled: ${{ vars.STAGING_DATABASE_ROLE_ISOLATION_ENABLED || 'false' }}",
+      );
+      expect(text).not.toContain("-target='aws_s3_bucket_policy.release_evidence'");
     }
   });
 });

@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
 import { RELEASE_SERVICES } from '../release-images.js';
 import type { StagingReleaseContext } from '../staging-release.js';
-export function stagingContext(): StagingReleaseContext {
-  const cluster = 'nakh-staging',
-    accountId = '123456789012',
+export function stagingContext(
+  environment: 'staging' | 'production' = 'staging',
+): StagingReleaseContext {
+  const cluster = 'nakh-' + environment,
+    accountId = environment === 'production' ? '210987654321' : '123456789012',
     region = 'eu-west-1';
   return {
+    ...(environment === 'production' ? { databaseRoleIsolation: true as const } : {}),
     sourceSha: 'a'.repeat(40),
     controllerSha: 'a'.repeat(40),
     archive: null,

@@ -1,3 +1,4 @@
+import { releaseTarget } from './release-target.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { appendFile, mkdir, readFile, writeFile, stat } from 'node:fs/promises';
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
     !process.env.GITHUB_ENV
   )
     denied();
+  const target = releaseTarget(process.env);
   const accountId = process.env.RELEASE_AWS_ACCOUNT_ID ?? '',
     region = process.env.RELEASE_AWS_REGION ?? '',
     project = process.env.TF_VAR_project_name ?? 'nakh';
@@ -78,20 +80,23 @@ async function main(): Promise<void> {
   if (identity.Account !== accountId) denied();
   const outputs = object(
     JSON.parse(
-      await command('terraform', ['-chdir=deploy/terraform/staging', 'output', '-json']),
+      await command('terraform', ['-chdir=' + target.terraformDirectory, 'output', '-json']),
     ) as unknown,
   );
   const output = (name: string): unknown => object(outputs[name]).value;
   if (mode === 'bootstrap') {
     const initialize = process.env.RELEASE_INITIALIZE === 'true';
     const stateNames = initialize
-      ? await command('terraform', ['-chdir=deploy/terraform/staging', 'state', 'list'])
+      ? await command('terraform', ['-chdir=' + target.terraformDirectory, 'state', 'list'])
       : '';
     const clusters = initialize
-      ? await awsJson('ecs', 'describe-clusters', { clusters: [project + '-staging'] })
+      ? await awsJson('ecs', 'describe-clusters', {
+          clusters: [project + '-' + target.environment],
+        })
       : undefined;
     stagingBootstrapAdmission({
       initialize,
+      environment: target.environment,
       project,
       accountId,
       region,
@@ -110,7 +115,7 @@ async function main(): Promise<void> {
   if (
     output('aws_account_id') !== accountId ||
     output('aws_region') !== region ||
-    output('ecs_cluster_name') !== project + '-staging'
+    output('ecs_cluster_name') !== project + '-' + target.environment
   )
     denied();
   const sourceSha = process.env.IMAGE_TAG ?? '',
@@ -123,6 +128,7 @@ async function main(): Promise<void> {
     denied();
   await command('git', ['diff', '--quiet', 'HEAD', '--']);
   const imageContext = captureImageContext({
+    ...target.imageScope,
     sourceSha,
     repository: process.env.GITHUB_REPOSITORY ?? '',
     accountId,
@@ -155,7 +161,7 @@ async function main(): Promise<void> {
     repository: imageContext.repository,
     accountId,
     region,
-    cluster: project + '-staging',
+    cluster: project + '-' + target.environment,
     runId,
     attempt,
     images: Object.fromEntries(
@@ -244,9 +250,11 @@ async function main(): Promise<void> {
     if (context.databaseRoleIsolation === true)
       await release.task('roles', String(output('migration_task_definition_arn')));
     await release.task('compatibility', String(output('migration_task_definition_arn')));
-  } else if (mode === 'schema')
+  } else if (mode === 'schema') {
+    if (context.databaseRoleIsolation === true)
+      await release.task('role-verification', String(output('migration_task_definition_arn')));
     await release.task('compatibility', String(output('migration_task_definition_arn')));
-  else if (mode === 'admission')
+  } else if (mode === 'admission')
     await appendFile(
       process.env.GITHUB_ENV,
       'TF_VAR_release_capacity=' + JSON.stringify(await release.admission()) + '\n',
@@ -256,16 +264,14 @@ async function main(): Promise<void> {
   else if (mode === 'complete') await release.healthy(true);
   else await release.maintain();
   console.log(
-    'Staging release phase verified: ' +
-      mode +
-      '. Private observations retained in release custody.',
+    'Release phase verified: ' + mode + '. Private observations retained in release custody.',
   );
 }
 try {
   await main();
 } catch {
   console.error(
-    'Staging release stopped. Keep services in maintenance and inspect protected release evidence; provider details withheld.',
+    'Release stopped. Keep services in maintenance and inspect protected release evidence; provider details withheld.',
   );
   process.exitCode = 1;
 }

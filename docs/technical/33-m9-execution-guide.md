@@ -23,12 +23,14 @@ purpose isolation and database safeguards, with one NAT per AZ. Staging retains
 its prior defaults through explicit state moves. See
 [production infrastructure](../../deploy/terraform/production/README.md). This
 is infrastructure implementation and mocked-provider evidence; the protected
-production deployment workflow/controller and real launch acceptance remain open.
+production deployment workflow/controller now reuses the drained release protocol;
+production bootstrap IAM qualification and real launch acceptance remain open.
 
 The [database purpose isolation foundation](36-m9-database-purpose-isolation.md)
 provides trusted native provisioning and host-owned pool admission. The four
-composition roots now select purpose pools; production binding and complete
-role-enabled journey acceptance remain open. A provider
+composition roots select purpose pools; the production root and release controller
+require isolation. Local native and compiled-host journeys qualify those bindings;
+real provider/operator journey acceptance remains open. A provider
 account/domain/bot setup checklist has been sent to the owner so preparation can
 run in parallel; no credentials or real deployment acceptance have been supplied.
 

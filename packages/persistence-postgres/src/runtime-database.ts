@@ -211,3 +211,44 @@ export class RuntimeDatabases {
     if (results.some((result) => result.status === 'rejected')) unavailable();
   }
 }
+
+/** Read-only rollback qualification. Validate every fixed purpose and target
+ * before connecting; never provision, repair ACLs, or rotate credentials here. */
+export async function verifyRuntimeDatabaseBindings(
+  input: Readonly<{
+    baseUrl: string;
+    urls: Readonly<Record<RuntimeDatabasePurpose, string>>;
+    requireTls: boolean;
+  }>,
+): Promise<void> {
+  const base = runtimeDatabaseUrl(input.baseUrl);
+  const purposes = Object.keys(RUNTIME_DATABASE_ROLES) as RuntimeDatabasePurpose[];
+  if (Object.keys(input.urls).sort().join(',') !== [...purposes].sort().join(',')) unavailable();
+  const urls = purposes.map((purpose) => {
+    const value = input.urls[purpose],
+      target = runtimeDatabaseUrl(value);
+    if (
+      decodeURIComponent(target.username) !== RUNTIME_DATABASE_ROLES[purpose] ||
+      !target.password ||
+      target.hostname.toLowerCase() !== base.hostname.toLowerCase() ||
+      (target.port || '5432') !== (base.port || '5432') ||
+      target.pathname !== base.pathname ||
+      target.search !== base.search
+    )
+      unavailable();
+    return { purpose, url: value };
+  });
+  for (const { purpose, url } of urls) {
+    const database = createDatabase({
+      url,
+      poolMax: 1,
+      statementTimeoutMs: 15000,
+      lockTimeoutMs: 1000,
+    });
+    try {
+      await verifyRuntimeDatabaseRole(database, purpose, input.requireTls);
+    } finally {
+      await database.destroy();
+    }
+  }
+}

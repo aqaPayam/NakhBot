@@ -1,3 +1,4 @@
+import { releaseTarget } from './release-target.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, readFile, writeFile, stat } from 'node:fs/promises';
@@ -84,6 +85,7 @@ async function main(): Promise<void> {
     !process.env.GITHUB_ENV
   )
     denied();
+  const target = releaseTarget(process.env);
   const sourceSha = process.env.IMAGE_TAG ?? '',
     controllerSha = process.env.GITHUB_SHA ?? '',
     repository = process.env.GITHUB_REPOSITORY ?? '',
@@ -100,7 +102,7 @@ async function main(): Promise<void> {
     accountId = process.env.RELEASE_AWS_ACCOUNT_ID ?? '';
   const outputs = obj(
       JSON.parse(
-        await command('terraform', ['-chdir=deploy/terraform/staging', 'output', '-json']),
+        await command('terraform', ['-chdir=' + target.terraformDirectory, 'output', '-json']),
       ) as unknown,
     ),
     output = (name: string): unknown => obj(outputs[name]).value;
@@ -111,9 +113,15 @@ async function main(): Promise<void> {
     ) as unknown,
   );
   if (identity.Account !== accountId) denied();
-  if (output('ecs_cluster_name') !== (process.env.TF_VAR_project_name ?? 'nakh') + '-staging')
+  if (target.environment === 'production' && output('database_role_isolation_enabled') !== true)
+    denied();
+  if (
+    output('ecs_cluster_name') !==
+    (process.env.TF_VAR_project_name ?? 'nakh') + '-' + target.environment
+  )
     denied();
   const imageContext = captureImageContext({
+    ...target.imageScope,
     sourceSha,
     repository,
     accountId,
@@ -137,6 +145,7 @@ async function main(): Promise<void> {
   const context = (prepared: PreparedReleaseImages): StagingReleaseContext =>
     captureStagingContext({
       ...scope,
+      ...(target.environment === 'production' ? { databaseRoleIsolation: true as const } : {}),
       archive: null,
       images: Object.fromEntries(
         prepared.images.map((i) => [i.service, i.repositoryUri + '@' + i.digest]),

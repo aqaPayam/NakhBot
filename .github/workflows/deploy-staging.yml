@@ -142,7 +142,7 @@ jobs:
       - name: Prepare protected release custody without changing live services
         run: |
           terraform -chdir=deploy/terraform/staging apply -auto-approve \
-            -target='aws_s3_bucket_policy.release_evidence' \
+            -target='module.runtime.aws_s3_bucket_policy.release_evidence' \
             -var="image_tag=$IMAGE_TAG" -var='activate_services=false'
 
       - name: Retain verified CI bytes and image bundles before drain

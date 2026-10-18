@@ -49,13 +49,16 @@ export function reportZip(values: Readonly<Record<string, unknown>>): Buffer {
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, directory, end]);
 }
-export function archiveFixture(change?: (reports: Record<string, unknown>) => void): {
+export function archiveFixture(
+  change?: (reports: Record<string, unknown>) => void,
+  environment: 'staging' | 'production' = 'staging',
+): {
   context: ReturnType<typeof stagingContext>;
   ci: ReleaseCiReceipt;
   images: PreparedReleaseImages;
   files: Map<string, Uint8Array>;
 } {
-  const context = stagingContext(),
+  const context = stagingContext(environment),
     sources = [1, 2, 3, 4].map((shard, i) => ({
       shard,
       headSha: context.sourceSha,

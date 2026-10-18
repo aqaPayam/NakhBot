@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 export const RELEASE_SERVICES = ['api', 'telegram-gateway', 'worker', 'scheduler'] as const;
 export type ReleaseService = (typeof RELEASE_SERVICES)[number];
 export type ReleaseImageContext = Readonly<{
+  environment?: 'production';
   sourceSha: string;
   repository: string;
   accountId: string;
@@ -44,6 +45,7 @@ function digest(value: unknown): value is string {
 }
 export function captureImageContext(input: ReleaseImageContext): ReleaseImageContext {
   const context = structuredClone(input);
+  if (context.environment !== undefined && context.environment !== 'production') unavailable();
   if (
     !/^[a-f0-9]{40}$/u.test(context.sourceSha) ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(context.repository) ||
@@ -66,10 +68,21 @@ export function captureImageContext(input: ReleaseImageContext): ReleaseImageCon
       match[2] !== context.region ||
       Boolean(match[3]) !== context.region.startsWith('cn-') ||
       !match[4]!.endsWith('/' + service) ||
-      match[4]!.includes('//')
+      match[4]!.includes('//') ||
+      (context.environment === 'production' &&
+        !new RegExp('^[a-z][a-z0-9-]{1,19}-production/' + service + '$', 'u').test(match[4]!))
     )
       unavailable();
   }
+  if (
+    context.environment === 'production' &&
+    new Set(
+      RELEASE_SERVICES.map((s) =>
+        context.repositories[s].slice(0, context.repositories[s].lastIndexOf('/')),
+      ),
+    ).size !== 1
+  )
+    unavailable();
   return context;
 }
 async function requireCommand(
@@ -138,11 +151,12 @@ async function currentImage(
   return { service, repositoryUri, digest: image.imageDigest };
 }
 export async function verifyImageAttestation(
-  context: ReleaseImageContext,
+  input: ReleaseImageContext,
   image: ReleaseImage,
   command: ImageCommand,
   bundlePath?: string,
 ): Promise<void> {
+  const context = captureImageContext(input);
   const output = await requireCommand(command, 'gh', [
     'attestation',
     'verify',
@@ -150,7 +164,11 @@ export async function verifyImageAttestation(
     '--repo',
     context.repository,
     '--signer-workflow',
-    'github.com/' + context.repository + '/.github/workflows/deploy-staging.yml',
+    'github.com/' +
+      context.repository +
+      '/.github/workflows/deploy-' +
+      (context.environment ?? 'staging') +
+      '.yml',
     '--source-ref',
     'refs/heads/main',
     '--source-digest',
@@ -206,7 +224,11 @@ export async function verifyArchiveAttestation(
     '--repo',
     context.repository,
     '--signer-workflow',
-    'github.com/' + context.repository + '/.github/workflows/deploy-staging.yml',
+    'github.com/' +
+      context.repository +
+      '/.github/workflows/deploy-' +
+      (context.environment ?? 'staging') +
+      '.yml',
     '--source-ref',
     'refs/heads/main',
     '--source-digest',

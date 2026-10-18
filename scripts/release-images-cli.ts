@@ -1,3 +1,4 @@
+import { releaseTarget } from './release-target.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -30,6 +31,7 @@ const command: ImageCommand = async (tool, args) => {
   }
 };
 try {
+  const target = releaseTarget(process.env);
   const [mode, ...extra] = process.argv.slice(2);
   if (!['prepare', 'verify', 'rollback'].includes(mode ?? '') || extra.length !== 0)
     throw new Error('Invalid invocation.');
@@ -48,11 +50,12 @@ try {
   }
   const output = await exec(
     'terraform',
-    ['-chdir=deploy/terraform/staging', 'output', '-json', 'ecr_repository_urls'],
+    ['-chdir=' + target.terraformDirectory, 'output', '-json', 'ecr_repository_urls'],
     { timeout: 30000, maxBuffer: 65536 },
   );
   const repositories: unknown = JSON.parse(output.stdout);
   const context = captureImageContext({
+    ...target.imageScope,
     sourceSha,
     repository: process.env.GITHUB_REPOSITORY ?? '',
     accountId: process.env.RELEASE_AWS_ACCOUNT_ID ?? '',
