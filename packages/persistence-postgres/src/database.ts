@@ -1106,8 +1106,8 @@ export interface ReportTable {
   idempotency_key: string;
   request_digest: string;
   submitted_at: Generated<Date>;
-  reviewed_at: Date | null;
-  closed_at: Date | null;
+  reviewed_at: Generated<Date | null>;
+  closed_at: Generated<Date | null>;
   version: Generated<number>;
 }
 
@@ -1176,9 +1176,9 @@ export interface RestrictionEpisodeTable {
   witness_required: Generated<boolean>;
   witness_capture_xid: Generated<string | null>;
   started_at: Generated<Date>;
-  resolved_at: Date | null;
-  resolved_by_admin_id: string | null;
-  resolution_reason_code: string | null;
+  resolved_at: Generated<Date | null>;
+  resolved_by_admin_id: Generated<string | null>;
+  resolution_reason_code: Generated<string | null>;
   version: Generated<number>;
 }
 
@@ -1193,14 +1193,14 @@ export interface ModerationReviewTable {
   id: string;
   report_id: string;
   status: Generated<'pending' | 'in_review' | 'dismissed' | 'actioned'>;
-  assigned_admin_id: string | null;
-  assigned_at: Date | null;
-  decided_at: Date | null;
-  decision_note_ciphertext: Buffer | null;
-  decision_note_key_id: string | null;
-  decision_note_key_version: number | null;
-  decision_note_nonce: Buffer | null;
-  decision_note_sha256: string | null;
+  assigned_admin_id: Generated<string | null>;
+  assigned_at: Generated<Date | null>;
+  decided_at: Generated<Date | null>;
+  decision_note_ciphertext: Generated<Buffer | null>;
+  decision_note_key_id: Generated<string | null>;
+  decision_note_key_version: Generated<number | null>;
+  decision_note_nonce: Generated<Buffer | null>;
+  decision_note_sha256: Generated<string | null>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   version: Generated<number>;
@@ -1220,11 +1220,11 @@ export interface ModerationActionTable {
     | 'create_internal_block'
     | 'remove_internal_block';
   actor_type: 'admin' | 'system';
-  actor_admin_id: string | null;
+  actor_admin_id: Generated<string | null>;
   target_user_id: string | null;
-  target_photo_id: string | null;
-  target_pair_low_user_id: string | null;
-  target_pair_high_user_id: string | null;
+  target_photo_id: Generated<string | null>;
+  target_pair_low_user_id: Generated<string | null>;
+  target_pair_high_user_id: Generated<string | null>;
   source_report_id: string | null;
   restriction_episode_id: string | null;
   audit_log_id: string;

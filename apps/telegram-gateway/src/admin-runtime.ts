@@ -100,11 +100,16 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
   }
   public async onModuleInit(): Promise<void> {
     if (
-      (await this.database
-        .selectFrom('platform.schema_migrations')
-        .select('name')
-        .where('name', '=', '000158_m9_administrator_signin_presentation.sql')
-        .executeTakeFirst()) === undefined
+      (
+        await this.database
+          .selectFrom('platform.schema_migrations')
+          .select('name')
+          .where('name', 'in', [
+            '000158_m9_administrator_signin_presentation.sql',
+            '000162_m9_runtime_permission_lock.sql',
+          ])
+          .execute()
+      ).length !== 2
     )
       throw new Error('Administrator schema unavailable.');
     await this.keys.verifyCustody(this.database);

@@ -355,11 +355,12 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
           throw reportUnavailable();
         const snapshot = captured.snapshot;
         const reason = await transaction
-          .selectFrom('moderation.report_reasons')
+          .selectFrom(
+            sql<{
+              id: string;
+            }>`moderation.lock_runtime_report_reason(${write.reasonCode}::text)`.as('reason'),
+          )
           .select('id')
-          .where('code', '=', write.reasonCode)
-          .where('is_active', '=', true)
-          .forShare()
           .executeTakeFirst();
         if (reason === undefined) throw reportUnavailable();
         const report = await transaction
@@ -375,8 +376,6 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
             request_id: write.requestId,
             idempotency_key: write.idempotencyKey,
             request_digest: write.requestDigest,
-            reviewed_at: null,
-            closed_at: null,
           })
           .returning('submitted_at')
           .executeTakeFirstOrThrow();
@@ -417,14 +416,6 @@ export class PostgresSingleEvidenceReportSubmissionStore implements ProfileRepor
           .values({
             id: write.reviewId,
             report_id: write.reportId,
-            assigned_admin_id: null,
-            assigned_at: null,
-            decided_at: null,
-            decision_note_ciphertext: null,
-            decision_note_key_id: null,
-            decision_note_key_version: null,
-            decision_note_nonce: null,
-            decision_note_sha256: null,
             created_at: sql<Date>`transaction_timestamp()`,
             updated_at: sql<Date>`transaction_timestamp()`,
           })

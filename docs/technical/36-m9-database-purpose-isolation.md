@@ -3,8 +3,8 @@
 The original data architecture separates migration ownership from runtime access.
 The M4 financial boundary also excludes provider payloads and charge identifiers
 from ordinary profile/chat access. The staging baseline still injects its owner
-credential into application tasks. This foundation supplies native role policy,
-provisioning and startup proof; service and infrastructure adoption remain open.
+credential into application tasks. Native role policy, provisioning and startup
+proof now have service composition hooks; infrastructure adoption remains open.
 It does not constitute a production deployment or permission to launch.
 
 ## Trusted provisioning
@@ -57,11 +57,43 @@ pool until adoption. Production construction requires isolation.
 
 Admission checks native session/current identity, unsafe attributes, memberships,
 ownership, CREATE rights, append-only proof mutation, seeded catalog mutation and
-private financial column reads. Production also requires TLS and actual SCRAM
+private financial column reads, required view reads and custody-key isolation.
+Production also requires TLS and actual SCRAM
 authentication. Unknown billing tables/columns are private for user/scheduler
 roles. Financial summaries use explicit reviewed projections. Audit/ledger proof
-is append-only; migration/RBAC/catalog seeds remain read-only. Views receive no
-explicit grants. Database/public grants that violate admission fail closed.
+is append-only; migration/RBAC/catalog/report-reason seeds remain read-only.
+Only fixed projections of known deletion ownership, current-life and lifecycle
+proof views are readable. Full custody projection is limited to administration/
+maintenance; scheduler integrity sampling receives only identifiers, hashes and
+transformation metadata, excluding the private storage key. Match
+writers receive one view-column UPDATE privilege to retain existing row locks;
+they already have write authority on the underlying live Match table. Unknown
+views remain denied, and replay clears column ACLs on views as well as tables.
+Database/public grants that violate admission fail closed.
+
+Scheduler chat/moderation reconciliation can insert its common run/anomaly
+records and update run progress. Financial anomaly `safe_detail` remains
+unreadable to that purpose even though it can insert its own structured finding.
+The compiled scheduler check waits for its real first tick and rejects error
+operations; a startup log alone is insufficient evidence.
+
+Migration 162 supplies two bounded SQL capabilities for locking immutable seeds:
+administrative permission lookup and active report-reason lookup. They preserve
+the original row locks through `SECURITY DEFINER`, with a fixed `pg_catalog` search
+path, fully qualified tables, bound parameters and no public execution. The role
+provisioner grants them only to the relevant purposes; admission checks that
+binding. Review mutations and their audits remain inside the existing native
+command transaction. Runtime credentials cannot edit the seed rows themselves.
+
+Public report creation inserts only ordinary capture fields. Administrative
+assignment/decision, report closure, episode resolution and administrative actor
+fields use the existing NULL defaults and receive no public INSERT privilege.
+Automatic threshold processing retains its existing native checks and receives
+only the needed report/episode/action/witness writes. Action and witness proof is
+append-only. The SQL model marks those existing nullable defaults as optional
+inserts; no table layout, foreign key or lifecycle rule changes. Deletion catalog
+admission recognizes reviewed function-only migration 162 and still rejects
+unknown version 163, with every existing column and foreign-key check preserved.
 
 Native integration covers concurrent replay, actual allow/deny SQL, audit-failure
 rollback, column-grant drift repair, unprivileged provisioning denial, the
@@ -72,8 +104,12 @@ RFC 7677 server-signature vector test.
 
 ## Remaining adoption
 
-The four service composition roots must select the correct purpose before
-listening or executing jobs, and existing journeys must run under those logins.
+The four service composition roots select purpose pools and verify them before
+listening or executing jobs. API/gateway administration uses its own purpose;
+Stars and funded Nakh operations use financial pools; deletion uses maintenance;
+scheduler billing/Nakh reconciliation uses financial pools. Their actual native
+journeys, including financial, scheduler and maintenance paths, must qualify
+this adoption before production activation.
 Production infrastructure must inject purpose-specific secrets instead of the
 owner URL, and the release controller must provision roles after migration before
 activation. Existing native store SQL using broad projections may need scoped

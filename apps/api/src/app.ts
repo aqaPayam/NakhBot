@@ -13,6 +13,7 @@ import {
   type ExceptionFilter,
   type ArgumentsHost,
   type OnApplicationShutdown,
+  type OnModuleInit,
   type PipeTransform,
 } from '@nestjs/common';
 import { Ajv2020 as Ajv, type ValidateFunction } from 'ajv/dist/2020.js';
@@ -42,7 +43,7 @@ import {
 import { ApplicationError, SystemClock } from '@nakh/domain';
 import type { AppConfig } from '@nakh/config';
 import {
-  createDatabase,
+  RuntimeDatabases,
   PostgresFoundationStore,
   SystemIdGenerator,
   type NakhDatabase,
@@ -50,6 +51,7 @@ import {
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
 export const DATABASE = Symbol('DATABASE');
+const DATABASES = Symbol('DATABASES');
 export const LOGGER = Symbol('LOGGER');
 export const SAMPLE_HANDLER = Symbol('SAMPLE_HANDLER');
 
@@ -192,11 +194,15 @@ class FoundationController {
   }
 }
 
-class DatabaseLifecycle implements OnApplicationShutdown {
-  public constructor(@Inject(DATABASE) private readonly database: NakhDatabase) {}
+class DatabaseLifecycle implements OnApplicationShutdown, OnModuleInit {
+  public constructor(@Inject(DATABASES) private readonly databases: RuntimeDatabases) {}
+
+  public async onModuleInit(): Promise<void> {
+    await this.databases.verify();
+  }
 
   public async onApplicationShutdown(): Promise<void> {
-    await this.database.destroy();
+    await this.databases.destroy();
   }
 }
 
@@ -211,7 +217,8 @@ export class ApiModule {
     support?: M7SupportApiOptions,
     appeals?: M7AppealApiOptions,
   ): DynamicModule {
-    const database = createDatabase(config.database);
+    const databases = new RuntimeDatabases(config);
+    const database = databases.get('user');
     if (
       config.administration.enabled &&
       [reports, adminReports, adminModeration, support, appeals].some(
@@ -219,7 +226,10 @@ export class ApiModule {
       )
     )
       throw new Error('Administrator host composition conflicts with explicit legacy routes.');
-    const administration = createAdministratorApiRuntime(config, database);
+    const administration = createAdministratorApiRuntime(
+      config,
+      config.administration.enabled ? databases.get('administration') : database,
+    );
     return {
       module: ApiModule,
       imports: [
@@ -242,6 +252,7 @@ export class ApiModule {
         { provide: APP_CONFIG, useValue: config },
         { provide: LOGGER, useValue: logger },
         { provide: DATABASE, useValue: database },
+        { provide: DATABASES, useValue: databases },
         {
           provide: SAMPLE_HANDLER,
           useValue: new CreateSampleEffectHandler(

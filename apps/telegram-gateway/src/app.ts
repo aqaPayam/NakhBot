@@ -10,6 +10,7 @@ import {
   UnauthorizedException,
   type DynamicModule,
   type OnApplicationShutdown,
+  type OnModuleInit,
 } from '@nestjs/common';
 
 import {
@@ -30,7 +31,7 @@ import {
   type M3TelegramReasonCode,
 } from '@nakh/observability';
 import {
-  createDatabase,
+  RuntimeDatabases,
   PostgresIdentityStore,
   PostgresLocalizationStore,
   PostgresMediaStore,
@@ -329,14 +330,19 @@ class TelegramGatewayController {
   }
 }
 
-class DatabaseLifecycle implements OnApplicationShutdown {
+const DATABASES = Symbol('DATABASES');
+class DatabaseLifecycle implements OnApplicationShutdown, OnModuleInit {
   public constructor(
-    @Inject(DATABASE) private readonly database: NakhDatabase,
+    @Inject(DATABASES) private readonly databases: RuntimeDatabases,
     @Inject(REDIS) private readonly redis: ReturnType<typeof createRedisConnection>,
   ) {}
 
+  public async onModuleInit(): Promise<void> {
+    await this.databases.verify();
+  }
+
   public async onApplicationShutdown(): Promise<void> {
-    await Promise.all([this.database.destroy(), this.redis.quit()]);
+    await Promise.all([this.databases.destroy(), this.redis.quit()]);
   }
 }
 
@@ -350,7 +356,9 @@ export class TelegramGatewayModule {
       adminSafetyContent?: Pick<TelegramAdminSafetyContentAdapter, 'handle'>;
     }> = {},
   ): DynamicModule {
-    const database = createDatabase(config.database);
+    const databases = new RuntimeDatabases(config);
+    const database = databases.get('user');
+    const financialDatabase = databases.get('financial');
     if (
       config.administration.enabled &&
       (m7.adminEvidence !== undefined || m7.adminSafetyContent !== undefined)
@@ -359,13 +367,18 @@ export class TelegramGatewayModule {
     const redis = createRedisConnection(config.redis.url);
     const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
     const identityStore = new PostgresIdentityStore(database);
-    const stars = createTelegramStarsRuntime({ config, database });
+    const stars = createTelegramStarsRuntime({ config, database: financialDatabase });
     const reports = createTelegramReportRuntime({ config, database, redis });
-    const administration = createAdministratorTelegramRuntime({ config, database, redis });
+    const administration = createAdministratorTelegramRuntime({
+      config,
+      database: config.administration.enabled ? databases.get('administration') : database,
+      redis,
+    });
     const chat = createTelegramChatRuntime({ config, database, redis, reports });
     const signup = createTelegramSignupRuntime({
       config,
       database,
+      financialDatabase,
       redis,
       stars,
       reports,
@@ -480,6 +493,7 @@ export class TelegramGatewayModule {
           useValue: new TelegramWebhookAuthenticator(config.telegram.webhookSecret),
         },
         { provide: DATABASE, useValue: database },
+        { provide: DATABASES, useValue: databases },
         { provide: SIGNUP_INGRESS, useValue: signup },
         { provide: CHAT_INGRESS, useValue: chat },
         { provide: STARS_INGRESS, useValue: stars },

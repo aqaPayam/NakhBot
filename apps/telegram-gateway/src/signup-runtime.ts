@@ -224,6 +224,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     private readonly reports?: TelegramReportRuntimePort,
     private readonly administration?: Pick<AdministratorTelegramPort, 'link'>,
     private readonly chat?: TelegramChatRuntimePort,
+    private readonly financialDatabase: NakhDatabase = database,
   ) {
     this.key = Buffer.from(key);
     this.stars?.assertSeparateNavigationKey?.(this.key);
@@ -610,13 +611,13 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       envelope = this.envelope(nav.actor, telegramId, updateId, nav.screen);
     if (nav.screen === 'nakh_credits') {
       await new CreateDirectNakhHandler(
-        new PostgresDirectNakhStore(this.database, nav.actor, nav.code),
+        new PostgresDirectNakhStore(this.financialDatabase, nav.actor, nav.code),
         this.ids,
       ).execute({ ...envelope, commandType: 'nakh.create-direct', data: { targetUserId, text } });
       await this.notice(telegramId, 'nakh.delivery.sent');
     } else if (nav.screen === 'nakh_pending' || nav.screen === 'nakh_stars') {
       const pending = await new CreatePendingNakhHandler(
-        new PostgresPendingNakhStore(this.database, nav.actor, nav.code),
+        new PostgresPendingNakhStore(this.financialDatabase, nav.actor, nav.code),
         this.ids,
       ).execute({
         ...envelope,
@@ -1325,6 +1326,7 @@ export function createTelegramSignupRuntime(
   input: Readonly<{
     config: AppConfig;
     database: NakhDatabase;
+    financialDatabase?: NakhDatabase;
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
     stars?: TelegramStarsRuntimePort;
@@ -1367,5 +1369,6 @@ export function createTelegramSignupRuntime(
     input.reports,
     input.administration,
     input.chat,
+    input.financialDatabase,
   );
 }

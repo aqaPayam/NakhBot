@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { randomUUID, createHmac } from 'node:crypto';
+import { randomUUID, createHmac, randomBytes } from 'node:crypto';
 import { mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -32,7 +32,11 @@ import {
   PostgresUserSessionStore,
   PostgresCreditLedgerStore,
   type NakhDatabase,
+  RUNTIME_DATABASE_ROLES,
+  type RuntimeDatabasePurpose,
 } from '@nakh/persistence-postgres';
+import { PostgresRuntimeRoleProvisioning } from '../../../packages/persistence-postgres/src/runtime-role-provisioning.js';
+import { sourceMigrationDigests } from '../../../packages/persistence-postgres/src/migrations.js';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
 import {
   createReportUser,
@@ -145,6 +149,8 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
     let directory: string, preload: string, api: Host, gateway: Host, apiPort: number;
     let operator: PostgresAdminTotpOperator;
     const hosts: Host[] = [];
+    const roleUrls = {} as Record<RuntimeDatabasePurpose, string>;
+    let ownsFixtureRoles = false;
     const prefix = `m9-admin-${randomUUID()}`;
     let updateId = 100000,
       messageId = 1;
@@ -158,7 +164,11 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         NAKH_RELEASE: 'native-admin-host',
         NAKH_HTTP_HOST: '127.0.0.1',
         NAKH_HTTP_PORT: String(selectedPort),
-        NAKH_DATABASE_URL: isolated.url,
+        NAKH_DATABASE_URL: service === 'scheduler' ? roleUrls.scheduler : roleUrls.user,
+        NAKH_DATABASE_ROLE_ISOLATION_ENABLED: 'true',
+        NAKH_FINANCIAL_DATABASE_URL: roleUrls.financial,
+        NAKH_ADMIN_DATABASE_URL: roleUrls.administration,
+        NAKH_MAINTENANCE_DATABASE_URL: roleUrls.maintenance,
         NAKH_REDIS_URL: redisUrl!,
         NAKH_QUEUE_PREFIX: prefix,
         NAKH_TELEGRAM_BOT_TOKEN_REF: 'M9_HOST_BOT',
@@ -223,7 +233,7 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
       };
     }
     async function start(
-      service: 'api' | 'telegram-gateway' | 'worker',
+      service: 'api' | 'telegram-gateway' | 'worker' | 'scheduler',
       overrides: NodeJS.ProcessEnv = {},
       ready = true,
     ): Promise<Host> {
@@ -264,8 +274,18 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
           method?: string;
           path?: string;
           authorization?: string;
+          sqlState?: string;
+          relation?: string;
           body?: Menu & { files?: string[]; protect_content?: string; photoBytes?: string };
         };
+        if (request.type === 'native-sql-error') {
+          diagnostics = (
+            diagnostics +
+            JSON.stringify({ sqlState: request.sqlState, relation: request.relation }) +
+            '\n'
+          ).slice(-64000);
+          return;
+        }
         if (request.type === 'r2-read') {
           const path = decodeURIComponent(
             new URL(request.path!, 'https://native.invalid').pathname,
@@ -348,7 +368,8 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
             async () => {
               if (child.exitCode !== null || child.signalCode !== null)
                 throw new Error('Native host exited: ' + diagnostics);
-              if (service === 'worker') expect(diagnostics).toContain('service.started');
+              if (service === 'worker' || service === 'scheduler')
+                expect(diagnostics).toContain('service.started');
               else expect((await localRequest(host.origin + '/health/ready')).status).toBe(200);
             },
             { timeout: 25000, interval: 100 },
@@ -369,14 +390,50 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         statementTimeoutMs: 20000,
         lockTimeoutMs: 15000,
       });
+      const existingRoles = (
+        await sql`SELECT 1 FROM pg_roles WHERE rolname IN (${sql.join(Object.values(RUNTIME_DATABASE_ROLES))})`.execute(
+          database,
+        )
+      ).rows;
+      if (existingRoles.length !== 0)
+        throw new Error('Native host fixture requires unoccupied purpose role names.');
+      ownsFixtureRoles = true;
+      for (const purpose of Object.keys(RUNTIME_DATABASE_ROLES) as RuntimeDatabasePurpose[]) {
+        const url = new URL(isolated.url);
+        url.username = RUNTIME_DATABASE_ROLES[purpose];
+        url.password = randomBytes(32).toString('base64url');
+        roleUrls[purpose] = url.toString();
+      }
+      await new PostgresRuntimeRoleProvisioning(database, isolated.url).provision({
+        commandId: randomUUID(),
+        sourceSha: '1'.repeat(40),
+        urls: roleUrls,
+        migrations: await sourceMigrationDigests(resolve('migrations')),
+      });
       directory = await mkdtemp(join(tmpdir(), 'nakh-admin-host-'));
       preload = join(directory, 'provider.mjs');
       await writeFile(
         preload,
         `
 import https from 'node:https';
-import { syncBuiltinESMExports } from 'node:module';
+import { syncBuiltinESMExports, createRequire } from 'node:module';
 import { Readable, Writable } from 'node:stream';
+// Observe only native SQLSTATE and safe relation identifiers. Do not replace SQL,
+// weaken grants, intercept results or copy statements/parameters/private errors.
+const require = createRequire(${JSON.stringify(pathToFileURL(resolve('packages/persistence-postgres/package.json')).href)});
+const pg = require('pg'), originalQuery = pg.Client.prototype.query;
+const observeError = error => {
+  if (!error) return;
+  const relation = /^permission denied for (?:table|schema|sequence|function) ([a-z_][a-z0-9_]*)$/.exec(error.message ?? '')?.[1]
+    ?? (/^permission denied [a-zA-Z0-9_ ."()]+$/.test(error.message ?? '') ? error.message.slice(0,160) : undefined);
+  process.send({ type:'native-sql-error', sqlState:/^[A-Z0-9]{5}$/.test(error.code ?? '') ? error.code : 'unknown', relation });
+};
+pg.Client.prototype.query = function(...args) {
+  const callback = args.at(-1);
+  if (typeof callback === 'function') args[args.length-1] = (error, result) => { observeError(error); callback(error,result); };
+  const result = originalQuery.apply(this,args);
+  return result && typeof result.catch === 'function' ? result.catch(error => { observeError(error); throw error; }) : result;
+};
 const pending = new Map(); let id = 0, stopping = false;
 // Synthetic transport only: exercise the real S3 SDK signer and GET pipeline.
 https.request = (options, callback) => {
@@ -434,8 +491,25 @@ process.on('message', message => {
     afterAll(async () => {
       for (const host of hosts.reverse()) await host.stop();
       operator?.dispose();
+      if (ownsFixtureRoles && database)
+        for (const role of Object.values(RUNTIME_DATABASE_ROLES))
+          await sql`DROP OWNED BY ${sql.id(role)}`.execute(database).catch(() => undefined);
       await database?.destroy();
       await isolated?.destroy();
+      if (ownsFixtureRoles) {
+        const owner = createDatabase({
+          url: databaseUrl!,
+          poolMax: 1,
+          statementTimeoutMs: 15000,
+          lockTimeoutMs: 10000,
+        });
+        try {
+          for (const role of Object.values(RUNTIME_DATABASE_ROLES))
+            await sql`DROP ROLE IF EXISTS ${sql.id(role)}`.execute(owner);
+        } finally {
+          await owner.destroy();
+        }
+      }
       if (preload !== undefined) await unlink(preload);
       if (directory !== undefined) await rmdir(directory);
     });
@@ -452,7 +526,9 @@ process.on('message', message => {
       telegramUserId = String(++telegramSequence),
       eventId = ++updateId,
     ): Promise<Readonly<{ userId: string; telegramUserId: string; eventId: number }>> {
-      expect((await webhook(telegramUserId, '/start', eventId)).status).toBe(201);
+      expect((await webhook(telegramUserId, '/start', eventId)).status, gateway.diagnostics()).toBe(
+        201,
+      );
       const registered = await database
         .selectFrom('identity.telegram_identities')
         .select('user_id')
@@ -660,7 +736,7 @@ process.on('message', message => {
           ),
         );
         for (const result of results) {
-          expect(result.status).toBe(200);
+          expect(result.status, api.diagnostics()).toBe(200);
           expect(await result.json()).toMatchObject({ result: 'succeeded' });
         }
       }
@@ -906,7 +982,7 @@ process.on('message', message => {
               ? delivery.reason.message
               : undefined,
           ).toBe('fulfilled');
-        expect(gateway.media.photos).toEqual([
+        expect(gateway.media.photos, gateway.diagnostics()).toEqual([
           { chat_id: recipient, protect_content: 'true', photoBytes: bytes.toString('base64') },
         ]);
         expect(gateway.media.reads).toEqual([variant.storage_key]);
@@ -1019,7 +1095,7 @@ process.on('message', message => {
             },
           },
         });
-        expect(response.status).toBe(201);
+        expect(response.status, host.diagnostics()).toBe(201);
       };
       const button = (label: string, recipient = owner.telegramUserId): string => {
         const data = host.menus
@@ -1518,6 +1594,22 @@ process.on('message', message => {
       expect(metadataGateway.media.photos).toEqual([]);
       await metadataGateway.stop();
       await metadataOnly.stop();
+    });
+    it('completes the compiled scheduler first tick with fixed purpose logins and no hidden permission failures', async () => {
+      const scheduler = await start('scheduler', {
+        NAKH_ADMIN_DATABASE_URL: undefined,
+        NAKH_MAINTENANCE_DATABASE_URL: undefined,
+      });
+      const diagnostics = scheduler.diagnostics();
+      expect(diagnostics, diagnostics).not.toMatch(/"level":50|"sqlState":"42501"/u);
+      const runs = await database
+        .selectFrom('billing.reconciliation_runs')
+        .select('run_type')
+        .execute();
+      expect(runs.map((row) => row.run_type)).toEqual(
+        expect.arrayContaining(['billing', 'nakh', 'chat', 'moderation']),
+      );
+      await scheduler.stop();
     });
     it('leaves all administrator routes absent when disabled, without resolving administrator secrets', async () => {
       const disabled = await start('api', {

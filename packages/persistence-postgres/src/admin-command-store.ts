@@ -127,19 +127,14 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
       const permission =
         identity !== undefined
           ? await transaction
-              .selectFrom('administration.admin_user_roles as assignment')
-              .innerJoin('administration.admin_roles as role', 'role.code', 'assignment.role_code')
-              .innerJoin(
-                'administration.admin_role_permissions as role_permission',
-                'role_permission.role_code',
-                'role.code',
+              .selectFrom(
+                sql<{
+                  permission_code: string;
+                }>`administration.lock_runtime_admin_permission(${attempt.adminUserId}::uuid, ${attempt.requiredPermission}::text)`.as(
+                  'permission',
+                ),
               )
-              .select('role_permission.permission_code')
-              .where('assignment.admin_user_id', '=', attempt.adminUserId)
-              .where('assignment.revoked_at', 'is', null)
-              .where('role.is_active', '=', true)
-              .where('role_permission.permission_code', '=', attempt.requiredPermission)
-              .forShare()
+              .select('permission_code')
               .executeTakeFirst()
           : undefined;
       if (requireSession)

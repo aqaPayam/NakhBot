@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations, sourceMigrationDigests } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
+import { createReportUser } from './testing/report-fixture.js';
 import { RUNTIME_DATABASE_ROLES, type RuntimeDatabasePurpose } from './runtime-database-policy.js';
 import { RuntimeDatabases, verifyRuntimeDatabaseRole } from './runtime-database.js';
 import {
@@ -122,6 +123,9 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
       sql`DELETE FROM platform.audit_logs WHERE false`,
       sql`UPDATE administration.admin_role_permissions SET role_code=role_code WHERE false`,
       sql`UPDATE billing.credit_packages SET code=code WHERE false`,
+      sql`INSERT INTO moderation.reports(id,reviewed_at) SELECT gen_random_uuid(),clock_timestamp() WHERE false`,
+      sql`INSERT INTO moderation.moderation_actions(id,actor_admin_id) SELECT gen_random_uuid(),gen_random_uuid() WHERE false`,
+      sql`UPDATE moderation.restriction_episodes SET status='resolved' WHERE false`,
       sql`CREATE TABLE profile.forbidden_role_table(id integer)`,
     ])
       await expect(statement.execute(user)).rejects.toMatchObject({ code: '42501' });
@@ -137,7 +141,116 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
       sql`SELECT ciphertext FROM administration.admin_totp_credentials LIMIT 0`.execute(user),
     ).rejects.toMatchObject({ code: '42501' });
   });
+  it('preserves RBAC seed row locks without giving the administrator login seed write rights', async () => {
+    const userId = await createReportUser(database),
+      adminId = randomUUID(),
+      at = new Date();
+    await database
+      .insertInto('identity.telegram_identities')
+      .values({
+        user_id: userId,
+        telegram_user_id: '7000000000001',
+        username: null,
+        first_seen_at: at,
+        last_seen_at: at,
+      })
+      .execute();
+    await database
+      .insertInto('administration.admin_users')
+      .values({
+        id: adminId,
+        user_id: userId,
+        telegram_user_id: '7000000000001',
+        identity_verified_at: at,
+        is_active: true,
+        disabled_at: null,
+        created_at: at,
+        updated_at: at,
+      })
+      .execute();
+    await database
+      .insertInto('administration.admin_user_roles')
+      .values({
+        admin_user_id: adminId,
+        role_code: 'super_admin',
+        assigned_by_admin_id: adminId,
+        revoked_by_admin_id: null,
+        revoked_at: null,
+      })
+      .execute();
+    const administrator = pools.get('administration')!;
+    await expect(
+      sql`UPDATE administration.admin_roles SET is_active=false WHERE false`.execute(administrator),
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      sql`SELECT * FROM administration.lock_runtime_admin_permission(${adminId}::uuid,'view_reports')`.execute(
+        pools.get('user')!,
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+    await administrator.transaction().execute(async (tx) => {
+      const permission = await sql<{
+        permission_code: string;
+      }>`SELECT * FROM administration.lock_runtime_admin_permission(${adminId}::uuid,'view_reports')`.execute(
+        tx,
+      );
+      expect(permission.rows).toEqual([{ permission_code: 'view_reports' }]);
+      await expect(
+        database.transaction().execute(async (owner) => {
+          await sql`SET LOCAL lock_timeout='50ms'`.execute(owner);
+          await sql`UPDATE administration.admin_roles SET is_active=false WHERE code='super_admin'`.execute(
+            owner,
+          );
+        }),
+      ).rejects.toMatchObject({ code: '55P03' });
+    });
+    await database
+      .updateTable('administration.admin_user_roles')
+      .set({ revoked_at: sql<Date>`clock_timestamp()`, revoked_by_admin_id: adminId })
+      .where('admin_user_id', '=', adminId)
+      .execute();
+    const denied =
+      await sql`SELECT * FROM administration.lock_runtime_admin_permission(${adminId}::uuid,'view_reports')`.execute(
+        administrator,
+      );
+    expect(denied.rows).toHaveLength(0);
+    await verifyRuntimeDatabaseRole(administrator, 'administration');
+    await expect(
+      sql`UPDATE moderation.report_reasons SET is_active=false WHERE false`.execute(
+        pools.get('user')!,
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+    const reason =
+      await sql`SELECT * FROM moderation.lock_runtime_report_reason('harassment')`.execute(
+        pools.get('user')!,
+      );
+    expect(reason.rows).toHaveLength(1);
+    await pools
+      .get('user')!
+      .transaction()
+      .execute(async (tx) => {
+        await sql`SELECT * FROM moderation.lock_runtime_report_reason('harassment')`.execute(tx);
+        await expect(
+          database.transaction().execute(async (owner) => {
+            await sql`SET LOCAL lock_timeout='50ms'`.execute(owner);
+            await sql`UPDATE moderation.report_reasons SET is_active=false WHERE code='harassment'`.execute(
+              owner,
+            );
+          }),
+        ).rejects.toMatchObject({ code: '55P03' });
+      });
+    await expect(
+      sql`INSERT INTO moderation.moderation_reviews(id,report_id,assigned_admin_id)
+      SELECT gen_random_uuid(),gen_random_uuid(),${adminId}::uuid WHERE false`.execute(
+        pools.get('user')!,
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+  });
   it('admits a fixed host pool set using native role proofs and denies production without TLS', async () => {
+    await expect(
+      sql`SELECT id FROM interaction.current_like_lives LIMIT 0 FOR UPDATE`.execute(
+        pools.get('financial')!,
+      ),
+    ).resolves.toBeDefined();
     const settings = {
       url: input.urls.user,
       poolMax: 10,
@@ -181,11 +294,19 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
     await sql`GRANT SELECT(invoice_payload_ciphertext) ON billing.payment_records TO nakh_user`.execute(
       database,
     );
+    await sql`GRANT SELECT(storage_key) ON media.report_photo_source_facts TO nakh_user`.execute(
+      database,
+    );
     await expect(verifyRuntimeDatabaseRole(pools.get('user')!, 'user')).rejects.toThrow(
       'Runtime database role unavailable.',
     );
     expect((await provisioner.provision(input)).replayed).toBe(true);
     await verifyRuntimeDatabaseRole(pools.get('user')!, 'user');
+    await expect(
+      sql`SELECT storage_key FROM media.report_photo_source_facts LIMIT 0`.execute(
+        pools.get('user')!,
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
     await expect(
       sql`SELECT invoice_payload_ciphertext FROM billing.payment_records LIMIT 0`.execute(
         pools.get('user')!,

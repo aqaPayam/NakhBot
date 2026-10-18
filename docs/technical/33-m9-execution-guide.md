@@ -18,8 +18,9 @@ release conditions.
 ## Scope and completion
 
 The [database purpose isolation foundation](36-m9-database-purpose-isolation.md)
-provides trusted native provisioning and host-owned pool admission. Adoption by
-all four composition roots and production deployment remains open. A provider
+provides trusted native provisioning and host-owned pool admission. The four
+composition roots now select purpose pools; production binding and complete
+role-enabled journey acceptance remain open. A provider
 account/domain/bot setup checklist has been sent to the owner so preparation can
 run in parallel; no credentials or real deployment acceptance have been supplied.
 

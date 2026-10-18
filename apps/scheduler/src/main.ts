@@ -21,7 +21,7 @@ import {
   startTelemetry,
 } from '@nakh/observability';
 import {
-  createDatabase,
+  RuntimeDatabases,
   PostgresBillingReconciliationStore,
   PostgresChatOperationalMetricsStore,
   PostgresChatReconciliationStore,
@@ -57,7 +57,10 @@ const telemetry = await startTelemetry({
 });
 const redis = createRedisConnection(config.redis.url);
 await redis.connect();
-const database = createDatabase(config.database);
+const databases = new RuntimeDatabases(config);
+const database = databases.get('scheduler');
+const financialDatabase = databases.get('financial');
+await databases.verify();
 const lease = new RedisLease(redis);
 const owner = randomUUID();
 const leaseKey = `${config.redis.queuePrefix}:scheduler:leader`;
@@ -96,15 +99,15 @@ const orphanScanner =
       );
 const mediaMetrics = orphanScanner === undefined ? undefined : new M2Metrics();
 const billingReconciliation = new RunBillingReconciliationBatchHandler(
-  new PostgresBillingReconciliationStore(database),
+  new PostgresBillingReconciliationStore(financialDatabase),
 );
 const billingMetrics = new M4Metrics();
 const billingReconciliationIntervalMs = 15 * 60_000;
 const nakhMaintenance = new RunNakhMaintenanceBatchHandler(
-  new PostgresNakhMaintenanceStore(database),
+  new PostgresNakhMaintenanceStore(financialDatabase),
 );
 const nakhReconciliation = new RunNakhReconciliationBatchHandler(
-  new PostgresNakhReconciliationStore(database),
+  new PostgresNakhReconciliationStore(financialDatabase),
 );
 const nakhMetrics = new M5Metrics();
 const nakhOperationalMetrics = new PostgresNakhOperationalMetricsStore(database);
@@ -413,7 +416,7 @@ const shutdown = async (): Promise<void> => {
   clearInterval(timer);
   await lease.release(leaseKey, owner).catch(() => false);
   await redis.quit();
-  await database.destroy();
+  await databases.destroy();
   await telemetry?.shutdown();
 };
 process.once('SIGTERM', () => void shutdown());

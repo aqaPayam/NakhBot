@@ -147,14 +147,6 @@ export async function applyModerationThreshold(
     .values({
       id: write.reviewId,
       report_id: source.id,
-      assigned_admin_id: null,
-      assigned_at: null,
-      decided_at: null,
-      decision_note_ciphertext: null,
-      decision_note_key_id: null,
-      decision_note_key_version: null,
-      decision_note_nonce: null,
-      decision_note_sha256: null,
       created_at: now,
       updated_at: now,
     })
@@ -195,9 +187,6 @@ export async function applyModerationThreshold(
       source_report_id: source.id,
       distinct_reporter_count: distinctReporterCount,
       started_at: sql<Date>`${preciseNow}::timestamptz`,
-      resolved_at: null,
-      resolved_by_admin_id: null,
-      resolution_reason_code: null,
     })
     .execute();
   const updatedAccount = await database
@@ -222,7 +211,6 @@ export async function applyModerationThreshold(
       reason_code: 'distinct_reporter_threshold',
       actor_type: 'system',
       actor_user_id: null,
-      actor_admin_id: null,
       changed_at: now,
     })
     .execute();
@@ -283,9 +271,6 @@ export async function applyModerationThreshold(
       actor_type: 'system',
       actor_admin_id: null,
       target_user_id: source.target_user_id,
-      target_photo_id: null,
-      target_pair_low_user_id: null,
-      target_pair_high_user_id: null,
       source_report_id: source.id,
       restriction_episode_id: write.restrictionEpisodeId,
       audit_log_id: write.auditId,

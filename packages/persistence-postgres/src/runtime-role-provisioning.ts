@@ -7,6 +7,8 @@ import {
   RUNTIME_APPEND_ONLY_TABLES,
   RUNTIME_CODE_OWNED_TABLES,
   RUNTIME_DATABASE_ROLES,
+  RUNTIME_DATABASE_READ_VIEWS,
+  RUNTIME_CUSTODY_READ_VIEWS,
   RUNTIME_DATABASE_SCHEMAS,
   type RuntimeDatabasePurpose,
 } from './runtime-database-policy.js';
@@ -72,6 +74,8 @@ export const RUNTIME_ROLE_POLICY_DIGEST = digest([
   RUNTIME_APPEND_ONLY_TABLES,
   RUNTIME_CODE_OWNED_TABLES,
   WRITABLE,
+  RUNTIME_DATABASE_READ_VIEWS,
+  RUNTIME_CUSTODY_READ_VIEWS,
 ]);
 
 /** ASCII-only server-generated role credentials. Send PostgreSQL a SCRAM verifier,
@@ -95,7 +99,7 @@ export type RuntimeRoleProvisioning = Readonly<{
   urls: Readonly<Record<RuntimeDatabasePurpose, string>>;
   migrations: readonly Readonly<{ name: string; sha256: string }>[];
 }>;
-type Relation = { schema: string; table: string; columns: string[] };
+type Relation = { schema: string; table: string; kind: string; columns: string[] };
 /** Only a trusted migration host with native CREATEROLE/grant authority can use
  * this capability. It is absent from public/admin route composition. */
 export class PostgresRuntimeRoleProvisioning {
@@ -214,11 +218,11 @@ export class PostgresRuntimeRoleProvisioning {
           // An audit receipt never grants permission or skips policy application.
           // Reapply under the lock even on replay, including removal of ACL drift.
           const relations = (
-            await sql<Relation>`SELECT n.nspname::text AS schema,c.relname::text AS table,
+            await sql<Relation>`SELECT n.nspname::text AS schema,c.relname::text AS table,c.relkind::text AS kind,
           json_agg(a.attname::text ORDER BY a.attnum) AS columns FROM pg_catalog.pg_class c
           JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid
-          WHERE n.nspname IN (${sql.join(RUNTIME_DATABASE_SCHEMAS)}) AND c.relkind IN ('r','p')
-          AND a.attnum>0 AND NOT a.attisdropped GROUP BY n.nspname,c.relname ORDER BY n.nspname,c.relname`.execute(
+          WHERE n.nspname IN (${sql.join(RUNTIME_DATABASE_SCHEMAS)}) AND c.relkind IN ('r','p','v')
+          AND a.attnum>0 AND NOT a.attisdropped GROUP BY n.nspname,c.relname,c.relkind ORDER BY n.nspname,c.relname`.execute(
               tx,
             )
           ).rows;
@@ -269,6 +273,7 @@ export class PostgresRuntimeRoleProvisioning {
               const allColumns = sql.join(relation.columns.map((column) => sql.id(column)));
               await sql`REVOKE SELECT (${allColumns}),INSERT (${allColumns}),UPDATE (${allColumns}),REFERENCES (${allColumns})
               ON TABLE ${sql.table(name)} FROM ${sql.id(role)}`.execute(tx);
+              if (relation.kind === 'v') continue;
               let columns: readonly string[] | '*' = '*';
               if (relation.schema === 'billing' && (purpose === 'user' || purpose === 'scheduler'))
                 columns = BILLING_SUMMARY_COLUMNS[relation.table] ?? [];
@@ -298,6 +303,73 @@ export class PostgresRuntimeRoleProvisioning {
                     : sql`GRANT INSERT,UPDATE,DELETE ON TABLE ${sql.table(name)} TO ${sql.id(role)}`
                 ).execute(tx);
               }
+            }
+            for (const [view, columns] of Object.entries(RUNTIME_DATABASE_READ_VIEWS)) {
+              await sql`GRANT SELECT (${sql.join(columns.map((column) => sql.id(column)))}) ON TABLE ${sql.table(view)} TO ${sql.id(role)}`.execute(
+                tx,
+              );
+            }
+            await sql`REVOKE ALL ON FUNCTION administration.lock_runtime_admin_permission(uuid,text) FROM ${sql.id(role)}`.execute(
+              tx,
+            );
+            if (WRITABLE[purpose].includes('matching')) {
+              await sql`GRANT UPDATE(id) ON matching.current_match_lives TO ${sql.id(role)}`.execute(
+                tx,
+              );
+            }
+            if (WRITABLE[purpose].includes('interaction')) {
+              await sql`GRANT UPDATE(id) ON interaction.current_like_lives TO ${sql.id(role)}`.execute(
+                tx,
+              );
+            }
+            if (purpose === 'administration' || purpose === 'maintenance') {
+              for (const [view, columns] of Object.entries(RUNTIME_CUSTODY_READ_VIEWS)) {
+                await sql`GRANT SELECT (${sql.join(columns.map((column) => sql.id(column)))}) ON TABLE ${sql.table(view)} TO ${sql.id(role)}`.execute(
+                  tx,
+                );
+              }
+            }
+            if (purpose === 'scheduler') {
+              await sql`GRANT SELECT(report_evidence_id,asset_id,variant_id,sha256,variant_type,transformation_version)
+                ON media.report_photo_source_facts TO ${sql.id(role)}`.execute(tx);
+              await sql`GRANT INSERT(id,run_type,status,cursor,failure_code,finished_at),UPDATE(status,cursor,scanned_count,anomaly_count,finished_at,failure_code)
+                ON billing.reconciliation_runs TO ${sql.id(role)}`.execute(tx);
+              await sql`GRANT INSERT(id,run_id,anomaly_type,entity_type,entity_id,disposition,safe_detail,idempotency_key)
+                ON billing.reconciliation_anomalies TO ${sql.id(role)}`.execute(tx);
+            }
+            if (purpose === 'administration') {
+              await sql`GRANT EXECUTE ON FUNCTION administration.lock_runtime_admin_permission(uuid,text) TO ${sql.id(role)}`.execute(
+                tx,
+              );
+            }
+            await sql`REVOKE ALL ON FUNCTION moderation.lock_runtime_report_reason(text) FROM ${sql.id(role)}`.execute(
+              tx,
+            );
+            if (purpose === 'user' || purpose === 'administration') {
+              await sql`GRANT EXECUTE ON FUNCTION moderation.lock_runtime_report_reason(text) TO ${sql.id(role)}`.execute(
+                tx,
+              );
+            }
+            if (purpose === 'user') {
+              for (const table of ['moderation.report_evidence', 'moderation.report_snapshots']) {
+                await sql`GRANT INSERT ON TABLE ${sql.table(table)} TO ${sql.id(role)}`.execute(tx);
+              }
+              await sql`GRANT INSERT(id,reporter_user_id,target_user_id,reason_id,extra_text,status,command_id,request_id,idempotency_key,request_digest)
+                ON moderation.reports TO ${sql.id(role)}`.execute(tx);
+              await sql`GRANT UPDATE(status,priority,version) ON moderation.reports TO ${sql.id(role)}`.execute(
+                tx,
+              );
+              await sql`GRANT INSERT(id,report_id,created_at,updated_at) ON moderation.moderation_reviews TO ${sql.id(role)}`.execute(
+                tx,
+              );
+              await sql`GRANT INSERT(id,target_user_id,source_report_id,distinct_reporter_count,started_at) ON moderation.restriction_episodes TO ${sql.id(role)}`.execute(
+                tx,
+              );
+              await sql`GRANT INSERT(restriction_episode_id,reporter_user_id,report_id,submitted_at) ON moderation.threshold_admission_witnesses TO ${sql.id(role)}`.execute(
+                tx,
+              );
+              await sql`GRANT INSERT(id,action_type,actor_type,target_user_id,source_report_id,restriction_episode_id,audit_log_id,notification_id,command_id,request_id,request_digest,reason_code,occurred_at)
+                ON moderation.moderation_actions TO ${sql.id(role)}`.execute(tx);
             }
             if (purpose === 'financial') {
               for (const relation of relations.filter((row) => row.schema === 'identity')) {

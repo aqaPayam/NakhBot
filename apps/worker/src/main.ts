@@ -26,7 +26,7 @@ import {
   startTelemetry,
 } from '@nakh/observability';
 import {
-  createDatabase,
+  RuntimeDatabases,
   PostgresInboxStore,
   PostgresAccountDeletionHealthStore,
   PostgresMediaCleanupStore,
@@ -95,7 +95,11 @@ const telemetry = await startTelemetry({
   release: config.release,
   environment: config.environment,
 });
-const database = createDatabase(config.database);
+const databases = new RuntimeDatabases(config);
+const database = databases.get('user');
+const financialDatabase = databases.get('financial');
+const maintenanceDatabase = config.deletion.workerEnabled ? databases.get('maintenance') : database;
+await databases.verify();
 const publisherConnection = createRedisConnection(config.redis.url);
 const workerConnection = createRedisConnection(config.redis.url);
 await Promise.all([publisherConnection.connect(), workerConnection.connect()]);
@@ -184,13 +188,13 @@ const migrateLegacyQueue = async (): Promise<void> => {
   }
 };
 const paymentFulfillment = new PaymentFulfillmentProcessor(
-  PostgresTelegramStarsReceiptStore.forFulfillment(database),
+  PostgresTelegramStarsReceiptStore.forFulfillment(financialDatabase),
   ids,
   `payment-fulfillment-${randomUUID()}`,
 );
 const starsRefunds = createTelegramStarsRefundRuntime({
   config,
-  database,
+  database: financialDatabase,
   owner: `stars-refund-${randomUUID()}`,
 });
 await starsRefunds?.verifyCustody();
@@ -214,7 +218,7 @@ const mediaEnvironment = config.environment === 'local' ? 'development' : config
 const deletionRuntime = !config.deletion.workerEnabled
   ? undefined
   : createAccountDeletionRuntime({
-      database,
+      database: maintenanceDatabase,
       readers: loadDeletionEvidenceReaders(
         resolveSecretReference(config.deletion.evidenceKeyRingRef),
       ),
@@ -230,8 +234,8 @@ const deletionRuntime = !config.deletion.workerEnabled
       ephemeralProvider: new RedisAccountDeletionEphemeralProvider(
         publisherConnection,
         config.redis.queuePrefix,
-        new PostgresLegacyOpaqueRetirementAudit(database),
-        new PostgresQueueReferenceMigrationAudit(database),
+        new PostgresLegacyOpaqueRetirementAudit(maintenanceDatabase),
+        new PostgresQueueReferenceMigrationAudit(maintenanceDatabase),
       ),
       prefix: config.redis.queuePrefix,
       cutoverEvidenceHash: config.deletion.cutoverEvidenceHash,
@@ -306,7 +310,7 @@ const eventProcessor = new WorkerEventProcessor(
   validationHandler,
   cacheRevocationHandler,
   mediaCleanupHandler,
-  new SettlePendingNakhesHandler(new PostgresPendingNakhSettlementStore(database), ids),
+  new SettlePendingNakhesHandler(new PostgresPendingNakhSettlementStore(financialDatabase), ids),
   nakhMetrics,
   notificationDelivery,
 );
@@ -592,7 +596,7 @@ const shutdown = async (): Promise<void> => {
   await eventWorker.close();
   await publisher.close();
   await Promise.all([publisherConnection.quit(), workerConnection.quit()]);
-  await database.destroy();
+  await databases.destroy();
   await telemetry?.shutdown();
 };
 process.once('SIGTERM', () => void shutdown());

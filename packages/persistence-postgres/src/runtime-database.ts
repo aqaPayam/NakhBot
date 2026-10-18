@@ -6,6 +6,7 @@ import {
   RUNTIME_APPEND_ONLY_TABLES,
   RUNTIME_CODE_OWNED_TABLES,
   RUNTIME_DATABASE_ROLES,
+  RUNTIME_DATABASE_READ_VIEWS,
   RUNTIME_DATABASE_SCHEMAS,
   type RuntimeDatabasePurpose,
 } from './runtime-database-policy.js';
@@ -51,6 +52,10 @@ export async function verifyRuntimeDatabaseRole(
         privateRead: boolean;
         tls: boolean;
         auth: string | null;
+        permissionLock: boolean;
+        reasonLock: boolean;
+        missingViewRead: boolean;
+        custodyKeyRead: boolean;
       }>`SELECT session_user::text AS login,current_user::text AS role,
       (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR NOT r.rolcanlogin) AS unsafe,
       EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members WHERE member=r.oid) AS member,
@@ -74,7 +79,13 @@ export async function verifyRuntimeDatabaseRole(
         AND NOT EXISTS(SELECT 1 FROM jsonb_each(${JSON.stringify(BILLING_SUMMARY_COLUMNS)}::jsonb) allowed
           WHERE allowed.key=c.relname AND (allowed.value='"*"'::jsonb OR allowed.value ? a.attname::text))) AS "privateRead",
       coalesce((SELECT ssl FROM pg_catalog.pg_stat_ssl WHERE pid=pg_backend_pid()),false) AS tls,
-      system_user::text AS auth
+      system_user::text AS auth,
+      has_function_privilege(r.oid,'administration.lock_runtime_admin_permission(uuid,text)'::regprocedure,'EXECUTE') AS "permissionLock",
+      has_function_privilege(r.oid,'moderation.lock_runtime_report_reason(text)'::regprocedure,'EXECUTE') AS "reasonLock",
+      EXISTS(SELECT 1 FROM jsonb_each(${JSON.stringify(RUNTIME_DATABASE_READ_VIEWS)}::jsonb) projection
+        CROSS JOIN LATERAL jsonb_array_elements_text(projection.value) field(name)
+        WHERE NOT has_column_privilege(r.oid,projection.key,field.name,'SELECT')) AS "missingViewRead",
+      has_column_privilege(r.oid,'media.report_photo_source_facts','storage_key','SELECT') AS "custodyKeyRead"
       FROM pg_catalog.pg_roles r WHERE r.rolname=current_user`.execute(database)
     ).rows[0];
     if (
@@ -87,6 +98,10 @@ export async function verifyRuntimeDatabaseRole(
       row.create ||
       row.mutableProof ||
       row.mutableCatalog ||
+      row.permissionLock !== (purpose === 'administration') ||
+      row.reasonLock !== (purpose === 'user' || purpose === 'administration') ||
+      row.missingViewRead ||
+      row.custodyKeyRead !== (purpose === 'administration' || purpose === 'maintenance') ||
       (['user', 'scheduler'].includes(purpose) && row.privateRead) ||
       (requireTls && (!row.tls || !row.auth?.startsWith('scram-sha-256:')))
     )

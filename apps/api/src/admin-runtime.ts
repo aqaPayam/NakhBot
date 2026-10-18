@@ -88,9 +88,12 @@ export class AdministratorApiRuntime {
     const ledger = await this.database
       .selectFrom('platform.schema_migrations')
       .select('name')
-      .where('name', '=', '000158_m9_administrator_signin_presentation.sql')
-      .executeTakeFirst();
-    if (ledger === undefined) throw new Error('Administrator schema unavailable.');
+      .where('name', 'in', [
+        '000158_m9_administrator_signin_presentation.sql',
+        '000162_m9_runtime_permission_lock.sql',
+      ])
+      .execute();
+    if (ledger.length !== 2) throw new Error('Administrator schema unavailable.');
     await this.keys.verifyCustody(this.database);
     this.catalogs = await loadAdminRuntimeCatalogs(this.database, {
       ...Object.fromEntries(
