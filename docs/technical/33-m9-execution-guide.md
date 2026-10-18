@@ -1,5 +1,10 @@
 # M9 Execution Guide
 
+Current implementation verification and remaining real-launch conditions are
+recorded in the [M9 handoff audit](39-m9-verification-and-launch-handoff.md).
+The checkpoint notes below preserve implementation history; they do not approve
+real deployment, providers or cohort launch.
+
 M9 owns the controlled launch in the original
 [implementation plan](13-implementation-plan.md): approved production reference
 data and roles, production infrastructure, real canary journeys, a small initial
