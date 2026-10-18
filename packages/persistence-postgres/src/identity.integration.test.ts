@@ -4,6 +4,7 @@ import {
   M9_PROFILE_TEXTS,
   M9_REPORT_TEXTS,
   M9_ADMIN_TEXTS,
+  M9_CHAT_TEXTS,
 } from '@nakh/localization';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -209,13 +210,18 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     const store = new PostgresLocalizationStore(database);
     const english = await store.loadActiveCatalog('en');
     const inactiveFallback = await store.loadActiveCatalog('fa');
+    for (const [key, value] of Object.entries(M9_CHAT_TEXTS)) {
+      expect(english.messages[key]).toBe(value);
+      expect(inactiveFallback.messages[key]).toBe(value);
+    }
     expect(Object.keys(english.messages)).toHaveLength(
       607 +
         Object.keys(M9_SIGNUP_TEXTS).length +
         Object.keys(M9_PREVIEW_TEXTS).length +
         Object.keys(M9_PROFILE_TEXTS).length +
         Object.keys(M9_REPORT_TEXTS).length +
-        Object.keys(M9_ADMIN_TEXTS).length,
+        Object.keys(M9_ADMIN_TEXTS).length +
+        Object.keys(M9_CHAT_TEXTS).length,
     );
     expect(Object.keys(english.messages)).toEqual(
       expect.arrayContaining([

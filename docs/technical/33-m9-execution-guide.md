@@ -17,6 +17,12 @@ release conditions.
 
 ## Scope and completion
 
+The chat candidate `c66633a` passed quality but failed its API native shard:
+the identity catalog assertion omitted the twelve new chat texts (659 expected,
+671 installed). The repair includes the chat manifest in the exact count and
+checks every English value and inactive-locale fallback. This failed head is not
+an accepted release; the changed repair requires its own full check and six jobs.
+
 The chat composition candidate adds `NAKH_TELEGRAM_CHAT_ENABLED`, disabled by
 default and dependent on the existing primary signup entry. The ordinary gateway
 dispatches owned chat callbacks and replies before signup and photo ingestion.
