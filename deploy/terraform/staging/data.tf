@@ -130,11 +130,11 @@ resource "aws_secretsmanager_secret" "runtime" {
 
 resource "aws_secretsmanager_secret_version" "runtime" {
   secret_id = aws_secretsmanager_secret.runtime.id
-  secret_string = jsonencode({
+  secret_string = jsonencode(merge({
     NAKH_DATABASE_URL              = "postgresql://nakh_admin:${random_password.database.result}@${aws_db_instance.postgres.address}:5432/nakh?sslmode=require"
     NAKH_REDIS_URL                 = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379"
     NAKH_TELEGRAM_BOT_TOKEN        = var.telegram_bot_token
     NAKH_TELEGRAM_WEBHOOK_SECRET   = var.telegram_webhook_secret
     NAKH_TELEGRAM_ACTION_TOKEN_KEY = var.telegram_action_token_key
-  })
+  }, local.purpose_database_urls))
 }

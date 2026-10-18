@@ -12,6 +12,7 @@ import {
   type StagingReleaseContext,
 } from './staging-release.js';
 import { stagingReleaseCustody } from './staging-release-custody.js';
+import { databaseRoleIsolationInput } from './runtime-database-secrets.js';
 
 const exec = promisify(execFile);
 function denied(): never {
@@ -140,6 +141,13 @@ async function main(): Promise<void> {
     images: proof.images,
   });
   const defaults = object(output('release_default_capacity'));
+  const databaseRoleIsolation = databaseRoleIsolationInput(
+    process.env.TF_VAR_database_role_isolation_enabled,
+    outputs.database_role_isolation_enabled === undefined
+      ? undefined
+      : output('database_role_isolation_enabled'),
+    mode === 'drain' || mode === 'maintain',
+  );
   const context: StagingReleaseContext = {
     sourceSha,
     controllerSha: process.env.GITHUB_SHA,
@@ -156,6 +164,7 @@ async function main(): Promise<void> {
     defaultMin: Number(defaults.min),
     defaultMax: Number(defaults.max),
     secretArn: String(output('runtime_secret_arn')),
+    ...(databaseRoleIsolation ? { databaseRoleIsolation: true as const } : {}),
     subnets: output('private_subnet_ids') as string[],
     securityGroup: String(output('service_security_group_id')),
     bucket: String(output('release_evidence_bucket')),
@@ -232,6 +241,8 @@ async function main(): Promise<void> {
   if (mode === 'drain') await release.drain(process.env.RELEASE_RECOVERY_INTENT || undefined);
   else if (mode === 'migrate') {
     await release.task('migration', String(output('migration_task_definition_arn')));
+    if (context.databaseRoleIsolation === true)
+      await release.task('roles', String(output('migration_task_definition_arn')));
     await release.task('compatibility', String(output('migration_task_definition_arn')));
   } else if (mode === 'schema')
     await release.task('compatibility', String(output('migration_task_definition_arn')));

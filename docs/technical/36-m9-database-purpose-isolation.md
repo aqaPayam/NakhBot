@@ -102,7 +102,30 @@ requires actual SCRAM authentication; local trust authentication is not represen
 as password-authentication evidence. The SCRAM derivation has an independent
 RFC 7677 server-signature vector test.
 
-## Remaining adoption
+## Staging release binding
+
+`database_role_isolation_enabled` remains false by default. The reviewed staging
+workflow can enable it with `STAGING_DATABASE_ROLE_ISOLATION_ENABLED=true`.
+Five distinct 32-byte credentials use the pinned provider's
+[sensitive byte resource](https://github.com/hashicorp/terraform-provider-random/blob/v3.9.0/internal/provider/resource_bytes.go),
+converted to canonical unpadded base64url. They remain in the existing protected
+Secrets Manager value and encrypted Terraform state; no password is an output or
+command argument. The ordinary containers receive only their host's purpose
+references. The migration container alone receives the owner and all five
+purpose references. Its explicit dependency writes the secret version even during
+targeted task registration. Configuration does not activate services.
+
+The captured release context binds the desired isolation mode before drain and
+requires Terraform output convergence afterwards. Definitions reject plaintext
+URLs, duplicate/missing fields, an owner URL on an ordinary host and extra purpose
+credentials. Legacy inactive definitions remain supported. While drained, the
+controller runs migration, source-bound role provisioning and compatibility in
+that order. A deterministic release-bound command ID preserves native replay;
+durable role success is mandatory for compatibility, admission and health. Failed
+or unknown task outcomes retain maintenance. AWS tests use mocked infrastructure
+with real local credential generation; they do not establish provider acceptance.
+
+## Native qualification and remaining adoption
 
 The public purpose has column-scoped appeal insertion and append-only submission
 proof insertion. Submission relies on the existing NULL/default review fields;

@@ -71,7 +71,7 @@ locals {
     local.product_environment
   )
   service_secrets = {
-    for service in keys(local.services) : service => concat(local.runtime_secrets,
+    for service in keys(local.services) : service => concat(local.database_service_secrets[service],
       var.product_runtime == null ? [] : [for name in local.product_manifest.secrets[service] : {
         name = name, valueFrom = lookup(local.product_secret_arns, name, "invalid")
       }]

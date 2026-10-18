@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { RELEASE_SERVICES, type ReleaseService } from './release-images.js';
 import { productScannerTaskHealthy, verifyProductScannerDefinition } from './runtime-product.js';
+import { verifyDatabaseSecretBindings } from './runtime-database-secrets.js';
 
 export type AwsReleaseCall = (
   service: 'ecs' | 'application-autoscaling',
@@ -36,6 +37,7 @@ export type StagingReleaseContext = Readonly<{
   defaultMin: number;
   defaultMax: number;
   secretArn: string;
+  databaseRoleIsolation?: true;
   subnets: readonly string[];
   securityGroup: string;
   bucket: string;
@@ -59,7 +61,7 @@ type Intent = {
   taskArns: string[];
   recoveryFrom: string | null;
 };
-type TaskKind = 'migration' | 'compatibility';
+type TaskKind = 'migration' | 'roles' | 'compatibility';
 const HOLD: Suspension = {
   DynamicScalingInSuspended: true,
   DynamicScalingOutSuspended: true,
@@ -158,6 +160,7 @@ export function stagingBootstrapAdmission(
 }
 export function captureStagingContext(input: StagingReleaseContext): StagingReleaseContext {
   const c = structuredClone(input);
+  if (c.databaseRoleIsolation !== undefined && c.databaseRoleIsolation !== true) denied();
   if (
     !/^[a-f0-9]{40}$/u.test(c.sourceSha) ||
     !/^[a-f0-9]{40}$/u.test(c.controllerSha) ||
@@ -228,6 +231,7 @@ export function captureStagingContext(input: StagingReleaseContext): StagingRele
     defaultMin: c.defaultMin,
     defaultMax: c.defaultMax,
     secretArn: c.secretArn,
+    ...(c.databaseRoleIsolation === true ? { databaseRoleIsolation: true as const } : {}),
     subnets: subnets.sort(),
     securityGroup: c.securityGroup,
     bucket: c.bucket,
@@ -728,13 +732,13 @@ export class StagingRelease {
       !env.some((e) => e.name === 'NAKH_ENV' && e.value === 'staging') ||
       env.filter((e) => e.name === 'NAKH_SERVICE_NAME').length !== 1 ||
       !env.some((e) => e.name === 'NAKH_SERVICE_NAME' && e.value === name) ||
-      env.some((e) => e.name === 'NAKH_DATABASE_URL') ||
-      secrets.filter((e) => e.name === 'NAKH_DATABASE_URL').length !== 1 ||
-      secrets.filter(
-        (e) =>
-          e.name === 'NAKH_DATABASE_URL' &&
-          e.valueFrom === this.context.secretArn + ':NAKH_DATABASE_URL::',
-      ).length !== 1
+      !verifyDatabaseSecretBindings(
+        name,
+        this.context.databaseRoleIsolation === true,
+        this.context.secretArn,
+        env,
+        secrets,
+      )
     )
       denied();
     if (
@@ -753,9 +757,23 @@ export class StagingRelease {
     return scanner;
   }
   async task(kind: TaskKind, taskDefinition: string): Promise<void> {
+    if (
+      kind === 'roles' &&
+      (this.context.databaseRoleIsolation !== true || !(await this.read('migration-succeeded')))
+    )
+      denied();
+    if (
+      kind === 'compatibility' &&
+      this.context.databaseRoleIsolation === true &&
+      !(await this.read('roles-succeeded'))
+    )
+      denied();
+    const roleHash = releaseHash(['nakh-runtime-roles-v1', this.context]);
+    const roleCommandId = `${roleHash.slice(0, 8)}-${roleHash.slice(8, 12)}-4${roleHash.slice(13, 16)}-8${roleHash.slice(17, 20)}-${roleHash.slice(20, 32)}`;
     const command = [
       'node',
-      `node_modules/@nakh/persistence-postgres/dist/cli/${kind === 'migration' ? 'migrate' : 'compatibility'}.js`,
+      `node_modules/@nakh/persistence-postgres/dist/cli/${kind === 'migration' ? 'migrate' : kind === 'roles' ? 'provision-runtime-roles' : 'compatibility'}.js`,
+      ...(kind === 'roles' ? [roleCommandId, this.context.sourceSha] : []),
     ];
     const request = {
       cluster: this.context.cluster,
@@ -867,6 +885,8 @@ export class StagingRelease {
   }
   async admission(): Promise<Record<ReleaseService, ReleaseCapacity>> {
     await this.requireQuiet();
+    if (this.context.databaseRoleIsolation === true && !(await this.read('roles-succeeded')))
+      denied();
     const proof = await this.read('compatibility-succeeded');
     if (
       !proof ||
@@ -890,7 +910,11 @@ export class StagingRelease {
     await this.loadObservations();
     const intent = await this.intent(),
       caps = await this.capacities();
-    if (!(await this.read('compatibility-succeeded'))) denied();
+    if (
+      !(await this.read('compatibility-succeeded')) ||
+      (this.context.databaseRoleIsolation === true && !(await this.read('roles-succeeded')))
+    )
+      denied();
     for (let i = 0; i < 60; i++) {
       const targets = await this.targets();
       if (

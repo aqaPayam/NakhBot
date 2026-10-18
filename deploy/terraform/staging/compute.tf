@@ -41,6 +41,7 @@ locals {
     { name = "NAKH_DATABASE_POOL_MAX", value = "10" },
     { name = "NAKH_DATABASE_STATEMENT_TIMEOUT_MS", value = "5000" },
     { name = "NAKH_DATABASE_LOCK_TIMEOUT_MS", value = "1000" },
+    { name = "NAKH_DATABASE_ROLE_ISOLATION_ENABLED", value = tostring(var.database_role_isolation_enabled) },
     { name = "NAKH_QUEUE_PREFIX", value = local.name },
     { name = "NAKH_TELEGRAM_BOT_TOKEN_REF", value = "NAKH_TELEGRAM_BOT_TOKEN" },
     { name = "NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF", value = "NAKH_TELEGRAM_ACTION_TOKEN_KEY" },
@@ -483,10 +484,11 @@ resource "aws_ecs_task_definition" "service" {
     },
   ], each.key == "worker" && local.product_scanner_enabled ? [local.scanner_container] : []))
 
-  depends_on = [terraform_data.product_runtime]
+  depends_on = [terraform_data.product_runtime, aws_secretsmanager_secret_version.runtime]
 }
 
 resource "aws_ecs_task_definition" "migration" {
+  depends_on = [aws_secretsmanager_secret_version.runtime]
   lifecycle {
     precondition {
       condition     = local.release_images_ready
@@ -511,7 +513,7 @@ resource "aws_ecs_task_definition" "migration" {
       { name = "NAKH_SERVICE_NAME", value = "migration" },
       { name = "NAKH_HTTP_PORT", value = "3000" },
     ])
-    secrets = local.runtime_secrets
+    secrets = local.database_migration_secrets
     command = ["node", "node_modules/@nakh/persistence-postgres/dist/cli/migrate.js"]
     logConfiguration = {
       logDriver = "awslogs"

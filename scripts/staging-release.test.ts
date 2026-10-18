@@ -2,6 +2,7 @@ import { stagingContext } from './testing/staging-release-context.js';
 import productManifest from '../deploy/runtime-product.json' with { type: 'json' };
 import { describe, expect, it } from 'vitest';
 import { RELEASE_SERVICES, type ReleaseService } from './release-images.js';
+import { databaseSecretFields } from './runtime-database-secrets.js';
 import {
   StagingRelease,
   captureStagingContext,
@@ -16,7 +17,7 @@ type Raw = Record<string, unknown>;
 function obj(value: unknown): Raw {
   return value as Raw;
 }
-function fixture(): {
+function fixture(databaseRoleIsolation = false): {
   context: StagingReleaseContext;
   release: () => StagingRelease;
   records: Map<string, string>;
@@ -48,7 +49,10 @@ function fixture(): {
   };
   definition: string;
 } {
-  const context = stagingContext(),
+  const context: StagingReleaseContext = {
+      ...stagingContext(),
+      ...(databaseRoleIsolation ? { databaseRoleIsolation: true as const } : {}),
+    },
     clock = { now: 1800000000000 },
     records = new Map<string, string>(),
     calls: Array<{ operation: string; input: Raw }> = [];
@@ -207,13 +211,16 @@ function fixture(): {
           },
           { name: 'NAKH_ENV', value: 'staging' },
           { name: 'NAKH_SERVICE_NAME', value: name },
+          ...(context.databaseRoleIsolation === true
+            ? [{ name: 'NAKH_DATABASE_ROLE_ISOLATION_ENABLED', value: 'true' }]
+            : []),
         ],
-        secrets: [
-          {
-            name: 'NAKH_DATABASE_URL',
-            valueFrom: (fault.badDb ? 'WRONG_SECRET' : context.secretArn) + ':NAKH_DATABASE_URL::',
-          },
-        ],
+        secrets: Object.entries(
+          databaseSecretFields(name, context.databaseRoleIsolation === true),
+        ).map(([key, field]) => ({
+          name: key,
+          valueFrom: (fault.badDb ? 'WRONG_SECRET' : context.secretArn) + ':' + field + '::',
+        })),
         ...(name === 'migration'
           ? { command: ['node', 'node_modules/@nakh/persistence-postgres/dist/cli/migrate.js'] }
           : {}),
@@ -785,5 +792,58 @@ describe('actual staging release orchestration protocol', () => {
     raw.payloadHash = '0'.repeat(64);
     f.records.set(r.prefix + 'intent.json', JSON.stringify(raw));
     await expect(f.release().drain()).rejects.toThrow();
+  });
+  it('requires migrated, source-bound role provisioning before compatibility and activation, and resumes it once', async () => {
+    const f = fixture(true),
+      r = f.release();
+    await r.drain();
+    await expect(r.task('roles', f.definition)).rejects.toThrow();
+    expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(0);
+    await r.task('migration', f.definition);
+    await expect(r.task('compatibility', f.definition)).rejects.toThrow();
+    await r.task('roles', f.definition);
+    const roleCall = f.calls.filter((call) => call.operation === 'run-task').at(-1)!;
+    const override = (obj(roleCall.input.overrides).containerOverrides as Raw[])[0]!;
+    const command = override.command as string[];
+    expect(command.slice(0, 2)).toEqual([
+      'node',
+      'node_modules/@nakh/persistence-postgres/dist/cli/provision-runtime-roles.js',
+    ]);
+    expect(command[2]).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-8[a-f0-9]{3}-[a-f0-9]{12}$/u);
+    expect(command[3]).toBe(f.context.sourceSha);
+    await f.release().task('roles', f.definition);
+    expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(2);
+    await r.task('compatibility', f.definition);
+    const caps = await r.admission();
+    f.activate(caps);
+    await r.healthy();
+  });
+  it('keeps a failed role task from granting compatibility or activation', async () => {
+    const f = fixture(true),
+      r = f.release();
+    await r.drain();
+    await r.task('migration', f.definition);
+    f.fault.badExit = true;
+    await expect(r.task('roles', f.definition)).rejects.toThrow();
+    f.fault.badExit = false;
+    await expect(r.task('compatibility', f.definition)).rejects.toThrow();
+    await expect(r.admission()).rejects.toThrow();
+    expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(2);
+    expect([...f.services.values()].every((service) => service.desiredCount === 0)).toBe(true);
+  });
+  it('does not enable role provisioning for a legacy release or reuse its receipts after a flag change', async () => {
+    const f = fixture(),
+      r = f.release();
+    await r.drain();
+    await expect(r.task('roles', f.definition)).rejects.toThrow();
+    const changed = new StagingRelease(
+      { ...f.context, databaseRoleIsolation: true },
+      f.aws,
+      f.custody,
+      f.pause,
+      () => f.clock.now,
+    );
+    await expect(changed.drain()).rejects.toThrow();
+    expect(f.calls.filter((call) => call.operation === 'run-task')).toHaveLength(0);
   });
 });

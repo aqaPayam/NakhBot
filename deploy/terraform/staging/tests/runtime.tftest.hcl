@@ -30,11 +30,8 @@ mock_provider "aws" {
     defaults = { arn = "arn:aws:wafv2:eu-west-1:123456789012:regional/webacl/nakh-synthetic/00000000-0000-4000-8000-000000000000" }
   }
 }
-mock_provider "random" {
-  mock_resource "random_password" {
-    defaults = { result = "syntheticPasswordOnly123456789012345678901234567890" }
-  }
-}
+# AWS is mocked. Real local random generation proves the credential encoding;
+# random_bytes keeps its secret outputs sensitive and has no printable ID.
 
 variables {
   aws_region                = "eu-west-1"
@@ -48,6 +45,46 @@ run "inactive_defaults" {
   assert {
     condition     = length(jsondecode(aws_ecs_task_definition.service["worker"].container_definitions)) == 2 && aws_ecs_service.service["worker"].desired_count == 0
     error_message = "Default composition must preserve two containers and zero running services."
+  }
+}
+
+run "purpose_migration_target" {
+  command   = apply
+  state_key = "purpose-migration-only"
+  variables { database_role_isolation_enabled = true }
+  plan_options { target = [aws_ecs_task_definition.migration] }
+  assert {
+    condition     = output.database_role_isolation_enabled == true
+    error_message = "Targeted registration must publish the selected isolation mode for the next controller phase."
+  }
+  assert {
+    condition     = length(random_bytes.database_purpose) == 5 && length(jsondecode(aws_secretsmanager_secret_version.runtime.secret_string)) == 10
+    error_message = "Targeted migration registration must also create all five protected purpose values."
+  }
+  assert {
+    condition     = length(jsondecode(aws_ecs_task_definition.migration.container_definitions)[0].secrets) == 10
+    error_message = "Only the migration task receives the owner and all five purpose references."
+  }
+}
+
+run "purpose_service_bindings" {
+  command = apply
+  variables { database_role_isolation_enabled = true }
+  assert {
+    condition     = alltrue([for name, role in local.database_roles : can(regex("^postgresql://${role}:[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]@[^?]+[?]sslmode=require$", jsondecode(aws_secretsmanager_secret_version.runtime.secret_string)[name]))]) && length(distinct([for name in keys(local.database_roles) : regex("^postgresql://[^:]+:([^@]+)@", jsondecode(aws_secretsmanager_secret_version.runtime.secret_string)[name])[0]])) == 5
+    error_message = "Real local generation must produce five distinct canonical 32-byte passwords without printing them."
+  }
+  assert {
+    condition     = alltrue([for name in ["api", "telegram-gateway", "worker", "scheduler"] : one([for entry in jsondecode(aws_ecs_task_definition.service[name].container_definitions)[0].secrets : entry.valueFrom if entry.name == "NAKH_DATABASE_URL"]) == "${aws_secretsmanager_secret.runtime.arn}:${name == "scheduler" ? "NAKH_SCHEDULER_DATABASE_URL" : "NAKH_USER_DATABASE_URL"}::"])
+    error_message = "Every ordinary host must receive its fixed base purpose instead of the migration owner."
+  }
+  assert {
+    condition     = alltrue([for name in ["api", "telegram-gateway", "worker", "scheduler"] : one([for entry in jsondecode(aws_ecs_task_definition.service[name].container_definitions)[0].environment : entry.value if entry.name == "NAKH_DATABASE_ROLE_ISOLATION_ENABLED"]) == "true" && aws_ecs_service.service[name].desired_count == 0])
+    error_message = "Purpose configuration is enabled explicitly and never activates the fleet."
+  }
+  assert {
+    condition     = length([for entry in jsondecode(aws_ecs_task_definition.service["api"].container_definitions)[0].secrets : entry if endswith(entry.name, "DATABASE_URL")]) == 2 && length([for entry in jsondecode(aws_ecs_task_definition.service["telegram-gateway"].container_definitions)[0].secrets : entry if endswith(entry.name, "DATABASE_URL")]) == 3 && length([for entry in jsondecode(aws_ecs_task_definition.service["worker"].container_definitions)[0].secrets : entry if endswith(entry.name, "DATABASE_URL")]) == 3 && length([for entry in jsondecode(aws_ecs_task_definition.service["scheduler"].container_definitions)[0].secrets : entry if endswith(entry.name, "DATABASE_URL")]) == 2
+    error_message = "Hosts receive only their assigned number of purpose credentials."
   }
 }
 
