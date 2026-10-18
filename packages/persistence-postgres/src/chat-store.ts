@@ -10,11 +10,13 @@ import type {
   SendTextChatMessageWrite,
   StoredChatCapability,
   TextChatMessageStore,
+  UserSessionActor,
 } from '@nakh/application';
 import type { ChatMessageResult, SendTextMessageCommand } from '@nakh/contracts';
 import { ApplicationError, evaluateChatCapabilities } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 import { insertNotification } from './notification-store.js';
 import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 
@@ -321,14 +323,33 @@ async function loadPrompt(
 export class PostgresChatStore
   implements PredefinedChatMessageStore, TextChatMessageStore, ChatCapabilityStore
 {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
+
+  private capability(input: {
+    userId: string;
+    matchId?: string;
+    chatSessionId?: string;
+  }): Promise<StoredChatCapability> {
+    const captured = { ...input };
+    if (this.owner === undefined) return loadChatCapability(this.database, captured);
+    return this.database.transaction().execute(async (transaction) => {
+      await requireCurrentUserSession(transaction, captured.userId, this.owner!);
+      return loadChatCapability(transaction, captured);
+    });
+  }
 
   public loadForMatch(userId: string, matchId: string): Promise<StoredChatCapability> {
-    return loadChatCapability(this.database, { userId, matchId });
+    return this.capability({ userId, matchId });
   }
 
   public loadForSession(userId: string, chatSessionId: string): Promise<StoredChatCapability> {
-    return loadChatCapability(this.database, { userId, chatSessionId });
+    return this.capability({ userId, chatSessionId });
   }
 
   public markSafetyWarningShown(input: {
@@ -336,8 +357,11 @@ export class PostgresChatStore
     chatSessionId: string;
     expectedVersion: number;
   }): Promise<StoredChatCapability> {
+    input = structuredClone(input);
     return this.database.transaction().execute(async (transaction) => {
       await lockAuthorizedChat(transaction, input.chatSessionId, input.userId, 'read');
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, input.userId, this.owner);
       const participant = await transaction
         .selectFrom('chat.chat_participants')
         .select(['version', 'unlock_safety_warning_shown_at'])
@@ -368,6 +392,7 @@ export class PostgresChatStore
   }
 
   public sendPredefined(write: SendPredefinedChatMessageWrite): Promise<ChatMessageResult> {
+    write = structuredClone(write);
     if (write.command.actor.kind !== 'user')
       return Promise.reject(
         new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
@@ -379,6 +404,8 @@ export class PostgresChatStore
         write.chatSessionId,
         write.command.actor.userId,
       );
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, write.command.actor.userId, this.owner);
       const replay = await claimCommand(transaction, write, occurredAt);
       if (replay !== undefined) return replay;
       const prompt = await loadPrompt(transaction, write.command);
@@ -471,6 +498,7 @@ export class PostgresChatStore
   }
 
   public sendText(write: SendTextChatMessageWrite): Promise<ChatMessageResult> {
+    write = structuredClone(write);
     if (write.command.actor.kind !== 'user')
       return Promise.reject(
         new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
@@ -482,6 +510,8 @@ export class PostgresChatStore
         write.chatSessionId,
         write.command.actor.userId,
       );
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, write.command.actor.userId, this.owner);
       const replay = await claimCommand(transaction, write, occurredAt);
       if (replay !== undefined) return replay;
       const unlock = await transaction

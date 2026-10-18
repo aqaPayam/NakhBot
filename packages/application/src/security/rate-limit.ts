@@ -8,6 +8,8 @@ export const RATE_LIMIT_SCOPES = [
   'telegram_account_return',
   'telegram_fresh_entry',
   'telegram_report',
+  'chat_write',
+  'chat_session_write',
   'signup_write',
   'profile_write',
   'protected_change_request',

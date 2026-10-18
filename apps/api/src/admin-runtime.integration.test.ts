@@ -29,12 +29,14 @@ import {
   createPostgresUserSessions,
   PostgresAdminTotpOperator,
   PostgresAccountReturnStore,
+  PostgresUserSessionStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
 import {
   createReportUser,
   createReportLike,
+  createReportChat,
   createRetainedPhotoReview,
 } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { createAccountReturnFixture } from '../../../packages/persistence-postgres/src/testing/account-return-fixture.js';
@@ -336,15 +338,20 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         },
       };
       hosts.push(host);
-      if (ready)
-        await vi.waitFor(
-          async () => {
-            if (child.exitCode !== null || child.signalCode !== null)
-              throw new Error('Native host exited: ' + diagnostics);
-            expect((await localRequest(host.origin + '/health/ready')).status).toBe(200);
-          },
-          { timeout: 25000, interval: 100 },
-        );
+      if (ready) {
+        try {
+          await vi.waitFor(
+            async () => {
+              if (child.exitCode !== null || child.signalCode !== null)
+                throw new Error('Native host exited: ' + diagnostics);
+              expect((await localRequest(host.origin + '/health/ready')).status).toBe(200);
+            },
+            { timeout: 25000, interval: 100 },
+          );
+        } catch {
+          throw new Error('Native host readiness failed: ' + diagnostics);
+        }
+      }
       return host;
     }
     beforeAll(async () => {
@@ -919,6 +926,142 @@ process.on('message', message => {
       return Buffer.from(bits.match(/.{8}/gu)!.map((b) => parseInt(b, 2)));
     }
 
+    it('composes chat through the ordinary compiled gateway with the original primary grant', async () => {
+      const owner = await register(),
+        second = await createReportUser(database, true),
+        now = new Date();
+      const profile = await database
+        .selectFrom('profile.profiles')
+        .selectAll()
+        .where('user_id', '=', second)
+        .executeTakeFirstOrThrow();
+      await database
+        .insertInto('profile.profiles')
+        .values({ ...profile, id: randomUUID(), user_id: owner.userId })
+        .execute();
+      await database
+        .updateTable('identity.accounts')
+        .set({ state: 'active' })
+        .where('user_id', '=', owner.userId)
+        .execute();
+      await database
+        .insertInto('identity.user_settings')
+        .values({ user_id: second, visibility_enabled: true, created_at: now, updated_at: now })
+        .execute();
+      await database
+        .insertInto('notification.notification_preferences')
+        .values({ user_id: second, created_at: now, updated_at: now })
+        .execute();
+      const chat = await createReportChat(database, owner.userId, second),
+        [low, high] = [owner.userId, second].sort() as [string, string];
+      await database
+        .insertInto('interaction.user_pair_states')
+        .values({
+          user_low_id: low,
+          user_high_id: high,
+          state: 'matched',
+          reason_code: 'mutual_like',
+          changed_at: now,
+        })
+        .execute();
+      const grants = (): Promise<{ id: string }[]> =>
+        database
+          .selectFrom('platform.audit_logs')
+          .select('id')
+          .where('actor_user_id', '=', owner.userId)
+          .where('event_type', '=', 'identity.user-session-issued.v1')
+          .execute();
+      const original = await grants();
+      expect(original).toHaveLength(1);
+      const host = await start('telegram-gateway', { NAKH_TELEGRAM_CHAT_ENABLED: 'true' });
+      const send = (payload: unknown): Promise<Response> =>
+        localRequest(host.origin + '/v1/providers/telegram/webhook', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-bot-api-secret-token': webhookSecret,
+          },
+          body: JSON.stringify(payload),
+        });
+      const click = async (
+        data: string,
+        eventId = ++updateId,
+        sender = owner.telegramUserId,
+      ): Promise<void> => {
+        const response = await send({
+          update_id: eventId,
+          callback_query: {
+            id: `chat-${eventId}`,
+            data,
+            from: { id: Number(sender), is_bot: false },
+            message: {
+              message_id: 1,
+              from: { id: botId, is_bot: true },
+              chat: { id: Number(sender), type: 'private' },
+            },
+          },
+        });
+        expect(response.status).toBe(201);
+      };
+      const button = (label: string): string => {
+        const data = host.menus
+          .filter((m) => String(m.chat_id) === owner.telegramUserId)
+          .at(-1)
+          ?.reply_markup?.inline_keyboard?.flat()
+          .find((b) => b.text === label)?.callback_data;
+        if (data === undefined) throw Error('Compiled chat button missing');
+        return data;
+      };
+      const started = await send({
+        // Retry the original primary entry in the recreated process. A fresh
+        // /start is allowed to issue its own primary grant; chat callbacks are not.
+        update_id: owner.eventId,
+        message: {
+          message_id: owner.eventId,
+          date: Math.floor(Date.now() / 1000),
+          text: '/start',
+          from: { id: Number(owner.telegramUserId), is_bot: false },
+          chat: { id: Number(owner.telegramUserId), type: 'private' },
+        },
+      });
+      expect(started.status).toBe(201);
+      await click(button('Chats'));
+      const selected = host.menus.at(-1)!.reply_markup!.inline_keyboard![0]![0]!.callback_data!;
+      expect(selected).toMatch(/^m9c:/u);
+      expect(selected).not.toContain(chat.matchId);
+      await click(selected);
+      await click(button('Ask a question'));
+      const question = host.menus.at(-1)!.reply_markup!.inline_keyboard![0]![0]!.callback_data!,
+        eventId = ++updateId;
+      await Promise.all(Array.from({ length: 8 }, () => click(question, eventId)));
+      expect(
+        await database
+          .selectFrom('chat.chat_messages')
+          .select('id')
+          .where('chat_session_id', '=', chat.chatSessionId)
+          .execute(),
+      ).toHaveLength(1);
+      expect(await grants()).toEqual(original);
+      const borrower = await register();
+      await click(question, ++updateId, borrower.telegramUserId);
+      const before = host.menus.filter((m) => String(m.chat_id) === owner.telegramUserId).length;
+      await new PostgresUserSessionStore(database).revoke(
+        { userId: owner.userId, productEpoch: 0 },
+        original[0]!.id,
+        randomUUID(),
+      );
+      await click(selected);
+      expect(host.menus.filter((m) => String(m.chat_id) === owner.telegramUserId)).toHaveLength(
+        before,
+      );
+      expect(
+        await database
+          .selectFrom('chat.chat_messages')
+          .select('id')
+          .where('chat_session_id', '=', chat.chatSessionId)
+          .execute(),
+      ).toHaveLength(1);
+    });
     it('uses actual private webhook entry, one original grant across retries, native TOTP and the running administrator queue', async () => {
       const telegramUserId = String(++telegramSequence),
         event = ++updateId;

@@ -119,6 +119,7 @@ describe.skipIf(url === undefined)('M8 owned notice archival and original safety
       '000156_m9_profile_detail_presentation.sql',
       '000157_m9_public_report_presentation.sql',
       '000158_m9_administrator_signin_presentation.sql',
+      '000159_m9_chat_presentation.sql',
     ]);
     expect(
       (

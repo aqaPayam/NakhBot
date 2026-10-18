@@ -18,6 +18,21 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('enables public chat only alongside the existing primary signup entry', () => {
+    expect(parseConfig(validEnvironment).telegram.chatEnabled).toBe(false);
+    expect(() => parseConfig({ ...validEnvironment, NAKH_TELEGRAM_CHAT_ENABLED: 'true' })).toThrow(
+      'Chat requires signup',
+    );
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_TELEGRAM_CHAT_ENABLED: 'true',
+        NAKH_TELEGRAM_SIGNUP_ENABLED: 'true',
+        NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
+        NAKH_MEDIA_INGESTION_ENABLED: 'true',
+      }).telegram.chatEnabled,
+    ).toBe(true);
+  });
   it('keeps administrator media closed until administration and real cache purge are configured', () => {
     expect(parseConfig(validEnvironment).administration.mediaEnabled).toBe(false);
     const media = { ...validEnvironment, NAKH_ADMIN_MEDIA_ENABLED: 'true' };

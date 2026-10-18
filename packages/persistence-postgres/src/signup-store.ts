@@ -269,7 +269,10 @@ export class PostgresSignupStore implements SignupStore {
     userId: string,
     productEpoch: number,
     requestId: string,
+    purpose: 'signup' | 'chat' = 'signup',
   ): Promise<void> {
+    if (!['signup', 'chat'].includes(purpose))
+      throw new ApplicationError('invalid_request', 'error.signup.step.invalid', 400);
     await this.database.transaction().execute(async (tx) => {
       await tx
         .selectFrom('identity.users')
@@ -290,7 +293,10 @@ export class PostgresSignupStore implements SignupStore {
         .values({
           id: requestId,
           category: 'security',
-          event_type: 'identity.signup-navigation-denied.v1',
+          event_type:
+            purpose === 'signup'
+              ? 'identity.signup-navigation-denied.v1'
+              : 'chat.navigation-denied.v1',
           actor_type: 'user',
           actor_user_id: userId,
           actor_admin_id: null,

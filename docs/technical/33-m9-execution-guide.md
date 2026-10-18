@@ -17,6 +17,30 @@ release conditions.
 
 ## Scope and completion
 
+The chat composition candidate adds `NAKH_TELEGRAM_CHAT_ENABLED`, disabled by
+default and dependent on the existing primary signup entry. The ordinary gateway
+dispatches owned chat callbacks and replies before signup and photo ingestion.
+The root menu passes its captured native user grant; chat navigation cannot issue
+or renew one. A separate MAC domain binds opaque menus and private bot replies to
+the Telegram owner, product life, original grant, expected version and expiry.
+
+The transport composes the existing M6 handlers for bounded history, predefined
+questions/answers, unlocked text, read state, mute and separately confirmed
+Unmatch. Credit unlock requires its own confirmation and existing native price.
+The native stores recheck captured grants after canonical pair locks and before
+effects or replay. Mute commands retain the selected value across retries. Safety
+warnings require provider acknowledgement before the native shown marker. Private
+message bodies remain outside navigation/cache values. Migration 159 installs
+twelve presentation texts; enabled startup verifies every active UI locale.
+
+Local PostgreSQL/Redis tests exercise concurrency, original-grant revocation,
+payment replay, provider-warning failure, private text and Unmatch. The ordinary
+compiled gateway also requires webhook/menu evidence before this candidate is
+accepted. These synthetic provider transports do not establish real Telegram
+delivery or controlled-launch acceptance. Stored-content notification relay,
+chat reporting entry, trusted operator provisioning and deployment composition
+remain separate open work under the original M9 launch requirements.
+
 | Original M9 requirement | Remaining implementation and acceptance |
 |---|---|
 | Production catalogs, text, prompts, prices/config and roles | Verify deterministic reference-data/config snapshots against explicit approved inputs; report drift without inventing prices, identities or role assignments. |

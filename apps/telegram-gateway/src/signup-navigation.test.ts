@@ -30,6 +30,45 @@ function fixture(): {
   };
 }
 describe('signup navigation integrity and concurrency', () => {
+  it('isolates chat callbacks, prompt replies and claims from signup and reporting', async () => {
+    const f = fixture();
+    const make = (purpose: 'signup' | 'report' | 'chat', epoch = 0): SignupNavigationTokens =>
+      new SignupNavigationTokens(
+        f.store,
+        Buffer.alloc(32, 1),
+        '12345',
+        '123',
+        { ...life, productEpoch: epoch },
+        undefined,
+        purpose,
+      );
+    const chats = make('chat'),
+      reports = make('report');
+    const nav: SignupNavigation = {
+      ...f.nav,
+      screen: 'chat_view',
+      reference: '30000000-0000-4000-8000-000000000001',
+      field: '40000000-0000-4000-8000-000000000001',
+    };
+    const button = await chats.button(nav);
+    expect(button).toMatch(/^m9c:/u);
+    expect(button).not.toContain(nav.reference);
+    expect(Buffer.byteLength(button)).toBeLessThanOrEqual(64);
+    expect(await chats.callback(button)).toEqual(nav);
+    expect(await f.tokens.callback(button)).toBeUndefined();
+    expect(await reports.callback(button)).toBeUndefined();
+    expect(await chats.callback(button.replace('m9c:', 'm9s:'))).toBeUndefined();
+    expect(await make('chat', 1).callback(button)).toBeUndefined();
+    await chats.prompt(555, { ...nav, action: 'reply', screen: 'chat_text' });
+    expect((await chats.reply(555))?.actor.sessionGrantId).toBe(actor.sessionGrantId);
+    expect(await f.tokens.reply(555)).toBeUndefined();
+    expect(await reports.reply(555)).toBeUndefined();
+    const choices = await Promise.all(
+      Array.from({ length: 20 }, (_, i) => chats.claim(nav, i, button, nav)),
+    );
+    expect(choices.filter((c) => c.accepted)).toHaveLength(1);
+    expect((await chats.claim(nav, 0, button, nav)).accepted).toBe(true);
+  });
   it('separates report callbacks, private reply bindings and claims from signup', async () => {
     const f = fixture(),
       reports = new SignupNavigationTokens(

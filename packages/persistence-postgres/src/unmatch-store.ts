@@ -1,12 +1,13 @@
 import { sql } from 'kysely';
 
-import type { UnmatchStore, UnmatchWrite } from '@nakh/application';
+import type { UnmatchStore, UnmatchWrite, UserSessionActor } from '@nakh/application';
 import type { UnmatchResult } from '@nakh/contracts';
 import { ApplicationError, unmatchReportWindowExpiresAt } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 import { insertNotification } from './notification-store.js';
-import { lockUserPair } from './pair-lock.js';
+import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 
 function unavailable(): never {
   throw new ApplicationError('chat_unavailable', 'error.chat.unavailable', 409);
@@ -35,16 +36,23 @@ function result(
 }
 
 export class PostgresUnmatchStore implements UnmatchStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
 
   public unmatch(write: UnmatchWrite): Promise<UnmatchResult> {
+    write = structuredClone(write);
     if (write.command.actor.kind !== 'user')
       return Promise.reject(
         new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
       );
     return this.database.transaction().execute(async (transaction) => {
       const identity = await transaction
-        .selectFrom('matching.matches')
+        .selectFrom(this.owner === undefined ? 'matching.matches' : 'matching.current_match_lives')
         .select(['user_low_id', 'user_high_id'])
         .where('id', '=', write.matchId)
         .executeTakeFirst();
@@ -54,7 +62,12 @@ export class PostgresUnmatchStore implements UnmatchStore {
         (identity.user_low_id !== actorUserId && identity.user_high_id !== actorUserId)
       )
         unavailable();
-      await lockUserPair(transaction, identity.user_low_id, identity.user_high_id);
+      const pair = await lockUserPair(transaction, identity.user_low_id, identity.user_high_id);
+      if (this.owner !== undefined) {
+        // Match the shared pair -> ordered stable identities -> Accounts order.
+        await lockUserPairAccounts(transaction, pair);
+        await requireCurrentUserSession(transaction, actorUserId, this.owner);
+      }
       const accounts = await transaction
         .selectFrom('identity.accounts')
         .select(['user_id', 'state'])

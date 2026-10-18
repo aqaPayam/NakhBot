@@ -8,12 +8,14 @@ import type {
   ChatParticipantStateStore,
   MarkChatReadWrite,
   StoredChatPage,
+  UserSessionActor,
 } from '@nakh/application';
 import type { ChatMessage, ChatMuteResult, ChatReadResult } from '@nakh/contracts';
 import { ApplicationError, CHAT_VISIBLE_MESSAGE_LIMIT } from '@nakh/domain';
 
 import { loadChatCapability, lockAuthorizedChat } from './chat-store.js';
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 type StateWrite = MarkChatReadWrite | ChangeChatMuteWrite;
 type StateResult = ChatReadResult | ChatMuteResult;
@@ -168,7 +170,13 @@ function toMessage(
 }
 
 export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipantStateStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
 
   public async readPage(input: {
     userId: string;
@@ -176,6 +184,12 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
     limit: number;
     beforeSequenceNumber?: string;
   }): Promise<StoredChatPage> {
+    input = structuredClone(input);
+    if (this.owner !== undefined)
+      return this.database.transaction().execute(async (transaction) => {
+        await requireCurrentUserSession(transaction, input.userId, this.owner!);
+        return new PostgresChatStateStore(transaction).readPage(input);
+      });
     const capability = await loadChatCapability(this.database, input);
     if (!capability.canRead) unavailable();
     const rows = await this.database
@@ -246,6 +260,7 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
   }
 
   public markRead(write: MarkChatReadWrite): Promise<ChatReadResult> {
+    write = structuredClone(write);
     if (write.command.actor.kind !== 'user') return Promise.reject(new Error('unreachable'));
     return this.database.transaction().execute(async (transaction) => {
       await lockAuthorizedChat(
@@ -254,6 +269,8 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
         write.command.actor.userId,
         'read',
       );
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, write.command.actor.userId, this.owner);
       const occurredAt = await databaseTime(transaction);
       const replay = await claimCommand<ChatReadResult>(transaction, write, occurredAt);
       if (replay !== undefined) return replay;
@@ -324,6 +341,7 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
   }
 
   public changeMute(write: ChangeChatMuteWrite): Promise<ChatMuteResult> {
+    write = structuredClone(write);
     if (write.command.actor.kind !== 'user') return Promise.reject(new Error('unreachable'));
     return this.database.transaction().execute(async (transaction) => {
       await lockAuthorizedChat(
@@ -332,6 +350,8 @@ export class PostgresChatStateStore implements ChatHistoryStore, ChatParticipant
         write.command.actor.userId,
         'read',
       );
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, write.command.actor.userId, this.owner);
       const occurredAt = await databaseTime(transaction);
       const replay = await claimCommand<ChatMuteResult>(transaction, write, occurredAt);
       if (replay !== undefined) return replay;

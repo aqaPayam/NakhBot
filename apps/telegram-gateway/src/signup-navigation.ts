@@ -23,7 +23,8 @@ export type SignupNavigation = Readonly<{
     | 'nakh_credits'
     | 'nakh_pending'
     | 'nakh_stars'
-    | 'detail';
+    | 'detail'
+    | 'chat';
   code?: string | undefined;
   selection?: readonly string[] | undefined;
   field?: string | undefined;
@@ -58,12 +59,10 @@ export class SignupNavigationTokens {
     private readonly telegramUserId: string,
     life: Readonly<{ userId: string; productEpoch: number }>,
     private readonly now: () => number = Date.now,
-    private readonly purpose: 'signup' | 'report' = 'signup',
+    private readonly purpose: 'signup' | 'report' | 'chat' = 'signup',
   ) {
     if (key.byteLength !== 32) throw new Error('Signup key unavailable.');
-    this.key = createHmac('sha256', key)
-      .update(purpose === 'signup' ? 'nakh-signup-navigation-v1' : 'nakh-report-navigation-v1')
-      .digest();
+    this.key = createHmac('sha256', key).update(`nakh-${purpose}-navigation-v1`).digest();
     this.life = Object.freeze({ userId: life.userId, productEpoch: life.productEpoch });
   }
   private tag(id: string, body: string): string {
@@ -81,6 +80,9 @@ export class SignupNavigationTokens {
       .digest()
       .subarray(0, 16)
       .toString('base64url');
+  }
+  private prefix(): string {
+    return { signup: 'm9s', report: 'm9r', chat: 'm9c' }[this.purpose];
   }
   public replyId(messageId: number): string {
     if (!Number.isSafeInteger(messageId) || messageId < 1)
@@ -102,7 +104,7 @@ export class SignupNavigationTokens {
       !(await this.store.putIfAbsent(id, value, 900))
     )
       throw new Error('Signup navigation unavailable.');
-    return `${this.purpose === 'signup' ? 'm9s' : 'm9r'}:${id}:${mac}`;
+    return `${this.prefix()}:${id}:${mac}`;
   }
   public button(state: SignupNavigation): Promise<string> {
     if (state.action === 'reply') throw new Error('Signup navigation purpose invalid.');
@@ -153,8 +155,8 @@ export class SignupNavigationTokens {
     };
   }
   public async callback(data: string): Promise<SignupNavigation | undefined> {
-    const match = /^(m9s|m9r):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
-    return match === null || match[1] !== (this.purpose === 'signup' ? 'm9s' : 'm9r')
+    const match = /^(m9s|m9r|m9c):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
+    return match === null || match[1] !== this.prefix()
       ? undefined
       : this.read(match[2]!, match[3], false);
   }
@@ -215,6 +217,7 @@ export class SignupNavigationTokens {
         'nakh_pending',
         'nakh_stars',
         'detail',
+        'chat',
       ].includes(row.action) &&
       ['code', 'field', 'country', 'province', 'reference', 'reason'].every(
         (k) =>

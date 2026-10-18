@@ -23,6 +23,7 @@ export async function createAccountReturnFixture(
     controlLifetimeSeconds?: number;
     beforeDeletion?: (userId: string) => Promise<void>;
     beforeEvidenceCheckpoint?: (lease: AccountDeletionLease) => Promise<void>;
+    beforeProductCheckpoint?: (lease: AccountDeletionLease) => Promise<void>;
     beforeMediaCheckpoint?: (lease: AccountDeletionLease) => Promise<void>;
   } = {},
 ): Promise<{
@@ -43,7 +44,7 @@ export async function createAccountReturnFixture(
         );
       await options.beforeDeletion?.(userId);
     },
-    undefined,
+    options.beforeProductCheckpoint,
     options.beforeEvidenceCheckpoint,
     options.beforeMediaCheckpoint,
   );

@@ -7,6 +7,7 @@ import type {
   PaidActionStore,
   SpendCreditsForPaidActionWrite,
   StoredFeatureUnlock,
+  UserSessionActor,
 } from '@nakh/application';
 import { ApplicationError, calculateCreditBalance, getPaidActionPrice } from '@nakh/domain';
 
@@ -14,6 +15,7 @@ import { actionableLikedByFrom } from './liked-by-store.js';
 import { insertFeatureUnlockNotifications } from './notification-store.js';
 import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 function ledgerKey(write: SpendCreditsForPaidActionWrite): string {
   return `unlock:${createHash('sha256')
@@ -116,12 +118,21 @@ export async function lockAndValidatePaidActionTarget(
 }
 
 export class PostgresPaidActionStore implements PaidActionStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
 
   public async spendCredits(write: SpendCreditsForPaidActionWrite): Promise<StoredFeatureUnlock> {
+    write = structuredClone(write);
     return this.database.transaction().execute(async (transaction) => {
       const featureType = write.target.type === 'like' ? 'liked_by_profile_unlock' : 'chat_unlock';
       await lockAndValidatePaidActionTarget(transaction, write.userId, write.target);
+      if (this.owner !== undefined)
+        await requireCurrentUserSession(transaction, write.userId, this.owner);
 
       const existing = await transaction
         .selectFrom('interaction.feature_unlocks')

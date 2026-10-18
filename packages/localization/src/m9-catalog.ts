@@ -53,6 +53,21 @@ export const M9_REPORT_TEXTS = {
   'report.ui.cancelled': 'This report was cancelled. No report was submitted.',
 } as const;
 
+export const M9_CHAT_TEXTS = {
+  'chat.list.title': 'Chats',
+  'chat.list.empty': 'No active chats.',
+  'chat.history.self': 'You',
+  'chat.history.peer': 'Match',
+  'chat.history.older': 'Older messages',
+  'chat.history.refresh': 'Refresh messages',
+  'chat.button.back': 'Back',
+  'chat.button.confirm': 'Confirm',
+  'chat.button.cancel': 'Cancel',
+  'chat.unmatch.confirm': 'End this Match and close the chat permanently?',
+  'chat.unlock.confirm': 'Spend {credits} credits to unlock text chat for both participants?',
+  'chat.message.sent': 'Message sent.',
+} as const;
+
 export const M9_ADMIN_TEXTS = {
   'admin.auth.open': 'Administrator sign-in',
   'admin.auth.title': 'Sign in as an administrator',

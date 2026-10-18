@@ -77,6 +77,7 @@ import { createTelegramSignupRuntime, type TelegramSignupRuntimePort } from './s
 import { createTelegramStarsRuntime, type TelegramStarsRuntimePort } from './stars-runtime.js';
 import { createTelegramReportRuntime, type TelegramReportRuntimePort } from './report-runtime.js';
 import { createAdministratorTelegramRuntime } from './admin-runtime.js';
+import { createTelegramChatRuntime, type TelegramChatRuntimePort } from './chat-runtime.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const REPORT_INGRESS = Symbol('REPORT_INGRESS');
@@ -85,6 +86,7 @@ const ADMIN_SAFETY_CONTENT_INGRESS = Symbol('ADMIN_SAFETY_CONTENT_INGRESS');
 const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const SIGNUP_INGRESS = Symbol('SIGNUP_INGRESS');
+const CHAT_INGRESS = Symbol('CHAT_INGRESS');
 const STARS_INGRESS = Symbol('STARS_INGRESS');
 const PUBLIC_REPORT_INGRESS = Symbol('PUBLIC_REPORT_INGRESS');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
@@ -165,6 +167,7 @@ class TelegramGatewayController {
     @Inject(AUTHENTICATOR) private readonly authenticator: TelegramWebhookAuthenticator,
     @Inject(START_ADAPTER) private readonly startAdapter: Pick<TelegramStartAdapter, 'handle'>,
     @Inject(SIGNUP_INGRESS) private readonly signupIngress: TelegramSignupRuntimePort,
+    @Inject(CHAT_INGRESS) private readonly chatIngress: TelegramChatRuntimePort,
     @Inject(STARS_INGRESS) private readonly starsIngress: TelegramStarsRuntimePort,
     @Inject(PUBLIC_REPORT_INGRESS) private readonly publicReports: TelegramReportRuntimePort,
     @Inject(PHOTO_ADAPTER) private readonly photoAdapter: PhotoAdapter,
@@ -216,6 +219,7 @@ class TelegramGatewayController {
       if ((await this.publicReports.handle(update)) !== 'unhandled') return { accepted: true };
       if ((await this.accountDeletionIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
+      if ((await this.chatIngress.handle(update)) !== 'unhandled') return { accepted: true };
       if ((await this.signupIngress.handle(update)) !== 'unhandled') return { accepted: true };
     } catch (error) {
       if (error instanceof ApplicationError)
@@ -358,12 +362,14 @@ export class TelegramGatewayModule {
     const stars = createTelegramStarsRuntime({ config, database });
     const reports = createTelegramReportRuntime({ config, database, redis });
     const administration = createAdministratorTelegramRuntime({ config, database, redis });
+    const chat = createTelegramChatRuntime({ config, database, redis });
     const signup = createTelegramSignupRuntime({
       config,
       database,
       redis,
       stars,
       reports,
+      chat,
       ...(administration === undefined ? {} : { administration }),
     });
     const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
@@ -475,6 +481,7 @@ export class TelegramGatewayModule {
         },
         { provide: DATABASE, useValue: database },
         { provide: SIGNUP_INGRESS, useValue: signup },
+        { provide: CHAT_INGRESS, useValue: chat },
         { provide: STARS_INGRESS, useValue: stars },
         { provide: PUBLIC_REPORT_INGRESS, useValue: reports },
         { provide: REDIS, useValue: redis },

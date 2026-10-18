@@ -16,10 +16,12 @@ import {
 } from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import type { AdministratorTelegramPort } from './admin-runtime.js';
+import type { TelegramChatRuntimePort } from './chat-runtime.js';
 import { ApplicationError, SystemClock, validateNakhText } from '@nakh/domain';
 import {
   CatalogRenderer,
   M9_SIGNUP_TEXTS,
+  M9_CHAT_TEXTS,
   M9_PREVIEW_TEXTS,
   M9_PROFILE_TEXTS,
   englishCatalogFromManifest,
@@ -134,6 +136,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       const catalog = await this.localization.loadActiveCatalog(locale.code);
       for (const [key, expected] of Object.entries({
         ...M9_SIGNUP_TEXTS,
+        ...(this.chat?.enabled ? M9_CHAT_TEXTS : {}),
         ...(this.previewDelivery === undefined && this.exploreDelivery === undefined
           ? {}
           : { ...M9_PREVIEW_TEXTS, ...M9_PROFILE_TEXTS }),
@@ -220,6 +223,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     private readonly stars?: TelegramStarsRuntimePort,
     private readonly reports?: TelegramReportRuntimePort,
     private readonly administration?: Pick<AdministratorTelegramPort, 'link'>,
+    private readonly chat?: TelegramChatRuntimePort,
   ) {
     this.key = Buffer.from(key);
     this.stars?.assertSeparateNavigationKey?.(this.key);
@@ -848,6 +852,11 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           await this.showDetail(telegramId, nav);
           return 'notice';
         }
+        if (nav.action === 'chat') {
+          if (!this.chat?.enabled) throw denied();
+          await this.chat.open(telegramId, nav.actor);
+          return 'notice';
+        }
         const next = this.next(nav),
           claim = await tokens.claim(nav, updateId, String(data), next);
         if (!claim.accepted) {
@@ -1126,6 +1135,11 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         nav = { ...nav, selection: selected };
     }
     if (screen === 'root') {
+      if (
+        this.chat?.enabled &&
+        (context.accountState === 'active' || context.accountState === 'restricted')
+      )
+        await button(t('chat.list.title'), { action: 'chat' });
       const administratorLink = await this.administration?.link(actor, context.uiLocale);
       if (administratorLink !== undefined)
         keyboard.push([{ text: t('admin.auth.open'), url: administratorLink }]);
@@ -1316,9 +1330,12 @@ export function createTelegramSignupRuntime(
     stars?: TelegramStarsRuntimePort;
     reports?: TelegramReportRuntimePort;
     administration?: Pick<AdministratorTelegramPort, 'link'>;
+    chat?: TelegramChatRuntimePort;
   }>,
 ): TelegramSignupRuntimePort {
   if (!input.config.telegram.signupEnabled) return { handle: () => Promise.resolve('unhandled') };
+  if (input.config.telegram.chatEnabled && !input.chat?.enabled)
+    throw new Error('Chat composition unavailable.');
   if (input.config.telegram.starsEnabled && !input.stars?.enabled)
     throw new Error('Stars composition unavailable.');
   if (input.config.telegram.reportsEnabled && !input.reports?.enabled)
@@ -1349,5 +1366,6 @@ export function createTelegramSignupRuntime(
     input.stars,
     input.reports,
     input.administration,
+    input.chat,
   );
 }
