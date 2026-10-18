@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
-import { loadConfig } from '@nakh/config';
+import { loadConfig, resolveSecretReference } from '@nakh/config';
 import { createDatabase, type NakhDatabase } from '../database.js';
+import { verifyRuntimeDatabaseRole } from '../runtime-database.js';
 import {
   PostgresReleaseReferenceStore,
   sourceMigrationDigests,
@@ -59,7 +60,19 @@ try {
     canonicalReference(migrations.map((row) => row.name).sort())
   )
     throw new Error('Source migration inventory unavailable.');
-  database = createDatabase(config.database);
+  database = createDatabase({
+    ...config.database,
+    url:
+      config.database.roleIsolationEnabled === true
+        ? resolveSecretReference(config.database.administrationUrlRef ?? 'NAKH_ADMIN_DATABASE_URL')
+        : config.database.url,
+  });
+  if (config.database.roleIsolationEnabled === true)
+    await verifyRuntimeDatabaseRole(
+      database,
+      'administration',
+      config.environment === 'production',
+    );
   const snapshot = await new PostgresReleaseReferenceStore(database).capture(config, migrations);
   if (action === '--capture') {
     // This contains administrator bindings: keep it in protected operator

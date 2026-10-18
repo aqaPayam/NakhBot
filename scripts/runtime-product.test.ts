@@ -84,6 +84,10 @@ describe('fixed product deployment composition', () => {
       expect(config.telegram.reportsEnabled).toBe(true);
       expect(config.deletion.freshEntryTelegramEnabled).toBe(true);
       expect(config.administration.enabled).toBe(true);
+      if (service === 'api') {
+        expect(resolveSecretReference(config.media.signingKeyRef, env)).toBeDefined();
+        expect(resolveSecretReference(config.media.audienceKeyRef, env)).toBeDefined();
+      }
       for (const name of manifest.secrets[service])
         expect(resolveSecretReference(name, env)).toBe('synthetic-' + name);
       if (service === 'api' || service === 'telegram-gateway')

@@ -17,6 +17,12 @@ release conditions.
 
 ## Scope and completion
 
+The [database purpose isolation foundation](36-m9-database-purpose-isolation.md)
+provides trusted native provisioning and host-owned pool admission. Adoption by
+all four composition roots and production deployment remains open. A provider
+account/domain/bot setup checklist has been sent to the owner so preparation can
+run in parallel; no credentials or real deployment acceptance have been supplied.
+
 The optional [product runtime profile](35-m9-runtime-composition.md) connects
 existing feature flags, per-host provider secret references and a private pinned
 scanner to the staging deployment. Default configuration and service activation

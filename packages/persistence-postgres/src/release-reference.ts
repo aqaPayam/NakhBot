@@ -41,6 +41,7 @@ const fields = `environment serviceName release http.host http.port
  administration.actionKeyRef administration.reviewNoteKeyRingRef
  administration.reviewNoteKeyId administration.reviewNoteKeyVersion
  database.url database.poolMax database.statementTimeoutMs database.lockTimeoutMs
+ database.roleIsolationEnabled database.financialUrlRef database.administrationUrlRef database.maintenanceUrlRef
  redis.url redis.queuePrefix telegram.botTokenRef telegram.webhookSecret telegram.actionTokenKeyRef
  telegram.likedByDeliveryEnabled telegram.notificationDeliveryEnabled telegram.supportAppealEnabled
  telegram.startDeliveryEnabled telegram.signupEnabled telegram.guestPreviewEnabled telegram.exploreEnabled

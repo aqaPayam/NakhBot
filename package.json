@@ -41,7 +41,8 @@
     "release:reference": "tsx packages/persistence-postgres/src/cli/release-reference.ts",
     "db:status": "tsx packages/persistence-postgres/src/cli/status.ts",
     "admin:operator": "tsx packages/persistence-postgres/src/cli/admin-totp-operator.ts",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "db:provision-roles": "tsx packages/persistence-postgres/src/cli/provision-runtime-roles.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

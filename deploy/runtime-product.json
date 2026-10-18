@@ -30,6 +30,8 @@
   },
   "secrets": {
     "api": [
+      "NAKH_MEDIA_SIGNING_KEY",
+      "NAKH_MEDIA_AUDIENCE_KEY",
       "NAKH_ADMIN_TOTP_KEYS",
       "NAKH_ADMIN_ACTION_KEY",
       "NAKH_ADMIN_REVIEW_NOTE_KEYS",

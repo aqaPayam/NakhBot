@@ -23,6 +23,10 @@ const ConfigSchema = Type.Object(
       poolMax: Type.Integer({ minimum: 1, maximum: 100 }),
       statementTimeoutMs: Type.Integer({ minimum: 100, maximum: 120_000 }),
       lockTimeoutMs: Type.Integer({ minimum: 50, maximum: 30_000 }),
+      roleIsolationEnabled: Type.Optional(Type.Boolean()),
+      financialUrlRef: Type.Optional(Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' })),
+      administrationUrlRef: Type.Optional(Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' })),
+      maintenanceUrlRef: Type.Optional(Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' })),
     }),
     redis: Type.Object({
       url: Type.String({ minLength: 1 }),
@@ -158,6 +162,18 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       poolMax: integer(env.NAKH_DATABASE_POOL_MAX, 10),
       statementTimeoutMs: integer(env.NAKH_DATABASE_STATEMENT_TIMEOUT_MS, 5_000),
       lockTimeoutMs: integer(env.NAKH_DATABASE_LOCK_TIMEOUT_MS, 1_000),
+      roleIsolationEnabled: boolean(env.NAKH_DATABASE_ROLE_ISOLATION_ENABLED, false),
+      financialUrlRef: required(
+        env,
+        'NAKH_FINANCIAL_DATABASE_URL_REF',
+        'NAKH_FINANCIAL_DATABASE_URL',
+      ),
+      administrationUrlRef: required(env, 'NAKH_ADMIN_DATABASE_URL_REF', 'NAKH_ADMIN_DATABASE_URL'),
+      maintenanceUrlRef: required(
+        env,
+        'NAKH_MAINTENANCE_DATABASE_URL_REF',
+        'NAKH_MAINTENANCE_DATABASE_URL',
+      ),
     },
     redis: {
       url: required(env, 'NAKH_REDIS_URL'),
