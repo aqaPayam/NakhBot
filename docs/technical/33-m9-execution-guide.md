@@ -17,6 +17,14 @@ release conditions.
 
 ## Scope and completion
 
+Repair `a929d12` passed the catalog case and three native shards, but the
+scheduler shard hit the existing 20-minute job cap. Dispatch estimates still
+described an older baseline. The next repair refreshes 144 completed passing
+suite timings from that run, retaining prior estimates for unobserved suites.
+All 166 files remain routed exactly once across four shards; complete native
+coverage, source receipts and the 20-minute cap remain mandatory. A cancelled
+run supplies scheduling measurements, never acceptance evidence.
+
 The chat candidate `c66633a` passed quality but failed its API native shard:
 the identity catalog assertion omitted the twelve new chat texts (659 expected,
 671 installed). The repair includes the chat manifest in the exact count and
