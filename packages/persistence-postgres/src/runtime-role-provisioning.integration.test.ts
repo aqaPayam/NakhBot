@@ -1,3 +1,7 @@
+import {
+  PostgresLaunchCohortControl,
+  PostgresLaunchCohortAdmission,
+} from './launch-cohort-store.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -879,6 +883,70 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
       stdout: '',
       stderr: 'Runtime database role verification unavailable.\n',
     });
+  });
+
+  it('lets runtime read cohort admission while denying it authority to admit or stop users', async () => {
+    const user = await createReportUser(database),
+      operatorId = randomUUID();
+    const expiry = (
+      await sql<{
+        expiry: string;
+      }>`SELECT to_char((clock_timestamp()+interval '1 hour') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expiry`.execute(
+        database,
+      )
+    ).rows[0]!.expiry;
+    const command = {
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      sourceSha: input.sourceSha,
+      environment: 'staging' as const,
+      telegramBotId: '123456789',
+      mode: 'cohort',
+      expiresAt: expiry,
+      reviewDigest: 'a'.repeat(64),
+      members: [{ userId: user, productEpoch: 0 }],
+    };
+    const owner = new PostgresLaunchCohortControl(database, { operatorId });
+    await owner.apply(command);
+    const runtime = pools.get('user')!,
+      reader = new PostgresLaunchCohortAdmission(runtime, {
+        sourceSha: input.sourceSha,
+        environment: 'staging',
+        telegramBotId: '123456789',
+      });
+    expect(await reader.allows(user)).toBe(true);
+    await expect(
+      new PostgresLaunchCohortControl(runtime, { operatorId }).apply({
+        ...command,
+        requestId: randomUUID(),
+        expectedVersion: 1,
+        mode: 'closed',
+        expiresAt: null,
+        members: [],
+      }),
+    ).rejects.toThrow('Launch cohort unavailable');
+    expect(await reader.allows(user)).toBe(true);
+    await sql`CREATE FUNCTION public.launch_definer_fixture() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+      DECLARE item uuid:=gen_random_uuid(); BEGIN
+        INSERT INTO platform.audit_logs(id,category,event_type,actor_type,subject_type,subject_id,result_code,metadata_schema_version,metadata,command_id,request_id,occurred_at)
+        VALUES(item,'security','platform.launch-policy-applied.v1','system','launch_policy','00000000-0000-4000-8000-000000000009','closed',1,'{}',item,item,clock_timestamp());
+      END $$`.execute(database);
+    try {
+      await expect(
+        sql`SELECT public.launch_definer_fixture()`.execute(runtime),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await sql`DROP FUNCTION public.launch_definer_fixture()`.execute(database);
+    }
+    await owner.apply({
+      ...command,
+      requestId: randomUUID(),
+      expectedVersion: 1,
+      mode: 'closed',
+      expiresAt: null,
+      members: [],
+    });
+    expect(await reader.allows(user)).toBe(false);
   });
   it('observes a migration committed while waiting on the migrator lock', async () => {
     let release!: () => void, ready!: () => void;

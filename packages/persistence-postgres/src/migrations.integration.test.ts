@@ -25,7 +25,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
     78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100,
     101, 102, 103, 104, 105, 106, 107, 108, 125, 126, 127, 128, 129, 130, 131, 132, 133, 135, 136,
     137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 158,
-    159, 160,
+    159, 160, 162,
   ])('upgrades from migration %i and preserves legacy appeal identity', async (baseline) => {
     const name = `nakh_appeal_upgrade_${randomUUID().replaceAll('-', '')}`;
     const targetUrl = new URL(databaseUrl!);
@@ -428,7 +428,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         await target.query('COMMIT');
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        162 - baseline,
+        163 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (previewEvent !== undefined) {
@@ -866,6 +866,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000160_m9_chat_relay_presentation.sql',
         '000161_m9_chat_reporting.sql',
         '000162_m9_runtime_permission_lock.sql',
+        '000163_m9_launch_cohort_authority.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -974,9 +975,10 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000114_m8_paid_pending_archival.sql');
       expect(verified).toContain('000115_m8_terminal_pending_archival.sql');
       expect(verified).toContain('000162_m9_runtime_permission_lock.sql');
+      expect(verified).toContain('000163_m9_launch_cohort_authority.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(162);
+      expect(replay.existing).toHaveLength(163);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

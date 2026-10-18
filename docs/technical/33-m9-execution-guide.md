@@ -1044,3 +1044,42 @@ Trusted operator provisioning, production composition and actual launch acceptan
 remain open. The owner still needs one concrete provider setup checklist after
 independent implementation. Retained-data erasure stays disabled pending approved
 policies.
+
+
+## Native cohort authority foundation
+
+Migration 163 adds content-free launch policy and membership facts to the existing
+immutable security audit, with no new user-data table, reference catalog, outbox
+payload or retained-data release adapter. The protected database owner is the only
+issuer: both current and authenticated session identity are checked, including
+calls through a definer function. Runtime purpose logins can read admission but
+cannot manufacture a policy or membership.
+
+The native controller serializes operator changes, requires the expected global
+version, captures a sorted bounded roster and original product epochs, and commits
+policy plus all grants atomically. One request ID cannot change issuer, audience,
+roster or review digest. Replaying an earlier successful opening after a stop
+returns historical metadata without reopening it. Missing policy, closed policy,
+expiry, wrong source/environment/bot, absent membership, deleted accounts and
+later product lives all deny admission. Policies expire within 24 hours and hold
+at most 100 explicitly selected users. The reference to a private review digest
+is a prerequisite, not proof that provider or operational acceptance occurred.
+
+Each member is the audit subject; the issuer is the protected system operator.
+Validated content-free grants retain their existing security-proof classification.
+Root fences them immediately, and fresh Return requires a new original-life grant.
+Malformed facts remain blockers. Reserved launch facts written before the owner
+and manifest guards existed make the populated upgrade fail atomically.
+
+Native evidence includes concurrent same-command retries, conflicting versions,
+mandatory-audit rollback, incomplete deferred manifests, original-life Root/Return,
+source/environment/bot isolation, runtime and nested-definer denial, historical
+upgrade rollback, and indexed admission over 20,000 earlier policies under the
+unchanged 1,500 ms bound. The complete existing 27-plan gate remains unchanged.
+
+This is the native authority foundation. The ordinary gateway does not yet query
+it, and the protected operator host is not yet composed. Keep launch activation
+off until those entry points, preserved financial/privacy/safety paths and the
+source-bound canary/daily-review procedures are implemented and accepted. Real
+provider and operator approvals, small-cohort launch and observed health remain
+required. Retained erasure remains disabled pending approved policies.

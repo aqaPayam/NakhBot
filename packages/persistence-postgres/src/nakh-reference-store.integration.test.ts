@@ -335,6 +335,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
       '000160_m9_chat_relay_presentation.sql',
       '000161_m9_chat_reporting.sql',
       '000162_m9_runtime_permission_lock.sql',
+      '000163_m9_launch_cohort_authority.sql',
     ]);
     expect(await facts()).toEqual(originalFacts);
     const source = await database
