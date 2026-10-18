@@ -111,9 +111,23 @@ or version, or update/delete the appeal. Admission checks require those grants
 and reject review-field privilege drift. Native twelve-way submission proves
 one exact-ban appeal and replay witness, changed-payload rejection and private
 text exclusion from events. Replay repairs missing and excessive column grants.
-The policy digest is version 2; deploying the changed grant policy requires a
+The policy digest is version 3; deploying the changed grant policy requires a
 fresh trusted provisioning command, rather than reusing a command for older
 policy bytes. No table layout, migration or appeal review/unban rule changes.
+
+Financial qualification uses twelve competing funded Nakh requests and synthetic
+Stars package fulfillment workers. Existing profile eligibility row locks retain
+only a profile ID UPDATE grant, with profile content still unwritable. Funded
+Nakh receives insertion of its four Explore consumption fields, with no UPDATE
+or DELETE privilege. Receipt fulfillment locks payment and intent rows only;
+the joined receipt remains immutable and receives no UPDATE grant. Maintenance
+qualification exercises every native deletion checkpoint and fresh final
+verification under its own login. Synthetic provider observations establish
+native composition compatibility, not live Telegram, R2 or Redis acceptance.
+The Stars case also requests deletion through the public login before a late
+capture, verifies one correction and no new credits across competing workers,
+and completes/replays the native refund state machine under the financial login.
+No actual provider refund is issued by that test.
 
 The four service composition roots select purpose pools and verify them before
 listening or executing jobs. API/gateway administration uses its own purpose;

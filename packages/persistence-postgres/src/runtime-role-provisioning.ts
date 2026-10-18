@@ -67,7 +67,7 @@ function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 export const RUNTIME_ROLE_POLICY_DIGEST = digest([
-  2,
+  3,
   RUNTIME_DATABASE_ROLES,
   RUNTIME_DATABASE_SCHEMAS,
   BILLING_SUMMARY_COLUMNS,
@@ -378,6 +378,12 @@ export class PostgresRuntimeRoleProvisioning {
                 ON moderation.moderation_actions TO ${sql.id(role)}`.execute(tx);
             }
             if (purpose === 'financial') {
+              // Financial eligibility reads retain their profile row lock;
+              // no profile content or completion field becomes writable.
+              await sql`GRANT UPDATE(id) ON profile.profiles TO ${sql.id(role)}`.execute(tx);
+              await sql`GRANT INSERT(viewer_user_id,target_user_id,reason,consumed_at) ON discovery.explore_consumptions TO ${sql.id(role)}`.execute(
+                tx,
+              );
               for (const relation of relations.filter((row) => row.schema === 'identity')) {
                 const lockColumn = relation.columns.includes('id')
                   ? 'id'

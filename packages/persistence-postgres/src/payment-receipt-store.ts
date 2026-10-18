@@ -617,7 +617,9 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           'receipt.telegram_charge_id',
         ])
         .where('payment.id', '=', input.paymentRecordId)
-        .forUpdate()
+        // Receipt rows are immutable. Lock only the mutable payment and intent;
+        // keeping receipt UPDATE denied preserves native append-only admission.
+        .forUpdate(['payment', 'intent'])
         .executeTakeFirst();
       if (
         payment === undefined ||
@@ -893,7 +895,9 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           'receipt.telegram_charge_id',
         ])
         .where('payment.id', '=', input.paymentRecordId)
-        .forUpdate()
+        // Receipt rows are immutable. Lock only the mutable payment and intent;
+        // keeping receipt UPDATE denied preserves native append-only admission.
+        .forUpdate(['payment', 'intent'])
         .executeTakeFirst();
       if (
         payment === undefined ||
@@ -1217,7 +1221,9 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
           'receipt.telegram_charge_id',
         ])
         .where('payment.id', '=', input.paymentRecordId)
-        .forUpdate()
+        // Receipt rows are immutable. Lock only the mutable payment and intent;
+        // keeping receipt UPDATE denied preserves native append-only admission.
+        .forUpdate(['payment', 'intent'])
         .executeTakeFirst();
       if (
         payment === undefined ||

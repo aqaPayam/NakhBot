@@ -1,14 +1,24 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { CreateDirectNakhHandler } from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations, sourceMigrationDigests } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createReportUser } from './testing/report-fixture.js';
 import { PostgresAppealStore } from './appeal-store.js';
+import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
+import { PostgresDirectNakhStore } from './direct-nakh-store.js';
+import { SystemIdGenerator } from './foundation-store.js';
+import { PostgresFundingStore } from './funding-store.js';
+import { PostgresRefundStore } from './refund-store.js';
+import { PostgresAccountDeletionStore } from './account-deletion-store.js';
+import { PostgresTelegramStarsReceiptStore } from './payment-receipt-store.js';
+import { createFinalDeletionFixture } from './testing/final-deletion-fixture.js';
+import { PostgresAccountDeletionEphemeralStore } from './account-deletion-ephemeral-store.js';
 import { RUNTIME_DATABASE_ROLES, type RuntimeDatabasePurpose } from './runtime-database-policy.js';
 import { RuntimeDatabases, verifyRuntimeDatabaseRole } from './runtime-database.js';
 import {
@@ -141,6 +151,16 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
     await expect(
       sql`SELECT ciphertext FROM administration.admin_totp_credentials LIMIT 0`.execute(user),
     ).rejects.toMatchObject({ code: '42501' });
+    for (const statement of [
+      sql`UPDATE profile.profiles SET completion_status=completion_status WHERE false`,
+      sql`UPDATE billing.telegram_stars_receipts SET stars_amount=stars_amount WHERE false`,
+      sql`DELETE FROM billing.telegram_stars_receipts WHERE false`,
+      sql`UPDATE discovery.explore_consumptions SET reason=reason WHERE false`,
+      sql`DELETE FROM discovery.explore_consumptions WHERE false`,
+    ])
+      await expect(statement.execute(pools.get('financial')!)).rejects.toMatchObject({
+        code: '42501',
+      });
   });
   it('admits one exact-ban appeal through the public purpose without granting review or proof mutation', async () => {
     const userId = await createReportUser(database),
@@ -239,6 +259,308 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
       expect((await provisioner.provision(input)).replayed).toBe(true);
       await verifyRuntimeDatabaseRole(user, 'user');
     }
+  });
+  it('serializes a funded Nakh and its exact credit debit through the financial login', async () => {
+    const sender = await createReportUser(database, true),
+      receiver = await createReportUser(database, true),
+      at = new Date();
+    for (const userId of [sender, receiver]) {
+      await database
+        .insertInto('identity.user_settings')
+        .values({ user_id: userId, created_at: at, updated_at: at })
+        .execute();
+      await database
+        .insertInto('billing.credit_accounts')
+        .values({ user_id: userId, created_at: at, updated_at: at })
+        .execute();
+      await database
+        .insertInto('notification.notification_preferences')
+        .values({ user_id: userId, created_at: at, updated_at: at })
+        .execute();
+    }
+    const financial = pools.get('financial')!,
+      ledger = new PostgresCreditLedgerStore(financial);
+    await ledger.append({
+      transactionId: randomUUID(),
+      userId: sender,
+      transactionType: 'admin_adjustment',
+      amount: 2n,
+      idempotencyKey: randomUUID(),
+      correlationId: randomUUID(),
+    });
+    const command = {
+      commandType: 'nakh.create-direct' as const,
+      schemaVersion: 1 as const,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      actor: { kind: 'user' as const, userId: sender },
+      occurredAt: at.toISOString(),
+      locale: 'en',
+      data: { targetUserId: receiver, text: 'Private purpose-qualified Nakh' },
+    };
+    const handler = new CreateDirectNakhHandler(
+      new PostgresDirectNakhStore(financial),
+      new SystemIdGenerator(),
+    );
+    const results = await Promise.all(Array.from({ length: 12 }, () => handler.execute(command)));
+    expect(new Set(results.map((result) => result.nakhId)).size).toBe(1);
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect((await ledger.getBalance(sender)).balance).toBe(0n);
+    const transactions = await database
+      .selectFrom('billing.credit_transactions')
+      .select(['amount', 'nakh_id'])
+      .where('user_id', '=', sender)
+      .where('transaction_type', '=', 'spend_nakh')
+      .execute();
+    expect(transactions).toEqual([{ amount: '-2', nakh_id: results[0]!.nakhId }]);
+  });
+  it('records and fulfills one synthetic Stars package through the financial login under competing workers', async () => {
+    const userId = await createReportUser(database, true),
+      at = new Date(),
+      telegramUserId = String(3_000_000_000 + Math.floor(Math.random() * 1_000_000_000));
+    await database
+      .insertInto('identity.telegram_identities')
+      .values({
+        user_id: userId,
+        telegram_user_id: telegramUserId,
+        username: null,
+        first_seen_at: at,
+        last_seen_at: at,
+      })
+      .execute();
+    await database
+      .insertInto('identity.user_settings')
+      .values({ user_id: userId, created_at: at, updated_at: at })
+      .execute();
+    await database
+      .insertInto('billing.credit_accounts')
+      .values({ user_id: userId, created_at: at, updated_at: at })
+      .execute();
+    await database
+      .insertInto('notification.notification_preferences')
+      .values({ user_id: userId, created_at: at, updated_at: at })
+      .execute();
+    const financial = pools.get('financial')!,
+      funding = new PostgresFundingStore(financial),
+      digest = (value: string): string => createHash('sha256').update(value).digest('hex'),
+      cleartext = randomBytes(24).toString('base64url'),
+      payload = {
+        cleartext,
+        digest: digest(cleartext),
+        ciphertext: Uint8Array.from(randomBytes(64)),
+        keyId: 'synthetic-billing-v1',
+      },
+      botDigest = 'b'.repeat(64);
+    const intent = await funding.createFundingIntent({
+      intentId: randomUUID(),
+      userId,
+      funding: 'stars',
+      target: { type: 'credit_package', packageCode: 'starter' },
+      idempotencyKey: randomUUID(),
+    });
+    const payment = await funding.prepareStarsAttempt({
+      paymentRecordId: randomUUID(),
+      fundingIntentId: intent.id,
+      expectedVersion: 1,
+      userId,
+      idempotencyKey: randomUUID(),
+      providerEnvironment: 'test',
+      providerBotIdDigest: botDigest,
+      payload,
+    });
+    const receipts = new PostgresTelegramStarsReceiptStore(
+        financial,
+        { uuid: randomUUID },
+        { digest },
+      ),
+      eventId = randomUUID(),
+      callback = {
+        providerEventId: eventId,
+        telegramUserId,
+        invoicePayload: cleartext,
+        currency: 'XTR',
+        totalAmount: payment.starsAmount,
+        providerEnvironment: 'test' as const,
+        providerBotIdDigest: botDigest,
+        telegramChargeId: randomUUID(),
+        evidence: {
+          digest: digest(eventId),
+          ciphertext: Uint8Array.from(randomBytes(64)),
+          keyId: 'synthetic-provider-v1',
+          schemaVersion: 1 as const,
+        },
+      };
+    await expect(receipts.recordSuccessfulPayment(callback)).resolves.toMatchObject({
+      outcome: 'receipt_recorded',
+    });
+    const owner = randomUUID(),
+      claim = (await receipts.claimFulfillments({ owner, leaseMs: 60_000, limit: 100 })).find(
+        (row) => row.paymentRecordId === payment.paymentRecordId,
+      )!;
+    expect(claim).toBeDefined();
+    const fulfillment = {
+      paymentRecordId: payment.paymentRecordId,
+      owner,
+      fenceToken: claim.fenceToken,
+      creditTransactionId: randomUUID(),
+      creditIncreasedEventId: randomUUID(),
+      paymentFulfilledEventId: randomUUID(),
+      refundRecordId: randomUUID(),
+    };
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () => receipts.fulfillCreditPackage(fulfillment)),
+    );
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    await receipts.recordSuccessfulPayment(callback);
+    expect((await new PostgresCreditLedgerStore(financial).getBalance(userId)).balance).toBe(10n);
+    expect(
+      await database
+        .selectFrom('billing.credit_transactions')
+        .select('id')
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .execute(),
+    ).toHaveLength(1);
+    const lateCleartext = randomBytes(24).toString('base64url'),
+      lateIntent = await funding.createFundingIntent({
+        intentId: randomUUID(),
+        userId,
+        funding: 'stars',
+        target: { type: 'credit_package', packageCode: 'starter' },
+        idempotencyKey: randomUUID(),
+      }),
+      latePayment = await funding.prepareStarsAttempt({
+        paymentRecordId: randomUUID(),
+        fundingIntentId: lateIntent.id,
+        expectedVersion: 1,
+        userId,
+        idempotencyKey: randomUUID(),
+        providerEnvironment: 'test',
+        providerBotIdDigest: botDigest,
+        payload: { ...payload, cleartext: lateCleartext, digest: digest(lateCleartext) },
+      });
+    const key = randomBytes(32),
+      deletion = new PostgresAccountDeletionStore(pools.get('user')!, {
+        activeKeyId: 'purpose-deletion-fixture',
+        keys: new Map([['purpose-deletion-fixture', key]]),
+      });
+    try {
+      const account = await database
+        .selectFrom('identity.accounts')
+        .select('version')
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow();
+      const proof = await deletion.prepare({
+        actor: { kind: 'user', userId },
+        requestId: randomUUID(),
+        expectedAccountVersion: account.version,
+      });
+      const deletionCommand = randomUUID();
+      await deletion.request({
+        commandId: deletionCommand,
+        commandType: 'account.delete',
+        schemaVersion: 1,
+        actor: { kind: 'user', userId },
+        requestId: randomUUID(),
+        idempotencyKey: deletionCommand,
+        occurredAt: new Date().toISOString(),
+        locale: 'en',
+        data: {
+          expectedAccountVersion: account.version,
+          confirmationToken: proof.confirmationToken,
+        },
+      });
+    } finally {
+      key.fill(0);
+    }
+    // Keep this pending fixture separate from the next case's single-subject poll.
+    await sql`UPDATE identity.account_deletion_work SET available_at=clock_timestamp()+interval '1 day' WHERE deletion_record_id IN (SELECT id FROM identity.account_deletion_records WHERE user_id=${userId}::uuid)`.execute(
+      database,
+    );
+    const lateEvent = randomUUID();
+    await receipts.recordSuccessfulPayment({
+      ...callback,
+      providerEventId: lateEvent,
+      invoicePayload: lateCleartext,
+      telegramChargeId: randomUUID(),
+      evidence: { ...callback.evidence, digest: digest(lateEvent) },
+    });
+    const lateClaim = (
+      await receipts.claimFulfillments({ owner, leaseMs: 60_000, limit: 100 })
+    ).find((row) => row.paymentRecordId === latePayment.paymentRecordId)!;
+    expect(lateClaim).toBeDefined();
+    const lateFulfillment = {
+      ...fulfillment,
+      paymentRecordId: latePayment.paymentRecordId,
+      fenceToken: lateClaim.fenceToken,
+      creditTransactionId: randomUUID(),
+      creditIncreasedEventId: randomUUID(),
+      paymentFulfilledEventId: randomUUID(),
+      refundRecordId: randomUUID(),
+    };
+    const corrections = await Promise.all(
+      Array.from({ length: 12 }, () => receipts.fulfillCreditPackage(lateFulfillment)),
+    );
+    expect(corrections.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(corrections.every((result) => result.outcome === 'correction_required')).toBe(true);
+    const refunds = new PostgresRefundStore(financial),
+      refund = (await refunds.claimStarsRefunds({ owner, leaseMs: 60_000, limit: 100 })).find(
+        (row) => row.refundRecordId === lateFulfillment.refundRecordId,
+      )!;
+    expect(refund).toBeDefined();
+    await expect(refunds.beginProviderCall(refund)).resolves.toBe(true);
+    await expect(refunds.completeStarsRefund(refund)).resolves.toBe('processed');
+    await expect(refunds.completeStarsRefund(refund)).resolves.toBe('replayed');
+    expect(
+      await database
+        .selectFrom('billing.credit_transactions')
+        .select('id')
+        .where('payment_record_id', '=', latePayment.paymentRecordId)
+        .execute(),
+    ).toHaveLength(0);
+  });
+  it('completes every native deletion checkpoint through the maintenance login with retained erasure disabled', async () => {
+    const maintenance = pools.get('maintenance')!,
+      item = await createFinalDeletionFixture(maintenance),
+      store = new PostgresAccountDeletionEphemeralStore(
+        maintenance,
+        'm8-native-final',
+        'a'.repeat(64),
+      );
+    expect(await store.finish(item.lease)).toEqual({ completed: false });
+    for (let page = 0; page < 20; page++) {
+      const next = await store.claimNext(item.lease);
+      if (next.done) break;
+      expect(next.operation).toBeDefined();
+      await store.complete(item.lease, next.operation!.id, {
+        cursor: next.operation!.stage.startsWith('queue_')
+          ? { redisCursor: '0', pendingKeys: [] }
+          : '0',
+        more: false,
+        found: 0,
+      });
+    }
+    expect(await store.finish(item.lease)).toEqual({ completed: true });
+    expect(
+      (
+        await sql<{
+          phase: string;
+          checkpoint_version: number;
+          reactivation_allowed: boolean;
+        }>`SELECT phase,checkpoint_version,reactivation_allowed FROM identity.account_deletion_records WHERE id=${item.recordId}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ phase: 'completed', checkpoint_version: 8, reactivation_allowed: false }]);
+    expect(
+      (
+        await sql<{
+          count: number;
+        }>`SELECT count(*)::integer AS count FROM identity.account_deletion_phase_receipts WHERE deletion_record_id=${item.recordId}::uuid`.execute(
+          database,
+        )
+      ).rows,
+    ).toEqual([{ count: 7 }]);
   });
   it('preserves RBAC seed row locks without giving the administrator login seed write rights', async () => {
     const userId = await createReportUser(database),
