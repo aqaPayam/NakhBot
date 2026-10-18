@@ -1,15 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import type {
-  AccountControlActor,
-  AccountDeletionLease,
-  AdminCommandAttempt,
+import {
+  AccountReturnApprovalWorkflow,
+  type AccountControlActor,
+  type AccountDeletionLease,
+  type AdminCommandAttempt,
 } from '@nakh/application';
 import type { NakhDatabase } from '../database.js';
 import { createFinalDeletionFixture } from './final-deletion-fixture.js';
 import { createReportFixtureAdmin } from './report-fixture.js';
 import { PostgresAccountDeletionEphemeralStore } from '../account-deletion-ephemeral-store.js';
-import { PostgresAccountReturnApprovalWorkflow } from '../account-return-approval-store.js';
+import {
+  PostgresAccountReturnApprovalStore,
+  PostgresAccountReturnApprovalWorkflow,
+} from '../account-return-approval-store.js';
+import { requireNativeAdminSessions } from '../admin-session-policy.js';
+import { SystemIdGenerator } from '../foundation-store.js';
+import { PreRuntimeAdminCommandStore } from './pre-runtime-admin-command-store.js';
 import { PostgresAccountControlSessionStore } from '../account-control-session-store.js';
 import { createPostgresAdminSessions } from '../admin-session-store.js';
 
@@ -143,9 +150,23 @@ export async function approveAccountReturnFixture(
     metadata: {},
     correlationId: randomUUID(),
   };
-  if (
-    (await new PostgresAccountReturnApprovalWorkflow(database).approve(attempt)).result !==
-    'succeeded'
-  )
+  const version = (
+    await sql<{
+      version: number;
+    }>`SELECT coalesce(max(left(name,6)::integer),0) AS version FROM platform.schema_migrations`.execute(
+      database,
+    )
+  ).rows[0]!.version;
+  let workflow: AccountReturnApprovalWorkflow<NakhDatabase>;
+  if (version >= 162) workflow = new PostgresAccountReturnApprovalWorkflow(database);
+  else {
+    requireNativeAdminSessions(database);
+    workflow = new AccountReturnApprovalWorkflow(
+      new PreRuntimeAdminCommandStore(database),
+      new PostgresAccountReturnApprovalStore(),
+      new SystemIdGenerator(),
+    );
+  }
+  if ((await workflow.approve(attempt)).result !== 'succeeded')
     throw new Error('Return fixture approval rejected.');
 }

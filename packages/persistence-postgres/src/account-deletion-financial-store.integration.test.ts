@@ -472,6 +472,7 @@ describe.skipIf(url === undefined)('M8 original financial epoch preservation and
             '000159_m9_chat_presentation.sql',
             '000160_m9_chat_relay_presentation.sql',
             '000161_m9_chat_reporting.sql',
+            '000162_m9_runtime_permission_lock.sql',
           ]);
           expect(
             await legacy

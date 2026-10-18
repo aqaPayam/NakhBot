@@ -181,7 +181,12 @@ async function execute(): Promise<void> {
       if (owned.has('apps/worker/src/stars-refund-runtime.integration.test.ts'))
         buildFilters.push('@nakh/worker...');
       if (owned.has('apps/api/src/admin-runtime.integration.test.ts'))
-        buildFilters.push('@nakh/api...', '@nakh/telegram-gateway...', '@nakh/worker...');
+        buildFilters.push(
+          '@nakh/api...',
+          '@nakh/telegram-gateway...',
+          '@nakh/worker...',
+          '@nakh/scheduler...',
+        );
       if (buildFilters.length > 0) {
         const manager = process.env.npm_execpath;
         if (manager === undefined || !isAbsolute(manager))

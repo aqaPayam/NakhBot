@@ -105,6 +105,7 @@ describe.skipIf(url === undefined)('M8 audited referenced Like source removal', 
         '000159_m9_chat_presentation.sql',
         '000160_m9_chat_relay_presentation.sql',
         '000161_m9_chat_reporting.sql',
+        '000162_m9_runtime_permission_lock.sql',
       ]);
       expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
       expect(

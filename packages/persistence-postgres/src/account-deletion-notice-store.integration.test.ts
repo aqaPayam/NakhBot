@@ -14,6 +14,7 @@ import { createDeletionFixture } from './testing/deletion-fixture.js';
 import { createReportFixtureAdmin, createReportUser } from './testing/report-fixture.js';
 import { confirmationFixture } from './testing/admin-confirmation.js';
 import { PostgresConfirmedAccountActions } from './confirmed-account-store.js';
+import { PreRuntimeConfirmedAccountActions } from './testing/pre-runtime-account-actions.js';
 import { PostgresNotificationStore } from './notification-store.js';
 import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.js';
 import { PostgresAccountDeletionCheckpointStore } from './account-deletion-checkpoint-store.js';
@@ -122,6 +123,7 @@ describe.skipIf(url === undefined)('M8 owned notice archival and original safety
       '000159_m9_chat_presentation.sql',
       '000160_m9_chat_relay_presentation.sql',
       '000161_m9_chat_reporting.sql',
+      '000162_m9_runtime_permission_lock.sql',
     ]);
     expect(
       (
@@ -156,7 +158,17 @@ describe.skipIf(url === undefined)('M8 owned notice archival and original safety
       .select('version')
       .where('user_id', '=', userId)
       .executeTakeFirstOrThrow();
-    const workflow = new PostgresConfirmedAccountActions(database, admin.tokens, admin.key);
+    const version = (
+      await sql<{
+        version: number;
+      }>`SELECT max(left(name,6)::integer) AS version FROM platform.schema_migrations`.execute(
+        database,
+      )
+    ).rows[0]!.version;
+    const workflow =
+      version < 162
+        ? new PreRuntimeConfirmedAccountActions(database, admin.tokens, admin.key)
+        : new PostgresConfirmedAccountActions(database, admin.tokens, admin.key);
     const command: PrepareAccountModerationActionCommand = {
       actor: admin.actor,
       commandId: randomUUID(),

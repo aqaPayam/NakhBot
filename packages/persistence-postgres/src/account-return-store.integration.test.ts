@@ -489,6 +489,7 @@ describe.skipIf(url === undefined)('M8 native approved fresh guest Return', () =
         '000159_m9_chat_presentation.sql',
         '000160_m9_chat_relay_presentation.sql',
         '000161_m9_chat_reporting.sql',
+        '000162_m9_runtime_permission_lock.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       expect(

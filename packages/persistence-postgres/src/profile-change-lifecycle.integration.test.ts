@@ -412,6 +412,7 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
         '000159_m9_chat_presentation.sql',
         '000160_m9_chat_relay_presentation.sql',
         '000161_m9_chat_reporting.sql',
+        '000162_m9_runtime_permission_lock.sql',
       ]);
       await verifyMigrations(upgrade.url, resolve('migrations/verify'));
       const current = await db
@@ -1121,6 +1122,7 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
         '000159_m9_chat_presentation.sql',
         '000160_m9_chat_relay_presentation.sql',
         '000161_m9_chat_reporting.sql',
+        '000162_m9_runtime_permission_lock.sql',
       ]);
       await verifyMigrations(upgrade.url, resolve('migrations/verify'));
       expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toHaveLength(0);

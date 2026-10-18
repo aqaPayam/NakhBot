@@ -60,6 +60,22 @@ function isIdenticalCommand(row: RecordedAdminAction, attempt: AdminCommandAttem
 export class PostgresAdminCommandStore implements AdminCommandExecutionStore<NakhDatabase> {
   public constructor(private readonly database: NakhDatabase) {}
 
+  protected async lockPermission(
+    transaction: NakhDatabase,
+    attempt: AdminCommandAttempt,
+  ): Promise<{ permission_code: string } | undefined> {
+    return transaction
+      .selectFrom(
+        sql<{
+          permission_code: string;
+        }>`administration.lock_runtime_admin_permission(${attempt.adminUserId}::uuid, ${attempt.requiredPermission}::text)`.as(
+          'permission',
+        ),
+      )
+      .select('permission_code')
+      .executeTakeFirst();
+  }
+
   public async execute<T>(
     attempt: AdminCommandAttempt,
     effect: (transaction: NakhDatabase) => Promise<AdminCommandEffectResult<T>>,
@@ -125,18 +141,7 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
               .executeTakeFirst()
           : undefined;
       const permission =
-        identity !== undefined
-          ? await transaction
-              .selectFrom(
-                sql<{
-                  permission_code: string;
-                }>`administration.lock_runtime_admin_permission(${attempt.adminUserId}::uuid, ${attempt.requiredPermission}::text)`.as(
-                  'permission',
-                ),
-              )
-              .select('permission_code')
-              .executeTakeFirst()
-          : undefined;
+        identity !== undefined ? await this.lockPermission(transaction, attempt) : undefined;
       if (requireSession)
         pinnedSession = await currentNativeAdminSession(transaction, attempt.adminUserId);
       if (
