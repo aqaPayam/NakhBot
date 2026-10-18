@@ -28,6 +28,16 @@ the separate [production bootstrap](../../deploy/terraform/production-bootstrap/
 requires reviewed customer-managed policy hashes and exact environment OIDC trust.
 Real IAM qualification and launch acceptance remain open.
 
+Bootstrap candidate `5cd952b` failed Linux validation because its Windows-origin
+provider lock lacked the Linux package hash. Read-only init installed the signed
+package but could not add that platform hash; subsequent validation correctly
+rejected the cached package. The repair records signed `linux_amd64` and
+`windows_amd64` hashes for the unchanged AWS 6.61.0 and random 3.9.0 pins across
+all caller roots. CI initialization is read-only so future missing hashes fail
+instead of being silently repaired in the runner checkout. Require the changed
+repair's own full check and six-job evidence; the failed head is not accepted.
+
+
 The [database purpose isolation foundation](36-m9-database-purpose-isolation.md)
 provides trusted native provisioning and host-owned pool admission. The four
 composition roots select purpose pools; the production root and release controller

@@ -52,15 +52,15 @@ jobs:
       - name: Terraform formatting
         run: terraform fmt -check -recursive deploy/terraform
       - name: Validate AWS bootstrap
-        run: terraform -chdir=deploy/terraform/bootstrap init -backend=false && terraform -chdir=deploy/terraform/bootstrap validate
+        run: terraform -chdir=deploy/terraform/bootstrap init -backend=false -lockfile=readonly && terraform -chdir=deploy/terraform/bootstrap validate
       - name: Validate production bootstrap custody
         run: terraform -chdir=deploy/terraform/production-bootstrap init -backend=false -lockfile=readonly && terraform -chdir=deploy/terraform/production-bootstrap validate
       - name: Verify production bootstrap custody with mocked AWS
         run: terraform -chdir=deploy/terraform/production-bootstrap test
       - name: Validate AWS staging
-        run: terraform -chdir=deploy/terraform/staging init -backend=false && terraform -chdir=deploy/terraform/staging validate
+        run: terraform -chdir=deploy/terraform/staging init -backend=false -lockfile=readonly && terraform -chdir=deploy/terraform/staging validate
       - name: Validate inactive AWS production
-        run: terraform -chdir=deploy/terraform/production init -backend=false && terraform -chdir=deploy/terraform/production validate
+        run: terraform -chdir=deploy/terraform/production init -backend=false -lockfile=readonly && terraform -chdir=deploy/terraform/production validate
       - name: Verify pinned unprivileged media scanner
         run: pnpm exec tsx scripts/clamav-rehearsal.ts
       - name: Verify inactive AWS runtime composition with mocked providers
