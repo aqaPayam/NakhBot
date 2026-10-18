@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { RELEASE_SERVICES, type ReleaseService } from './release-images.js';
+import { productScannerTaskHealthy, verifyProductScannerDefinition } from './runtime-product.js';
 
 export type AwsReleaseCall = (
   service: 'ecs' | 'application-autoscaling',
@@ -691,7 +692,7 @@ export class StagingRelease {
     arn: string,
     name: ReleaseService | 'migration',
     bootstrap = false,
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.definition(arn, name);
     const data = await this.call('ecs', 'describe-task-definition', { taskDefinition: arn }),
       d = record(data.taskDefinition);
@@ -704,7 +705,9 @@ export class StagingRelease {
       denied();
     const rows = array(d.containerDefinitions).map(record),
       containers = rows.filter((v) => v.name === name);
-    if (containers.length !== 1 || rows.length !== (name === 'migration' ? 1 : 2)) denied();
+    const scanner = verifyProductScannerDefinition(name, rows);
+    if (containers.length !== 1 || rows.length !== (name === 'migration' ? 1 : scanner ? 3 : 2))
+      denied();
     const container = containers[0]!;
     const env = array(container.environment).map(record),
       secrets = array(container.secrets).map(record);
@@ -747,6 +750,7 @@ export class StagingRelease {
     )
       denied();
     if (container.privileged === true) denied();
+    return scanner;
   }
   async task(kind: TaskKind, taskDefinition: string): Promise<void> {
     const command = [
@@ -916,10 +920,22 @@ export class StagingRelease {
         await this.pause();
         continue;
       }
-      for (const s of services) await this.checkDefinition(s.taskDefinition, s.name);
+      const scannerServices = new Set<string>();
+      for (const s of services)
+        if (await this.checkDefinition(s.taskDefinition, s.name)) scannerServices.add(s.name);
       const tasks = await this.tasks(intent.taskArns),
         active = tasks.filter((t) => !this.stopped(t));
       if (active.some((t) => !RELEASE_SERVICES.some((n) => t.group === 'service:' + n))) denied();
+      if (
+        active.some(
+          (t) =>
+            scannerServices.has(String(t.group).replace('service:', '')) &&
+            !productScannerTaskHealthy(t),
+        )
+      ) {
+        await this.pause();
+        continue;
+      }
       for (const s of services) {
         const group = active.filter((t) => t.group === 'service:' + s.name);
         if (group.length !== s.desired) denied();

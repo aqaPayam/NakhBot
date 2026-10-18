@@ -210,7 +210,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution" {
 data "aws_iam_policy_document" "ecs_runtime_secrets" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.runtime.arn]
+    resources = concat([aws_secretsmanager_secret.runtime.arn], values(local.product_secret_arns))
   }
 }
 
@@ -423,8 +423,8 @@ resource "aws_ecs_task_definition" "service" {
   family                   = "${local.name}-${each.key}"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "512"
-  memory                   = "1024"
+  cpu                      = each.key == "worker" && local.product_scanner_enabled ? "2048" : "512"
+  memory                   = each.key == "worker" && local.product_scanner_enabled ? "8192" : "1024"
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -433,7 +433,7 @@ resource "aws_ecs_task_definition" "service" {
     operating_system_family = "LINUX"
   }
 
-  container_definitions = jsonencode([
+  container_definitions = jsonencode(concat([
     {
       name                   = each.key
       image                  = var.image_tag == "bootstrap" ? "${aws_ecr_repository.service[each.key].repository_url}:bootstrap" : "${aws_ecr_repository.service[each.key].repository_url}@${lookup(var.image_digests, each.key, "invalid")}"
@@ -441,13 +441,14 @@ resource "aws_ecs_task_definition" "service" {
       readonlyRootFilesystem = true
       cpu                    = 384
       memory                 = 768
-      environment = concat(local.common_environment, [
+      environment = concat(local.service_environment, [
         { name = "NAKH_SERVICE_NAME", value = each.key },
         { name = "NAKH_HTTP_PORT", value = tostring(coalesce(each.value.port, 3000)) },
       ])
-      secrets      = local.runtime_secrets
+      secrets      = local.service_secrets[each.key]
       portMappings = each.value.port == null ? [] : [{ containerPort = each.value.port, hostPort = each.value.port, protocol = "tcp" }]
-      dependsOn    = [{ containerName = "otel-collector", condition = "START" }]
+      dependsOn    = concat([{ containerName = "otel-collector", condition = "START" }], each.key == "worker" && local.product_scanner_enabled ? [{ containerName = "clamav", condition = "HEALTHY" }] : [])
+      startTimeout = 120
       linuxParameters = {
         initProcessEnabled = true
       }
@@ -480,7 +481,9 @@ resource "aws_ecs_task_definition" "service" {
         }
       }
     },
-  ])
+  ], each.key == "worker" && local.product_scanner_enabled ? [local.scanner_container] : []))
+
+  depends_on = [terraform_data.product_runtime]
 }
 
 resource "aws_ecs_task_definition" "migration" {

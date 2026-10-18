@@ -17,6 +17,13 @@ release conditions.
 
 ## Scope and completion
 
+The optional [product runtime profile](35-m9-runtime-composition.md) connects
+existing feature flags, per-host provider secret references and a private pinned
+scanner to the staging deployment. Default configuration and service activation
+remain off. Its mocked infrastructure and actual scanner transport rehearsals
+are implementation evidence; production composition and live launch acceptance
+remain separate work.
+
 The trusted operator entry point now composes the existing audited TOTP native
 store through a private CLI, with exact AWS principal and secret-version checks,
 historical key custody, private invitation output and idempotent native recovery.

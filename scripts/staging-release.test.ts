@@ -1,4 +1,5 @@
 import { stagingContext } from './testing/staging-release-context.js';
+import productManifest from '../deploy/runtime-product.json' with { type: 'json' };
 import { describe, expect, it } from 'vitest';
 import { RELEASE_SERVICES, type ReleaseService } from './release-images.js';
 import {
@@ -368,6 +369,64 @@ describe('actual staging release orchestration protocol', () => {
       expect(f.calls.some((c) => c.operation === 'run-task')).toBe(false);
     }
   });
+  it.each(['HEALTHY', 'UNHEALTHY'] as const)(
+    'requires the composed scanner to be %s before recording release health',
+    async (health) => {
+      const f = fixture();
+      const aws: AwsReleaseCall = async (service, operation, input) => {
+        const result = obj(await f.aws(service, operation, input));
+        if (operation === 'describe-task-definition') {
+          const definition = obj(result.taskDefinition);
+          const containers = definition.containerDefinitions as Raw[];
+          const app = containers.find((container) => container.name === 'worker');
+          if (app !== undefined) {
+            (app.environment as Raw[]).push({
+              name: 'NAKH_MEDIA_INGESTION_ENABLED',
+              value: 'true',
+            });
+            app.startTimeout = 120;
+            app.dependsOn = [{ containerName: 'clamav', condition: 'HEALTHY' }];
+            containers.push({
+              name: 'clamav',
+              image: productManifest.scanner.image,
+              user: productManifest.scanner.user,
+              entryPoint: productManifest.scanner.entryPoint,
+              essential: true,
+              readonlyRootFilesystem: false,
+              environment: [{ name: 'CLAMAV_NO_MILTERD', value: 'true' }],
+              healthCheck: {
+                command: productManifest.scanner.healthCommand,
+                interval: 30,
+                timeout: 10,
+                retries: 10,
+                startPeriod: 300,
+              },
+              linuxParameters: { initProcessEnabled: true, capabilities: { drop: ['ALL'] } },
+            });
+          }
+        }
+        return result;
+      };
+      const r = new StagingRelease(f.context, aws, f.custody, f.pause, () => f.clock.now);
+      await r.drain();
+      await r.task('compatibility', f.definition);
+      f.activate(await r.admission());
+      for (const task of f.tasks.values())
+        if (task.group === 'service:worker' && task.lastStatus === 'RUNNING') {
+          task.healthStatus = health;
+          (task.containers as Raw[]).push({
+            name: 'clamav',
+            lastStatus: 'RUNNING',
+            healthStatus: health,
+            image: productManifest.scanner.image,
+            imageDigest: productManifest.scanner.image.split('@')[1],
+          });
+        }
+      if (health === 'HEALTHY') await r.healthy();
+      else await expect(r.healthy()).rejects.toThrow();
+      expect(f.records.has(r.prefix + 'healthy.json')).toBe(health === 'HEALTHY');
+    },
+  );
   it('rejects a running service with a wrong actual image digest before recording health', async () => {
     const f = fixture(),
       r = f.release();

@@ -53,6 +53,7 @@ jobs:
       RELEASE_RECOVERY_INTENT: ${{ inputs.recovery_intent }}
       TF_VAR_project_name: ${{ vars.PROJECT_NAME || 'nakh' }}
       TF_IN_AUTOMATION: 'true'
+      TF_VAR_product_runtime: ${{ vars.STAGING_PRODUCT_RUNTIME || 'null' }}
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_public_hostname: ${{ vars.STAGING_HOSTNAME }}
       TF_VAR_route53_zone_id: ${{ vars.STAGING_ROUTE53_ZONE_ID }}

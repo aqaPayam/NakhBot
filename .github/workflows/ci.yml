@@ -53,6 +53,17 @@ jobs:
         run: terraform -chdir=deploy/terraform/bootstrap init -backend=false && terraform -chdir=deploy/terraform/bootstrap validate
       - name: Validate AWS staging
         run: terraform -chdir=deploy/terraform/staging init -backend=false && terraform -chdir=deploy/terraform/staging validate
+      - name: Verify pinned unprivileged media scanner
+        run: pnpm exec tsx scripts/clamav-rehearsal.ts
+      - name: Verify inactive AWS runtime composition with mocked providers
+        run: terraform -chdir=deploy/terraform/staging test
+      - name: Retain scanner transport evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: m9-scanner-${{ github.sha }}
+          path: artifacts/m9-scanner-rehearsal.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Validate local staging rehearsal
         run: docker compose -f deploy/docker/compose.yml -f deploy/docker/compose.staging.yml --profile telemetry config --quiet
 
