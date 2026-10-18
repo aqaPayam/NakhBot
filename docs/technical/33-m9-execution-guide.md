@@ -1115,7 +1115,57 @@ and idempotency checks remain mandatory. Native staging HTTP/Redis evidence cove
 the registration/open/stop boundary; chat evidence covers retained safety actions
 without history disclosure. Telegram transports remain synthetic.
 
-This gateway layer does not prove admission on every public API route or a fresh
-restricted safety-entry procedure after previous navigation/grants expire. Those
-boundaries still need inspection and qualification before launch, alongside the
-protected operator host, actual canaries, health review and provider approvals.
+The restricted safety entry and hosted API qualification below cover the next
+entry boundaries. The protected operator host, actual canaries, health review and
+provider approvals remain required before launch.
+
+## Restricted reporting entry and hosted API qualification
+
+An authenticated private `/report` can open report choices after old navigation
+or authentication proof is unavailable. It first resolves the Telegram owner and
+original Account epoch, checks the current identity and reporting eligibility,
+and reads only current-life conversation metadata. Missing ownership, banned or
+deleted Accounts, old product lives and expired post-Unmatch windows cannot mint
+fresh reporting navigation. A separate entry rate budget is keyed by the stable
+user identity and does not reset on Return.
+
+This deliberate entry uses the existing native user authentication primitive with
+a request ID bound to bot, Telegram owner, original life and update. Concurrent
+retries converge on one new proof. It neither updates nor revives the old proof,
+changes primary-entry activation, nor publishes a generic credential. The host
+emits only report-domain opaque capabilities. Original product navigation retains
+its original grant, and normal product dispatch still requires cohort membership.
+Native report preparation and capture reauthorize the selected incident and
+evidence independently.
+
+The chooser returns twenty metadata-only choices and a keyset cursor, retaining
+the same grant on later pages. It combines currently active conversations and
+still-reportable Unmatch incidents without chat history, names, message text or
+raw IDs in provider payloads. Original reporting deadlines are unchanged. An
+approved fresh Return sees no earlier-life contexts; an eligible new context
+requires its own fresh authentication proof.
+
+The ordinary API bootstrap supplies no optional legacy user-report/support
+composition. Its baseline routes are health and the foundation sample route;
+valid sample writes now return 404 in both hosted environments, before native
+effects. The real staging HTTP fixture checks the registered baseline route set,
+readiness, rejected retries and absence of idempotency/outbox writes. Production
+continues to require purpose-role and TLS admission. Enabled modules add the
+existing authenticated administrator and limited privacy surfaces, or the signed
+media source-authority endpoint covered by their existing native suites. Existing
+media grants retain their independent TTL and source-revocation rules; report
+entry cannot issue a media grant or a new discovery delivery.
+
+The stopped-cohort staging gateway fixture exercises fresh report entry, opaque
+selection, native evidence capture and duplicate submission, while ordinary
+`/start` remains denied. Provider menu/prompt delivery is synthetic and unexpected
+live transport calls fail the fixture. Additional native evidence covers twenty
+entry retries, retained revocation of the old grant, ownership/account denial,
+twenty-row paging across twenty-two contexts, immutable deadlines and genuine
+Root/approved Return fencing. These fixtures do not prove real provider delivery
+or operator acceptance. Retained-data erasure remains disabled.
+
+Dispatch estimates use all 170 completed passing suite timings from accepted
+source `ca74a49`, run 39126923511. The new API suite keeps the existing 30-second
+unknown-file fallback. Four shards, twenty-minute job caps, independent complete
+coverage and zero skips remain mandatory; only dispatch weights change.

@@ -30,6 +30,7 @@ import {
   type ConversationReportScope,
 } from './profile-report-submission-store.js';
 import { PostgresUserSessionStore } from './user-session-store.js';
+import { PostgresReportEntryStore } from './report-entry-store.js';
 import { PostgresAccountReturnStore } from './account-return-store.js';
 import { PostgresAccountDeletionChatStore } from './account-deletion-chat-store.js';
 import { PostgresAccountDeletionMatchStore } from './account-deletion-match-store.js';
@@ -54,6 +55,81 @@ describe.skipIf(url === undefined)('original-grant conversation report entry', (
   afterAll(async () => {
     await database?.destroy();
     await isolated?.destroy();
+  });
+  it('issues no report-entry proof for absent ownership or an ineligible account', async () => {
+    const owner = await createReportUser(database, true),
+      store = new PostgresReportEntryStore(database);
+    expect(await store.open({ userId: owner, productEpoch: 0 }, randomUUID())).toBeUndefined();
+    const f = await context('match');
+    await database
+      .updateTable('identity.accounts')
+      .set({ state: 'banned', version: sql<number>`version+1`, state_changed_at: new Date() })
+      .where('user_id', '=', f.owner.userId)
+      .execute();
+    const before = await database
+      .selectFrom('platform.audit_logs')
+      .select('id')
+      .where('event_type', '=', 'identity.user-session-issued.v1')
+      .execute();
+    expect(await store.open(f.owner, randomUUID())).toBeUndefined();
+    expect(await store.open({ ...f.owner, productEpoch: 1 }, randomUUID())).toBeUndefined();
+    expect(
+      await database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('event_type', '=', 'identity.user-session-issued.v1')
+        .execute(),
+    ).toHaveLength(before.length);
+  });
+  it('converges fresh report-entry retries without renewing a revoked original grant or changing incident authority', async () => {
+    const f = await context('match'),
+      sessions = new PostgresUserSessionStore(database),
+      store = new PostgresReportEntryStore(database);
+    await sessions.revoke(
+      { userId: f.owner.userId, productEpoch: 0 },
+      f.owner.sessionGrantId,
+      randomUUID(),
+    );
+    const request = randomUUID();
+    const entries = await Promise.all(
+      Array.from({ length: 20 }, () => store.open(f.owner, request)),
+    );
+    expect(entries.every((entry) => entry !== undefined)).toBe(true);
+    expect(new Set(entries.map((entry) => entry!.sessionGrantId)).size).toBe(1);
+    const entry = entries[0]!;
+    expect(entry.sessionGrantId).not.toBe(f.owner.sessionGrantId);
+    expect(await sessions.current(f.owner, f.owner.sessionGrantId)).toBeUndefined();
+    expect(await store.page(entry)).toEqual([
+      {
+        matchId: f.scope.conversation.matchId,
+        chatSessionId: f.scope.conversation.chatSessionId,
+        kind: 'match',
+      },
+    ]);
+    await expect(
+      prepared({ ...f, owner: entry, scope: { ...f.scope, actor: entry } }),
+    ).resolves.toBeDefined();
+    await expect(prepared(f)).rejects.toBeDefined();
+  });
+  it('pages only original-life conversation metadata and preserves immutable post-Unmatch deadlines', async () => {
+    const first = await context('match'),
+      store = new PostgresReportEntryStore(database);
+    const expected = new Set([first.scope.conversation.matchId]);
+    for (let i = 0; i < 21; i++)
+      expected.add((await context('unmatched', first.owner.userId)).scope.conversation.matchId);
+    await context('unmatched', first.owner.userId, new Date(Date.now() - 90 * 86400000));
+    await context('match');
+    const entry = (await store.open(first.owner, randomUUID()))!;
+    const page = await store.page(entry);
+    expect(page).toHaveLength(21);
+    const next = await store.page(entry, page[19]!.matchId);
+    expect(next).toHaveLength(2);
+    const combined = [...page.slice(0, 20), ...next];
+    expect(new Set(combined.map((row) => row.matchId))).toEqual(expected);
+    expect(
+      combined.every((row) => Object.keys(row).sort().join(',') === 'chatSessionId,kind,matchId'),
+    ).toBe(true);
+    await expect(store.page(entry, 'borrowed-selector')).rejects.toBeDefined();
   });
   async function actor(userId: string, productEpoch = 0): Promise<UserSessionActor> {
     const grant = await new PostgresUserSessionStore(database).issue(
@@ -341,6 +417,9 @@ describe.skipIf(url === undefined)('original-grant conversation report entry', (
           .where('user_id', '=', userId)
           .execute();
         old = await context('match', userId);
+        expect(
+          await new PostgresReportEntryStore(database).open(old.owner, randomUUID()),
+        ).toBeDefined();
       },
       beforeEvidenceCheckpoint: async (lease) => {
         while ((await new PostgresAccountDeletionChatStore(database).archiveNext(lease)).hasMore) {
@@ -380,10 +459,17 @@ describe.skipIf(url === undefined)('original-grant conversation report entry', (
       .where('user_id', '=', old.owner.userId)
       .execute();
     const later = await actor(old.owner.userId, 1);
+    const entryStore = new PostgresReportEntryStore(database);
+    expect(await entryStore.open(old.owner, randomUUID())).toBeUndefined();
+    expect(await entryStore.open(later, randomUUID())).toBeUndefined();
     expect(
       await new PostgresUserSessionStore(database).current(later, later.sessionGrantId),
     ).toBeDefined();
     const fresh = await context('match', old.owner.userId, undefined, 1);
+    const entry = (await entryStore.open(later, randomUUID()))!;
+    expect((await entryStore.page(entry)).map((row) => row.matchId)).toEqual([
+      fresh.scope.conversation.matchId,
+    ]);
     await expect(
       prepared({ ...fresh, owner: later, scope: { ...fresh.scope, actor: later } }),
     ).resolves.toBeDefined();

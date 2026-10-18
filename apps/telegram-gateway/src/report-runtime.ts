@@ -26,6 +26,7 @@ import {
   PostgresLocalizationStore,
   PostgresTelegramUserResolver,
   PostgresUserSessionStore,
+  PostgresReportEntryStore,
   captureUserReportScope,
   type ConversationReportScope,
   type UserReportScope,
@@ -37,7 +38,11 @@ import {
   RedisRateLimiter,
   type createRedisConnection,
 } from '@nakh/queue-redis';
-import { TelegramBotApiMenuClient, TelegramReportSelections } from '@nakh/telegram';
+import {
+  TelegramBotApiMenuClient,
+  TelegramReportSelections,
+  telegramChatAlias,
+} from '@nakh/telegram';
 import {
   SignupNavigationTokens,
   signupRecord as record,
@@ -223,6 +228,9 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
         'error.report.unavailable',
         'error.m7.rate_limited',
         'signup.ui.expired',
+        'chat.report.conversation',
+        'chat.report.ended_empty',
+        'chat.history.older',
       ])
         if (
           typeof catalog.messages[name] !== 'string' ||
@@ -479,12 +487,115 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
       replyMarkup: { inline_keyboard: [] },
     });
   }
+  private async entryPage(
+    telegramUserId: string,
+    actor: UserSessionActor,
+    after?: string,
+  ): Promise<void> {
+    await this.current(actor, telegramUserId);
+    const rows = await new PostgresReportEntryStore(this.database).page(actor, after),
+      t = await this.render(telegramUserId),
+      keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
+    for (const row of rows.slice(0, 20))
+      keyboard.push([
+        {
+          text:
+            [...t('chat.report.conversation')].slice(0, 55).join('') +
+            ' ' +
+            telegramChatAlias(this.key, actor, row.matchId),
+          callback_data: await this.conversationButton(actor, telegramUserId, {
+            matchId: row.matchId,
+            chatSessionId: row.chatSessionId,
+            source: { kind: row.kind, referenceId: row.matchId },
+          }),
+        },
+      ]);
+    if (rows.length > 20)
+      keyboard.push([
+        {
+          text: t('chat.history.older'),
+          callback_data: await this.tokens(telegramUserId, actor).button({
+            actor,
+            version: 1,
+            screen: 'report_entry',
+            action: 'page',
+            reference: rows[19]!.matchId,
+            group: randomBytes(12).toString('base64url'),
+          }),
+        },
+      ]);
+    await this.current(actor, telegramUserId);
+    await this.client.sendMenu(telegramUserId, {
+      text: t(rows.length === 0 ? 'chat.report.ended_empty' : 'report.title'),
+      replyMarkup: { inline_keyboard: keyboard },
+    });
+  }
+  private async entry(
+    root: Record<string, unknown>,
+    message: Record<string, unknown>,
+  ): Promise<'notice'> {
+    const from = record(message.from),
+      chat = record(message.chat);
+    if (
+      root.edited_message !== undefined ||
+      root.callback_query !== undefined ||
+      !Number.isSafeInteger(root.update_id) ||
+      Number(root.update_id) < 0 ||
+      typeof from?.id !== 'number' ||
+      !Number.isSafeInteger(from.id) ||
+      from.id <= 0 ||
+      from.is_bot !== false ||
+      chat?.type !== 'private' ||
+      chat.id !== from.id ||
+      message.reply_to_message !== undefined ||
+      message.text !== '/report'
+    )
+      throw unavailable();
+    const recipient = String(from.id),
+      life = await new PostgresTelegramUserResolver(this.database).resolveProductLife(recipient);
+    if (life === undefined) throw unavailable();
+    const identity = await new PostgresIdentityStore(this.database).getByTelegramUserId(recipient);
+    if (identity?.userId !== life.userId || !canSubmitUserReport(identity.accountState))
+      throw new ApplicationError('unauthorized', 'error.m7.unavailable', 401);
+    const rate = await this.limiter.consume({
+      scope: 'telegram_report_entry',
+      subject: life.userId,
+      limit: 10,
+      windowSeconds: 60,
+    });
+    if (!rate.allowed) throw new ApplicationError('rate_limited', 'error.m7.rate_limited', 429);
+    const actor = await new PostgresReportEntryStore(this.database).open(
+      life,
+      operation([this.botId, recipient, life, root.update_id, 'restricted-entry']),
+    );
+    if (actor === undefined) {
+      const t = await this.render(recipient);
+      await this.client.sendMenu(recipient, {
+        text: t('error.report.unavailable'),
+        replyMarkup: { inline_keyboard: [] },
+      });
+    } else await this.entryPage(recipient, actor);
+    return 'notice';
+  }
   public async handle(input: unknown): Promise<'unhandled' | 'notice'> {
     const root = record(structuredClone(input)),
       callback = record(root?.callback_query),
       message = record(root?.message),
       data = callback?.data,
       reply = record(message?.reply_to_message);
+    if (
+      root !== undefined &&
+      message !== undefined &&
+      typeof message.text === 'string' &&
+      /^\/report(?:\s|$)/u.test(message.text)
+    ) {
+      try {
+        return await this.entry(root, message);
+      } catch (error) {
+        if (error instanceof ApplicationError && error.status < 500) throw error;
+        throw new ApplicationError('internal_error', 'error.m7.internal', 500);
+      }
+    }
     const ownCallback = typeof data === 'string' && data.startsWith('m9r:');
     if (!ownCallback && reply === undefined) return 'unhandled';
     const container = callback === undefined ? message : record(callback.message),
@@ -530,7 +641,7 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
         callback === undefined
           ? await tokens.reply(Number(reply?.message_id))
           : await tokens.callback(String(data));
-    if (nav === undefined || nav.screen !== 'report') {
+    if (nav === undefined || !['report', 'report_entry'].includes(nav.screen)) {
       if (!ownCallback) return 'unhandled';
       const t = await this.render(telegramUserId);
       await this.client.sendMenu(telegramUserId, {
@@ -559,7 +670,11 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
         nav,
       );
       if (!claim.accepted) return 'notice';
-      if (nav.action === 'begin') await this.chooseReason(telegramUserId, nav, updateId);
+      if (nav.screen === 'report_entry') {
+        if (nav.action !== 'page' || callback === undefined || nav.reference === undefined)
+          throw unavailable();
+        await this.entryPage(telegramUserId, nav.actor, nav.reference);
+      } else if (nav.action === 'begin') await this.chooseReason(telegramUserId, nav, updateId);
       else if (nav.action === 'pick') await this.details(telegramUserId, nav, updateId);
       else if (nav.action === 'save' || nav.action === 'reply')
         await this.submit(telegramUserId, nav, updateId, text);

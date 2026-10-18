@@ -37,6 +37,36 @@ function fixture(): {
   };
 }
 describe('public report process composition', () => {
+  it('rejects forged, mixed and non-private fresh reporting entry before native identity lookup', async () => {
+    const f = fixture(),
+      runtime = createTelegramReportRuntime({ ...f, config });
+    const lookup = vi
+      .spyOn(PostgresTelegramUserResolver.prototype, 'resolveProductLife')
+      .mockRejectedValue(new Error('Unexpected native lookup.'));
+    const base = {
+      update_id: 1,
+      message: {
+        text: '/report',
+        from: { id: 123, is_bot: false },
+        chat: { id: 123, type: 'private' },
+      },
+    };
+    try {
+      for (const update of [
+        { ...base, edited_message: base.message },
+        { ...base, callback_query: { id: 'mixed' } },
+        { ...base, message: { ...base.message, chat: { id: 123, type: 'group' } } },
+        { ...base, message: { ...base.message, chat: { id: 999, type: 'private' } } },
+        { ...base, message: { ...base.message, from: { id: 123, is_bot: true } } },
+        { ...base, message: { ...base.message, text: '/report borrowed-target' } },
+        { ...base, message: { ...base.message, reply_to_message: { message_id: 12 } } },
+      ])
+        await expect(runtime.handle(update)).rejects.toMatchObject({ code: 'report_unavailable' });
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+    }
+  });
   it('leaves an unrelated private reply available to account controls when there is no product life', async () => {
     const f = fixture(),
       runtime = createTelegramReportRuntime({ ...f, config });

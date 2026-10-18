@@ -187,7 +187,7 @@ class FoundationController {
   public async create(
     @Body(new TypeBoxPipe(CreateSampleEffectCommandSchema)) command: CreateSampleEffectCommand,
   ): Promise<CreateSampleEffectResult> {
-    if (this.config.environment === 'production') {
+    if (this.config.environment !== 'local' && this.config.environment !== 'test') {
       throw new ApplicationError('not_found', 'The resource was not found.', 404);
     }
     return this.handler.execute(command);

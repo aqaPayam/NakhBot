@@ -13,6 +13,11 @@ import {
 } from '@nakh/persistence-postgres';
 import { TelegramBotApiMenuClient } from '@nakh/telegram';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
+import {
+  createReportUser,
+  createReportChat,
+  createReportMessage,
+} from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 import { TelegramGatewayModule } from './app.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL,
@@ -56,6 +61,12 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       });
       vi.stubEnv('M9_COHORT_BOT', `12345:${'a'.repeat(24)}`);
       vi.stubEnv('M9_COHORT_KEY', Buffer.alloc(32, 83).toString('base64url'));
+      vi.stubEnv(
+        'M9_COHORT_REPORT_KEYS',
+        JSON.stringify([
+          { keyId: 'report-key', keyVersion: 1, key: Buffer.alloc(32, 84).toString('base64url') },
+        ]),
+      );
       vi.spyOn(TelegramBotApiMenuClient.prototype, 'sendMenu').mockImplementation(
         (_recipient, menu) => {
           sent.push(structuredClone(menu));
@@ -63,6 +74,10 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
         },
       );
       vi.spyOn(TelegramBotApiMenuClient.prototype, 'answerCallback').mockResolvedValue(undefined);
+      vi.spyOn(TelegramBotApiMenuClient.prototype, 'sendPrompt').mockResolvedValue(44001);
+      vi.stubGlobal('fetch', (): Promise<never> =>
+        Promise.reject(new Error('Unexpected provider transport in synthetic gateway fixture.')),
+      );
       const config = parseConfig({
         NAKH_ENV: 'staging',
         NAKH_RELEASE: sha,
@@ -75,6 +90,9 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
         NAKH_TELEGRAM_ACTION_TOKEN_KEY_REF: 'M9_COHORT_KEY',
         NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
         NAKH_TELEGRAM_SIGNUP_ENABLED: 'true',
+        NAKH_TELEGRAM_REPORTS_ENABLED: 'true',
+        NAKH_REPORT_SNAPSHOT_KEY_ID: 'report-key',
+        NAKH_DELETION_EVIDENCE_KEY_RING_REF: 'M9_COHORT_REPORT_KEYS',
         NAKH_MEDIA_INGESTION_ENABLED: 'true',
         NAKH_MEDIA_TRANSPORT_KEY_REF: 'M9_COHORT_KEY',
         NAKH_R2_ENDPOINT: 'https://r2.invalid',
@@ -96,6 +114,7 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       await app?.close();
       vi.restoreAllMocks();
       vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
       await database?.destroy();
       await isolated?.destroy();
     });
@@ -175,6 +194,140 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       expect((await post(start(5))).statusCode).toBe(201);
       expect(sent.at(-1)!.replyMarkup.inline_keyboard).toEqual([]);
       expect(await grants()).toHaveLength(1);
+    });
+    it('opens only report-domain choices during a cohort stop and captures one report without product navigation or private text', async () => {
+      const owner = await createReportUser(database, true),
+        peer = await createReportUser(database, true),
+        recipient = sender + 1;
+      const chat = await createReportChat(database, owner, peer),
+        [low, high] = [owner, peer].sort() as [string, string];
+      for (const userId of [owner, peer]) {
+        await database
+          .insertInto('identity.guest_preview_counters')
+          .values({
+            user_id: userId,
+            preview_count: 0,
+            limit_count: 3,
+            first_preview_at: null,
+            last_preview_at: null,
+          })
+          .execute();
+        await database
+          .insertInto('identity.user_settings')
+          .values({
+            user_id: userId,
+            visibility_enabled: true,
+            created_at: new Date(),
+            updated_at: new Date(),
+          })
+          .execute();
+        await database
+          .insertInto('notification.notification_preferences')
+          .values({ user_id: userId, created_at: new Date(), updated_at: new Date() })
+          .execute();
+      }
+      await database
+        .insertInto('interaction.user_pair_states')
+        .values({
+          user_low_id: low,
+          user_high_id: high,
+          state: 'matched',
+          reason_code: 'mutual_like',
+          changed_at: new Date(),
+        })
+        .execute();
+      await createReportMessage(database, chat.chatSessionId, peer, 'PRIVATE_REPORT_ENTRY_BODY');
+      await database
+        .insertInto('identity.telegram_identities')
+        .values({
+          user_id: owner,
+          telegram_user_id: String(recipient),
+          username: null,
+          first_seen_at: new Date(),
+          last_seen_at: new Date(),
+        })
+        .execute();
+      const entry = {
+        update_id: 100,
+        message: {
+          text: '/report',
+          from: { id: recipient, is_bot: false },
+          chat: { id: recipient, type: 'private' },
+        },
+      };
+      expect(
+        (
+          await post({
+            ...entry,
+            message: { ...entry.message, chat: { id: recipient, type: 'group' } },
+          })
+        ).statusCode,
+      ).toBe(409);
+      const before = sent.length;
+      const responses = await Promise.all(Array.from({ length: 3 }, () => post(entry)));
+      expect(responses.map((response) => response.statusCode)).toEqual([201, 201, 201]);
+      const menu = sent.at(-1)!,
+        data = menu.replyMarkup.inline_keyboard[0]![0]!.callback_data;
+      expect(typeof data === 'string' && data.startsWith('m9r:')).toBe(true);
+      for (const value of [
+        owner,
+        peer,
+        chat.matchId,
+        chat.chatSessionId,
+        'PRIVATE_REPORT_ENTRY_BODY',
+      ])
+        expect(JSON.stringify(sent.slice(before))).not.toContain(value);
+      expect(
+        await database
+          .selectFrom('platform.audit_logs')
+          .select('id')
+          .where('event_type', '=', 'identity.user-session-issued.v1')
+          .where('actor_user_id', '=', owner)
+          .execute(),
+      ).toHaveLength(1);
+      const callback = (token: unknown, id: number): Record<string, unknown> => ({
+        update_id: id,
+        callback_query: {
+          id: `report-entry-${id}`,
+          data: token,
+          from: { id: recipient, is_bot: false },
+          message: {
+            message_id: 1,
+            chat: { id: recipient, type: 'private' },
+            from: { id: 12345, is_bot: true },
+          },
+        },
+      });
+      expect((await post(callback(data, 101))).statusCode).toBe(201);
+      const reason = sent.at(-1)!.replyMarkup.inline_keyboard[0]![0]!.callback_data;
+      expect((await post(callback(reason, 102))).statusCode).toBe(201);
+      const submit = sent
+        .at(-1)!
+        .replyMarkup.inline_keyboard.flat()
+        .find((button) => button.text === 'Submit report')!.callback_data;
+      const submitted = await Promise.all(
+        Array.from({ length: 3 }, () => post(callback(submit, 103))),
+      );
+      expect(submitted.every((response) => response.statusCode === 201)).toBe(true);
+      expect(
+        await database
+          .selectFrom('moderation.reports')
+          .select('target_user_id')
+          .where('reporter_user_id', '=', owner)
+          .execute(),
+      ).toEqual([{ target_user_id: peer }]);
+      expect(
+        (await post({ update_id: 104, message: { ...entry.message, text: '/start' } })).statusCode,
+      ).toBe(201);
+      expect(sent.at(-1)!.replyMarkup.inline_keyboard).toEqual([]);
+      expect(
+        await database
+          .selectFrom('platform.audit_logs')
+          .select('id')
+          .where('event_type', '=', 'identity.user-session-issued.v1')
+          .where('actor_user_id', '=', owner)
+          .execute(),
+      ).toHaveLength(1);
     });
   },
 );
