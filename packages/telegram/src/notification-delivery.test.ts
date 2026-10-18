@@ -10,6 +10,54 @@ function response(value: unknown, status = 200): Response {
 }
 
 describe('M6 Telegram notification sender', () => {
+  it('sends literal private chat content without HTML expansion and preserves opaque navigation', async () => {
+    const fetcher = vi
+      .fn<(input: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(
+        response({
+          ok: true,
+          result: {
+            message_id: 43,
+            chat: { id: 123456789, type: 'private' },
+            from: { id: 12345, is_bot: true },
+          },
+        }),
+      );
+    const sender = new TelegramNotificationSender('12345:test-token', fetcher);
+    const body = '<b>literal</b>' + '&'.repeat(1000);
+    const replyMarkup = { inline_keyboard: [[{ text: 'Open chat', callback_data: 'm9c:opaque' }]] };
+    await expect(
+      sender.send({
+        telegramUserId: '123456789',
+        title: 'Chat abcd1234',
+        body,
+        format: 'plain',
+        replyMarkup,
+      }),
+    ).resolves.toEqual({ providerMessageKey: 'telegram:43' });
+    const request = JSON.parse(fetcher.mock.calls[0]![1]!.body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(request.text).toBe('Chat abcd1234\n' + body);
+    expect(request).not.toHaveProperty('parse_mode');
+    expect(request.reply_markup).toEqual(replyMarkup);
+  });
+
+  it.each([
+    { chat: { id: 123456788, type: 'private' }, from: { id: 12345, is_bot: true } },
+    { chat: { id: 123456789, type: 'group' }, from: { id: 12345, is_bot: true } },
+    { chat: { id: 123456789, type: 'private' }, from: { id: 12346, is_bot: true } },
+    { chat: { id: 123456789, type: 'private' }, from: { id: 12345, is_bot: false } },
+  ])('quarantines a chat receipt outside its exact private bot context (%j)', async (context) => {
+    const sender = new TelegramNotificationSender(
+      '12345:test-token',
+      vi.fn().mockResolvedValue(response({ ok: true, result: { message_id: 43, ...context } })),
+    );
+    await expect(
+      sender.send({ telegramUserId: '123456789', title: 'Chat', body: 'private', format: 'plain' }),
+    ).rejects.toMatchObject({ reasonCode: 'ambiguous_result' });
+  });
   it('escapes catalog text before enabling Telegram HTML rendering', () => {
     expect(renderTelegramNotification('A < B', 'Use & stay > safe')).toBe(
       '<b>A &lt; B</b>\nUse &amp; stay &gt; safe',

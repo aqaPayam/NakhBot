@@ -10,6 +10,7 @@ import { PostgresChatStore } from './chat-store.js';
 import { PostgresChatStateStore } from './chat-state-store.js';
 import { PostgresUnmatchStore } from './unmatch-store.js';
 import { PostgresUserSessionStore } from './user-session-store.js';
+import { loadChatNotificationProjection } from './chat-notification-projection.js';
 import { PostgresAccountReturnStore } from './account-return-store.js';
 import { PostgresAccountDeletionChatStore } from './account-deletion-chat-store.js';
 import { PostgresAccountDeletionMatchStore } from './account-deletion-match-store.js';
@@ -175,6 +176,68 @@ describe.skipIf(url === undefined)('captured native chat user grants', () => {
     );
     expect(new Set(results.map((r) => r.message.sequenceNumber)).size).toBe(20);
     expect(results.every((r) => !r.replayed)).toBe(true);
+  });
+  it('captures an existing delivery grant without issuance and respects revocation, mute and the visible history bound', async () => {
+    const f = await conversation(),
+      store = new PostgresChatStore(database, f.first),
+      write = await question(f.first, f.chatSessionId);
+    await store.sendPredefined(write);
+    const notice = {
+      userId: f.second.userId,
+      productEpoch: 0,
+      payload: { chatSessionId: f.chatSessionId, messageId: write.messageId },
+    };
+    const grants = (): Promise<{ id: string }[]> =>
+      database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('actor_user_id', '=', f.second.userId)
+        .where('event_type', '=', 'identity.user-session-issued.v1')
+        .execute();
+    const before = await grants();
+    const projection = await loadChatNotificationProjection(database, notice, true);
+    expect(projection?.replyActor).toEqual(f.second);
+    expect(projection?.message.messageId).toBe(write.messageId);
+    expect(
+      await new PostgresUserSessionStore(database).captureForDelivery({
+        userId: f.second.userId,
+        productEpoch: 1,
+      }),
+    ).toBeUndefined();
+    const state = new PostgresChatStateStore(database, f.second);
+    for (const muted of [true, false]) {
+      const participant = await database
+        .selectFrom('chat.chat_participants')
+        .select('version')
+        .where('chat_session_id', '=', f.chatSessionId)
+        .where('user_id', '=', f.second.userId)
+        .executeTakeFirstOrThrow();
+      await state.changeMute({
+        chatSessionId: f.chatSessionId,
+        eventId: randomUUID(),
+        command: {
+          ...envelope(f.second),
+          commandType: 'chat.change-mute',
+          data: { chatActionToken: reference, muted, expectedVersion: participant.version },
+        },
+      });
+      expect((await loadChatNotificationProjection(database, notice, false)) === undefined).toBe(
+        muted,
+      );
+    }
+    await new PostgresUserSessionStore(database).revoke(
+      f.second,
+      f.second.sessionGrantId,
+      randomUUID(),
+    );
+    expect(
+      (await loadChatNotificationProjection(database, notice, true))?.replyActor,
+    ).toBeUndefined();
+    expect(projection?.replyActor).toEqual(f.second);
+    expect(await grants()).toEqual(before);
+    for (let i = 0; i < 50; i++)
+      await store.sendPredefined(await question(f.first, f.chatSessionId));
+    expect(await loadChatNotificationProjection(database, notice, false)).toBeUndefined();
   });
   it('rejects revoked grants before reads, cached replies, warnings, state changes and Unmatch', async () => {
     const f = await conversation(),

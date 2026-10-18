@@ -919,3 +919,30 @@ startup tests leave photo commands absent and never resolve provider credentials
 when media is disabled. This is implementation evidence, not actual provider,
 deployment or operator acceptance. M9's remaining public journeys, operator
 provisioning, controlled rollout and launch-health requirements remain open.
+
+## Stored chat relay and private reply handoff
+
+With both chat and Telegram notification delivery enabled, the ordinary worker
+renders the exact native stored chat message using the recipient's catalog and
+the same user-bound chat alias as the gateway. It sends literal plain text,
+without forwarding sender metadata or exposing peer identifiers. The existing
+notification authority, current-pair checks, sorted identity locks, lease fences
+and ambiguous-result quarantine remain authoritative. Projection and provider
+admission also enforce mute and the native fifty-message visibility bound.
+
+Delivery captures an existing, unexpired native user grant; it never issues or
+renews one. Signed Open chat navigation and reply state preserve that exact grant.
+A reply binding is registered only for a matching private-chat/bot receipt after
+durable sent settlement. Redis failure cannot turn known success into another
+send. Missing grants retain stored-content delivery with a localized primary-entry
+recovery instruction. Gateway replies recheck the original grant before effects
+or replay. Unlock commands use their dedicated `v1.pa` action-token namespace.
+
+Migration 160 adds three relay texts. Enabled worker startup verifies schema,
+chat catalog variables and safety texts for every active UI locale. Native tests
+cover capture without issuance, revocation, mute and visibility bounds; the
+compiled ordinary worker/gateway fixture exercises stored-content relay, private
+reply, exact-update replay and revoked reply context with real PostgreSQL/Redis
+and synthetic Telegram transport. Real provider and launch acceptance remain
+pending. Chat reporting, trusted operator provisioning and production composition
+remain open; retained-data erasure stays disabled pending approved policies.

@@ -2,6 +2,7 @@ import type {
   ClaimNotificationDeliveriesCommand,
   ClaimedNotificationDelivery,
   SettleNotificationDeliveryCommand,
+  ChatMessage,
 } from '@nakh/contracts';
 import {
   ApplicationError,
@@ -9,6 +10,7 @@ import {
   type Clock,
   type NotificationProviderFailureCode,
 } from '@nakh/domain';
+import type { UserSessionActor } from '../security/user-session.js';
 
 export const NOTIFICATION_DELIVERY_LEASE_MS = 60_000;
 
@@ -24,6 +26,17 @@ export type TelegramNotificationProjection = Readonly<{
   locale: string;
   titleKey: string;
   bodyKey: string;
+  chat?: Readonly<{
+    userId: string;
+    productEpoch: number;
+    chatSessionId: string;
+    matchId: string;
+    version: number;
+    canReplyWithText: boolean;
+    mustShowSafetyWarning: boolean;
+    message: ChatMessage;
+    replyActor?: UserSessionActor;
+  }>;
 }>;
 
 export type NotificationDeliverySettlementWrite = NotificationDeliveryLease &

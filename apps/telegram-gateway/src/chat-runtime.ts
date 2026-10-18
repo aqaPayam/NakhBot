@@ -35,7 +35,7 @@ import {
   RedisRateLimiter,
   type createRedisConnection,
 } from '@nakh/queue-redis';
-import { TelegramBotApiMenuClient } from '@nakh/telegram';
+import { TelegramBotApiMenuClient, telegramChatAlias } from '@nakh/telegram';
 import {
   SignupNavigationTokens,
   signupRecord as record,
@@ -219,11 +219,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
     const tokens = this.tokens(recipient, actor),
       buttons: TelegramMenuButton[][] = [];
     for (const row of rows.slice(0, 20)) {
-      const alias = createHmac('sha256', this.key)
-        .update(JSON.stringify(['chat-alias', actor.userId, actor.productEpoch, row.id]))
-        .digest('hex')
-        .slice(0, 8)
-        .toUpperCase();
+      const alias = telegramChatAlias(this.key, actor, row.id);
       buttons.push([
         {
           text: (await this.text(actor, 'chat.title')) + ' ' + alias,
@@ -275,6 +271,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
       resolveChatUnlockAction: (token: string, userId: string) => Promise<string | undefined>;
     };
     chatToken: string;
+    paidToken: string;
     matchToken: string;
     cursorToken: string;
     cursor: () => ChatPageCursor | undefined;
@@ -292,7 +289,8 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
     const core = (purpose: string): string => `v1.${purpose}.${tag.slice(0, 22)}.${tag.slice(22)}`;
     const chatToken = core('ch'),
       matchToken = core('mt'),
-      cursorToken = core('cm');
+      cursorToken = core('cm'),
+      paidToken = core('pa');
     let cursor: ChatPageCursor | undefined;
     const match = (token: string, userId: string): Promise<string | undefined> =>
       Promise.resolve(
@@ -302,12 +300,16 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
       store: new PostgresChatStore(this.database, nav.actor),
       state: new PostgresChatStateStore(this.database, nav.actor),
       chatToken,
+      paidToken,
       matchToken,
       cursorToken,
       cursor: () => cursor,
       references: {
         resolveMatchAction: match,
-        resolveChatUnlockAction: match,
+        resolveChatUnlockAction: (token, userId) =>
+          Promise.resolve(
+            userId === nav.actor.userId && token === paidToken ? nav.reference : undefined,
+          ),
         resolveLikedByAction: () => Promise.resolve(undefined),
         resolveChatAction: (token, userId) =>
           Promise.resolve(
@@ -626,7 +628,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
         ).execute({
           ...e,
           commandType: 'billing.spend-credits-for-action',
-          data: { target: { type: 'chat_unlock', actionToken: s.matchToken } },
+          data: { target: { type: 'chat_unlock', actionToken: s.paidToken } },
         });
         break;
       default:

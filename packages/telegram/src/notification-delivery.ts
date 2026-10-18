@@ -1,4 +1,5 @@
 import type { NotificationProviderFailureCode } from '@nakh/domain';
+import type { RenderedTelegramMenu } from './photo-menu-delivery.js';
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -48,10 +49,15 @@ function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-export function renderTelegramNotification(title: string, body: string): string {
+export function renderTelegramNotification(
+  title: string,
+  body: string,
+  format: 'html' | 'plain' = 'html',
+): string {
   if (title.trim() === '' || body.trim() === '')
     throw new TelegramNotificationSendFailure('provider_request_invalid');
-  const rendered = `<b>${escapeHtml(title)}</b>\n${escapeHtml(body)}`;
+  const rendered =
+    format === 'plain' ? `${title}\n${body}` : `<b>${escapeHtml(title)}</b>\n${escapeHtml(body)}`;
   if ([...rendered].length > 4096)
     throw new TelegramNotificationSendFailure('provider_request_invalid');
   return rendered;
@@ -127,11 +133,13 @@ export class TelegramNotificationSender {
       telegramUserId: string;
       title: string;
       body: string;
+      replyMarkup?: RenderedTelegramMenu['replyMarkup'];
+      format?: 'plain';
     }>,
   ): Promise<Readonly<{ providerMessageKey: string }>> {
     if (!/^[1-9][0-9]{0,19}$/u.test(input.telegramUserId))
       throw new TelegramNotificationSendFailure('recipient_unavailable');
-    const text = renderTelegramNotification(input.title, input.body);
+    const text = renderTelegramNotification(input.title, input.body, input.format ?? 'html');
     let response: Response;
     try {
       response = await this.fetcher(`${this.apiOrigin}/bot${this.botToken}/sendMessage`, {
@@ -141,8 +149,9 @@ export class TelegramNotificationSender {
         body: JSON.stringify({
           chat_id: input.telegramUserId,
           text,
-          parse_mode: 'HTML',
+          ...(input.format === 'plain' ? {} : { parse_mode: 'HTML' }),
           disable_web_page_preview: true,
+          ...(input.replyMarkup === undefined ? {} : { reply_markup: input.replyMarkup }),
         }),
         signal: AbortSignal.timeout(15_000),
       });
@@ -159,6 +168,18 @@ export class TelegramNotificationSender {
     const messageId = record(payload.result)?.message_id;
     if (typeof messageId !== 'number' || !Number.isSafeInteger(messageId) || messageId < 1)
       throw new TelegramNotificationSendFailure('ambiguous_result');
+    if (input.format === 'plain') {
+      const result = record(payload.result),
+        chat = record(result?.chat),
+        from = record(result?.from);
+      if (
+        chat?.type !== 'private' ||
+        String(chat.id) !== input.telegramUserId ||
+        from?.is_bot !== true ||
+        String(from.id) !== this.botToken.split(':')[0]
+      )
+        throw new TelegramNotificationSendFailure('ambiguous_result');
+    }
     return { providerMessageKey: `telegram:${messageId}` };
   }
 }

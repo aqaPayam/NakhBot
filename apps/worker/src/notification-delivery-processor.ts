@@ -6,17 +6,24 @@ import type {
 } from '@nakh/application';
 import type { ClaimedNotificationDelivery } from '@nakh/contracts';
 import { TelegramNotificationSendFailure, type TelegramNotificationSender } from '@nakh/telegram';
+import type { SignupNavigation } from '@nakh/telegram';
 
 type Coordinator = Pick<
   NotificationDeliveryCoordinator,
   'claim' | 'loadTelegramProjection' | 'markProviderCallStarted' | 'settle'
 >;
 type Sender = Pick<TelegramNotificationSender, 'send'>;
+export type RenderedNotification = Readonly<{
+  title: string;
+  body: string;
+  format?: 'plain';
+  replyMarkup?: Parameters<TelegramNotificationSender['send']>[0]['replyMarkup'];
+  replyBinding?: Readonly<{ recipient: string; state: SignupNavigation }>;
+}>;
 
 export interface NotificationRendererPort {
-  render(
-    projection: TelegramNotificationProjection,
-  ): Promise<Readonly<{ title: string; body: string }>>;
+  render(projection: TelegramNotificationProjection): Promise<RenderedNotification>;
+  delivered?(rendered: RenderedNotification, providerMessageKey: string): Promise<void>;
 }
 
 export type NotificationDeliveryPollResult =
@@ -73,7 +80,7 @@ export class NotificationDeliveryProcessor {
         failureCode: 'recipient_unavailable',
       });
 
-    let rendered: Readonly<{ title: string; body: string }>;
+    let rendered: RenderedNotification;
     try {
       rendered = await this.renderer.render(projection);
     } catch {
@@ -89,11 +96,23 @@ export class NotificationDeliveryProcessor {
         telegramUserId: projection.telegramUserId,
         title: rendered.title,
         body: rendered.body,
+        ...(rendered.format === undefined ? {} : { format: rendered.format }),
+        ...(rendered.replyMarkup === undefined ? {} : { replyMarkup: rendered.replyMarkup }),
       });
-      return this.settle(claim, {
+      const result = await this.settle(claim, {
         outcome: 'sent',
         providerMessageKey: sent.providerMessageKey,
       });
+      if (result.outcome === 'delivered') {
+        // The provider acknowledgement is already durably settled. Cache loss
+        // may remove reply convenience but must never resend the private body.
+        try {
+          await this.renderer.delivered?.(rendered, sent.providerMessageKey);
+        } catch {
+          /* /start and the signed open button remain recovery paths */
+        }
+      }
+      return result;
     } catch (error) {
       if (!(error instanceof TelegramNotificationSendFailure))
         return this.settle(claim, {

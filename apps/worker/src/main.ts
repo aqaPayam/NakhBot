@@ -204,8 +204,10 @@ const likedByMetrics = likedByDelivery === undefined ? undefined : new M3Metrics
 const notificationDelivery = createTelegramNotificationDeliveryRuntime({
   config,
   database,
+  redis: workerConnection,
   owner: `telegram-notification-${randomUUID()}`,
 });
+await notificationDelivery?.verifyReadiness?.();
 const chatMetrics = notificationDelivery === undefined ? undefined : new M6Metrics();
 const mediaOwner = randomUUID();
 const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;

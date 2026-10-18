@@ -171,6 +171,35 @@ export class PostgresUserSessionStore implements UserSessionStore {
       ? current
       : undefined;
   }
+  /** Read-only delivery handoff. The life comes from a fenced native notice;
+   * capture once before rendering and never replace this grant on a reply. */
+  public async captureForDelivery(input: UserProductLife): Promise<UserSessionGrant | undefined> {
+    if (!isUserProductLife(input)) return undefined;
+    const life = Object.freeze({ userId: input.userId, productEpoch: input.productEpoch });
+    const candidate = await this.database
+      .selectFrom('platform.audit_logs as issued')
+      .select('issued.id')
+      .where('issued.actor_type', '=', 'user')
+      .where('issued.actor_user_id', '=', life.userId)
+      .where('issued.actor_admin_id', 'is', null)
+      .where('issued.category', '=', 'security')
+      .where('issued.event_type', '=', ISSUED)
+      .where('issued.occurred_at', '<=', sql<Date>`clock_timestamp()`)
+      .where(
+        'issued.occurred_at',
+        '>',
+        sql<Date>`clock_timestamp()-(${LIFETIME_MS}*interval '1 millisecond')`,
+      )
+      .where(
+        sql<boolean>`issued.metadata @> ${JSON.stringify({ productEpoch: life.productEpoch })}::jsonb`,
+      )
+      .where(sql<boolean>`NOT identity.user_session_authority_revoked(issued.id)`)
+      .orderBy('issued.occurred_at', 'desc')
+      .orderBy('issued.id', 'desc')
+      .limit(1)
+      .executeTakeFirst();
+    return candidate === undefined ? undefined : this.current(life, candidate.id);
+  }
   public async revoke(life: UserProductLife, grantId: string, requestId: string): Promise<void> {
     if (!isUserProductLife(life) || !UUID.test(grantId) || !UUID.test(requestId))
       throw unauthorized();

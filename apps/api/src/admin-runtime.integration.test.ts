@@ -30,6 +30,7 @@ import {
   PostgresAdminTotpOperator,
   PostgresAccountReturnStore,
   PostgresUserSessionStore,
+  PostgresCreditLedgerStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
@@ -59,6 +60,7 @@ type Menu = {
   message_id?: number;
   chat_id: string;
   text: string;
+  parse_mode?: string;
   reply_markup?: {
     inline_keyboard?: Array<Array<{ text: string; url?: string; callback_data?: string }>>;
   };
@@ -206,6 +208,8 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
         NAKH_R2_BUCKET: 'native-admin',
         NAKH_R2_ACCESS_KEY_REF: 'M9_UNUSED_R2_ACCESS',
         NAKH_R2_SECRET_KEY_REF: 'M9_UNUSED_R2_SECRET',
+        M9_UNUSED_R2_ACCESS: 'native-unused-access',
+        M9_UNUSED_R2_SECRET: 'native-unused-secret',
         NAKH_MEDIA_CDN_HOST: 'media.invalid',
         NAKH_MEDIA_SIGNING_KEY_REF: 'M9_HOST_SIGNING',
         M9_HOST_SIGNING: key(17),
@@ -219,7 +223,7 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
       };
     }
     async function start(
-      service: 'api' | 'telegram-gateway',
+      service: 'api' | 'telegram-gateway' | 'worker',
       overrides: NodeJS.ProcessEnv = {},
       ready = true,
     ): Promise<Host> {
@@ -344,7 +348,8 @@ describe.skipIf(databaseUrl === undefined || redisUrl === undefined)(
             async () => {
               if (child.exitCode !== null || child.signalCode !== null)
                 throw new Error('Native host exited: ' + diagnostics);
-              expect((await localRequest(host.origin + '/health/ready')).status).toBe(200);
+              if (service === 'worker') expect(diagnostics).toContain('service.started');
+              else expect((await localRequest(host.origin + '/health/ready')).status).toBe(200);
             },
             { timeout: 25000, interval: 100 },
           );
@@ -926,31 +931,41 @@ process.on('message', message => {
       return Buffer.from(bits.match(/.{8}/gu)!.map((b) => parseInt(b, 2)));
     }
 
-    it('composes chat through the ordinary compiled gateway with the original primary grant', async () => {
+    it('relays stored chat through ordinary compiled worker and gateway with original grants', async () => {
       const owner = await register(),
-        second = await createReportUser(database, true),
+        peer = await register(),
+        template = await createReportUser(database, true),
+        second = peer.userId,
         now = new Date();
       const profile = await database
         .selectFrom('profile.profiles')
         .selectAll()
-        .where('user_id', '=', second)
+        .where('user_id', '=', template)
         .executeTakeFirstOrThrow();
       await database
         .insertInto('profile.profiles')
-        .values({ ...profile, id: randomUUID(), user_id: owner.userId })
+        .values(
+          [owner.userId, second].map((userId) => ({
+            ...profile,
+            id: randomUUID(),
+            user_id: userId,
+          })),
+        )
         .execute();
       await database
         .updateTable('identity.accounts')
         .set({ state: 'active' })
-        .where('user_id', '=', owner.userId)
+        .where('user_id', 'in', [owner.userId, second])
         .execute();
       await database
         .insertInto('identity.user_settings')
         .values({ user_id: second, visibility_enabled: true, created_at: now, updated_at: now })
+        .onConflict((c) => c.column('user_id').doNothing())
         .execute();
       await database
         .insertInto('notification.notification_preferences')
         .values({ user_id: second, created_at: now, updated_at: now })
+        .onConflict((c) => c.column('user_id').doNothing())
         .execute();
       const chat = await createReportChat(database, owner.userId, second),
         [low, high] = [owner.userId, second].sort() as [string, string];
@@ -1003,9 +1018,9 @@ process.on('message', message => {
         });
         expect(response.status).toBe(201);
       };
-      const button = (label: string): string => {
+      const button = (label: string, recipient = owner.telegramUserId): string => {
         const data = host.menus
-          .filter((m) => String(m.chat_id) === owner.telegramUserId)
+          .filter((m) => String(m.chat_id) === recipient)
           .at(-1)
           ?.reply_markup?.inline_keyboard?.flat()
           .find((b) => b.text === label)?.callback_data;
@@ -1042,6 +1057,163 @@ process.on('message', message => {
           .execute(),
       ).toHaveLength(1);
       expect(await grants()).toEqual(original);
+      const worker = await start('worker', {
+        NAKH_TELEGRAM_CHAT_ENABLED: 'true',
+        NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED: 'true',
+      });
+      try {
+        await vi.waitFor(
+          () =>
+            expect(
+              worker.menus.some(
+                (m) =>
+                  String(m.chat_id) === peer.telegramUserId &&
+                  m.reply_markup?.inline_keyboard?.flat().some((b) => b.text === 'Open chat'),
+              ),
+            ).toBe(true),
+          { timeout: 15000, interval: 100 },
+        );
+        await new PostgresCreditLedgerStore(database).append({
+          transactionId: randomUUID(),
+          userId: owner.userId,
+          transactionType: 'admin_adjustment',
+          amount: 100n,
+          idempotencyKey: randomUUID(),
+          correlationId: randomUUID(),
+        });
+        await click(selected);
+        await click(button('Unlock text chat'));
+        await click(button('Confirm'));
+        // Both participants acknowledge the provider-delivered safety warning.
+        await click(selected);
+        const questionRelay = worker.menus.find(
+          (m) =>
+            String(m.chat_id) === peer.telegramUserId &&
+            m.reply_markup?.inline_keyboard?.flat().some((b) => b.text === 'Open chat'),
+        )!;
+        const openPeer = questionRelay
+          .reply_markup!.inline_keyboard!.flat()
+          .find((b) => b.text === 'Open chat')!.callback_data!;
+        await click(openPeer, ++updateId, peer.telegramUserId);
+        await click(button('Write a message'));
+        const promptId = host.menus
+          .filter((m) => String(m.chat_id) === owner.telegramUserId)
+          .at(-1)!.message_id!;
+        const reply = async (
+          sender: string,
+          quoted: number,
+          text: string,
+          event = ++updateId,
+        ): Promise<void> => {
+          expect(
+            (
+              await send({
+                update_id: event,
+                message: {
+                  message_id: event,
+                  date: Math.floor(Date.now() / 1000),
+                  text,
+                  from: { id: Number(sender), is_bot: false },
+                  chat: { id: Number(sender), type: 'private' },
+                  reply_to_message: {
+                    message_id: quoted,
+                    from: { id: botId, is_bot: true },
+                    chat: { id: Number(sender), type: 'private' },
+                  },
+                },
+              })
+            ).status,
+          ).toBe(201);
+        };
+        const privateText = '<b>literal relay</b>' + '&'.repeat(950);
+        await reply(owner.telegramUserId, promptId, privateText);
+        let relay: Menu | undefined;
+        await vi.waitFor(
+          () => {
+            relay = worker.menus.find(
+              (m) => String(m.chat_id) === peer.telegramUserId && m.text.includes(privateText),
+            );
+            expect(relay).toBeDefined();
+          },
+          { timeout: 15000, interval: 100 },
+        );
+        expect(relay!.parse_mode).toBeUndefined();
+        expect(relay!.text).not.toContain(owner.telegramUserId);
+        expect(relay!.text).not.toContain(owner.userId);
+        expect(relay!.text).not.toContain(chat.matchId);
+        const peerGrants = await database
+          .selectFrom('platform.audit_logs')
+          .select('id')
+          .where('actor_user_id', '=', second)
+          .where('event_type', '=', 'identity.user-session-issued.v1')
+          .execute();
+        expect(peerGrants).toHaveLength(1);
+        // Wait for the post-settlement reply binding, then replay the exact update.
+        const { SignupNavigationTokens } = await import('@nakh/telegram');
+        const { RedisOwnedOpaqueTokenStore } = await import('@nakh/queue-redis');
+        const redis = createRedisConnection(redisUrl!);
+        await redis.connect();
+        try {
+          const actor = {
+            kind: 'user' as const,
+            userId: second,
+            productEpoch: 0,
+            sessionGrantId: peerGrants[0]!.id,
+          };
+          const tokens = new SignupNavigationTokens(
+            new RedisOwnedOpaqueTokenStore(redis, prefix, actor),
+            Buffer.from(key(11), 'base64url'),
+            String(botId),
+            peer.telegramUserId,
+            actor,
+            Date.now,
+            'chat',
+          );
+          await vi.waitFor(
+            async () => expect((await tokens.reply(relay!.message_id!))?.actor).toEqual(actor),
+            { timeout: 5000, interval: 50 },
+          );
+          const event = ++updateId,
+            responseText = 'Reply from the relayed private message';
+          await reply(peer.telegramUserId, relay!.message_id!, responseText, event);
+          await reply(peer.telegramUserId, relay!.message_id!, responseText, event);
+          expect(
+            await database
+              .selectFrom('chat.chat_messages')
+              .select('id')
+              .where('chat_session_id', '=', chat.chatSessionId)
+              .where('text', '=', responseText)
+              .execute(),
+          ).toHaveLength(1);
+          await new PostgresUserSessionStore(database).revoke(
+            actor,
+            actor.sessionGrantId,
+            randomUUID(),
+          );
+          await reply(peer.telegramUserId, relay!.message_id!, 'revoked context');
+          expect(
+            await database
+              .selectFrom('chat.chat_messages')
+              .select('id')
+              .where('chat_session_id', '=', chat.chatSessionId)
+              .where('text', '=', 'revoked context')
+              .execute(),
+          ).toHaveLength(0);
+          expect(
+            await database
+              .selectFrom('platform.audit_logs')
+              .select('id')
+              .where('actor_user_id', '=', second)
+              .where('event_type', '=', 'identity.user-session-issued.v1')
+              .execute(),
+          ).toEqual(peerGrants);
+        } finally {
+          await redis.quit();
+        }
+        expect(await grants()).toEqual(original);
+      } finally {
+        await worker.stop();
+      }
       const borrower = await register();
       await click(question, ++updateId, borrower.telegramUserId);
       const before = host.menus.filter((m) => String(m.chat_id) === owner.telegramUserId).length;
@@ -1060,7 +1232,7 @@ process.on('message', message => {
           .select('id')
           .where('chat_session_id', '=', chat.chatSessionId)
           .execute(),
-      ).toHaveLength(1);
+      ).toHaveLength(3);
     });
     it('uses actual private webhook entry, one original grant across retries, native TOTP and the running administrator queue', async () => {
       const telegramUserId = String(++telegramSequence),

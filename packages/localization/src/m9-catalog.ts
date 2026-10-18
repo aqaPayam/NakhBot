@@ -66,6 +66,9 @@ export const M9_CHAT_TEXTS = {
   'chat.unmatch.confirm': 'End this Match and close the chat permanently?',
   'chat.unlock.confirm': 'Spend {credits} credits to unlock text chat for both participants?',
   'chat.message.sent': 'Message sent.',
+  'chat.relay.open': 'Open chat',
+  'chat.relay.resume': 'Open /start, then Chats, to continue this conversation.',
+  'chat.relay.reply': 'Reply to this message or open the chat.',
 } as const;
 
 export const M9_ADMIN_TEXTS = {

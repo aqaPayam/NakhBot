@@ -68,6 +68,58 @@ function fixture(): Fixture {
 }
 
 describe('M6 notification delivery worker', () => {
+  it('binds replies only after durable success and never resends after a binding cache failure', async () => {
+    const f = fixture();
+    const delivered = vi.fn().mockRejectedValue(new Error('Redis unavailable'));
+    Object.assign(f.renderer, { delivered });
+    f.renderer.render.mockResolvedValue({
+      title: 'Chat',
+      body: 'private',
+      format: 'plain',
+      replyMarkup: { inline_keyboard: [[{ text: 'Open chat', callback_data: 'm9c:opaque' }]] },
+      replyBinding: {
+        recipient: projection.telegramUserId,
+        state: {
+          version: 0,
+          screen: 'chat_text',
+          action: 'reply',
+          actor: {
+            kind: 'user',
+            userId: claim.notificationId,
+            productEpoch: 0,
+            sessionGrantId: claim.deliveryId,
+          },
+        },
+      },
+    });
+    await expect(f.processor.processNext()).resolves.toEqual({ outcome: 'delivered' });
+    expect(f.coordinator.settle).toHaveBeenCalledTimes(1);
+    expect(f.coordinator.settle.mock.invocationCallOrder[0]).toBeLessThan(
+      delivered.mock.invocationCallOrder[0]!,
+    );
+    expect(f.sender.send).toHaveBeenCalledTimes(1);
+    expect(f.sender.send.mock.calls[0]![0]).not.toHaveProperty('replyBinding');
+    expect(delivered).toHaveBeenCalledWith(
+      expect.objectContaining({ body: 'private' }),
+      'telegram:42',
+    );
+  });
+
+  it('does not bind a reply after lost settlement or an ambiguous provider result', async () => {
+    for (const ambiguous of [false, true]) {
+      const f = fixture(),
+        delivered = vi.fn();
+      Object.assign(f.renderer, { delivered });
+      if (ambiguous) f.sender.send.mockRejectedValue(new Error('connection lost'));
+      else f.coordinator.settle.mockResolvedValue(false);
+      await expect(f.processor.processNext()).resolves.toEqual(
+        ambiguous
+          ? { outcome: 'quarantined', reasonCode: 'ambiguous_result' }
+          : { outcome: 'lease_lost' },
+      );
+      expect(delivered).not.toHaveBeenCalled();
+    }
+  });
   it('marks provider progress before sending and settles known success', async () => {
     const { coordinator, sender, processor } = fixture();
     await expect(processor.processNext()).resolves.toEqual({ outcome: 'delivered' });

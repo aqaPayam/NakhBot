@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { UserSessionActor } from '@nakh/application';
+import { SpendCreditsForPaidActionHandler, type UserSessionActor } from '@nakh/application';
 import { parseConfig } from '@nakh/config';
 import {
   createDatabase,
@@ -325,7 +325,18 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
         (await new PostgresCreditLedgerStore(database).getBalance(f.actor.userId)).balance,
       ).toBe(100n);
       const confirmation = f.callback(f.button('Confirm'));
+      const commands = vi.spyOn(SpendCreditsForPaidActionHandler.prototype, 'execute');
       await Promise.all(Array.from({ length: 10 }, () => f.runtime.handle(confirmation)));
+      const captured = commands.mock.calls.map(([command]) => command);
+      commands.mockRestore();
+      expect(captured.length).toBeGreaterThan(0);
+      for (const command of captured) {
+        expect(command.data.target.type).toBe('chat_unlock');
+        if (command.data.target.type === 'chat_unlock')
+          expect(command.data.target.actionToken).toMatch(
+            /^v1\.pa\.[A-Za-z0-9_-]{16,128}\.[A-Za-z0-9_-]{16,128}$/u,
+          );
+      }
       expect(
         await database
           .selectFrom('interaction.feature_unlocks')

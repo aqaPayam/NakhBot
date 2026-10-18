@@ -10,6 +10,7 @@ import { sql } from 'kysely';
 
 import type { NakhDatabase } from './database.js';
 import { resolveNotificationScope } from './notification-scope-authority.js';
+import { loadChatNotificationProjection } from './chat-notification-projection.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const OWNER = /^[A-Za-z0-9._:-]{1,128}$/u;
@@ -97,7 +98,13 @@ async function lockNotificationAuthority(
 
 /** Durable M6 notification delivery leases, rendering authorization, and fenced settlement. */
 export class PostgresNotificationDeliveryStore implements NotificationDeliveryStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly chatRelay: boolean;
+  public constructor(
+    private readonly database: NakhDatabase,
+    options: Readonly<{ chatRelay?: boolean }> = {},
+  ) {
+    this.chatRelay = options.chatRelay === true;
+  }
 
   public async claimDue(input: {
     workerId: string;
@@ -196,6 +203,10 @@ export class PostgresNotificationDeliveryStore implements NotificationDeliverySt
           'notification.body_key',
           'telegram.telegram_user_id',
           'settings.ui_locale_code',
+          'notification.user_id',
+          'notification.product_epoch',
+          'notification.notification_type',
+          'notification.payload',
         ])
         .where('delivery.id', '=', lease.deliveryId)
         .where('delivery.channel', '=', 'telegram')
@@ -206,13 +217,23 @@ export class PostgresNotificationDeliveryStore implements NotificationDeliverySt
         .where('delivery.lease_expires_at', '>', sql<Date>`clock_timestamp()`)
         .executeTakeFirst();
       if (row === undefined) return undefined;
-
+      const chat =
+        this.chatRelay && row.notification_type === 'new_chat_message'
+          ? await loadChatNotificationProjection(
+              transaction,
+              { userId: row.user_id, productEpoch: row.product_epoch, payload: row.payload },
+              true,
+            )
+          : undefined;
+      if (this.chatRelay && row.notification_type === 'new_chat_message' && chat === undefined)
+        return undefined;
       return {
         deliveryId: row.delivery_id,
         telegramUserId: row.telegram_user_id,
         locale: row.ui_locale_code,
         titleKey: row.title_key,
         bodyKey: row.body_key,
+        ...(chat === undefined ? {} : { chat }),
       };
     });
   }
@@ -221,6 +242,33 @@ export class PostgresNotificationDeliveryStore implements NotificationDeliverySt
     validateLease(lease);
     return this.database.transaction().execute(async (transaction) => {
       if (!(await lockNotificationAuthority(transaction, lease))) return false;
+      if (this.chatRelay) {
+        const notice = await transaction
+          .selectFrom('notification.notification_deliveries as delivery')
+          .innerJoin(
+            'notification.notifications as notification',
+            'notification.id',
+            'delivery.notification_id',
+          )
+          .select([
+            'notification.user_id',
+            'notification.product_epoch',
+            'notification.notification_type',
+            'notification.payload',
+          ])
+          .where('delivery.id', '=', lease.deliveryId)
+          .executeTakeFirst();
+        if (notice === undefined) return false;
+        if (
+          notice.notification_type === 'new_chat_message' &&
+          (await loadChatNotificationProjection(
+            transaction,
+            { userId: notice.user_id, productEpoch: notice.product_epoch, payload: notice.payload },
+            false,
+          )) === undefined
+        )
+          return false;
+      }
       const updated = await transaction
         .updateTable('notification.notification_deliveries')
         .set((expression) => ({
