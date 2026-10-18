@@ -946,3 +946,10 @@ reply, exact-update replay and revoked reply context with real PostgreSQL/Redis
 and synthetic Telegram transport. Real provider and launch acceptance remain
 pending. Chat reporting, trusted operator provisioning and production composition
 remain open; retained-data erasure stays disabled pending approved policies.
+
+The first relay candidate, `198ba5d`, failed its API native shard because the
+ordinary-host fixture now starts the worker, while that shard's build closure
+included only API and gateway. The worker entry point was absent on the clean
+runner. The repair adds the worker dependency closure to the same shard build.
+It preserves every native case, all four source receipts, six jobs and their
+existing time limits. Acceptance still requires a new fully green source commit.
