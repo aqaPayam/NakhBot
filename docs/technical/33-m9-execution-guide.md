@@ -1077,9 +1077,45 @@ source/environment/bot isolation, runtime and nested-definer denial, historical
 upgrade rollback, and indexed admission over 20,000 earlier policies under the
 unchanged 1,500 ms bound. The complete existing 27-plan gate remains unchanged.
 
-This is the native authority foundation. The ordinary gateway does not yet query
-it, and the protected operator host is not yet composed. Keep launch activation
-off until those entry points, preserved financial/privacy/safety paths and the
-source-bound canary/daily-review procedures are implemented and accepted. Real
+The gateway composition below consumes this native authority. The protected
+operator host is not yet composed. Keep launch activation off until the remaining
+entry points and source-bound canary/daily-review procedures are implemented and accepted. Real
 provider and operator approvals, small-cohort launch and observed health remain
 required. Retained erasure remains disabled pending approved policies.
+
+## Gateway cohort dispatch and primary entry
+
+An active staging or production product gateway requires migration 163, a full
+source SHA and the configured bot identity. Its composition has no switch to
+bypass cohort admission. Local/test profiles retain synthetic fixture behavior.
+Each new product dispatch reads native membership without caching a successful
+receipt, and checks the original Telegram owner and Account epoch across waits.
+The release controller already binds the configured release SHA to the selected
+image source; changing the source, environment or bot requires a new policy.
+
+Authenticated payment updates, deletion/Return controls, support/appeals, reporting
+and administrator handlers run before product admission. Restricted chat dispatch
+decodes owned navigation and permits only mute, confirmed Unmatch and bounded
+ended-conversation report selection. It cannot spend credits, send text/questions,
+open ordinary chat history or issue product navigation. Unmatch retries preserve
+one native record and outbox event; content-free delivery notices may repeat.
+
+An unlisted first `/start` can create its limited native identity, allowing an
+operator to select that existing user later. It receives the existing localized
+capability-denial text and no product buttons or user-session grant. Explicit
+membership allows the ordinary primary-entry path. A stop prevents a later start
+from renewing that grant and blocks saved signup/photo/interaction navigation.
+Approved fresh-entry controls still complete, but their optional product-opening
+hook requires the new original-life membership independently. Deleted-account
+start titles remain part of limited privacy access.
+
+Admission controls new dispatches; it does not cancel an already executing native
+command or reverse financial settlement. Native session, account, pair, permission
+and idempotency checks remain mandatory. Native staging HTTP/Redis evidence covers
+the registration/open/stop boundary; chat evidence covers retained safety actions
+without history disclosure. Telegram transports remain synthetic.
+
+This gateway layer does not prove admission on every public API route or a fresh
+restricted safety-entry procedure after previous navigation/grants expire. Those
+boundaries still need inspection and qualification before launch, alongside the
+protected operator host, actual canaries, health review and provider approvals.

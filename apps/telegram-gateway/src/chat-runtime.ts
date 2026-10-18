@@ -47,7 +47,10 @@ import type { TelegramReportRuntimePort } from './report-runtime.js';
 export interface TelegramChatRuntimePort {
   readonly enabled: boolean;
   open(recipient: string, actor: UserSessionActor): Promise<void>;
-  handle(update: unknown): Promise<'unhandled' | 'notice'>;
+  handle(
+    update: unknown,
+    options?: Readonly<{ safetyOnly: boolean }>,
+  ): Promise<'unhandled' | 'notice'>;
 }
 type ChatMessage = StoredChatPage['items'][number];
 type TelegramMenuButton = Parameters<
@@ -625,6 +628,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
     nav: Nav,
     identity: string,
     text?: string,
+    safetyOnly = false,
   ): Promise<void> {
     const s = this.services(nav, identity),
       e = this.envelope(nav, identity);
@@ -699,7 +703,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
           data: { matchActionToken: s.matchToken },
         });
         await this.notice(recipient, nav.actor, 'chat.status.closed');
-        await this.list(recipient, this.nav(nav.actor, 'chat_list'));
+        if (!safetyOnly) await this.list(recipient, this.nav(nav.actor, 'chat_list'));
         return;
       case 'chat_unlock':
         await new SpendCreditsForPaidActionHandler(
@@ -715,6 +719,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
       default:
         throw unavailable();
     }
+    if (safetyOnly) return;
     await this.view(
       recipient,
       this.nav(nav.actor, 'chat_view', { reference: nav.reference, field: nav.field }),
@@ -731,7 +736,11 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
     if (!allowed.allowed)
       throw new ApplicationError('rate_limited', 'error.rate_limit.exceeded', 429);
   }
-  public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
+  public async handle(
+    update: unknown,
+    options?: Readonly<{ safetyOnly: boolean }>,
+  ): Promise<'unhandled' | 'notice'> {
+    const safetyOnly = options?.safetyOnly === true;
     const root = record(update),
       callback = record(root?.callback_query),
       message = record(callback?.message) ?? record(root?.message),
@@ -776,6 +785,10 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
       );
       return 'notice';
     }
+    // Decode owned navigation before selecting the restricted safety paths. A raw
+    // callback prefix is never authority to execute another product operation.
+    if (safetyOnly && !['chat_unmatch', 'chat_mute', 'chat_ended'].includes(nav.screen))
+      return 'notice';
     try {
       if (callback === undefined) await this.admit(life.userId);
       await this.current(recipient, nav.actor);
@@ -799,6 +812,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
         if (nav.action === 'save' || nav.action === 'pick' || nav.action === 'finish') {
           const claim = await tokens.claim(nav, Number(root?.update_id), String(data), nav);
           if (!claim.accepted) {
+            if (safetyOnly) return 'notice';
             if (nav.screen === 'chat_unmatch')
               await this.list(recipient, this.nav(nav.actor, 'chat_list'));
             else
@@ -809,7 +823,7 @@ export class TelegramChatRuntime implements TelegramChatRuntimePort {
               );
             return 'notice';
           }
-          await this.execute(recipient, nav, identity);
+          await this.execute(recipient, nav, identity, undefined, safetyOnly);
           return 'notice';
         }
         switch (nav.screen) {

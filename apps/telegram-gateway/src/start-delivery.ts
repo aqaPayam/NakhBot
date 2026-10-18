@@ -109,6 +109,7 @@ export function createTelegramStartDelivery(
     adapter: StartAdapter;
     resolveSecret?: (reference: string) => string;
     onStart?: (notice: TelegramStartDeliveryNotice) => Promise<void>;
+    canOpenProduct?: (notice: TelegramStartDeliveryNotice) => Promise<boolean>;
   }>,
 ): StartAdapter {
   if (!input.config.telegram.startDeliveryEnabled) return input.adapter;
@@ -119,6 +120,22 @@ export function createTelegramStartDelivery(
     users = new PostgresTelegramUserResolver(input.database),
     localization = new PostgresLocalizationStore(input.database),
     client = new TelegramBotApiMenuClient(token);
+  const render = async (context: IdentityContextSnapshot, denied = false): Promise<string> => {
+    const catalog = await localization.loadActiveCatalog(context.uiLocale),
+      renderer = new CatalogRenderer(
+        { [catalog.resolvedLocale]: catalog.messages },
+        catalog.resolvedLocale,
+      );
+    return renderer.render(
+      catalog.resolvedLocale,
+      denied
+        ? { key: 'error.capability.denied', variables: {} }
+        : routeStart(context.entryRoute).title,
+    );
+  };
+  const send = (telegramUserId: string, text: string): Promise<void> =>
+    client.sendMenu(telegramUserId, { text, replyMarkup: { inline_keyboard: [] } });
+  const canOpenProduct = input.canOpenProduct;
   return new TelegramStartDelivery(
     input.adapter,
     async (telegramUserId) => {
@@ -133,16 +150,15 @@ export function createTelegramStartDelivery(
         throw unavailable();
       return { life, context };
     },
-    async (context) => {
-      const catalog = await localization.loadActiveCatalog(context.uiLocale),
-        renderer = new CatalogRenderer(
-          { [catalog.resolvedLocale]: catalog.messages },
-          catalog.resolvedLocale,
-        );
-      return renderer.render(catalog.resolvedLocale, routeStart(context.entryRoute).title);
-    },
-    (telegramUserId, text) =>
-      client.sendMenu(telegramUserId, { text, replyMarkup: { inline_keyboard: [] } }),
-    input.onStart,
+    render,
+    send,
+    canOpenProduct === undefined
+      ? input.onStart
+      : async (notice) => {
+          if (!(await canOpenProduct(notice)))
+            await send(notice.telegramUserId, await render(notice.context, true));
+          else if (input.onStart !== undefined) await input.onStart(notice);
+          else await send(notice.telegramUserId, await render(notice.context));
+        },
   );
 }

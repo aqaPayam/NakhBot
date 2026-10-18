@@ -58,6 +58,7 @@ import {
   type TelegramPhotoManagementResult,
   type TelegramAdminEvidenceAdapter,
   type TelegramAdminSafetyContentAdapter,
+  type TelegramFreshEntryNotice,
 } from '@nakh/telegram';
 
 import {
@@ -73,12 +74,16 @@ import {
   type TelegramAccountDeletionIngressPort,
 } from './account-deletion-ingress.js';
 import type { TelegramReportIngressPort } from './report-ingress.js';
-import { createTelegramStartDelivery } from './start-delivery.js';
+import { createTelegramStartDelivery, type TelegramStartDeliveryNotice } from './start-delivery.js';
 import { createTelegramSignupRuntime, type TelegramSignupRuntimePort } from './signup-runtime.js';
 import { createTelegramStarsRuntime, type TelegramStarsRuntimePort } from './stars-runtime.js';
 import { createTelegramReportRuntime, type TelegramReportRuntimePort } from './report-runtime.js';
 import { createAdministratorTelegramRuntime } from './admin-runtime.js';
 import { createTelegramChatRuntime, type TelegramChatRuntimePort } from './chat-runtime.js';
+import {
+  createTelegramLaunchAdmission,
+  type TelegramLaunchAdmissionPort,
+} from './launch-admission.js';
 
 const AUTHENTICATOR = Symbol('AUTHENTICATOR');
 const REPORT_INGRESS = Symbol('REPORT_INGRESS');
@@ -88,6 +93,7 @@ const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const SIGNUP_INGRESS = Symbol('SIGNUP_INGRESS');
 const CHAT_INGRESS = Symbol('CHAT_INGRESS');
+const LAUNCH_ADMISSION = Symbol('LAUNCH_ADMISSION');
 const STARS_INGRESS = Symbol('STARS_INGRESS');
 const PUBLIC_REPORT_INGRESS = Symbol('PUBLIC_REPORT_INGRESS');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
@@ -169,6 +175,7 @@ class TelegramGatewayController {
     @Inject(START_ADAPTER) private readonly startAdapter: Pick<TelegramStartAdapter, 'handle'>,
     @Inject(SIGNUP_INGRESS) private readonly signupIngress: TelegramSignupRuntimePort,
     @Inject(CHAT_INGRESS) private readonly chatIngress: TelegramChatRuntimePort,
+    @Inject(LAUNCH_ADMISSION) private readonly launchAdmission: TelegramLaunchAdmissionPort,
     @Inject(STARS_INGRESS) private readonly starsIngress: TelegramStarsRuntimePort,
     @Inject(PUBLIC_REPORT_INGRESS) private readonly publicReports: TelegramReportRuntimePort,
     @Inject(PHOTO_ADAPTER) private readonly photoAdapter: PhotoAdapter,
@@ -220,8 +227,21 @@ class TelegramGatewayController {
       if ((await this.publicReports.handle(update)) !== 'unhandled') return { accepted: true };
       if ((await this.accountDeletionIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
-      if ((await this.chatIngress.handle(update)) !== 'unhandled') return { accepted: true };
-      if ((await this.signupIngress.handle(update)) !== 'unhandled') return { accepted: true };
+      if ((await this.supportAppealIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
+      if ((await this.reportIngress.handle(update)) !== 'unhandled') return { accepted: true };
+      if ((await this.adminEvidenceIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
+      if ((await this.adminSafetyContentIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
+      const admitted = await this.launchAdmission.allowsUpdate(update);
+      if ((await this.chatIngress.handle(update, { safetyOnly: !admitted })) !== 'unhandled')
+        return { accepted: true };
+      if (
+        (await this.launchAdmission.allowsUpdate(update)) &&
+        (await this.signupIngress.handle(update)) !== 'unhandled'
+      )
+        return { accepted: true };
     } catch (error) {
       if (error instanceof ApplicationError)
         throw new HttpException({ code: error.code }, error.status);
@@ -255,19 +275,7 @@ class TelegramGatewayController {
       );
       throw error;
     }
-    try {
-      if ((await this.supportAppealIngress.handle(update)) !== 'unhandled')
-        return { accepted: true };
-      if ((await this.reportIngress.handle(update)) !== 'unhandled') return { accepted: true };
-      if ((await this.adminEvidenceIngress.handle(update)) !== 'unhandled')
-        return { accepted: true };
-      if ((await this.adminSafetyContentIngress.handle(update)) !== 'unhandled')
-        return { accepted: true };
-    } catch (error) {
-      if (error instanceof ApplicationError)
-        throw new HttpException({ code: error.code }, error.status);
-      throw new HttpException({ code: 'internal_error' }, 500);
-    }
+    if (!(await this.launchAdmission.allowsUpdate(update))) return { accepted: true };
     const likedByStartedAt = performance.now();
     try {
       const outcome = await this.likedByIngress.handle(update);
@@ -292,6 +300,7 @@ class TelegramGatewayController {
       throw error;
     }
     const mediaStartedAt = performance.now();
+    if (!(await this.launchAdmission.allowsUpdate(update))) return { accepted: true };
     try {
       const media = await this.photoAdapter.handle(update);
       if (media.handled) {
@@ -318,6 +327,7 @@ class TelegramGatewayController {
       );
       throw error;
     }
+    if (!(await this.launchAdmission.allowsUpdate(update))) return { accepted: true };
     try {
       const management = await this.photoManagementAdapter.handle(update);
       if (management.handled) await this.photoMenuDelivery.deliver(management);
@@ -358,6 +368,7 @@ export class TelegramGatewayModule {
   ): DynamicModule {
     const databases = new RuntimeDatabases(config);
     const database = databases.get('user');
+    const launchAdmission = createTelegramLaunchAdmission({ config, database });
     const financialDatabase = databases.get('financial');
     if (
       config.administration.enabled &&
@@ -387,11 +398,19 @@ export class TelegramGatewayModule {
     });
     const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
     const supportAppealIngress = createTelegramSupportAppealIngress({ config, database, redis });
+    const afterActivation = signup.afterActivation;
     const accountDeletionIngress = createTelegramAccountDeletionIngress({
       config,
       database,
       redis,
-      ...(signup.afterActivation === undefined ? {} : { afterActivation: signup.afterActivation }),
+      ...(afterActivation === undefined
+        ? {}
+        : {
+            afterActivation: async (notice: TelegramFreshEntryNotice) => {
+              if (await launchAdmission.allowsLife(notice.telegramUserId, notice))
+                await afterActivation(notice);
+            },
+          }),
     });
     const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
     const photoAdapter: PhotoAdapter = config.media.ingestionEnabled
@@ -496,6 +515,7 @@ export class TelegramGatewayModule {
         { provide: DATABASES, useValue: databases },
         { provide: SIGNUP_INGRESS, useValue: signup },
         { provide: CHAT_INGRESS, useValue: chat },
+        { provide: LAUNCH_ADMISSION, useValue: launchAdmission },
         { provide: STARS_INGRESS, useValue: stars },
         { provide: PUBLIC_REPORT_INGRESS, useValue: reports },
         { provide: REDIS, useValue: redis },
@@ -528,6 +548,14 @@ export class TelegramGatewayModule {
             database,
             adapter: TelegramStartAdapter.withStore(identityStore, limiter),
             ...(signup.openStart === undefined ? {} : { onStart: signup.openStart }),
+            ...(launchAdmission.enabled
+              ? {
+                  canOpenProduct: (notice: TelegramStartDeliveryNotice) =>
+                    notice.context.accountState === 'deleted'
+                      ? Promise.resolve(true)
+                      : launchAdmission.allowsLife(notice.telegramUserId, notice.life),
+                }
+              : {}),
           }),
         },
         DatabaseLifecycle,

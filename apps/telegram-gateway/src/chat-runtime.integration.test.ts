@@ -386,6 +386,73 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       expect(audits).toHaveLength(60);
       expect(JSON.stringify(audits)).not.toContain(marker);
     });
+    it('keeps signed mute and confirmed Unmatch available during launch stop without chat history or product actions', async () => {
+      const f = await fixture();
+      await f.runtime.open(f.recipient, f.actor);
+      const select = f.menus.at(-1)!.reply_markup!.inline_keyboard![0]![0]!.callback_data;
+      await f.runtime.handle(f.callback(select));
+      const mute = f.callback(f.button('Mute chat'));
+      f.menus.length = 0;
+      await f.runtime.handle(mute, { safetyOnly: true });
+      await f.runtime.handle(mute, { safetyOnly: true });
+      expect(f.menus).toHaveLength(0);
+      expect(
+        (
+          await database
+            .selectFrom('chat.chat_participants')
+            .select('muted_at')
+            .where('chat_session_id', '=', f.chat.chatSessionId)
+            .where('user_id', '=', f.actor.userId)
+            .executeTakeFirstOrThrow()
+        ).muted_at,
+      ).not.toBeNull();
+      const question = await f.tokens.button(f.nav('chat_questions'));
+      await f.runtime.handle(f.callback(question), { safetyOnly: true });
+      expect(f.menus).toHaveLength(0);
+      expect(
+        await database
+          .selectFrom('chat.chat_messages')
+          .select('id')
+          .where('chat_session_id', '=', f.chat.chatSessionId)
+          .execute(),
+      ).toHaveLength(0);
+      await f.runtime.handle(f.callback(await f.tokens.button(f.nav('chat_unmatch'))), {
+        safetyOnly: true,
+      });
+      const confirm = f.callback(f.button('Confirm'));
+      f.menus.length = 0;
+      await f.runtime.handle(confirm, { safetyOnly: true });
+      await f.runtime.handle(confirm, { safetyOnly: true });
+      expect(
+        (
+          await database
+            .selectFrom('matching.matches')
+            .select('status')
+            .where('id', '=', f.chat.matchId)
+            .executeTakeFirstOrThrow()
+        ).status,
+      ).toBe('unmatched');
+      expect(f.menus.map((menu) => menu.text)).toEqual([
+        'This chat is closed.',
+        'This chat is closed.',
+      ]);
+      expect(f.menus.every((menu) => menu.reply_markup?.inline_keyboard?.length === 0)).toBe(true);
+      expect(
+        await database
+          .selectFrom('platform.outbox_events')
+          .select('id')
+          .where('aggregate_id', '=', f.chat.matchId)
+          .where('event_type', '=', 'matching.unmatched.v1')
+          .execute(),
+      ).toHaveLength(1);
+      expect(
+        await database
+          .selectFrom('matching.unmatch_records')
+          .select('match_id')
+          .where('match_id', '=', f.chat.matchId)
+          .execute(),
+      ).toHaveLength(1);
+    });
     it('opens private opaque menus, sends a predefined question once and makes mute retries stable', async () => {
       const f = await fixture();
       await f.runtime.open(f.recipient, f.actor);
