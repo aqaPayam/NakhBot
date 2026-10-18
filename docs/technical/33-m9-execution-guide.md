@@ -1169,3 +1169,20 @@ Dispatch estimates use all 170 completed passing suite timings from accepted
 source `ca74a49`, run 39126923511. The new API suite keeps the existing 30-second
 unknown-file fallback. Four shards, twenty-minute job caps, independent complete
 coverage and zero skips remain mandatory; only dispatch weights change.
+
+### Required native receipt upload transport recovery
+
+Run 39130853636 for source `77b2182` is not accepted. Its scheduler native
+shard passed all 332 tests in 44 files, but the subsequent GitHub CreateArtifact
+request timed out (`ETIMEDOUT`). The required receipt was unavailable and the
+aggregate job could not run; passing native tests alone do not satisfy acceptance.
+
+Receipt transport now has two attempts, each bounded to one minute. Only the
+first upload tolerates failure, and a final gate requires an actual successful
+upload outcome. The retry replaces only the same source/shard/run-attempt
+artifact if necessary. Native execution is not retried by this transport repair.
+The aggregate still independently validates source binding and complete coverage.
+Four native shards, twenty-minute job caps, zero skips and all 27 query plans
+remain mandatory. GitHub's raw step `outcome` is checked before the
+`continue-on-error` conclusion adjustment; see the
+[official steps context documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#steps-context).

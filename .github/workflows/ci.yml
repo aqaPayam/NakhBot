@@ -343,15 +343,36 @@ jobs:
           pnpm --filter @nakh/config build
           pnpm --filter @nakh/persistence-postgres build
       - name: Run isolated native shard
+        id: native_shard_run
         if: matrix.nativeShard != 0
         env:
           NAKH_NATIVE_SHARD: ${{ matrix.nativeShard }}
         run: pnpm test:integration:ci
       - name: Retain successful source-bound shard coverage
+        id: native_receipt_upload
         if: matrix.nativeShard != 0
+        timeout-minutes: 1
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: postgres-native-${{ github.sha }}-${{ matrix.nativeShard }}-${{ github.run_attempt }}
           path: artifacts/postgres-integration-shard-${{ matrix.nativeShard }}-${{ github.run_attempt }}.json
           if-no-files-found: error
           retention-days: 14
+      - name: Retry source-bound shard coverage upload
+        id: native_receipt_upload_retry
+        if: ${{ !cancelled() && matrix.nativeShard != 0 && steps.native_shard_run.outcome == 'success' && steps.native_receipt_upload.outcome != 'success' }}
+        timeout-minutes: 1
+        uses: actions/upload-artifact@v6
+        with:
+          name: postgres-native-${{ github.sha }}-${{ matrix.nativeShard }}-${{ github.run_attempt }}
+          path: artifacts/postgres-integration-shard-${{ matrix.nativeShard }}-${{ github.run_attempt }}.json
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Require successful source-bound shard coverage upload
+        if: ${{ !cancelled() && matrix.nativeShard != 0 && steps.native_shard_run.outcome == 'success' }}
+        env:
+          NAKH_PRIMARY_UPLOAD_OUTCOME: ${{ steps.native_receipt_upload.outcome }}
+          NAKH_RETRY_UPLOAD_OUTCOME: ${{ steps.native_receipt_upload_retry.outcome }}
+        run: pnpm exec tsx scripts/verify-native-artifact-upload.ts

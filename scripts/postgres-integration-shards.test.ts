@@ -37,7 +37,7 @@ describe('complete isolated native integration shards', () => {
     expect(jobs.sort()).toEqual(['container-build', 'postgres-reliability', 'quality']);
     expect(jobs.length - 1 + mappings.length).toBe(6);
     expect(
-      [...workflow.matchAll(/^\s+timeout-minutes: ([0-9]+)$/gmu)].map((m) => Number(m[1])),
+      [...workflow.matchAll(/^ {4}timeout-minutes: ([0-9]+)\r?$/gmu)].map((m) => Number(m[1])),
     ).toEqual([20, 20, 20]);
   });
   it('dispatches every file exactly once with deterministic bounded load imbalance', () => {
