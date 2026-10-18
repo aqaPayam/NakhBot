@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -9,7 +9,11 @@ import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, type DatabaseConfig, type NakhDatabase } from './database.js';
 import { runMigrations, verifyMigrations } from './migrations.js';
-import { PostgresLaunchCohortAdmission, type LaunchCohortCommand } from './launch-cohort-store.js';
+import {
+  PostgresLaunchCohortAdmission,
+  PostgresLaunchCohortControl,
+  type LaunchCohortCommand,
+} from './launch-cohort-store.js';
 import {
   launchOperatorCommandDigest,
   runLaunchOperator,
@@ -17,6 +21,12 @@ import {
 } from './launch-operator-host.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createReportUser } from './testing/report-fixture.js';
+import { launchReconciliationHealthStatement } from './launch-health-store.js';
+import {
+  LAUNCH_REVIEW_COMMON_EVIDENCE,
+  LAUNCH_REVIEW_DRILL_EVIDENCE,
+  launchReviewIntentDigest,
+} from './launch-review.js';
 import {
   launchOperatorFixture,
   launchOperatorFixtureAws,
@@ -33,6 +43,7 @@ describe.skipIf(source === undefined)(
       admission: PostgresLaunchCohortAdmission,
       opening: { operation: 'apply'; input: LaunchCohortCommand };
     const telegramUserId = '123456789012';
+    let preparedReview: unknown, reviewedCommand: unknown;
     const connect = (config: DatabaseConfig): NakhDatabase =>
       createDatabase({ ...config, url: isolated.url });
     const run = (request: unknown, config = binding): Promise<unknown> =>
@@ -283,6 +294,321 @@ describe.skipIf(source === undefined)(
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
+    });
+    it('collects source-bound native metadata and missing-evidence holds without starting jobs or changing authority', async () => {
+      const before = await sql<{ audits: string; outbox: string; runs: string }>`SELECT
+        (SELECT count(*)::text FROM platform.audit_logs) AS audits,
+        (SELECT count(*)::text FROM platform.outbox_events) AS outbox,
+        (SELECT count(*)::text FROM billing.reconciliation_runs) AS runs`.execute(database);
+      const observation = (await run({ operation: 'health' })) as {
+        observationScope: string;
+        audience: object;
+        launchAuthorized: boolean;
+        reconciliation: { status: string | null }[];
+      };
+      expect(observation).toMatchObject({
+        observationScope: 'native_metadata',
+        launchAuthorized: false,
+        audience: {
+          sourceSha: binding.sourceSha,
+          environment: binding.environment,
+          telegramBotId: binding.telegramBotId,
+        },
+      });
+      expect(observation.reconciliation).toHaveLength(4);
+      expect(observation.reconciliation.every((run) => run.status === null)).toBe(true);
+      const review = (await run({
+        operation: 'prepare-review',
+        phase: 'cohort',
+        intent: { ...opening.input, requestId: randomUUID(), expectedVersion: 3 },
+        evidence: [],
+      })) as { dossier: { blockers: string[]; launchAuthorized: boolean } };
+      expect(review.dossier.launchAuthorized).toBe(false);
+      expect(review.dossier.blockers).toEqual(
+        expect.arrayContaining([
+          'missing_deployment',
+          'missing_payment_drill',
+          'reconciliation_billing',
+          'safety_scan_freshness',
+        ]),
+      );
+      const after = await sql<{ audits: string; outbox: string; runs: string }>`SELECT
+        (SELECT count(*)::text FROM platform.audit_logs) AS audits,
+        (SELECT count(*)::text FROM platform.outbox_events) AS outbox,
+        (SELECT count(*)::text FROM billing.reconciliation_runs) AS runs`.execute(database);
+      expect(after.rows).toEqual(before.rows);
+      expect(await admission.allows(userId)).toBe(false);
+    });
+    it('binds fresh native observations to every review role while leaving actual evidence acceptance to the human operator', async () => {
+      const now = new Date();
+      for (const run_type of ['billing', 'nakh', 'chat', 'moderation'] as const)
+        await database
+          .insertInto('billing.reconciliation_runs')
+          .values({
+            id: randomUUID(),
+            run_type,
+            status: 'succeeded',
+            cursor: {},
+            failure_code: null,
+            started_at: new Date(now.getTime() - 60000),
+            finished_at: new Date(now.getTime() - 30000),
+          })
+          .execute();
+      const intent = { ...opening.input, requestId: randomUUID(), expectedVersion: 3 };
+      const result = (await run({
+        operation: 'prepare-review',
+        phase: 'daily',
+        intent,
+        evidence: [...LAUNCH_REVIEW_COMMON_EVIDENCE, ...LAUNCH_REVIEW_DRILL_EVIDENCE].map(
+          (role) => ({
+            role,
+            sha256: 'd'.repeat(64),
+            observedAt: new Date(now.getTime() - 1000).toISOString(),
+            expiresAt: new Date(now.getTime() + 3600000).toISOString(),
+          }),
+        ),
+      })) as {
+        reviewDigest: string;
+        dossier: {
+          blockers: string[];
+          launchAuthorized: boolean;
+          requiresHumanApproval: boolean;
+          evidenceVerification: string;
+          intentDigest: string;
+          nativeHealth: { reconciliation: { status: string }[] };
+        };
+      };
+      preparedReview = result;
+      reviewedCommand = {
+        operation: 'apply',
+        input: { ...intent, reviewDigest: result.reviewDigest },
+      };
+      expect(result.reviewDigest).toMatch(/^[0-9a-f]{64}$/u);
+      expect(result.dossier).toMatchObject({
+        launchAuthorized: false,
+        requiresHumanApproval: true,
+        evidenceVerification: 'operator_supplied_bytes',
+        intentDigest: launchReviewIntentDigest(intent),
+      });
+      expect(result.dossier.blockers).toEqual([]);
+      expect(
+        result.dossier.nativeHealth.reconciliation.every((run) => run.status === 'succeeded'),
+      ).toBe(true);
+      expect(await admission.allows(userId)).toBe(false);
+    });
+    it('keeps the four latest-run probes indexed at twenty thousand rows under the original execution budget', async () => {
+      class Rollback extends Error {}
+      await expect(
+        database.transaction().execute(async (tx) => {
+          await sql`INSERT INTO billing.reconciliation_runs(id,run_type,status,started_at,finished_at)
+          SELECT gen_random_uuid(),(ARRAY['billing','nakh','chat','moderation'])[1+(n%4)],'succeeded',
+            clock_timestamp()-(n+100)*interval '1 second',clock_timestamp()-(n+99)*interval '1 second'
+          FROM generate_series(1,20000) n`.execute(tx);
+          await sql`ANALYZE billing.reconciliation_runs`.execute(tx);
+          await sql`SET LOCAL jit = off`.execute(tx);
+          await sql`SET LOCAL max_parallel_workers_per_gather = 0`.execute(tx);
+          const result = await sql<{
+            'QUERY PLAN': { 'Execution Time': number; Plan: object }[];
+          }>`EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON)
+          ${launchReconciliationHealthStatement()}`.execute(tx);
+          const plan = result.rows[0]!['QUERY PLAN'][0]!;
+          expect(Number.isFinite(plan['Execution Time'])).toBe(true);
+          expect(plan['Execution Time']).toBeLessThanOrEqual(1500);
+          expect(JSON.stringify(plan.Plan)).toContain('reconciliation_runs_time_idx');
+          const rows = (await launchReconciliationHealthStatement().execute(tx)).rows;
+          expect(rows).toHaveLength(4);
+          expect(rows.every((row) => row.status === 'succeeded')).toBe(true);
+          throw new Rollback();
+        }),
+      ).rejects.toBeInstanceOf(Rollback);
+      const count = await database
+        .selectFrom('billing.reconciliation_runs')
+        .select(sql<string>`count(*)::text`.as('count'))
+        .executeTakeFirstOrThrow();
+      expect(Number(count.count)).toBe(4);
+    });
+    it('verifies the native dossier with the compiled offline CLI without granting admission', async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'nakh-review-reference-'));
+      const reportPath = join(directory, 'review.json'),
+        commandPath = join(directory, 'command.json'),
+        receiptPath = join(directory, 'receipt.json');
+      try {
+        await writeFile(reportPath, JSON.stringify(preparedReview), { mode: 0o600 });
+        await writeFile(commandPath, JSON.stringify(reviewedCommand), { mode: 0o600 });
+        const result = await promisify(execFile)(
+          process.execPath,
+          [
+            '--jitless',
+            resolve('packages/persistence-postgres/dist/cli/launch-operator.js'),
+            '--verify-review',
+            reportPath,
+            commandPath,
+            receiptPath,
+          ],
+          { timeout: 30000, maxBuffer: 65536 },
+        );
+        expect(JSON.parse(result.stdout)).toEqual({
+          completed: true,
+          reviewReferenceVerified: true,
+        });
+        expect(JSON.parse(await readFile(receiptPath, 'utf8'))).toEqual({
+          reviewReferenceVerified: true,
+          launchAuthorized: false,
+          requiresHumanApproval: true,
+        });
+        expect(await admission.allows(userId)).toBe(false);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+    it('rejects unreviewed, missing and expired opening dossiers before reserving output or invoking AWS', async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'nakh-review-denial-'));
+      const bindingPath = join(directory, 'binding.json'),
+        commandPath = join(directory, 'command.json'),
+        reportPath = join(directory, 'expired.json');
+      const environment = Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'path'),
+      );
+      environment.PATH = ''; // Any accidental provider invocation cannot resolve an AWS executable.
+      try {
+        await writeFile(bindingPath, JSON.stringify(binding), { mode: 0o600 });
+        const expired = JSON.parse(JSON.stringify(preparedReview)) as {
+          reviewDigest: string;
+          dossier: Record<string, unknown>;
+        };
+        expired.dossier.expiresAt = new Date(Date.now() - 1000).toISOString();
+        expired.reviewDigest = createHash('sha256')
+          .update(JSON.stringify(expired.dossier))
+          .digest('hex');
+        await writeFile(reportPath, JSON.stringify(expired), { mode: 0o600 });
+        const selected = reviewedCommand as { operation: string; input: LaunchCohortCommand };
+        const commands = [
+          selected,
+          {
+            operation: 'apply-reviewed',
+            input: selected.input,
+            reviewPath: join(directory, 'missing.json'),
+          },
+          {
+            operation: 'apply-reviewed',
+            input: { ...selected.input, reviewDigest: expired.reviewDigest },
+            reviewPath: reportPath,
+          },
+        ];
+        for (const [index, command] of commands.entries()) {
+          await writeFile(commandPath, JSON.stringify(command), { mode: 0o600 });
+          const outputPath = join(directory, `denied-${index}.json`);
+          await expect(
+            promisify(execFile)(
+              process.execPath,
+              [
+                '--jitless',
+                resolve('packages/persistence-postgres/dist/cli/launch-operator.js'),
+                bindingPath,
+                commandPath,
+                outputPath,
+              ],
+              { env: environment, timeout: 30000, maxBuffer: 65536 },
+            ),
+          ).rejects.toMatchObject({ code: 1 });
+          await expect(readFile(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        }
+        expect(await admission.allows(userId)).toBe(false);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+    it('expires reviewed admission under the native lock without writing a policy', async () => {
+      let signal!: (value: string) => void;
+      const acquired = new Promise<string>((resolve) => {
+        signal = resolve;
+      });
+      const holder = database.transaction().execute(async (tx) => {
+        await sql`SELECT pg_advisory_xact_lock(hashtext('nakh-launch-cohort'))`.execute(tx);
+        const row = (
+          await sql<{ expiry: string }>`SELECT to_char((clock_timestamp()+interval '0.25 second')
+          AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expiry`.execute(tx)
+        ).rows[0]!;
+        signal(row.expiry);
+        await sql`SELECT pg_sleep(0.8)`.execute(tx);
+      });
+      try {
+        const deadline = await Promise.race([
+          acquired,
+          holder.then((): never => {
+            throw new Error('Lock was not signalled.');
+          }),
+        ]);
+        const fresh = (
+          await sql<{
+            fresh: boolean;
+          }>`SELECT clock_timestamp()<${deadline}::timestamptz AS fresh`.execute(database)
+        ).rows[0]!;
+        expect(fresh.fresh).toBe(true);
+        const command = { ...opening.input, requestId: randomUUID(), expectedVersion: 3 };
+        await expect(
+          new PostgresLaunchCohortControl(database, { operatorId: binding.operatorId }).apply(
+            command,
+            deadline,
+          ),
+        ).rejects.toThrow();
+        expect(
+          await database
+            .selectFrom('platform.audit_logs')
+            .select('id')
+            .where('id', '=', command.requestId)
+            .executeTakeFirst(),
+        ).toBeUndefined();
+        expect(await admission.allows(userId)).toBe(false);
+      } finally {
+        await holder;
+      }
+    });
+    it('applies the reviewed host envelope with exact approval, then closes and preserves old replay fencing', async () => {
+      const selected = reviewedCommand as { operation: string; input: LaunchCohortCommand };
+      const command = {
+        operation: 'apply-reviewed',
+        input: selected.input,
+        review: preparedReview,
+      };
+      const config = { ...binding, approvedCommandDigest: launchOperatorCommandDigest(command) };
+      expect(await run(command, config)).toMatchObject({
+        version: 4,
+        replayed: false,
+        latest: true,
+      });
+      expect(await admission.allows(userId)).toBe(true);
+      expect(
+        await run({
+          operation: 'apply',
+          input: {
+            ...selected.input,
+            requestId: randomUUID(),
+            expectedVersion: 4,
+            mode: 'closed',
+            members: [],
+            expiresAt: null,
+          },
+        }),
+      ).toMatchObject({ version: 5 });
+      expect(await admission.allows(userId)).toBe(false);
+      expect(await run(command, config)).toMatchObject({
+        version: 4,
+        replayed: true,
+        latest: false,
+      });
+      expect(await run({ operation: 'receipt', input: selected.input })).toMatchObject({
+        version: 4,
+        replayed: true,
+        latest: false,
+      });
+      expect(
+        await run({ operation: 'receipt', input: { ...selected.input, requestId: randomUUID() } }),
+      ).toBeNull();
+      await expect(
+        run({ operation: 'receipt', input: { ...selected.input, reviewDigest: 'f'.repeat(64) } }),
+      ).rejects.toThrow('Launch operator unavailable.');
+      expect(await admission.allows(userId)).toBe(false);
     });
   },
 );

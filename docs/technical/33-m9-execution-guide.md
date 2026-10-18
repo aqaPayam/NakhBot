@@ -1212,3 +1212,33 @@ Dispatch estimates now use all 171 passing suite observations from accepted
 `0ddf939`, run 39134447119. The new operator fixture retains the 30-second
 unknown-file fallback. Four shards, twenty-minute job caps, complete native
 coverage, zero skips and all 27 original plan checks remain mandatory.
+
+### Native launch health and source-bound review dossiers
+
+The [canary and daily launch review procedure](38-m9-launch-review.md) composes
+read-only safety/deletion samplers and latest reconciliation metadata through
+the existing protected operator. The native reads share a repeatable read-only
+snapshot, retain existing execution settings and create no jobs, repairs or
+business/audit effects. Historical scan finding counts remain distinct from
+current integrity drift; completed deletion history is not a pending-age alarm.
+The additional four latest-run probes use the existing time index and have an
+isolated 20,000-row/1,500 ms native execution check. The original 27-plan gate,
+four shards, complete source coverage and twenty-minute CI job caps are unchanged.
+
+Private evidence files are size-bounded and hashed without exporting paths or
+contents. A dossier binds the complete intended command except its review digest,
+operator/audience, native observations, evidence roles/times/hashes and blockers.
+The final native command includes the dossier digest, avoiding a circular hash.
+Initial synthetic canary planning is distinct from completed cohort/daily drills.
+Reference verification checks exact intent, required metadata, source, digest and
+expiry. An active CLI opening requires the reviewed-envelope path and a fresh,
+blocker-free dossier reference before AWS/native effects; closing remains separate.
+
+The tooling explicitly requires human approval and never asserts launch authority
+or authentic provider evidence from hashes. The reviewer must inspect actual
+private observations for deployment, SLO/error budget, capacity, alert delivery,
+staffing/security/privacy, support/safety and real canary/moderation/payment/
+deletion-Return drills. Mocked/cloud-free fixtures cannot satisfy those obligations.
+The owner's accounts, bots, domain, actual provider/operator qualification and
+explicit charges/real-user release approval are still outstanding. Retained-data
+erasure remains disabled.

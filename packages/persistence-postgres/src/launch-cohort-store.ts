@@ -132,8 +132,48 @@ export class PostgresLaunchCohortControl {
     if (!UUID.test(operator.operatorId)) unavailable();
     this.operatorId = operator.operatorId.toLowerCase();
   }
-  public async apply(value: unknown): Promise<LaunchPolicyReceipt> {
+  /** Read an exact original receipt after review expiry, with no possibility of
+   * applying or renewing its policy. Uncertain effects remain independently reconcilable. */
+  public async receipt(value: unknown): Promise<LaunchPolicyReceipt | null> {
     const command = captureLaunchCohortCommand(value);
+    const digest = createHash('sha256').update(JSON.stringify(command)).digest('hex');
+    return this.database
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .execute(async (tx) => {
+        await sql`SET TRANSACTION READ ONLY`.execute(tx);
+        const current = await latest(tx);
+        if (current && current.version === null) unavailable();
+        const prior = (
+          await sql<PolicyRow>`SELECT id,platform.launch_policy_version(id)::text AS version,result_code,metadata
+        FROM platform.audit_logs WHERE id=${command.requestId}::uuid`.execute(tx)
+        ).rows[0];
+        if (!prior) return null;
+        if (
+          prior.version === null ||
+          prior.metadata.operatorId !== this.operatorId ||
+          prior.metadata.requestDigest !== digest
+        )
+          unavailable();
+        return {
+          policyId: prior.id,
+          version: Number(prior.version),
+          mode: prior.result_code,
+          replayed: true,
+          latest: current?.id === prior.id,
+        };
+      });
+  }
+  public async apply(value: unknown, admissionExpiresAt?: string): Promise<LaunchPolicyReceipt> {
+    const command = captureLaunchCohortCommand(value);
+    const admissionDeadline =
+      admissionExpiresAt === undefined ? undefined : Date.parse(admissionExpiresAt);
+    if (
+      admissionDeadline !== undefined &&
+      (!Number.isFinite(admissionDeadline) ||
+        new Date(admissionDeadline).toISOString() !== admissionExpiresAt)
+    )
+      unavailable();
     const digest = createHash('sha256').update(JSON.stringify(command)).digest('hex');
     try {
       return await this.database.transaction().execute(async (tx) => {
@@ -199,6 +239,8 @@ export class PostgresLaunchCohortControl {
             tx,
           )
         ).rows[0]!.at;
+        // Waiting for advisory/member locks never renews an earlier review.
+        if (admissionDeadline !== undefined && Date.parse(at) >= admissionDeadline) unavailable();
         if (command.expiresAt !== null) {
           const valid = (
             await sql<{

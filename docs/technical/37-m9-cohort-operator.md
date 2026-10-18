@@ -51,9 +51,20 @@ Private command files support these shapes:
 - `{"operation":"resolve-member","telegramUserId":"…"}` resolves one exact
   current, non-deleted member to private `userId` and `productEpoch`, or `null`.
   This is no public directory and grants no admission.
-- `{"operation":"apply","input":{…}}` contains the existing exact nine-field
+- `{"operation":"health"}` collects read-only native launch metadata.
+- `{"operation":"receipt","input":{…}}` reads the exact original command's
+  receipt without applying it, including after its review has expired.
+- `{"operation":"prepare-review",…}` prepares the private review dossier described
+  in the [canary/daily review procedure](38-m9-launch-review.md).
+- `{"operation":"apply","input":{…}}` closes a cohort using the existing exact nine-field
   native command: `requestId`, `expectedVersion`, `sourceSha`, `environment`,
   `telegramBotId`, `mode`, `expiresAt`, `reviewDigest`, `members`.
+
+Opening and expansion use `operation:"apply-reviewed"` with `input` and the
+absolute `reviewPath`. The CLI verifies the fresh dossier reference before AWS
+or native effects and rejects raw `apply` openings. A blocker-free dossier is
+not approval or authentic provider evidence; actual review and the protected
+exact-command approval remain separate requirements.
 
 For `cohort`, select one to one hundred distinct current user lives. Use the
 native version from inspection and an explicit ISO UTC expiry within the native
@@ -106,7 +117,10 @@ request. Never infer current admission from an old successful receipt.
 
 If receipt writing fails after a commit, retain the same request and body and
 retry to a NEW private output path. An empty reserved file does not prove that
-the native operation was absent. Inspect current policy after uncertain results.
+the native operation was absent. If the review has expired, use `receipt` with
+the original native command and operator/audience binding to reconcile it
+without reopening. Changed bodies conflict; an absent receipt does not authorize
+a new opening. Inspect current policy after uncertain results.
 
 Actual operator IAM/ACL review, verified provider connectivity and TLS, supervised
 canary/moderation/payment drills, ongoing health review and explicit real-user

@@ -3,6 +3,13 @@ import { isAbsolute } from 'node:path';
 import { sql } from 'kysely';
 import { createDatabase, type DatabaseConfig, type NakhDatabase } from './database.js';
 import type { OperatorAwsCall } from './admin-totp-operator-host.js';
+import { measureLaunchHealth } from './launch-health-store.js';
+import {
+  captureLaunchReviewRequest,
+  prepareLaunchReview,
+  verifyLaunchReviewReference,
+  type LaunchReviewRequest,
+} from './launch-review.js';
 import {
   captureLaunchAudience,
   captureLaunchCohortCommand,
@@ -96,21 +103,36 @@ export function captureLaunchOperatorBinding(value: unknown): LaunchOperatorBind
   return Object.freeze(c) as LaunchOperatorBinding;
 }
 export type LaunchOperatorRequest =
+  | LaunchReviewRequest
   | Readonly<{ operation: 'apply'; input: LaunchCohortCommand }>
-  | Readonly<{ operation: 'inspect' }>
+  | Readonly<{ operation: 'receipt'; input: LaunchCohortCommand }>
+  | Readonly<{ operation: 'apply-reviewed'; input: LaunchCohortCommand; review: unknown }>
+  | Readonly<{ operation: 'inspect' | 'health' }>
   | Readonly<{ operation: 'resolve-member'; telegramUserId: string }>;
 export function captureLaunchOperatorRequest(value: unknown): LaunchOperatorRequest {
   const c = object(structuredClone(value));
-  if (c.operation === 'apply') {
-    exact(c, ['operation', 'input']);
+  if (c.operation === 'prepare-review') return captureLaunchReviewRequest(c);
+  if (c.operation === 'apply' || c.operation === 'apply-reviewed' || c.operation === 'receipt') {
+    exact(
+      c,
+      c.operation === 'apply-reviewed' ? ['operation', 'input', 'review'] : ['operation', 'input'],
+    );
     const input = captureLaunchCohortCommand(c.input);
     input.members.forEach(Object.freeze);
     Object.freeze(input.members);
-    return Object.freeze({ operation: 'apply', input: Object.freeze(input) });
+    if (c.operation === 'apply-reviewed') {
+      if (input.mode !== 'cohort') denied();
+      return Object.freeze({
+        operation: 'apply-reviewed',
+        input: Object.freeze(input),
+        review: c.review,
+      });
+    }
+    return Object.freeze({ operation: c.operation, input: Object.freeze(input) });
   }
-  if (c.operation === 'inspect') {
+  if (c.operation === 'inspect' || c.operation === 'health') {
     exact(c, ['operation']);
-    return Object.freeze({ operation: 'inspect' });
+    return Object.freeze({ operation: c.operation });
   }
   exact(c, ['operation', 'telegramUserId']);
   if (
@@ -125,7 +147,7 @@ export function captureLaunchOperatorRequest(value: unknown): LaunchOperatorRequ
 /** Canonical command hash is an approval reference, not proof that drills occurred. */
 export function launchOperatorCommandDigest(value: unknown): string {
   const request = captureLaunchOperatorRequest(value);
-  if (request.operation !== 'apply') denied();
+  if (request.operation !== 'apply' && request.operation !== 'apply-reviewed') denied();
   return createHash('sha256').update(JSON.stringify(request.input)).digest('hex');
 }
 /** Reject libpq query overrides and require verified TLS against the reviewed endpoint. */
@@ -168,7 +190,23 @@ export async function runLaunchOperator(
   try {
     const c = captureLaunchOperatorBinding(binding),
       request = captureLaunchOperatorRequest(command);
-    if (request.operation === 'apply') {
+    if (
+      request.operation === 'receipt' &&
+      (request.input.sourceSha !== c.sourceSha ||
+        request.input.environment !== c.environment ||
+        request.input.telegramBotId !== c.telegramBotId)
+    )
+      denied();
+    if (
+      request.operation === 'prepare-review' &&
+      (request.intent.sourceSha !== c.sourceSha ||
+        request.intent.environment !== c.environment ||
+        request.intent.telegramBotId !== c.telegramBotId)
+    )
+      denied();
+    if (request.operation === 'apply-reviewed')
+      verifyLaunchReviewReference(request.review, request.input, new Date());
+    if (request.operation === 'apply' || request.operation === 'apply-reviewed') {
       const input = request.input;
       if (
         input.sourceSha !== c.sourceSha ||
@@ -235,10 +273,31 @@ export async function runLaunchOperator(
     )
       denied();
     await authenticate();
-    if (request.operation === 'apply')
-      return await new PostgresLaunchCohortControl(database, { operatorId: c.operatorId }).apply(
+    if (request.operation === 'receipt')
+      return await new PostgresLaunchCohortControl(database, { operatorId: c.operatorId }).receipt(
         request.input,
       );
+    if (request.operation === 'health' || request.operation === 'prepare-review') {
+      const health = await measureLaunchHealth(database, {
+        sourceSha: c.sourceSha,
+        environment: c.environment,
+        telegramBotId: c.telegramBotId,
+      });
+      return request.operation === 'health'
+        ? health
+        : prepareLaunchReview(health, request, c.operatorId);
+    }
+    if (request.operation === 'apply' || request.operation === 'apply-reviewed') {
+      let deadline: string | undefined;
+      if (request.operation === 'apply-reviewed') {
+        verifyLaunchReviewReference(request.review, request.input, new Date());
+        deadline = String(object(object(request.review).dossier).expiresAt);
+      }
+      return await new PostgresLaunchCohortControl(database, { operatorId: c.operatorId }).apply(
+        request.input,
+        deadline,
+      );
+    }
     if (request.operation === 'resolve-member') {
       const member = await database
         .selectFrom('identity.telegram_identities as telegram')
