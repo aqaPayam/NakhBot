@@ -67,7 +67,7 @@ function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 export const RUNTIME_ROLE_POLICY_DIGEST = digest([
-  1,
+  2,
   RUNTIME_DATABASE_ROLES,
   RUNTIME_DATABASE_SCHEMAS,
   BILLING_SUMMARY_COLUMNS,
@@ -351,6 +351,12 @@ export class PostgresRuntimeRoleProvisioning {
               );
             }
             if (purpose === 'user') {
+              await sql`GRANT INSERT(id,user_id,ban_state_history_id,message_text) ON moderation.user_appeals TO ${sql.id(role)}`.execute(
+                tx,
+              );
+              await sql`GRANT INSERT ON moderation.appeal_submissions TO ${sql.id(role)}`.execute(
+                tx,
+              );
               for (const table of ['moderation.report_evidence', 'moderation.report_snapshots']) {
                 await sql`GRANT INSERT ON TABLE ${sql.table(table)} TO ${sql.id(role)}`.execute(tx);
               }

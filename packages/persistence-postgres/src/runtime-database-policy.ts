@@ -221,6 +221,7 @@ export const BILLING_SUMMARY_COLUMNS: Readonly<Record<string, readonly string[] 
   });
 export const RUNTIME_APPEND_ONLY_TABLES = Object.freeze([
   'platform.audit_logs',
+  'moderation.appeal_submissions',
   'billing.credit_transactions',
   'billing.credit_epoch_closures',
   'billing.payment_provider_events',

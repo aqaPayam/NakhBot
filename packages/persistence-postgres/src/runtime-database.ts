@@ -56,6 +56,8 @@ export async function verifyRuntimeDatabaseRole(
         reasonLock: boolean;
         missingViewRead: boolean;
         custodyKeyRead: boolean;
+        appealAdmissionMissing: boolean;
+        appealReviewWrite: boolean;
       }>`SELECT session_user::text AS login,current_user::text AS role,
       (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR NOT r.rolcanlogin) AS unsafe,
       EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members WHERE member=r.oid) AS member,
@@ -85,7 +87,14 @@ export async function verifyRuntimeDatabaseRole(
       EXISTS(SELECT 1 FROM jsonb_each(${JSON.stringify(RUNTIME_DATABASE_READ_VIEWS)}::jsonb) projection
         CROSS JOIN LATERAL jsonb_array_elements_text(projection.value) field(name)
         WHERE NOT has_column_privilege(r.oid,projection.key,field.name,'SELECT')) AS "missingViewRead",
-      has_column_privilege(r.oid,'media.report_photo_source_facts','storage_key','SELECT') AS "custodyKeyRead"
+      has_column_privilege(r.oid,'media.report_photo_source_facts','storage_key','SELECT') AS "custodyKeyRead",
+      (NOT has_table_privilege(r.oid,'moderation.appeal_submissions','INSERT') OR EXISTS(
+        SELECT 1 FROM unnest(ARRAY['id','user_id','ban_state_history_id','message_text']) field(name)
+        WHERE NOT has_column_privilege(r.oid,'moderation.user_appeals',field.name,'INSERT'))) AS "appealAdmissionMissing",
+      (has_any_column_privilege(r.oid,'moderation.user_appeals','UPDATE')
+        OR has_table_privilege(r.oid,'moderation.user_appeals','DELETE,TRUNCATE') OR EXISTS(
+        SELECT 1 FROM unnest(ARRAY['status','reviewed_by_admin_id','admin_note','submitted_at','reviewed_at','version']) field(name)
+        WHERE has_column_privilege(r.oid,'moderation.user_appeals',field.name,'INSERT'))) AS "appealReviewWrite"
       FROM pg_catalog.pg_roles r WHERE r.rolname=current_user`.execute(database)
     ).rows[0];
     if (
@@ -102,6 +111,7 @@ export async function verifyRuntimeDatabaseRole(
       row.reasonLock !== (purpose === 'user' || purpose === 'administration') ||
       row.missingViewRead ||
       row.custodyKeyRead !== (purpose === 'administration' || purpose === 'maintenance') ||
+      (purpose === 'user' && (row.appealAdmissionMissing || row.appealReviewWrite)) ||
       (['user', 'scheduler'].includes(purpose) && row.privateRead) ||
       (requireTls && (!row.tls || !row.auth?.startsWith('scram-sha-256:')))
     )

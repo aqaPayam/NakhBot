@@ -104,6 +104,17 @@ RFC 7677 server-signature vector test.
 
 ## Remaining adoption
 
+The public purpose has column-scoped appeal insertion and append-only submission
+proof insertion. Submission relies on the existing NULL/default review fields;
+it cannot supply a decision, reviewer, note, review timestamp, submitted timestamp
+or version, or update/delete the appeal. Admission checks require those grants
+and reject review-field privilege drift. Native twelve-way submission proves
+one exact-ban appeal and replay witness, changed-payload rejection and private
+text exclusion from events. Replay repairs missing and excessive column grants.
+The policy digest is version 2; deploying the changed grant policy requires a
+fresh trusted provisioning command, rather than reusing a command for older
+policy bytes. No table layout, migration or appeal review/unban rule changes.
+
 The four service composition roots select purpose pools and verify them before
 listening or executing jobs. API/gateway administration uses its own purpose;
 Stars and funded Nakh operations use financial pools; deletion uses maintenance;

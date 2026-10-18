@@ -1290,10 +1290,10 @@ export interface UserAppealTable {
   ban_state_history_id: string;
   message_text: string;
   status: Generated<'submitted' | 'in_review' | 'accepted' | 'rejected'>;
-  reviewed_by_admin_id: string | null;
-  admin_note: string | null;
+  reviewed_by_admin_id: Generated<string | null>;
+  admin_note: Generated<string | null>;
   submitted_at: Generated<Date>;
-  reviewed_at: Date | null;
+  reviewed_at: Generated<Date | null>;
   version: Generated<number>;
 }
 

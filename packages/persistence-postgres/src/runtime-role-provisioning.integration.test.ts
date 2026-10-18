@@ -8,6 +8,7 @@ import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations, sourceMigrationDigests } from './migrations.js';
 import { createIsolatedTestDatabase } from './testing/isolated-database.js';
 import { createReportUser } from './testing/report-fixture.js';
+import { PostgresAppealStore } from './appeal-store.js';
 import { RUNTIME_DATABASE_ROLES, type RuntimeDatabasePurpose } from './runtime-database-policy.js';
 import { RuntimeDatabases, verifyRuntimeDatabaseRole } from './runtime-database.js';
 import {
@@ -140,6 +141,104 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
     await expect(
       sql`SELECT ciphertext FROM administration.admin_totp_credentials LIMIT 0`.execute(user),
     ).rejects.toMatchObject({ code: '42501' });
+  });
+  it('admits one exact-ban appeal through the public purpose without granting review or proof mutation', async () => {
+    const userId = await createReportUser(database),
+      banHistoryId = randomUUID(),
+      at = new Date();
+    await database.transaction().execute(async (tx) => {
+      await tx
+        .updateTable('identity.accounts')
+        .set({ state: 'banned', state_reason: 'test_ban', state_changed_at: at, version: 2 })
+        .where('user_id', '=', userId)
+        .execute();
+      await tx
+        .insertInto('identity.account_state_history')
+        .values({
+          id: banHistoryId,
+          user_id: userId,
+          previous_state: 'active',
+          next_state: 'banned',
+          reason_code: 'test_ban',
+          actor_type: 'system',
+          actor_user_id: null,
+          actor_admin_id: null,
+          changed_at: at,
+        })
+        .execute();
+    });
+    const user = pools.get('user')!,
+      store = new PostgresAppealStore(user),
+      commandId = randomUUID(),
+      write = {
+        userId,
+        banHistoryId,
+        commandId,
+        appealId: randomUUID(),
+        eventId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: commandId,
+        requestDigest: 'a'.repeat(64),
+        normalizedText: 'Private purpose-bound appeal text',
+        expectedProductEpoch: 0,
+      };
+    const results = await Promise.all(Array.from({ length: 12 }, () => store.submit(write)));
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(results.every((result) => result.appealId === write.appealId)).toBe(true);
+    await expect(
+      store.submit({ ...write, commandId: randomUUID(), idempotencyKey: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    await expect(store.submit({ ...write, requestDigest: 'b'.repeat(64) })).rejects.toMatchObject({
+      code: 'idempotency_conflict',
+    });
+    const appeal = await database
+      .selectFrom('moderation.user_appeals')
+      .selectAll()
+      .where('id', '=', write.appealId)
+      .executeTakeFirstOrThrow();
+    expect(appeal).toMatchObject({
+      status: 'submitted',
+      version: 1,
+      reviewed_by_admin_id: null,
+      admin_note: null,
+      reviewed_at: null,
+    });
+    for (const statement of [
+      sql`INSERT INTO moderation.user_appeals(id,status) SELECT gen_random_uuid(),'accepted' WHERE false`,
+      sql`INSERT INTO moderation.user_appeals(id,reviewed_by_admin_id) SELECT gen_random_uuid(),gen_random_uuid() WHERE false`,
+      sql`INSERT INTO moderation.user_appeals(id,admin_note) SELECT gen_random_uuid(),'forged' WHERE false`,
+      sql`INSERT INTO moderation.user_appeals(id,reviewed_at) SELECT gen_random_uuid(),clock_timestamp() WHERE false`,
+      sql`INSERT INTO moderation.user_appeals(id,version) SELECT gen_random_uuid(),2 WHERE false`,
+      sql`UPDATE moderation.user_appeals SET status='accepted' WHERE false`,
+      sql`UPDATE moderation.appeal_submissions SET request_digest=request_digest WHERE false`,
+      sql`DELETE FROM moderation.appeal_submissions WHERE false`,
+    ])
+      await expect(statement.execute(user)).rejects.toMatchObject({ code: '42501' });
+    const proof = await database
+      .selectFrom('moderation.appeal_submissions')
+      .selectAll()
+      .where('appeal_id', '=', write.appealId)
+      .execute();
+    const events = await database
+      .selectFrom('platform.outbox_events')
+      .selectAll()
+      .where('causation_id', '=', commandId)
+      .execute();
+    expect(proof).toHaveLength(1);
+    expect(events).toHaveLength(1);
+    expect(JSON.stringify(events)).not.toContain(write.normalizedText);
+    for (const drift of [
+      sql`GRANT INSERT(status) ON moderation.user_appeals TO nakh_user`,
+      sql`GRANT UPDATE(request_digest) ON moderation.appeal_submissions TO nakh_user`,
+      sql`REVOKE INSERT(message_text) ON moderation.user_appeals FROM nakh_user`,
+    ]) {
+      await drift.execute(database);
+      await expect(verifyRuntimeDatabaseRole(user, 'user')).rejects.toThrow(
+        'Runtime database role unavailable.',
+      );
+      expect((await provisioner.provision(input)).replayed).toBe(true);
+      await verifyRuntimeDatabaseRole(user, 'user');
+    }
   });
   it('preserves RBAC seed row locks without giving the administrator login seed write rights', async () => {
     const userId = await createReportUser(database),

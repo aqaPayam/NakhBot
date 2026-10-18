@@ -152,9 +152,6 @@ export class PostgresAppealStore implements AppealStore {
           user_id: write.userId,
           ban_state_history_id: write.banHistoryId,
           message_text: write.normalizedText,
-          reviewed_by_admin_id: null,
-          admin_note: null,
-          reviewed_at: null,
         })
         .returning('submitted_at')
         .executeTakeFirstOrThrow();
