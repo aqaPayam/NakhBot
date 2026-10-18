@@ -24,7 +24,9 @@ its prior defaults through explicit state moves. See
 [production infrastructure](../../deploy/terraform/production/README.md). This
 is infrastructure implementation and mocked-provider evidence; the protected
 production deployment workflow/controller now reuses the drained release protocol;
-production bootstrap IAM qualification and real launch acceptance remain open.
+the separate [production bootstrap](../../deploy/terraform/production-bootstrap/README.md)
+requires reviewed customer-managed policy hashes and exact environment OIDC trust.
+Real IAM qualification and launch acceptance remain open.
 
 The [database purpose isolation foundation](36-m9-database-purpose-isolation.md)
 provides trusted native provisioning and host-owned pool admission. The four

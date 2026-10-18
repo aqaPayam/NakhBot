@@ -36,7 +36,9 @@ environment, pin the production AWS account and require independent staging
 account custody. Configure reviewed environment protection and a production
 OIDC deployment role before using them. The staging bootstrap's
 `AdministratorAccess` role is not a production deployment role; production
-bootstrap IAM and its real policy qualification remain separate work.
+bootstrap custody is defined in [`../production-bootstrap`](../production-bootstrap/README.md);
+its customer-managed permissions require explicit review and real AWS
+qualification. No production policy set or AWS account exists yet.
 
 Production image and manifest signatures must come from `deploy-production.yml`
 at the exact source SHA. Staging signatures and repository namespaces cannot

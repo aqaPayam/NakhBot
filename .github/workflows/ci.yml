@@ -53,6 +53,10 @@ jobs:
         run: terraform fmt -check -recursive deploy/terraform
       - name: Validate AWS bootstrap
         run: terraform -chdir=deploy/terraform/bootstrap init -backend=false && terraform -chdir=deploy/terraform/bootstrap validate
+      - name: Validate production bootstrap custody
+        run: terraform -chdir=deploy/terraform/production-bootstrap init -backend=false -lockfile=readonly && terraform -chdir=deploy/terraform/production-bootstrap validate
+      - name: Verify production bootstrap custody with mocked AWS
+        run: terraform -chdir=deploy/terraform/production-bootstrap test
       - name: Validate AWS staging
         run: terraform -chdir=deploy/terraform/staging init -backend=false && terraform -chdir=deploy/terraform/staging validate
       - name: Validate inactive AWS production
