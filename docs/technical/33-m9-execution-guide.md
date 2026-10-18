@@ -1186,3 +1186,29 @@ Four native shards, twenty-minute job caps, zero skips and all 27 query plans
 remain mandatory. GitHub's raw step `outcome` is checked before the
 `continue-on-error` conclusion adjustment; see the
 [official steps context documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#steps-context).
+
+### Private cohort operator composition
+
+The [cohort operator procedure](37-m9-cohort-operator.md) defines a private
+compiled CLI for inspected native policy metadata, exact member lookup and
+explicitly approved cohort changes. The host captures authority before waits,
+requires the exact AWS account/session/unique principal repeatedly, selects one
+versioned current database secret, validates the reviewed endpoint/login with
+verified TLS, and checks migration 163 plus native session/current/table-owner
+identity. Opening requires the complete canonical command hash in protected
+reviewed configuration; inspection and audited closing remain independent of
+opening approval. The existing native CAS, immutable audit manifest, original
+lives, expiry and replay fencing remain authoritative.
+
+Unit rejection cases and isolated local PostgreSQL concurrency/capture/replay
+fixtures qualify the implementation. AWS responses and the local connector in
+those fixtures are explicitly synthetic; neither a command hash nor these tests
+prove live TLS, real provider delivery, drills or operator approval. Real opening
+is still pending supervised source-bound canary/drill and health review, actual
+provider/operator qualification and explicit release approval. Retained erasure
+stays disabled.
+
+Dispatch estimates now use all 171 passing suite observations from accepted
+`0ddf939`, run 39134447119. The new operator fixture retains the 30-second
+unknown-file fallback. Four shards, twenty-minute job caps, complete native
+coverage, zero skips and all 27 original plan checks remain mandatory.
