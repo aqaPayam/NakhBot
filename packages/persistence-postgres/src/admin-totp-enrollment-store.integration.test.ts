@@ -11,6 +11,7 @@ import { PostgresAdminTotpOperator, type AdminTotpApproval } from './admin-totp-
 import { PostgresAdminTotpEnrollments } from './admin-totp-enrollment-store.js';
 import { createPostgresTotpAdminSessions } from './admin-totp-verifier.js';
 import { adminTotpDatabaseTime } from './admin-totp-policy.js';
+import { runAdminTotpOperator, type OperatorAwsCall } from './admin-totp-operator-host.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 describe.skipIf(url === undefined)(
@@ -65,6 +66,152 @@ describe.skipIf(url === undefined)(
         .execute();
       return { actor: { kind: 'user', userId }, telegramUserId };
     }
+    function hostTransport(changedIdentity = false): {
+      binding: Record<string, unknown>;
+      aws: OperatorAwsCall;
+    } {
+      const accountId = '123456789012',
+        region = 'eu-west-1';
+      const principalArn = `arn:aws:sts::${accountId}:assumed-role/nakh-operator/tester`;
+      const principalUserId = 'AROA12345678901234567:tester';
+      const databaseSecretArn = `arn:aws:secretsmanager:${region}:${accountId}:secret:nakh/staging/operator-database-Abc123`;
+      const totpSecretArn = `arn:aws:secretsmanager:${region}:${accountId}:secret:nakh/staging/totp-Abc123`;
+      return {
+        binding: {
+          version: 1,
+          environment: 'staging',
+          accountId,
+          region,
+          principalArn,
+          principalUserId,
+          operatorId,
+          databaseSecretArn,
+          totpSecretArn,
+          keyId: encryption.keyId,
+          keyVersion: 1,
+        },
+        aws: (service, _operation, input) =>
+          Promise.resolve(
+            service === 'sts'
+              ? {
+                  Account: accountId,
+                  Arn: principalArn,
+                  UserId: changedIdentity ? 'AROA76543210987654321:tester' : principalUserId,
+                }
+              : {
+                  ARN: input.SecretId,
+                  VersionId: 'b73a0e8d-83ee-40db-95f3-25fba187bad1',
+                  VersionStages: ['AWSCURRENT'],
+                  SecretString:
+                    input.SecretId === databaseSecretArn
+                      ? JSON.stringify({ NAKH_DATABASE_URL: isolated!.url })
+                      : JSON.stringify([{ ...encryption, key: key.toString('base64url') }]),
+                },
+          ),
+      };
+    }
+    it('runs the trusted operator host against native approval receipts, rejects another principal and replays one invitation', async () => {
+      const s = await staff(),
+        host = hostTransport();
+      const command = {
+        operation: 'approve',
+        input: {
+          actorUserId: s.actor.userId,
+          requestId: randomUUID(),
+          roles: ['support'],
+          reasonCode: 'bootstrap',
+        },
+      };
+      const approvals = await Promise.all(
+        Array.from({ length: 8 }, () => runAdminTotpOperator(host.binding, command, host.aws)),
+      );
+      const approval = pending(approvals[0] as AdminTotpApproval);
+      expect(approvals.every((item) => JSON.stringify(item) === JSON.stringify(approval))).toBe(
+        true,
+      );
+      const receipts = (
+        await sql<{ operator_id: string; total: number }>`
+        SELECT operator_id, count(*)::integer AS total FROM administration.admin_totp_operator_commands
+        WHERE request_id=${command.input.requestId}::uuid GROUP BY operator_id`.execute(database)
+      ).rows;
+      expect(receipts).toEqual([{ operator_id: operatorId, total: 1 }]);
+      const denied = hostTransport(true);
+      await expect(runAdminTotpOperator(denied.binding, command, denied.aws)).rejects.toThrow(
+        'Administrator operator unavailable.',
+      );
+      await expect(
+        runAdminTotpOperator(
+          host.binding,
+          { ...command, input: { ...command.input, roles: ['super_admin'] } },
+          host.aws,
+        ),
+      ).rejects.toThrow();
+      const opened = await enrollment.begin({
+        actor: s.actor,
+        invitationToken: approval.invitationToken,
+        requestId: randomUUID(),
+      });
+      expect(opened.enrollmentUri).toMatch(/^otpauth:\/\/totp\//u);
+    });
+    it('runs native credential recovery through the same bound host and revokes existing sessions idempotently', async () => {
+      const s = await setup(),
+        at = await adminTotpDatabaseTime(database);
+      await enrollment.confirm({
+        actor: s.actor,
+        invitationToken: s.approval.invitationToken,
+        requestId: randomUUID(),
+        code: codeAt(s.uri, at),
+      });
+      const sessions = createPostgresTotpAdminSessions(database, keys);
+      const token = await sessions.issue({
+        actor: s.actor,
+        telegramUserId: s.telegramUserId,
+        requestId: randomUUID(),
+        proof: codeAt(s.uri, new Date((adminTotpStep(at) + 1) * 30000)),
+      });
+      const credential = (
+        await sql<{ id: string }>`SELECT id FROM administration.admin_totp_credentials
+        WHERE admin_user_id=(SELECT id FROM administration.admin_users WHERE user_id=${s.actor.userId}::uuid)
+        AND revoked_at IS NULL`.execute(database)
+      ).rows[0]!;
+      const host = hostTransport();
+      const command = {
+        operation: 'revoke',
+        input: {
+          actorUserId: s.actor.userId,
+          credentialId: credential.id,
+          requestId: randomUUID(),
+          reasonCode: 'recovery',
+        },
+      };
+      expect(await runAdminTotpOperator(host.binding, command, host.aws)).toEqual({
+        status: 'revoked',
+        replayed: false,
+      });
+      expect(await runAdminTotpOperator(host.binding, command, host.aws)).toEqual({
+        status: 'revoked',
+        replayed: true,
+      });
+      expect(
+        await sessions.authenticate({ bearerToken: token.adminSessionToken, audience: 'admin' }),
+      ).toBeUndefined();
+      expect(
+        (
+          await sql<{
+            revoked_at: Date | null;
+          }>`SELECT revoked_at FROM administration.admin_totp_credentials
+        WHERE id=${credential.id}::uuid`.execute(database)
+        ).rows[0]?.revoked_at,
+      ).toBeInstanceOf(Date);
+      const remaining = (
+        await sql<{
+          count: number;
+        }>`SELECT count(*)::integer AS count FROM administration.admin_sessions
+        WHERE admin_user_id=(SELECT id FROM administration.admin_users WHERE user_id=${s.actor.userId}::uuid)
+        AND revoked_at IS NULL`.execute(database)
+      ).rows[0]?.count;
+      expect(remaining).toBe(0);
+    });
     function pending(
       approval: AdminTotpApproval,
     ): Extract<AdminTotpApproval, { status: 'pending' }> {

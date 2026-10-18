@@ -17,6 +17,14 @@ release conditions.
 
 ## Scope and completion
 
+The trusted operator entry point now composes the existing audited TOTP native
+store through a private CLI, with exact AWS principal and secret-version checks,
+historical key custody, private invitation output and idempotent native recovery.
+See the [operator procedure](34-m9-trusted-operator.md). Synthetic AWS responses
+and local PostgreSQL evidence do not approve real operators or satisfy live
+provider acceptance. Production runtime/IaC composition remains the next
+independent implementation gap before the owner's consolidated setup checklist.
+
 Repair `a929d12` passed the catalog case and three native shards, but the
 scheduler shard hit the existing 20-minute job cap. Dispatch estimates still
 described an older baseline. The next repair refreshes 144 completed passing
