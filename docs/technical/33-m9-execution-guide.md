@@ -17,6 +17,14 @@ release conditions.
 
 ## Scope and completion
 
+Staging and inactive production now use one runtime module. The production root
+requires separate account custody, explicit capacity/budget inputs, database
+purpose isolation and database safeguards, with one NAT per AZ. Staging retains
+its prior defaults through explicit state moves. See
+[production infrastructure](../../deploy/terraform/production/README.md). This
+is infrastructure implementation and mocked-provider evidence; the protected
+production deployment workflow/controller and real launch acceptance remain open.
+
 The [database purpose isolation foundation](36-m9-database-purpose-isolation.md)
 provides trusted native provisioning and host-owned pool admission. The four
 composition roots now select purpose pools; production binding and complete

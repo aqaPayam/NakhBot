@@ -199,7 +199,7 @@ resource "aws_cloudwatch_metric_alarm" "service_running_count" {
   for_each = var.activate_services ? local.services : {}
 
   alarm_name          = "${local.name}-${each.key}-replicas"
-  alarm_description   = "Running service tasks are below the required staging minimum."
+  alarm_description   = "Running service tasks are below the required ${var.environment} minimum."
   namespace           = "ECS/ContainerInsights"
   metric_name         = "RunningTaskCount"
   statistic           = "Minimum"
@@ -285,7 +285,7 @@ resource "aws_cloudwatch_metric_alarm" "telegram_liked_by" {
 locals {
   nakh_lifecycle_alarms = {
     settlement_backlog = {
-      description = "Pending Nakh settlement backlog is above the staging envelope. Runbook: deploy/runbooks/m5-staging-acceptance.md"
+      description = "Pending Nakh settlement backlog is above the ${var.environment} envelope. Runbook: deploy/runbooks/m5-staging-acceptance.md"
       metric_name = "nakh.m5.backlog.settlement_count"
       statistic   = "Maximum"
       threshold   = 100
@@ -362,7 +362,7 @@ resource "aws_cloudwatch_metric_alarm" "nakh_lifecycle" {
 locals {
   chat_delivery_alarms = {
     due_delivery_backlog = {
-      description = "M6 due notification deliveries exceed the staging envelope. Runbook: deploy/runbooks/m6-staging-acceptance.md"
+      description = "M6 due notification deliveries exceed the ${var.environment} envelope. Runbook: deploy/runbooks/m6-staging-acceptance.md"
       metric_name = "nakh.m6.backlog.delivery_due"
       statistic   = "Maximum"
       threshold   = 100

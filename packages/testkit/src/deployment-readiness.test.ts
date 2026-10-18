@@ -28,7 +28,7 @@ describe('staging deployment readiness', () => {
   });
   it('keeps billable workloads default-off behind an explicit release gate', async () => {
     const variables = await source('deploy/terraform/staging/variables.tf');
-    const compute = await source('deploy/terraform/staging/compute.tf');
+    const compute = await source('deploy/terraform/modules/runtime/compute.tf');
     const workflow = await source('.github/workflows/deploy-staging.yml');
     const rollback = await source('.github/workflows/rollback-staging.yml');
     const [imageCli, imageProtocol] = await Promise.all([
@@ -49,7 +49,7 @@ describe('staging deployment readiness', () => {
     expect(workflow).toContain("if: steps.infrastructure.outputs.bootstrap_required == 'true'");
     expect(workflow).not.toContain('|| echo 0');
     expect(workflow).not.toContain('2>/dev/null || true');
-    expect(workflow).toContain("-target='aws_ecs_task_definition.migration'");
+    expect(workflow).toContain("-target='module.runtime.aws_ecs_task_definition.migration'");
     expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
     expect(workflow).toContain('test "$GITHUB_REF" = "refs/heads/main"');
     expect(workflow).not.toContain('environment: staging');
@@ -87,13 +87,13 @@ describe('staging deployment readiness', () => {
   it('binds both actual workflows to drain, native admission, held activation, health and maintenance controls', async () => {
     const deploy = await source('.github/workflows/deploy-staging.yml');
     const rollback = await source('.github/workflows/rollback-staging.yml');
-    const compute = await source('deploy/terraform/staging/compute.tf');
-    const custody = await source('deploy/terraform/staging/release-evidence.tf');
+    const compute = await source('deploy/terraform/modules/runtime/compute.tf');
+    const custody = await source('deploy/terraform/modules/runtime/release-evidence.tf');
     const cli = await source('scripts/staging-release-cli.ts');
     for (const workflow of [deploy, rollback]) {
       const control = 'pnpm exec tsx scripts/staging-release-cli.ts ';
       expect(workflow.indexOf(control + 'drain')).toBeLessThan(
-        workflow.indexOf("-target='aws_ecs_task_definition.migration'"),
+        workflow.indexOf("-target='module.runtime.aws_ecs_task_definition.migration'"),
       );
       expect(workflow.indexOf(control + 'admission')).toBeLessThan(
         workflow.indexOf('release_scaling_hold=true'),
@@ -148,8 +148,8 @@ describe('staging deployment readiness', () => {
   });
 
   it('keeps data private, encrypted, recoverable, and highly available', async () => {
-    const network = await source('deploy/terraform/staging/network.tf');
-    const data = await source('deploy/terraform/staging/data.tf');
+    const network = await source('deploy/terraform/modules/runtime/network.tf');
+    const data = await source('deploy/terraform/modules/runtime/data.tf');
 
     expect(data).toContain('publicly_accessible         = false');
     expect(data).toContain('storage_encrypted           = true');

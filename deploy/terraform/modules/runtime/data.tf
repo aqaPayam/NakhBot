@@ -100,7 +100,7 @@ resource "aws_elasticache_parameter_group" "redis" {
 
 resource "aws_elasticache_replication_group" "redis" {
   replication_group_id = "${local.name}-redis"
-  description          = "Nakh staging queue and rate-limit Redis"
+  description          = "Nakh ${var.environment} queue and rate-limit Redis"
 
   engine                     = "redis"
   engine_version             = var.redis_engine_version

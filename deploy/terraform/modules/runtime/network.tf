@@ -42,18 +42,23 @@ resource "aws_subnet" "private" {
   tags = { Name = "${local.name}-private-${each.key}" }
 }
 
-# One NAT gateway contains staging cost. Production must use one per availability zone.
+# Preserve the staging shared gateway; production routes each AZ locally.
+locals {
+  nat_subnets = var.environment == "production" ? { for az, subnet in aws_subnet.public : az => subnet.id } : { shared = values(aws_subnet.public)[0].id }
+}
 resource "aws_eip" "nat" {
-  domain = "vpc"
-  tags   = { Name = "${local.name}-nat" }
+  for_each = local.nat_subnets
+  domain   = "vpc"
+  tags     = { Name = "${local.name}-nat${var.environment == "production" ? "-${each.key}" : ""}" }
 
   depends_on = [aws_internet_gateway.main]
 }
 
 resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = values(aws_subnet.public)[0].id
-  tags          = { Name = "${local.name}-nat" }
+  for_each      = local.nat_subnets
+  allocation_id = aws_eip.nat[each.key].id
+  subnet_id     = each.value
+  tags          = { Name = "${local.name}-nat${var.environment == "production" ? "-${each.key}" : ""}" }
 }
 
 resource "aws_route_table" "public" {
@@ -75,21 +80,23 @@ resource "aws_route_table_association" "public" {
 }
 
 resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-  tags   = { Name = "${local.name}-private" }
+  for_each = local.nat_subnets
+  vpc_id   = aws_vpc.main.id
+  tags     = { Name = "${local.name}-private${var.environment == "production" ? "-${each.key}" : ""}" }
 }
 
 resource "aws_route" "private_egress" {
-  route_table_id         = aws_route_table.private.id
+  for_each               = local.nat_subnets
+  route_table_id         = aws_route_table.private[each.key].id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.main.id
+  nat_gateway_id         = aws_nat_gateway.main[each.key].id
 }
 
 resource "aws_route_table_association" "private" {
   for_each = aws_subnet.private
 
   subnet_id      = each.value.id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[var.environment == "production" ? each.key : "shared"].id
 }
 
 resource "aws_security_group" "load_balancer" {

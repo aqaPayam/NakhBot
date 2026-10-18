@@ -2,6 +2,25 @@
 
 This root is a production-shaped but staging-sized AWS deployment. It is safe to review and validate without an AWS account. It creates nothing—and incurs no AWS charge—until an authorized operator runs Terraform against an account.
 
+## Shared runtime and existing state
+
+Resources now live in `../modules/runtime`; this root keeps the same staging
+inputs, outputs and default AWS names. `moved.tf` maps all 88 accepted resource
+blocks from `68b521a` into that module. The four formerly singleton egress
+resources retain the `shared` instance key. Keep these declarations: removing a
+move is a breaking change for existing state.
+
+Before upgrading an already deployed staging state, preserve its original input
+values and review a full Terraform plan. Accept only address moves, with no
+resource creation, replacement or deletion as part of the extraction. Apply that
+reviewed state migration before using the normal deployment or rollback workflow.
+Those workflows now target `module.runtime.aws_ecs_task_definition.migration`.
+Never approve unexpected infrastructure changes as a side effect of refactoring.
+An empty first deployment needs no legacy-state migration.
+
+Production has its own guarded root in `../production`, account and backend. It
+does not share staging's account, default sizing or single NAT gateway.
+
 ## What it provisions
 
 - isolated VPC across two availability zones, public load-balancer subnets, private workload/data subnets, and one staging NAT gateway;

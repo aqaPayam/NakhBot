@@ -1,56 +1,56 @@
 output "aws_account_id" {
-  description = "AWS account containing the isolated staging environment."
-  value       = data.aws_caller_identity.current.account_id
+  value = module.runtime.aws_account_id
 }
 
 output "aws_region" {
-  value = var.aws_region
+  value = module.runtime.aws_region
 }
 
 output "ecr_repository_urls" {
-  description = "Immutable image destinations keyed by service name."
-  value       = { for name, repository in aws_ecr_repository.service : name => repository.repository_url }
+  value = module.runtime.ecr_repository_urls
 }
 
 output "ecs_cluster_name" {
-  value = aws_ecs_cluster.main.name
+  value = module.runtime.ecs_cluster_name
 }
 
 output "release_evidence_bucket" {
-  value = aws_s3_bucket.release_evidence.id
+  value = module.runtime.release_evidence_bucket
 }
 
 output "release_default_capacity" {
-  value = { min = var.service_min_replicas, max = var.service_max_replicas }
+  value = module.runtime.release_default_capacity
 }
 
 output "migration_task_definition_arn" {
-  value = aws_ecs_task_definition.migration.arn
+  value = module.runtime.migration_task_definition_arn
 }
 
 output "private_subnet_ids" {
-  value = values(aws_subnet.private)[*].id
+  value = module.runtime.private_subnet_ids
 }
 
 output "service_security_group_id" {
-  value = aws_security_group.services.id
+  value = module.runtime.service_security_group_id
 }
 
 output "load_balancer_dns_name" {
-  value = aws_lb.public.dns_name
+  value = module.runtime.load_balancer_dns_name
 }
 
 output "public_url" {
-  value = local.dns_enabled ? "https://${var.public_hostname}" : null
+  value = module.runtime.public_url
 }
 
 output "runtime_secret_arn" {
-  description = "Reference only; secret contents are never outputs."
-  value       = aws_secretsmanager_secret.runtime.arn
+  value = module.runtime.runtime_secret_arn
 }
 
 output "operations_topic_arn" {
-  value = aws_sns_topic.operations.arn
+  value = module.runtime.operations_topic_arn
 }
 
-data "aws_caller_identity" "current" {}
+output "database_role_isolation_enabled" {
+  value = module.runtime.database_role_isolation_enabled
+}
+

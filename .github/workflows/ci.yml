@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # The state rehearsal reads the fixed accepted baseline.
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -53,10 +55,23 @@ jobs:
         run: terraform -chdir=deploy/terraform/bootstrap init -backend=false && terraform -chdir=deploy/terraform/bootstrap validate
       - name: Validate AWS staging
         run: terraform -chdir=deploy/terraform/staging init -backend=false && terraform -chdir=deploy/terraform/staging validate
+      - name: Validate inactive AWS production
+        run: terraform -chdir=deploy/terraform/production init -backend=false && terraform -chdir=deploy/terraform/production validate
       - name: Verify pinned unprivileged media scanner
         run: pnpm exec tsx scripts/clamav-rehearsal.ts
       - name: Verify inactive AWS runtime composition with mocked providers
         run: terraform -chdir=deploy/terraform/staging test
+      - name: Verify production isolation with mocked AWS
+        run: terraform -chdir=deploy/terraform/production test
+      - name: Rehearse accepted staging state moves
+        run: python3 scripts/terraform-state-migration.py
+      - name: Retain infrastructure migration evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: m9-infrastructure-${{ github.sha }}
+          path: artifacts/m9-infrastructure-migration.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Retain scanner transport evidence
         uses: actions/upload-artifact@v6
         with:

@@ -41,7 +41,12 @@ variables {
 }
 
 run "inactive_defaults" {
+  module { source = "../modules/runtime" }
   command = apply
+  assert {
+    condition     = length(aws_nat_gateway.main) == 1 && aws_nat_gateway.main["shared"].subnet_id == values(aws_subnet.public)[0].id && alltrue([for az in ["eu-west-1a", "eu-west-1b"] : aws_route_table_association.private[az].route_table_id == aws_route_table.private["shared"].id])
+    error_message = "Staging must preserve its existing single gateway and private route bindings."
+  }
   assert {
     condition     = length(jsondecode(aws_ecs_task_definition.service["worker"].container_definitions)) == 2 && aws_ecs_service.service["worker"].desired_count == 0
     error_message = "Default composition must preserve two containers and zero running services."
@@ -49,6 +54,7 @@ run "inactive_defaults" {
 }
 
 run "purpose_migration_target" {
+  module { source = "../modules/runtime" }
   command   = apply
   state_key = "purpose-migration-only"
   variables { database_role_isolation_enabled = true }
@@ -68,6 +74,7 @@ run "purpose_migration_target" {
 }
 
 run "purpose_service_bindings" {
+  module { source = "../modules/runtime" }
   command = apply
   variables { database_role_isolation_enabled = true }
   assert {
@@ -89,6 +96,7 @@ run "purpose_service_bindings" {
 }
 
 run "reviewed_media_profile" {
+  module { source = "../modules/runtime" }
   command = apply
   variables {
     product_runtime = {
@@ -117,5 +125,24 @@ run "reviewed_media_profile" {
   assert {
     condition     = aws_ecs_service.service["worker"].desired_count == 0
     error_message = "A configured product profile does not authorize activation."
+  }
+}
+
+run "staging_root_bootstrap" {
+  command   = apply
+  state_key = "staging-root-target"
+  assert {
+    condition     = output.ecs_cluster_name == "nakh-staging" && output.aws_account_id == "123456789012"
+    error_message = "The guarded root must publish its own cluster and account after inactive bootstrap."
+  }
+}
+run "staging_root_target" {
+  command   = apply
+  state_key = "staging-root-target"
+  variables { database_role_isolation_enabled = true }
+  plan_options { target = [module.runtime.aws_ecs_task_definition.migration] }
+  assert {
+    condition     = output.database_role_isolation_enabled && output.ecs_cluster_name == "nakh-staging" && output.aws_region == "eu-west-1" && length(keys(output.ecr_repository_urls)) == 4 && length(output.private_subnet_ids) == 2 && length(output.service_security_group_id) > 0 && length(output.runtime_secret_arn) > 0 && length(output.release_evidence_bucket) > 0 && output.release_default_capacity.min == 2 && output.release_default_capacity.max == 6
+    error_message = "The staging wrapper must retain converged mode and cluster outputs."
   }
 }

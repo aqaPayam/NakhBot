@@ -91,8 +91,8 @@ locals {
     },
   ]
 
-  m7_telemetry = jsondecode(file("${path.module}/../../telemetry/m7-collector.json"))
-  m8_telemetry = jsondecode(file("${path.module}/../../telemetry/m8-collector.json"))
+  m7_telemetry = jsondecode(file("${path.module}/../../../telemetry/m7-collector.json"))
+  m8_telemetry = jsondecode(file("${path.module}/../../../telemetry/m8-collector.json"))
 
   adot_config = yamlencode({
     receivers = { otlp = { protocols = { http = { endpoint = "0.0.0.0:4318" } } } }
@@ -269,7 +269,7 @@ resource "aws_ecs_cluster" "main" {
     }
     precondition {
       condition     = !var.activate_services || !var.skip_final_snapshot
-      error_message = "Accepted staging cannot activate while database final snapshots are disabled."
+      error_message = "Accepted ${var.environment} cannot activate while database final snapshots are disabled."
     }
   }
 }
@@ -357,7 +357,7 @@ resource "aws_lb_listener" "http" {
       type = "fixed-response"
       fixed_response {
         content_type = "text/plain"
-        message_body = "staging is not activated"
+        message_body = var.environment == "staging" ? "staging is not activated" : "Service is temporarily unavailable."
         status_code  = "503"
       }
     }
@@ -488,7 +488,9 @@ resource "aws_ecs_task_definition" "service" {
 }
 
 resource "aws_ecs_task_definition" "migration" {
-  depends_on = [aws_secretsmanager_secret_version.runtime]
+  # Targeted task registration must retain the controller's bootstrap metadata,
+  # without applying or changing the four live service definitions.
+  depends_on = [aws_secretsmanager_secret_version.runtime, aws_ecs_cluster.main, aws_ecr_repository.service, aws_security_group.services, aws_subnet.private, aws_s3_bucket.release_evidence, data.aws_caller_identity.current]
   lifecycle {
     precondition {
       condition     = local.release_images_ready

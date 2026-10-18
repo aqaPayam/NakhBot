@@ -247,3 +247,16 @@ variable "account_deletion_oldest_age_seconds" {
     error_message = "Deletion oldest age must be whole seconds between 60 and 604800."
   }
 }
+
+variable "expected_aws_account_id" {
+  description = "Optional explicit staging account pin; required by the shared production runtime."
+  type        = string
+  default     = null
+  nullable    = true
+}
+variable "staging_aws_account_id" {
+  description = "Staging account identity used to enforce separate production custody."
+  type        = string
+  default     = null
+  nullable    = true
+}

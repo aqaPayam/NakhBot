@@ -142,7 +142,7 @@ jobs:
       - name: Register the selected image only for native compatibility admission
         run: |
           terraform -chdir=deploy/terraform/staging apply -auto-approve \
-            -target='aws_ecs_task_definition.migration' \
+            -target='module.runtime.aws_ecs_task_definition.migration' \
             -var="image_tag=$IMAGE_TAG" -var='activate_services=false'
 
       - name: Check the selected image against the actual database without applying migrations

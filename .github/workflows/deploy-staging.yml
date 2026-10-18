@@ -169,7 +169,7 @@ jobs:
         run: |
           terraform -chdir=deploy/terraform/staging apply \
             -auto-approve \
-            -target='aws_ecs_task_definition.migration' \
+            -target='module.runtime.aws_ecs_task_definition.migration' \
             -var="image_tag=$IMAGE_TAG" \
             -var="activate_services=false"
 
