@@ -27,6 +27,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
       - run: pnpm audit:security
       - name: M7 pinned collector conversion and privacy rehearsal
         run: pnpm test:m7-collector
