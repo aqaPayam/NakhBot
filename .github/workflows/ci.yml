@@ -344,13 +344,15 @@ jobs:
       - name: Build native CLI fixtures
         if: matrix.nativeShard != 0
         run: |
-          pnpm --filter @nakh/config build
-          pnpm --filter @nakh/persistence-postgres build
+          docker build --file deploy/docker/Dockerfile --target native-fixtures --build-arg APP=${{ matrix.app }} --build-arg NAKH_RELEASE=${{ github.sha }} --output type=local,dest=artifacts/native-fixtures .
+          test "$(cat artifacts/native-fixtures/native-fixtures-source-sha.txt)" = "${{ github.sha }}"
+          tar -xf artifacts/native-fixtures/native-fixtures.tar
       - name: Run isolated native shard
         id: native_shard_run
         if: matrix.nativeShard != 0
         env:
           NAKH_NATIVE_SHARD: ${{ matrix.nativeShard }}
+          NAKH_NATIVE_FIXTURES_SOURCE_SHA: ${{ github.sha }}
         run: pnpm test:integration:ci
       - name: Retain successful source-bound shard coverage
         id: native_receipt_upload

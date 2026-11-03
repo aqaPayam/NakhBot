@@ -1,6 +1,7 @@
 FROM node:24.19.0-bookworm-slim AS build
 
 ARG APP
+ARG NAKH_RELEASE=dev
 WORKDIR /workspace
 RUN corepack enable \
     && for pnpm_attempt in 1 2 3; do \
@@ -10,8 +11,14 @@ RUN corepack enable \
        done
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm build
+RUN pnpm build \
+    && printf '%s\n' "$NAKH_RELEASE" > /native-fixtures-source-sha.txt \
+    && tar -cf /native-fixtures.tar packages/*/dist apps/*/dist
 RUN pnpm --filter "@nakh/${APP}" --prod deploy /out
+
+FROM scratch AS native-fixtures
+COPY --from=build /native-fixtures.tar /
+COPY --from=build /native-fixtures-source-sha.txt /
 
 FROM node:24.19.0-bookworm-slim AS runtime
 

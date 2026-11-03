@@ -155,6 +155,19 @@ async function verifyDistributed(directory: string): Promise<void> {
   );
 }
 async function execute(): Promise<void> {
+  // Reuse the complete compiled workspace from this job's exact-source Docker
+  // build. Partial package builds made CLI tests depend on unrelated suites'
+  // shard placement. Local runs retain the ordinary dependency-closure builds.
+  const compiledSource = process.env.NAKH_NATIVE_FIXTURES_SOURCE_SHA;
+  if (
+    compiledSource !== undefined &&
+    (process.env.CI !== 'true' ||
+      selected === undefined ||
+      compiledSource !== currentSource().headSha ||
+      (await readFile('artifacts/native-fixtures/native-fixtures-source-sha.txt', 'utf8')) !==
+        compiledSource + '\n')
+  )
+    throw new Error('Native compiled fixtures do not match the exact CI source.');
   const temporary = await mkdtemp(join(tmpdir(), 'nakh-native-shards-'));
   const paths = NATIVE_SHARDS.map((shard) => join(temporary, `${shard}.json`));
   const children = new Set<ReturnType<typeof spawn>>();
@@ -178,6 +191,14 @@ async function execute(): Promise<void> {
         ),
       );
       const buildFilters: string[] = [];
+      if (
+        [
+          'packages/persistence-postgres/src/launch-operator-host.integration.test.ts',
+          'packages/persistence-postgres/src/schema-compatibility.integration.test.ts',
+          'packages/persistence-postgres/src/runtime-role-provisioning.integration.test.ts',
+        ].some((file) => owned.has(file))
+      )
+        buildFilters.push('@nakh/persistence-postgres...');
       if (owned.has('apps/worker/src/stars-refund-runtime.integration.test.ts'))
         buildFilters.push('@nakh/worker...');
       if (owned.has('apps/api/src/admin-runtime.integration.test.ts'))
@@ -187,7 +208,7 @@ async function execute(): Promise<void> {
           '@nakh/worker...',
           '@nakh/scheduler...',
         );
-      if (buildFilters.length > 0) {
+      if (compiledSource === undefined && buildFilters.length > 0) {
         const manager = process.env.npm_execpath;
         if (manager === undefined || !isAbsolute(manager))
           throw new Error('Native process fixture requires package-manager execution.');
