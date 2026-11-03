@@ -148,7 +148,7 @@ describe('M7 plan evidence privacy', () => {
         JIT: { Timing: { Generation: { Total: 0.75, Deform: 0.2, Query: 'private generation' } } },
       },
     ]);
-    expect(result.diagnostics.jitGenerationMs).toBe(0.75);
+    expect(result.diagnostics?.jitGenerationMs).toBe(0.75);
     expect(JSON.stringify(result)).not.toContain('private');
     expect(JSON.stringify(result)).not.toContain('"Deform":');
   });

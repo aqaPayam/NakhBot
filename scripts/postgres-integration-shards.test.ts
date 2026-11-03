@@ -7,6 +7,7 @@ import {
   planIntegrationShards,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
+  mergeIntegrationPartitions,
   type IntegrationShardReport,
 } from './postgres-integration-shards.js';
 
@@ -19,6 +20,46 @@ function report(file: string, total = 1): IntegrationShardReport {
 }
 
 describe('complete isolated native integration shards', () => {
+  it('balances two private child runs without changing the four source receipt groups', () => {
+    const files = [first, second, third, fourth];
+    const plan = planIntegrationShards(files, {}, process.cwd(), 2);
+    expect(plan.files).toHaveLength(2);
+    expect(plan.estimatedMs).toEqual([60000, 60000]);
+    expect(plan.files.flat().sort()).toEqual([...files].sort());
+    expect(planIntegrationShards(files, {}).files).toHaveLength(4);
+    expect(() => planIntegrationShards(files, {}, process.cwd(), 3)).toThrow('coverage');
+  });
+
+  it('merges only complete successful child coverage into one outer native receipt', () => {
+    const merged = mergeIntegrationPartitions(
+      [report(first, 4), report(second, 7)],
+      [first, second],
+    );
+    expect(merged).toEqual({
+      success: true,
+      total: 11,
+      passed: 11,
+      failed: 0,
+      skipped: 0,
+      files: [first, second].sort(),
+    });
+    expect(() =>
+      verifyIntegrationShardCoverage([report(first), report(second)], [first, second], 2),
+    ).toThrow('coverage');
+  });
+
+  it('withholds a merged receipt for missing, duplicate, failed or skipped child work', () => {
+    for (const children of [
+      [report(first)],
+      [report(first), report(first)],
+      [report(first), report(third)],
+      [report(first), { ...report(second), success: false, failed: 1 }],
+      [report(first), { ...report(second), skipped: 1 }],
+      [report(first), { ...report(second), total: 2 }],
+      [report(first), { ...report(second), files: [] }],
+    ])
+      expect(() => mergeIntegrationPartitions(children, [first, second])).toThrow('coverage');
+  });
   it('maps every required source receipt to one existing container job without adding jobs or raising time caps', () => {
     const workflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const mappings = [

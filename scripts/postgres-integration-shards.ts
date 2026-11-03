@@ -37,12 +37,14 @@ export function planIntegrationShards(
   files: readonly string[],
   durations: Readonly<Record<string, number>>,
   directory = process.cwd(),
+  partitions: number = NATIVE_SHARDS.length,
 ): Readonly<{
   files: readonly (readonly string[])[];
   estimatedMs: readonly number[];
 }> {
   if (
-    files.length < NATIVE_SHARDS.length ||
+    ![2, NATIVE_SHARDS.length].includes(partitions) ||
+    files.length < partitions ||
     new Set(files.map(canonical)).size !== files.length ||
     Object.values(durations).some((value) => !Number.isSafeInteger(value) || value < 1)
   )
@@ -54,8 +56,8 @@ export function planIntegrationShards(
     return { file, key, ms: durations[key] ?? 30000 };
   });
   candidates.sort((a, b) => b.ms - a.ms || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  const buckets = NATIVE_SHARDS.map((): string[] => []);
-  const totals = NATIVE_SHARDS.map(() => 0);
+  const buckets = Array.from({ length: partitions }, (): string[] => []);
+  const totals = Array.from({ length: partitions }, () => 0);
   for (const candidate of candidates) {
     const shard = totals.indexOf(Math.min(...totals));
     buckets[shard]!.push(candidate.file);
@@ -95,18 +97,30 @@ export function verifyIntegrationShardCoverage(
   expectedFiles: readonly string[],
   minimumTests: number,
 ): Readonly<{ shards: number; testFiles: number; total: number; passed: number; skipped: number }> {
-  if (
-    reports.length !== NATIVE_SHARDS.length ||
-    expectedFiles.length === 0 ||
-    count(minimumTests) < 1
-  )
+  return verifyCoverage(reports, expectedFiles, minimumTests, NATIVE_SHARDS.length);
+}
+
+function verifyCoverage(
+  reports: readonly IntegrationShardReport[],
+  expectedFiles: readonly string[],
+  minimumTests: number,
+  partitions: number,
+): Readonly<{ shards: number; testFiles: number; total: number; passed: number; skipped: number }> {
+  if (reports.length !== partitions || expectedFiles.length === 0 || count(minimumTests) < 1)
     invalid();
   const expected = new Set(expectedFiles.map(canonical));
   if (expected.size !== expectedFiles.length) invalid();
   const seen = new Set<string>();
   let total = 0;
   for (const report of reports) {
-    if (!report.success || report.failed !== 0 || report.skipped !== 0 || report.passed < 1)
+    if (
+      !report.success ||
+      report.failed !== 0 ||
+      report.skipped !== 0 ||
+      report.passed < 1 ||
+      count(report.total) !== count(report.passed) ||
+      report.files.length === 0
+    )
       invalid();
     for (const originalFile of report.files) {
       const file = canonical(originalFile);
@@ -116,7 +130,23 @@ export function verifyIntegrationShardCoverage(
     total += report.total;
   }
   if (seen.size !== expected.size || total < minimumTests) invalid();
-  return { shards: NATIVE_SHARDS.length, testFiles: seen.size, total, passed: total, skipped: 0 };
+  return { shards: partitions, testFiles: seen.size, total, passed: total, skipped: 0 };
+}
+
+/** Two private child runs produce one complete outer shard, never a partial receipt. */
+export function mergeIntegrationPartitions(
+  reports: readonly IntegrationShardReport[],
+  expectedFiles: readonly string[],
+): IntegrationShardReport {
+  const coverage = verifyCoverage(reports, expectedFiles, 2, 2);
+  return {
+    success: true,
+    total: coverage.total,
+    passed: coverage.total,
+    failed: 0,
+    skipped: 0,
+    files: reports.flatMap((report) => report.files).sort(),
+  };
 }
 
 /** Give each child its own real databases. Even fixed queue/token names cannot

@@ -353,6 +353,7 @@ jobs:
         env:
           NAKH_NATIVE_SHARD: ${{ matrix.nativeShard }}
           NAKH_NATIVE_FIXTURES_SOURCE_SHA: ${{ github.sha }}
+          NAKH_NATIVE_PARTITIONS: '2'
         run: pnpm test:integration:ci
       - name: Retain successful source-bound shard coverage
         id: native_receipt_upload

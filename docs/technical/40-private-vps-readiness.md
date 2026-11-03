@@ -31,6 +31,13 @@ states `launchAuthorized: false` and `productionQualified: false`.
 Native tests exercise concurrent observations, unchanged audit/cohort authority,
 wrong original database login and host drift. Their injected host/TLS fixtures
 do not qualify real host ownership, private-file permissions or deployed TLS.
+Each of the four native CI jobs uses at most two child runs, with independent
+PostgreSQL clusters and Redis servers. Both complete reports must account for
+every assigned file exactly once before a source-bound shard receipt is written.
+Failed, skipped, missing or duplicate coverage denies that receipt. Database
+admission requires `fsync`, `synchronous_commit` and `full_page_writes` to be on.
+All database fixtures use disk storage; the six jobs, original time limits,
+query-plan budgets and backup/restore checks remain required.
 An isolated private candidate probe also passed eight checks on the actual VPS:
 the real host and verified database TLS, non-root denial, production-binding
 denial, wrong machine identity, symlink and hard-link denial, non-private secret

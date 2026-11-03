@@ -18,7 +18,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "typecheck": "pnpm -r --workspace-concurrency=1 --if-present typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --workspace-concurrency=1 --if-present typecheck",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:integration": "pnpm build && vitest run --config vitest.integration.config.ts",

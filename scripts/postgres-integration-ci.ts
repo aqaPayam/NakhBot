@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { createIsolatedTestDatabase } from '../packages/persistence-postgres/src/testing/isolated-database.js';
+import { createDatabase } from '../packages/persistence-postgres/src/database.js';
 import {
   runMigrations,
   verifyMigrations,
@@ -24,9 +25,11 @@ import {
   planIntegrationShards,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
+  mergeIntegrationPartitions,
   type IntegrationShardReport,
   type NativeShard,
 } from './postgres-integration-shards.js';
+import { startNativeSiblingServices } from './postgres-integration-sibling.js';
 import {
   createNativeShardReceipt,
   verifyNativeShardReceipts,
@@ -154,11 +157,42 @@ async function verifyDistributed(directory: string): Promise<void> {
     verified.receipts,
   );
 }
+async function requireNativeSettings(sourceUrl: string): Promise<void> {
+  const settings = createDatabase({
+    url: sourceUrl,
+    poolMax: 1,
+    statementTimeoutMs: 15000,
+    lockTimeoutMs: 10000,
+  });
+  try {
+    const row = await settings
+      .selectNoFrom((eb) => [
+        eb.fn<string>('current_setting', [eb.val('fsync')]).as('fsync'),
+        eb.fn<string>('current_setting', [eb.val('synchronous_commit')]).as('commit'),
+        eb.fn<string>('current_setting', [eb.val('full_page_writes')]).as('pages'),
+      ])
+      .executeTakeFirstOrThrow();
+    if (row.fsync !== 'on' || row.commit !== 'on' || row.pages !== 'on')
+      throw new Error('Native PostgreSQL requires synchronous WAL and full page-write protection.');
+  } finally {
+    await settings.destroy();
+  }
+}
+
 async function execute(): Promise<void> {
   // Reuse the complete compiled workspace from this job's exact-source Docker
   // build. Partial package builds made CLI tests depend on unrelated suites'
   // shard placement. Local runs retain the ordinary dependency-closure builds.
   const compiledSource = process.env.NAKH_NATIVE_FIXTURES_SOURCE_SHA;
+  const partitions = process.env.NAKH_NATIVE_PARTITIONS;
+  if (
+    partitions !== undefined &&
+    (partitions !== '2' ||
+      process.env.CI !== 'true' ||
+      selected === undefined ||
+      compiledSource === undefined)
+  )
+    throw new Error('Native partition execution requires the exact CI fixture context.');
   if (
     compiledSource !== undefined &&
     (process.env.CI !== 'true' ||
@@ -168,8 +202,9 @@ async function execute(): Promise<void> {
         compiledSource + '\n')
   )
     throw new Error('Native compiled fixtures do not match the exact CI source.');
+  await requireNativeSettings(url!);
   const temporary = await mkdtemp(join(tmpdir(), 'nakh-native-shards-'));
-  const paths = NATIVE_SHARDS.map((shard) => join(temporary, `${shard}.json`));
+  const paths = new Set<string>();
   const children = new Set<ReturnType<typeof spawn>>();
   // Preserve a caller's diagnostic engine mode; CI's normal runtime adds no flags.
   const engineArguments = process.execArgv.filter((argument) => argument === '--no-opt');
@@ -179,16 +214,21 @@ async function execute(): Promise<void> {
   process.once('SIGINT', stopChildren);
   process.once('SIGTERM', stopChildren);
 
-  async function runShard(shard: NativeShard): Promise<IntegrationShardReport> {
-    const database = await createIsolatedTestDatabase(url!, `ci_native_${shard}`);
+  async function runPartition(
+    shard: NativeShard,
+    partition: number,
+    sourceUrl: string,
+    redisUrl: string | undefined,
+    files: readonly string[],
+  ): Promise<IntegrationShardReport> {
+    await requireNativeSettings(sourceUrl);
+    const database = await createIsolatedTestDatabase(sourceUrl, `ci_native_${shard}_${partition}`);
     try {
       // Ordinary process cases run production compiled artifacts. Build only
       // their owning shard's dependency closure, sharing overlapping filters.
       // Native inventory, source receipts, CLI fixtures and time caps remain.
       const owned = new Set(
-        dispatch.files[shard - 1]!.map((file) =>
-          relative(resolve('.'), file).replaceAll('\\', '/'),
-        ),
+        files.map((file) => relative(resolve('.'), file).replaceAll('\\', '/')),
       );
       const buildFilters: string[] = [];
       if (
@@ -229,7 +269,16 @@ async function execute(): Promise<void> {
       // Match the existing CI service's migrated and verified starting state.
       await runMigrations(database.url, resolve('migrations'));
       await verifyMigrations(database.url, resolve('migrations/verify'));
-      const reportPath = paths[shard - 1]!;
+      const reportPath = join(temporary, `${shard}-${partition}.json`);
+      paths.add(reportPath);
+      process.stdout.write(
+        JSON.stringify({
+          scenario: 'POSTGRES-NATIVE-PARTITION',
+          shard,
+          partition,
+          files: files.length,
+        }) + '\n',
+      );
       const code = await new Promise<number>((resolveExit, reject) => {
         const child = spawn(
           process.execPath,
@@ -244,9 +293,19 @@ async function execute(): Promise<void> {
             '--reporter=default',
             '--reporter=json',
             `--outputFile.json=${reportPath}`,
-            ...dispatch.files[shard - 1]!,
+            ...files,
           ],
-          { env: integrationShardEnvironment(process.env, database.url, shard), stdio: 'inherit' },
+          {
+            env: integrationShardEnvironment(
+              {
+                ...process.env,
+                ...(redisUrl === undefined ? {} : { NAKH_TEST_REDIS_URL: redisUrl }),
+              },
+              database.url,
+              shard,
+            ),
+            stdio: 'inherit',
+          },
         );
         children.add(child);
         child.once('error', reject);
@@ -259,6 +318,27 @@ async function execute(): Promise<void> {
       return parseIntegrationShardReport(JSON.parse(await readFile(reportPath, 'utf8')) as unknown);
     } finally {
       await database.destroy();
+    }
+  }
+
+  async function runShard(shard: NativeShard): Promise<IntegrationShardReport> {
+    const files = dispatch.files[shard - 1]!;
+    if (partitions === undefined || files.length < 2)
+      return runPartition(shard, 1, url!, process.env.NAKH_TEST_REDIS_URL, files);
+    const sibling = await startNativeSiblingServices();
+    try {
+      const groups = planIntegrationShards(files, durations.files, process.cwd(), 2).files;
+      const results = await Promise.allSettled([
+        runPartition(shard, 1, url!, process.env.NAKH_TEST_REDIS_URL, groups[0]!),
+        runPartition(shard, 2, sibling.databaseUrl, sibling.redisUrl, groups[1]!),
+      ]);
+      const reports = results.map((result) => {
+        if (result.status !== 'fulfilled') throw new Error('Native partition failed.');
+        return result.value;
+      });
+      return mergeIntegrationPartitions(reports, files);
+    } finally {
+      await sibling.destroy();
     }
   }
 
