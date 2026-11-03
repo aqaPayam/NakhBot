@@ -153,7 +153,7 @@ export function launchOperatorCommandDigest(value: unknown): string {
 /** Reject libpq query overrides and require verified TLS against the reviewed endpoint. */
 export function captureLaunchOperatorDatabaseUrl(
   value: unknown,
-  binding: LaunchOperatorBinding,
+  binding: Pick<LaunchOperatorBinding, 'databaseHost' | 'databaseName' | 'databaseUser'>,
 ): string {
   if (typeof value !== 'string' || Buffer.byteLength(value) > 16384) denied();
   const url = new URL(value);

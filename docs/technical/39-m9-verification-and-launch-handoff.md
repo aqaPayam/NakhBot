@@ -1,6 +1,12 @@
 # M9 implementation verification and launch handoff
 
 Status: **implementation tooling verified; actual controlled launch not accepted**.
+
+The low-cost private staging VPS preparation now has a separate
+[read-only readiness boundary](40-private-vps-readiness.md). It observes the
+reviewed Linux host and native database without AWS credentials and cannot open
+a cohort or qualify production. This does not replace the original launch
+requirements or the protected operator's opening approval.
 This audit uses the five original M9 requirements in
 [the implementation plan](13-implementation-plan.md), preserving the
 [M8 handoff scope](32-m8-acceptance-evidence.md). It supersedes historical
