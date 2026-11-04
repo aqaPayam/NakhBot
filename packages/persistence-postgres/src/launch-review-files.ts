@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { open } from 'node:fs/promises';
+import { open, type FileHandle } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import {
   captureLaunchReviewRequest,
@@ -16,7 +16,10 @@ function object(value: unknown): Record<string, unknown> {
 }
 /** Hash private operator-supplied bytes. This proves content binding, not origin,
  * authenticity, provider success or a reviewer's acceptance of the contents. */
-export async function loadLaunchReviewFiles(value: unknown): Promise<LaunchReviewRequest> {
+export async function loadLaunchReviewFiles(
+  value: unknown,
+  openEvidence: (path: string) => Promise<FileHandle> = (path) => open(path, 'r'),
+): Promise<LaunchReviewRequest> {
   const input = object(structuredClone(value));
   if (!Array.isArray(input.evidence) || input.evidence.length > LAUNCH_REVIEW_EVIDENCE.length)
     denied();
@@ -54,7 +57,7 @@ export async function loadLaunchReviewFiles(value: unknown): Promise<LaunchRevie
   });
   const evidence = [];
   for (const { path, descriptor } of files) {
-    const file = await open(path, 'r');
+    const file = await openEvidence(path);
     const buffer = Buffer.alloc(1048577);
     try {
       const stat = await file.stat();

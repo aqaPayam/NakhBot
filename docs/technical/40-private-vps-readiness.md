@@ -2,9 +2,9 @@
 
 The small private staging pilot uses the owner's existing VPS. Its read-only
 readiness command does not impersonate AWS, open a cohort, approve a review,
-qualify production, or replace the protected AWS launch operator. Mutable VPS
-launch admission still needs an independently reviewed implementation before
-the private bot can admit testers.
+qualify production, or replace the protected AWS launch operator. The separate
+staging operator commands below preserve native review, audit and recovery
+controls for a private pilot of at most ten testers.
 
 Run the compiled `packages/persistence-postgres/dist/cli/vps-launch-readiness.js`
 as Linux root on the reviewed private operator host, with two absolute paths:
@@ -109,3 +109,66 @@ Docker socket, SSH key or whole-host filesystem mount is needed.
 
 All original canary, cohort approval, safety, privacy and retention conditions
 remain in force; retained erasure and support-body release remain disabled.
+
+## Private staging admission and administrator provisioning
+
+`vps-launch-operator.js` and `vps-admin-totp-operator.js` run under the same
+qualified Linux root, machine identity, verified database TLS and original
+database-owner checks. These are separate short-lived operator containers;
+application containers remain non-root. They accept three absolute paths:
+protected binding, protected request and a new private receipt. Files must be
+root-owned, single-linked regular files with no group/other permissions.
+Every ancestor must be a root-owned directory without group/other write access.
+Symlinks, writable parents, oversized JSON and existing output files are denied.
+Outputs use exclusive creation with mode 0600. JSON input is limited to 16 KiB;
+review evidence files are independently limited to 1 MiB.
+
+The launch binding extends the nine-field readiness binding with `operatorId`
+(UUID) and `approvedCommandDigest` (SHA256 hex or null). Keep approval null
+during preparation. The native requests support `health`, `resolve-member`,
+`inspect`, `prepare-review`, `receipt`, and policy application. Preparation
+hashes the actual protected evidence files; hashes bind contents and do not
+certify their origin or the reviewer's acceptance. Audience must match the
+protected source, staging environment and bot ID; at most ten original-life
+members may be named. A plain `apply` cannot open a cohort.
+
+For opening, prepare the existing native review dossier, show the exact cohort
+and current blockers to the reviewer, and obtain explicit approval. The
+`apply-reviewed` request has exactly `operation`, `input` and an absolute
+`reviewPath` to the protected dossier receipt. Running either CLI with
+`--digest REQUEST NEW_RECEIPT` computes the canonical command digest without
+granting authority. Only after approval may that exact digest be installed in
+the protected binding. Opening verifies the matching operator, fresh dossier
+and digest before secret access, and verifies expiry again inside the native
+policy lock. Existing lifecycle, version, idempotency and audit guards apply.
+Independent `apply` of a closed policy and immutable receipt recovery do not
+require the opening digest. Review evidence and a digest are not human approval.
+
+The MFA binding adds `totpSecretPath`, `keyId` and positive `keyVersion`.
+The protected key file uses the existing report-snapshot key-ring array format;
+it is separate from the database secret. Approval requests use the existing
+native `approve` shape and require the exact protected command digest before
+any secret access. The reviewer must approve the named account and staff roles.
+Historical enrollment and credential ciphertext custody is checked, including
+revoked credentials, before another invitation is created. The enrollment
+invitation is written only to the private receipt; it is never printed.
+Credential revocation remains independent of an opening approval and invalidates
+native session authority. The owner completes authenticator enrollment in the
+existing administrator interface; these tools do not perform that human step.
+
+Qualification added 10 unit and 12 native integration cases. They exercise
+twenty concurrent openings, eight concurrent MFA approvals, mutation during
+secret access, native-lock expiry, original-owner rejection, historical key
+custody, real credential/session revocation and immutable recovery. Native
+host/TLS observations in those tests are explicitly injected fixtures.
+Separately, the actual private VPS passed 12 isolated compiled-command checks:
+real Linux root/machine/native-owner/TLS health, private MFA digest, non-root,
+production, wrong-machine, symlink, hard-link, writable-parent, oversized input,
+existing-output preservation, non-private copied secret and unapproved MFA.
+The candidate bundle SHA256 was
+`c54a3bfd9ceab5480768ee02ab8c2a614d8bbeea832e211ab73da57c25bbb688`.
+The permission-negative probe changed only a private copy of the database
+secret. It used the accepted `8bc89ad` image as a diagnostic carrier, performed
+no cohort/role grants, and did not deploy the candidate application or register
+a webhook. Its private receipt explicitly denies launch and production
+qualification. Complete exact-source six-job CI remains required.

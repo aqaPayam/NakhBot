@@ -23,19 +23,20 @@ function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) denied();
   return value as Record<string, unknown>;
 }
+export const VPS_READINESS_BINDING_FIELDS = [
+  'version',
+  'environment',
+  'sourceSha',
+  'telegramBotId',
+  'machineId',
+  'databaseHost',
+  'databaseName',
+  'databaseUser',
+  'databaseSecretPath',
+] as const;
 export function captureVpsReadinessBinding(value: unknown): VpsReadinessBinding {
   const c = object(structuredClone(value));
-  const keys = [
-    'version',
-    'environment',
-    'sourceSha',
-    'telegramBotId',
-    'machineId',
-    'databaseHost',
-    'databaseName',
-    'databaseUser',
-    'databaseSecretPath',
-  ];
+  const keys = VPS_READINESS_BINDING_FIELDS;
   if (Object.keys(c).length !== keys.length || keys.some((key) => !Object.hasOwn(c, key))) denied();
   try {
     captureLaunchAudience({
@@ -73,14 +74,15 @@ export async function observeVpsMachine(): Promise<VpsMachineIdentity> {
   };
 }
 
-/** Private, staging-only observation. It has no opening, approval, or mutation operation.
- * Injected identity/connection providers are test seams, not deployed-host evidence. */
-export async function readVpsLaunchReadiness(
+/** Trusted staging host admission shared by private operator CLIs. Injected
+ * identity/connection providers are test seams, not deployed-host evidence. */
+export async function withVpsOwnerDatabase<T>(
   binding: unknown,
   readSecret: (path: string) => Promise<unknown>,
+  operation: (database: NakhDatabase, authenticate: () => Promise<void>) => Promise<T>,
   observe: () => Promise<VpsMachineIdentity> = observeVpsMachine,
   connect: (config: DatabaseConfig) => NakhDatabase = createDatabase,
-): Promise<unknown> {
+): Promise<T> {
   let database: NakhDatabase | undefined;
   try {
     const c = captureVpsReadinessBinding(binding);
@@ -118,19 +120,7 @@ export async function readVpsLaunchReadiness(
     )
       denied();
     await authenticate();
-    const health = await measureLaunchHealth(database, {
-      sourceSha: c.sourceSha,
-      environment: c.environment,
-      telegramBotId: c.telegramBotId,
-    });
-    return {
-      version: 1,
-      kind: 'private-vps-readiness',
-      launchAuthorized: false,
-      productionQualified: false,
-      machineId: c.machineId,
-      health,
-    };
+    return await operation(database, authenticate);
   } catch {
     return denied();
   } finally {
@@ -140,4 +130,32 @@ export async function readVpsLaunchReadiness(
       denied();
     }
   }
+}
+
+/** Observation only: no opening, approval or mutation request is accepted. */
+export async function readVpsLaunchReadiness(
+  binding: unknown,
+  readSecret: (path: string) => Promise<unknown>,
+  observe: () => Promise<VpsMachineIdentity> = observeVpsMachine,
+  connect: (config: DatabaseConfig) => NakhDatabase = createDatabase,
+): Promise<unknown> {
+  const c = captureVpsReadinessBinding(binding);
+  return withVpsOwnerDatabase(
+    c,
+    readSecret,
+    async (database) => ({
+      version: 1,
+      kind: 'private-vps-readiness',
+      launchAuthorized: false,
+      productionQualified: false,
+      machineId: c.machineId,
+      health: await measureLaunchHealth(database, {
+        sourceSha: c.sourceSha,
+        environment: c.environment,
+        telegramBotId: c.telegramBotId,
+      }),
+    }),
+    observe,
+    connect,
+  );
 }

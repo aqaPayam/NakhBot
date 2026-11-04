@@ -235,6 +235,7 @@ async function execute(): Promise<void> {
       if (
         [
           'packages/persistence-postgres/src/launch-operator-host.integration.test.ts',
+          'packages/persistence-postgres/src/vps-trusted-operators.integration.test.ts',
           'packages/persistence-postgres/src/schema-compatibility.integration.test.ts',
           'packages/persistence-postgres/src/runtime-role-provisioning.integration.test.ts',
         ].some((file) => owned.has(file))

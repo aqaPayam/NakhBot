@@ -128,7 +128,7 @@ export function captureOperatorCommand(value: unknown): OperatorCommand {
   Object.freeze(input);
   return Object.freeze(c) as OperatorCommand;
 }
-async function checkTotpCustody(
+export async function checkTotpCustody(
   database: NakhDatabase,
   keys: ReportSnapshotKeyRing,
 ): Promise<void> {
