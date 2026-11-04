@@ -23,10 +23,14 @@ authorized one original owner life on the exact deployed source. Native policy
 version 2, actual Telegram webhook registration, authentication-negative HTTP
 checks and admission denial for an unlisted identity were observed. Two old
 owner setup updates were preserved privately and discarded with approval.
-The prepared maximum window is one hour, with native expiry and a host timer
-that restores the transport hold, independently closes the policy and removes
-only the matching canary webhook while preserving pending updates. Elapsed
-execution of that timer is not claimed by this checkpoint.
+The original scheduled host timer subsequently completed successfully without
+changing its deadline. Read-only post-closure checks observed native policy
+version 3 closed with no cohort, authenticated webhook requests held with HTTP
+503, unauthenticated requests rejected with HTTP 401, and the matching Telegram
+webhook removed while preserving pending updates. The original opening receipt
+remained recoverable after closure and review expiry. The owner's original
+account life was unchanged and no longer admitted. This proves the scheduled
+closure, not a completed product journey or permission to reopen the test.
 
 The actual storage SDK probe uploaded/read/deleted its own test object and
 verified absence; its anonymous request returned a non-success response without
@@ -46,6 +50,23 @@ responses and a blocker-free dossier do not substitute for a user sending a
 fresh message through Telegram and completing the ordinary product flows.
 Payments, retained-data erasure and support-body release remain disabled.
 The owner will return for supervised testing; private evidence stays outside Git.
+
+### Migration byte provenance
+
+The deployed archive was exported from the reviewed Windows checkout. All 163
+native migration hashes match that archive's CRLF files; they differ from an LF
+checkout of the same Git commit. A clean source checkout with explicit
+`core.autocrlf=true` is required to reproduce those deployed migration bytes.
+Record the archive hash and checkout policy alongside the source SHA. A source
+SHA alone does not establish identical packaged bytes.
+
+Do not rewrite the applied ledger, normalize an existing release archive, or
+disable exact migration checks to obtain a passing review. A later release
+must preserve the reviewed bytes or use a separately reviewed migration of
+the byte-provenance policy before rollout. Linux CI success does not establish
+compatibility with this existing CRLF ledger. Private reference capture and
+verification remain observations; neither approves the reference values nor
+qualifies production.
 
 The historical audit below preserves the original production requirements.
 It must not be read as saying that the already-prepared private pilot resources
