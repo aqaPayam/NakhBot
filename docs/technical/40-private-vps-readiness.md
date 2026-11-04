@@ -38,6 +38,29 @@ Failed, skipped, missing or duplicate coverage denies that receipt. Database
 admission requires `fsync`, `synchronous_commit` and `full_page_writes` to be on.
 All database fixtures use disk storage; the six jobs, original time limits,
 query-plan budgets and backup/restore checks remain required.
+
+The worker repair addresses a native twenty-retry retention lock timeout. Each
+retry previously held the same identity lock while projecting the entire
+code-owned schema catalog. Retention now captures its lease before asynchronous
+work and performs that read-only projection before the identity lock, within the
+same transaction. Exact migration-version checks bracket the native write; the
+native function retains its independent live catalog, lease and required-audit
+guards. Finish still performs its own independent verification. The original
+twenty-way race and fifteen-second lock timeout remain unchanged. Native cases
+also change the live catalog and migration ledger while a request waits for its
+identity lock, and mutate the caller's lease after capture.
+Only PostgreSQL lock-timeout errors receive a bounded retry: at most three
+complete transactions, each with fresh schema, ownership and expiry checks for
+the originally captured lease. Aborted inventory and audit writes roll back
+together. Native integrity/ownership failures are not retried. Fault-injection
+cases verify recovery after two lock failures, exhaustion after three attempts,
+immediate conflict rejection and exact inventory/audit counts.
+The final isolated candidate passed all 24 retention cases with zero skips in
+619,721 ms of suite time on a disk-backed PostgreSQL fixture with synchronous
+WAL, full-page protection and the original fifteen-second lock timeout. Its
+observed duration updates dispatch weights only. This is candidate database
+evidence, not complete source CI or provider/launch acceptance.
+
 An isolated private candidate probe also passed eight checks on the actual VPS:
 the real host and verified database TLS, non-root denial, production-binding
 denial, wrong machine identity, symlink and hard-link denial, non-private secret

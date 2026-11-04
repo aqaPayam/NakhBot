@@ -102,8 +102,11 @@ export class PostgresAccountDeletionWorkStore implements AccountDeletionWorkStor
   public async withLease<T>(
     lease: AccountDeletionLease,
     batch: (tx: NakhDatabase, scope: AccountDeletionLease) => Promise<T>,
+    schemaPreflight?: (tx: NakhDatabase) => Promise<void>,
   ): Promise<T> {
-    return this.fencedTransaction(lease, batch);
+    // Code-owned read-only schema checks may run before the identity lock. The
+    // native batch still owns all current lease, catalog and required-write guards.
+    return this.fencedTransaction(lease, batch, undefined, schemaPreflight);
   }
 
   /** Shared writers take sender counters, then the pair, then identity rows.

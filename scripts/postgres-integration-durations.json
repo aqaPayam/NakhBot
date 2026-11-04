@@ -67,7 +67,7 @@
     "packages/persistence-postgres/src/account-deletion-pair-store.integration.test.ts": 23777,
     "packages/persistence-postgres/src/account-deletion-product-store.integration.test.ts": 11793,
     "packages/persistence-postgres/src/account-deletion-referenced-like-store.integration.test.ts": 16685,
-    "packages/persistence-postgres/src/account-deletion-retention-store.integration.test.ts": 228112,
+    "packages/persistence-postgres/src/account-deletion-retention-store.integration.test.ts": 619721,
     "packages/persistence-postgres/src/account-deletion-sample-store.integration.test.ts": 7890,
     "packages/persistence-postgres/src/account-deletion-session-store.integration.test.ts": 78651,
     "packages/persistence-postgres/src/account-deletion-shared-store.integration.test.ts": 10754,
@@ -197,5 +197,13 @@
       "packages/persistence-postgres/src/launch-operator-host.integration.test.ts": "two compiled CLI cases lacked workspace dependency builds; keep its last successful timing"
     },
     "policy": "Latest successful suite observations replace older estimates; unobserved suites retain prior weights. Partial-run timings affect dispatch only and never satisfy coverage."
+  },
+  "retentionRepairObservation": {
+    "policy": "Passing isolated fixture duration affects dispatch only; complete exact-source CI remains required.",
+    "sourceCiAccepted": false,
+    "elapsedMs": 619721,
+    "passed": 24,
+    "fixture": "isolated VPS candidate with all 24 cases, zero skips",
+    "failed": 0
   }
 }

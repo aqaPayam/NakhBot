@@ -102,6 +102,65 @@ describe.skipIf(url === undefined)(
         )
       ).rows;
     }
+    async function whileWaitingForIdentity(
+      lease: AccountDeletionLease,
+      change: () => Promise<void> | void,
+    ): Promise<
+      { ok: true; value: Readonly<{ hasMore: boolean }> } | { ok: false; error: unknown }
+    > {
+      let signalHeld!: (pid: number) => void;
+      let rejectHeld!: (error: unknown) => void;
+      let release!: () => void;
+      const held = new Promise<number>((resolve, reject) => {
+        signalHeld = resolve;
+        rejectHeld = reject;
+      });
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const holder = database.transaction().execute(async (tx) => {
+        await sql`SELECT id FROM identity.users WHERE id=${lease.userId}::uuid FOR NO KEY UPDATE`.execute(
+          tx,
+        );
+        signalHeld(
+          (await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`.execute(tx)).rows[0]!.pid,
+        );
+        await released;
+      });
+      void holder.catch(rejectHeld);
+      let settled:
+        | Promise<
+            { ok: true; value: Readonly<{ hasMore: boolean }> } | { ok: false; error: unknown }
+          >
+        | undefined;
+      try {
+        const pid = await held;
+        const pending = store.recordNext(lease);
+        settled = pending.then(
+          (value) => ({ ok: true as const, value }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
+        const deadline = Date.now() + 12000;
+        for (;;) {
+          const waiting = (
+            await sql<{ waiting: boolean }>`SELECT EXISTS (
+            SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+              AND wait_event_type='Lock' AND ${pid}::integer=ANY(pg_blocking_pids(pid))
+          ) AS waiting`.execute(database)
+          ).rows[0]!.waiting;
+          if (waiting) break;
+          if (Date.now() >= deadline)
+            throw new Error('Retention did not reach the identity fence.');
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        await change();
+      } finally {
+        release();
+        await holder;
+        await settled;
+      }
+      return settled;
+    }
     async function manifestsOnly(lease: AccountDeletionLease): Promise<void> {
       for (let n = 0; n < 20; n++) {
         const row = (
@@ -382,6 +441,112 @@ describe.skipIf(url === undefined)(
         ).rows,
       ).toEqual([{ count: DELETION_REGISTRY.length }]);
     });
+    it('rejects live catalog drift after preflight while waiting for the identity fence', async () => {
+      const lease = await scene();
+      try {
+        const result = await whileWaitingForIdentity(lease, async () => {
+          await sql`CREATE TABLE public.late_retention_probe(value text)`.execute(database);
+        });
+        expect(result).toMatchObject({ ok: false, error: { code: '40001' } });
+        expect(await rows(lease)).toEqual([]);
+      } finally {
+        await sql`DROP TABLE IF EXISTS public.late_retention_probe`.execute(database);
+      }
+    });
+    it('rejects a migration ledger advance after preflight before recording inventory', async () => {
+      const lease = await scene();
+      const name = '000164_retention_preflight_probe.sql';
+      try {
+        const result = await whileWaitingForIdentity(lease, async () => {
+          await sql`INSERT INTO platform.schema_migrations(name,sha256) VALUES (${name},${'a'.repeat(64)})`.execute(
+            database,
+          );
+        });
+        expect(result).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        expect(await rows(lease)).toEqual([]);
+      } finally {
+        await sql`DELETE FROM platform.schema_migrations WHERE name=${name}`.execute(database);
+      }
+    });
+    it('captures the original lease before asynchronous preflight and identity waiting', async () => {
+      const lease = await scene();
+      const mutable = { ...lease };
+      const result = await whileWaitingForIdentity(mutable, () => {
+        mutable.userId = randomUUID();
+        mutable.deletionRecordId = randomUUID();
+        mutable.leaseOwner = randomUUID();
+        mutable.leaseGeneration++;
+      });
+      expect(result).toEqual({ ok: true, value: { hasMore: true } });
+      expect(await rows(lease)).toHaveLength(10);
+      expect(await rows(mutable)).toEqual([]);
+    });
+    for (const fault of [
+      {
+        name: 'recovers two transient lock failures with atomic inventory and audits',
+        code: '55P03',
+        failures: 2,
+        attempts: 12,
+        success: true,
+      },
+      {
+        name: 'bounds persistent lock retries to three rolled-back transactions',
+        code: '55P03',
+        failures: 100,
+        attempts: 3,
+        success: false,
+      },
+      {
+        name: 'does not retry a native ownership or integrity conflict',
+        code: '40001',
+        failures: 100,
+        attempts: 1,
+        success: false,
+      },
+    ]) {
+      it(fault.name, async () => {
+        const lease = await scene();
+        await sql`CREATE SEQUENCE public.retention_retry_probe;
+          CREATE FUNCTION public.fail_retention_retry() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+            IF nextval('public.retention_retry_probe') <= ${sql.lit(fault.failures)} THEN
+              RAISE EXCEPTION 'synthetic retention retry fault' USING ERRCODE=${sql.lit(fault.code)};
+            END IF;
+            RETURN NEW;
+          END $$;
+          CREATE TRIGGER aaa_retention_retry_probe BEFORE INSERT ON identity.data_retention_records
+            FOR EACH ROW EXECUTE FUNCTION public.fail_retention_retry()`.execute(database);
+        try {
+          if (fault.success)
+            await expect(store.recordNext(lease)).resolves.toEqual({ hasMore: true });
+          else await expect(store.recordNext(lease)).rejects.toMatchObject({ code: fault.code });
+          expect(
+            (
+              await sql<{
+                count: number;
+              }>`SELECT last_value::integer AS count FROM public.retention_retry_probe`.execute(
+                database,
+              )
+            ).rows,
+          ).toEqual([{ count: fault.attempts }]);
+          expect(await rows(lease)).toHaveLength(fault.success ? 10 : 0);
+          expect(
+            (
+              await sql<{
+                count: number;
+              }>`SELECT count(*)::integer AS count FROM platform.audit_logs
+            WHERE subject_id=${lease.deletionRecordId}::uuid AND event_type='account.deletion-retention-recorded.v1'`.execute(
+                database,
+              )
+            ).rows,
+          ).toEqual([{ count: fault.success ? 10 : 0 }]);
+        } finally {
+          await sql`DROP TRIGGER aaa_retention_retry_probe ON identity.data_retention_records;
+            DROP FUNCTION public.fail_retention_retry(); DROP SEQUENCE public.retention_retry_probe`.execute(
+            database,
+          );
+        }
+      });
+    }
     it('resumes a durable partial inventory under a new lease generation and rejects the old worker', async () => {
       const lease = await scene();
       await store.recordNext(lease);

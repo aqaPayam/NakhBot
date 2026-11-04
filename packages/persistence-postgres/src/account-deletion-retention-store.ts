@@ -19,18 +19,60 @@ export class PostgresAccountDeletionRetentionStore {
     if (lease.phase !== 'retention_manifest' || lease.checkpointVersion !== 6) conflict();
   }
   public async recordNext(lease: AccountDeletionLease): Promise<Readonly<{ hasMore: boolean }>> {
-    this.validate(lease);
-    return this.work.withLease(lease, async (tx, scope) => {
-      assertDeletionCatalogCoverage(await readDeletionCatalog(tx));
-      const row = (
-        await sql<{ written: number }>`SELECT identity.record_retention_batch(
-          ${scope.deletionRecordId}::uuid,${scope.userId}::uuid,${scope.leaseOwner}::uuid,${scope.leaseGeneration}) AS written`.execute(
-          tx,
+    const selected = Object.freeze(structuredClone(lease));
+    this.validate(selected);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.recordSelected(selected);
+      } catch (error) {
+        // A lock timeout aborts this transaction, including all inventory/audit
+        // writes. Retry only that transient condition, with a fresh transaction
+        // and the original lease; native expiry/ownership checks run again.
+        if (
+          attempt >= 2 ||
+          typeof error !== 'object' ||
+          error === null ||
+          !('code' in error) ||
+          error.code !== '55P03'
         )
+          throw error;
+      }
+    }
+  }
+  private async recordSelected(
+    selected: AccountDeletionLease,
+  ): Promise<Readonly<{ hasMore: boolean }>> {
+    let schemaVersion: number | undefined;
+    const requireVersion = async (tx: NakhDatabase): Promise<void> => {
+      const row = (
+        await sql<{ version: number }>`SELECT max(substring(name FROM 1 FOR 6)::integer) AS version
+          FROM platform.schema_migrations`.execute(tx)
       ).rows[0];
-      if (row === undefined || row.written < 0 || row.written > 10) conflict();
-      return { hasMore: row.written > 0 };
-    });
+      if (schemaVersion === undefined || row?.version !== schemaVersion) conflict();
+    };
+    return this.work.withLease(
+      selected,
+      async (tx, scope) => {
+        await requireVersion(tx);
+        const row = (
+          await sql<{ written: number }>`SELECT identity.record_retention_batch(
+          ${scope.deletionRecordId}::uuid,${scope.userId}::uuid,${scope.leaseOwner}::uuid,${scope.leaseGeneration}) AS written`.execute(
+            tx,
+          )
+        ).rows[0];
+        if (row === undefined || row.written < 0 || row.written > 10) conflict();
+        await requireVersion(tx);
+        return { hasMore: row.written > 0 };
+      },
+      async (tx) => {
+        // Do not serialize the complete code-owned catalog projection behind every
+        // duplicate worker. Native SQL independently checks the live catalog under
+        // its identity/lease fence before writing; bind its ledger version too.
+        const catalog = await readDeletionCatalog(tx);
+        assertDeletionCatalogCoverage(catalog);
+        schemaVersion = catalog.schemaVersion;
+      },
+    );
   }
   public async finish(lease: AccountDeletionLease): Promise<Readonly<{ completed: boolean }>> {
     this.validate(lease);
