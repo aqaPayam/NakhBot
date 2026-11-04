@@ -31,6 +31,7 @@ import {
   PostgresAccountReturnStore,
   PostgresUserSessionStore,
   PostgresCreditLedgerStore,
+  PostgresLaunchCohortAdmission,
   type NakhDatabase,
   RUNTIME_DATABASE_ROLES,
   type RuntimeDatabasePurpose,
@@ -1344,6 +1345,137 @@ process.on('message', message => {
           .execute(),
       ).toHaveLength(3);
     });
+    it.each([false, true])(
+      'offers staff-only first factor while product admission is closed (signup configured: %s)',
+      async (signup) => {
+        const staff = await register(),
+          ordinary = await register();
+        await approve(staff.userId);
+        const held = await start('telegram-gateway', {
+          NAKH_ENV: 'staging',
+          NAKH_RELEASE: 'a'.repeat(40),
+          NAKH_ADMIN_PUBLIC_ORIGIN: 'https://admin.example.test',
+          NAKH_ADMIN_MEDIA_ENABLED: 'false',
+          NAKH_TELEGRAM_SIGNUP_ENABLED: String(signup),
+          NAKH_TELEGRAM_START_DELIVERY_ENABLED: String(signup),
+          NAKH_MEDIA_INGESTION_ENABLED: String(signup),
+        });
+        try {
+          const admission = new PostgresLaunchCohortAdmission(database, {
+            sourceSha: 'a'.repeat(40),
+            environment: 'staging',
+            telegramBotId: String(botId),
+          });
+          expect(await admission.allows(staff.userId)).toBe(false);
+          // Starting the compiled process normally crosses this second boundary;
+          // explicitly wait if an unusually fast startup shares the approval second.
+          await pause(1100);
+          const send = (
+            telegramUserId: string,
+            eventId: number,
+            date = Math.floor(Date.now() / 1000),
+          ): Promise<Response> =>
+            localRequest(held.origin + '/v1/providers/telegram/webhook', {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                'x-telegram-bot-api-secret-token': webhookSecret,
+              },
+              body: JSON.stringify({
+                update_id: eventId,
+                message: {
+                  message_id: eventId,
+                  date,
+                  text: '/admin_signin',
+                  from: { id: Number(telegramUserId), is_bot: false },
+                  chat: { id: Number(telegramUserId), type: 'private' },
+                },
+              }),
+            });
+          const grants = async (userId: string): Promise<number> =>
+            (
+              await database
+                .selectFrom('platform.audit_logs')
+                .select('id')
+                .where('event_type', '=', 'identity.user-session-issued.v1')
+                .where('actor_user_id', '=', userId)
+                .execute()
+            ).length;
+          const before = await grants(staff.userId),
+            event = ++updateId;
+          const replies = await Promise.all([
+            send(staff.telegramUserId, event),
+            send(staff.telegramUserId, event),
+          ]);
+          expect(
+            replies.map((reply) => reply.status),
+            held.diagnostics(),
+          ).toEqual([201, 201]);
+          expect(await grants(staff.userId)).toBe(before + 1);
+          const urls = held.menus
+            .filter((menu) => String(menu.chat_id) === staff.telegramUserId)
+            .map(
+              (menu) =>
+                new URL(
+                  menu.reply_markup!.inline_keyboard!.flat().find((button) => button.url)!.url!,
+                ),
+            );
+          expect(urls).toHaveLength(2);
+          const sessions = createPostgresUserSessions(database, Buffer.alloc(32, 11));
+          const actors = await Promise.all(
+            urls.map(async (url) => {
+              expect(url.origin).toBe('https://admin.example.test');
+              expect(url.searchParams.has('session')).toBe(false);
+              const token = new URLSearchParams(url.hash.slice(1)).get('session')!;
+              expect((await context(token)).status).toBe(200);
+              expect(
+                (
+                  await post('auth/sessions', token, {
+                    actor: { kind: 'user', userId: staff.userId },
+                    requestId: randomUUID(),
+                    code: '000000',
+                  })
+                ).status,
+              ).toBe(401);
+              return sessions.authenticate({ bearerToken: token, audience: 'user' });
+            }),
+          );
+          expect(actors[0]).toEqual(actors[1]);
+          expect(actors[0]?.userId).toBe(staff.userId);
+          const ordinaryBefore = await grants(ordinary.userId);
+          expect((await send(ordinary.telegramUserId, ++updateId)).status).toBe(201);
+          expect(await grants(ordinary.userId)).toBe(ordinaryBefore);
+          expect(
+            held.menus.filter((menu) => String(menu.chat_id) === ordinary.telegramUserId),
+          ).toHaveLength(0);
+          expect(
+            (await send(staff.telegramUserId, ++updateId, Math.floor(Date.now() / 1000) - 121))
+              .status,
+          ).toBe(201);
+          expect(await grants(staff.userId)).toBe(before + 1);
+          expect(await admission.allows(staff.userId)).toBe(false);
+          const adminId = (
+            await database
+              .selectFrom('administration.admin_users')
+              .select('id')
+              .where('user_id', '=', staff.userId)
+              .executeTakeFirstOrThrow()
+          ).id;
+          await database
+            .updateTable('administration.admin_user_roles')
+            .set({ revoked_at: new Date(), revoked_by_admin_id: adminId })
+            .where('admin_user_id', '=', adminId)
+            .execute();
+          expect((await send(staff.telegramUserId, ++updateId)).status).toBe(201);
+          expect(await grants(staff.userId)).toBe(before + 1);
+          expect(
+            held.menus.filter((menu) => String(menu.chat_id) === staff.telegramUserId),
+          ).toHaveLength(2);
+        } finally {
+          await held.stop();
+        }
+      },
+    );
     it('uses actual private webhook entry, one original grant across retries, native TOTP and the running administrator queue', async () => {
       const telegramUserId = String(++telegramSequence),
         event = ++updateId;

@@ -8,12 +8,18 @@ import {
   createPostgresTotpAdminSessions,
   createPostgresUserSessions,
   getAdminFirstFactorIdentity,
+  getAdminTelegramSignInIdentity,
   loadAdminRuntimeCatalogs,
   PostgresMediaDeliveryPathStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
-import { RedisOpaqueTokenStore, type createRedisConnection } from '@nakh/queue-redis';
-import { TelegramAdminTextDelivery } from '@nakh/telegram';
+import {
+  RedisOpaqueTokenStore,
+  RedisRateLimiter,
+  type createRedisConnection,
+} from '@nakh/queue-redis';
+import { TelegramAdminTextDelivery, TelegramBotApiMenuClient } from '@nakh/telegram';
+import { TelegramAdministratorSignIn } from './admin-signin-entry.js';
 import { createTelegramAdminSafetyReadIngress } from './admin-safety-read-ingress.js';
 import { createTelegramAdminEvidenceDelivery } from './admin-evidence-delivery.js';
 
@@ -26,15 +32,16 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
   private readonly users: ReturnType<typeof createPostgresUserSessions>;
   private readonly ingress: ReturnType<typeof createTelegramAdminSafetyReadIngress>;
   private renderer: CatalogRenderer | undefined;
+  private defaultLocale = 'en';
+  private readonly signIn: TelegramAdministratorSignIn;
   private readonly origin: string;
   public constructor(
     config: AppConfig,
     private readonly database: NakhDatabase,
+    userDatabase: NakhDatabase,
     redis: ReturnType<typeof createRedisConnection>,
     resolve: (reference: string) => string,
   ) {
-    if (!config.telegram.signupEnabled)
-      throw new Error('Administrator first-factor composition unavailable.');
     this.origin = config.administration.publicOrigin;
     this.keys = new AdminRuntimeKeys({
       totp: resolve(config.administration.totpKeyRingRef),
@@ -51,7 +58,27 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
     const bot = /^([1-9][0-9]{0,19}):[A-Za-z0-9_-]{20,}$/u.exec(botToken);
     if (bot === null || !Number.isSafeInteger(Number(bot[1])))
       throw new Error('Administrator bot identity unavailable.');
-    this.users = createPostgresUserSessions(database, this.keys.userSessionKey);
+    this.users = createPostgresUserSessions(userDatabase, this.keys.userSessionKey);
+    const client = new TelegramBotApiMenuClient(botToken);
+    this.signIn = new TelegramAdministratorSignIn({
+      botId: bot[1]!,
+      limiter: new RedisRateLimiter(redis, config.redis.queuePrefix),
+      eligible: (telegramUserId) => getAdminTelegramSignInIdentity(database, telegramUserId),
+      credential: async (identity, requestId) => {
+        const issued = await this.users.issue(identity, requestId);
+        return this.users.authenticate({ bearerToken: issued.userSessionToken, audience: 'user' });
+      },
+      link: (actor, locale) => this.link(actor, locale ?? this.defaultLocale),
+      send: async (recipient, locale, url) => {
+        if (this.renderer === undefined) throw new Error('Administrator localization unavailable.');
+        const text = (key: string): string =>
+          this.renderer!.render(locale ?? this.defaultLocale, { key, variables: {} });
+        await client.sendMenu(recipient, {
+          text: text('admin.auth.instructions'),
+          replyMarkup: { inline_keyboard: [[{ text: text('admin.auth.open'), url }]] },
+        });
+      },
+    });
     const sessions = createPostgresTotpAdminSessions(database, this.keys.totp);
     this.ingress = createTelegramAdminSafetyReadIngress({
       database,
@@ -123,9 +150,11 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
       ...M9_ADMIN_TEXTS,
     });
     this.renderer = new CatalogRenderer(catalogs.messages, catalogs.defaultLocale);
+    this.defaultLocale = catalogs.defaultLocale;
   }
-  public handle(update: unknown): Promise<'unhandled' | 'notice'> {
-    return this.ingress.handle(update);
+  public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
+    const result = await this.signIn.handle(update);
+    return result === 'unhandled' ? this.ingress.handle(update) : result;
   }
   public async link(actor: UserSessionActor, locale: string): Promise<string | undefined> {
     // Capture before the first role/session lookup; never enrich an old actor with
@@ -150,6 +179,7 @@ export function createAdministratorTelegramRuntime(
   input: Readonly<{
     config: AppConfig;
     database: NakhDatabase;
+    userDatabase: NakhDatabase;
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
   }>,
@@ -158,6 +188,7 @@ export function createAdministratorTelegramRuntime(
     ? new AdministratorTelegramRuntime(
         input.config,
         input.database,
+        input.userDatabase,
         input.redis,
         input.resolveSecret ?? resolveSecretReference,
       )

@@ -6,6 +6,42 @@ qualify production, or replace the protected AWS launch operator. The separate
 staging operator commands below preserve native review, audit and recovery
 controls for a private pilot of at most ten testers.
 
+Verified staff can request `/admin_signin` in their private bot chat even with
+signup, start delivery and media ingestion disabled, or with product admission
+closed. This is a first-factor entry only: an existing verified native staff
+identity and active permissions are required; MFA enrollment still requires a
+separate operator invitation and sign-in still requires an authenticator code.
+It neither registers users nor grants roles or cohort membership. Commands
+must be at most two minutes old and later than the current account-state,
+identity-verification and active-role timestamps. Original product life and
+session grants are checked again before handoff; retries share one native
+issuance request. The browser credential is placed only in the URL fragment.
+Quiet rejection and a separate five-per-minute budget protect this entry.
+Ordinary product traffic continues through the existing admission gate.
+
+The Docker build declares the application selector after common compilation,
+allowing the four service images to reuse that checked workspace build. Source
+labels, native-fixture source markers and non-root runtime users remain required.
+
+The staff-entry candidate passed fourteen focused unit cases, workspace types,
+lint, compilation and two selected native compiled-host cases. The latter use
+five real purpose logins and test signup off and signup configured with closed
+admission: concurrent retries produce one original native grant, non-staff,
+stale commands and revoked roles produce no handoff, browser context accepts
+the first factor, and MFA session issuance remains denied without enrollment.
+The other eight cases in that file were excluded by this local focused run;
+complete six-job exact-source CI is still required before deployment.
+
+Separately, accepted source `a1ff3e3` passed all six jobs in
+[run 41825728870](https://github.com/aqaPayam/NakhBot/actions/runs/41825728870),
+including 1,503 native cases across 174 files with zero skips. Its four images
+were deployed to the private VPS with original protections and transport hold.
+The native closed-policy stop drill produced one immutable audit receipt and
+recovered the same result on replay, with owner admission false. Private health
+transition alerts were explicitly approved; Telegram accepted the test and
+recovery messages. These observations do not claim human message receipt,
+authenticator enrollment, provider webhook delivery or an opened cohort.
+
 Run the compiled `packages/persistence-postgres/dist/cli/vps-launch-readiness.js`
 as Linux root on the reviewed private operator host, with two absolute paths:
 the protected binding JSON and a new private receipt file. The command emits

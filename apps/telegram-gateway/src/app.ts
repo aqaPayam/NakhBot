@@ -382,6 +382,7 @@ export class TelegramGatewayModule {
     const reports = createTelegramReportRuntime({ config, database, redis });
     const administration = createAdministratorTelegramRuntime({
       config,
+      userDatabase: database,
       database: config.administration.enabled ? databases.get('administration') : database,
       redis,
     });
