@@ -31,9 +31,12 @@ states `launchAuthorized: false` and `productionQualified: false`.
 Native tests exercise concurrent observations, unchanged audit/cohort authority,
 wrong original database login and host drift. Their injected host/TLS fixtures
 do not qualify real host ownership, private-file permissions or deployed TLS.
-Each of the four native CI jobs uses at most two child runs, with independent
-PostgreSQL clusters and Redis servers. Both complete reports must account for
-every assigned file exactly once before a source-bound shard receipt is written.
+Each of the four native CI jobs uses at most two concurrent child runs, with
+independent PostgreSQL clusters and Redis servers. The CPU-heavy retention-policy
+suite owns one existing job by itself; the remaining files are balanced across
+the other three jobs. Every report must account for every assigned file exactly
+once before a source-bound shard receipt is written. All four receipts, including
+the dedicated policy job, are still mandatory.
 Failed, skipped, missing or duplicate coverage denies that receipt. Database
 admission requires `fsync`, `synchronous_commit` and `full_page_writes` to be on.
 All database fixtures use disk storage; the six jobs, original time limits,
@@ -60,6 +63,23 @@ The final isolated candidate passed all 24 retention cases with zero skips in
 WAL, full-page protection and the original fifteen-second lock timeout. Its
 observed duration updates dispatch weights only. This is candidate database
 evidence, not complete source CI or provider/launch acceptance.
+
+Candidate `02c576f` passed quality and three application jobs, but its API job
+failed two sixty-second multi-Root retention-policy cases and the ten-way
+composed signup replay. Isolated signup reproduction identified PostgreSQL
+`55P03` at the per-viewer candidate advisory lock under the actual runtime's
+unchanged one-second lock wait. Reservation now retries at most three fully
+rolled-back lock-timeout transactions with the original captured input/effects;
+current grants and candidate eligibility are checked again on each attempt.
+Native fault cases verify rollback of a partially inserted reservation, exact
+outbox/idempotency effects, bounded exhaustion and immediate integrity rejection.
+The policy job changes dispatch only; all original cases, sixty-second
+case deadlines, twenty-minute jobs and independent acceptance gates remain.
+Qualification passed all 14 signup and six candidate cases using isolated real
+PostgreSQL/Redis services on the VPS, and all 24 policy cases in the existing
+local PostgreSQL fixture with durable writes enabled. A one-CPU VPS policy
+diagnostic missed case deadlines and is not acceptance evidence. Complete
+exact-source CI must still pass before any deployment or launch progression.
 
 An isolated private candidate probe also passed eight checks on the actual VPS:
 the real host and verified database TLS, non-root denial, production-binding

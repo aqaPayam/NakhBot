@@ -23,6 +23,7 @@ import {
   integrationShardEnvironment,
   NATIVE_SHARDS,
   planIntegrationShards,
+  planNativeShards,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
   mergeIntegrationPartitions,
@@ -55,7 +56,7 @@ for await (const file of glob(
 expectedFiles.sort();
 if (expectedFiles.length < 154)
   throw new Error('Native integration file inventory lost baseline coverage.');
-const dispatch = planIntegrationShards(expectedFiles, durations.files);
+const dispatch = planNativeShards(expectedFiles, durations.files);
 
 const durationHash = createHash('sha256').update(JSON.stringify(durations)).digest('hex');
 const args = process.argv.slice(2),

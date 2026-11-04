@@ -42,8 +42,42 @@ export function planIntegrationShards(
   files: readonly (readonly string[])[];
   estimatedMs: readonly number[];
 }> {
+  if (![2, NATIVE_SHARDS.length].includes(partitions)) invalid();
+  return planGroups(files, durations, directory, partitions);
+}
+
+/** Keep the multi-Root policy suite on one existing job so neither its case
+ * deadlines nor the job cap depend on concurrent fixture CPU consumption. */
+export function planNativeShards(
+  files: readonly string[],
+  durations: Readonly<Record<string, number>>,
+  directory = process.cwd(),
+): ReturnType<typeof planIntegrationShards> {
+  if (new Set(files.map(canonical)).size !== files.length) invalid();
+  const key = 'packages/persistence-postgres/src/retention-policy-store.integration.test.ts';
+  const policy = files.filter(
+    (file) => relative(resolve(directory), resolve(file)).replaceAll('\\', '/') === key,
+  );
+  if (policy.length !== 1) invalid();
+  const other = planGroups(
+    files.filter((file) => file !== policy[0]),
+    durations,
+    directory,
+    3,
+  );
+  return {
+    files: Object.freeze([Object.freeze(policy), ...other.files]),
+    estimatedMs: Object.freeze([durations[key] ?? 30000, ...other.estimatedMs]),
+  };
+}
+
+function planGroups(
+  files: readonly string[],
+  durations: Readonly<Record<string, number>>,
+  directory: string,
+  partitions: number,
+): ReturnType<typeof planIntegrationShards> {
   if (
-    ![2, NATIVE_SHARDS.length].includes(partitions) ||
     files.length < partitions ||
     new Set(files.map(canonical)).size !== files.length ||
     Object.values(durations).some((value) => !Number.isSafeInteger(value) || value < 1)

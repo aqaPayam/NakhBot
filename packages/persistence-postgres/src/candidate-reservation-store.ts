@@ -335,7 +335,7 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
     return accounts.length === 2;
   }
 
-  public reserveNext(
+  public async reserveNext(
     input: GetNextExploreCandidateQuery,
     effects: Generated,
   ): Promise<CandidateReservation | undefined> {
@@ -343,6 +343,29 @@ export class PostgresCandidateReservationStore implements CandidateReservationSt
       generated = structuredClone(effects);
     if (query.actor.kind !== 'user')
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.reserveSelected(query, generated);
+      } catch (error) {
+        // Duplicate callbacks can exhaust a short advisory-lock wait. Only a
+        // fully rolled-back lock timeout may retry; preserve the captured request
+        // and effects, and recheck current grants/candidates in each transaction.
+        if (
+          attempt >= 2 ||
+          typeof error !== 'object' ||
+          error === null ||
+          !('code' in error) ||
+          error.code !== '55P03'
+        )
+          throw error;
+      }
+    }
+  }
+
+  private reserveSelected(
+    query: GetNextExploreCandidateQuery,
+    generated: Generated,
+  ): Promise<CandidateReservation | undefined> {
     return this.database.transaction().execute(async (transaction) => {
       const viewerId = query.actor.userId;
       await lockViewer(transaction, viewerId);

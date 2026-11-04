@@ -1431,7 +1431,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             app!.inject({ method: 'POST', url: route, headers, payload: previewUpdate }),
           ),
         );
-        expect(results.every((r) => r.statusCode === 201)).toBe(true);
+        expect(results.map((r) => r.statusCode)).toEqual(Array.from({ length: 10 }, () => 201));
         expect(providerCalls).toBe(1);
         expect(photos[0]!.caption).toContain('approximately');
         expect(photos[0]!.keyboard.flat().map((b) => b.text)).toEqual([

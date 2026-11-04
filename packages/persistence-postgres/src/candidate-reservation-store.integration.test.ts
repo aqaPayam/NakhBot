@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { sql } from 'kysely';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -161,6 +162,103 @@ describe.skipIf(databaseUrl === undefined)('M3 candidate reservation persistence
   afterAll(async () => {
     await database?.destroy();
   });
+
+  for (const fault of [
+    {
+      name: 'retries two rolled-back reservation lock failures without duplicate effects',
+      code: '55P03',
+      failures: 2,
+      attempts: 3,
+      success: true,
+    },
+    {
+      name: 'bounds persistent reservation lock failures to three transactions',
+      code: '55P03',
+      failures: 100,
+      attempts: 3,
+      success: false,
+    },
+    {
+      name: 'does not retry a reservation integrity conflict',
+      code: '40001',
+      failures: 100,
+      attempts: 1,
+      success: false,
+    },
+  ]) {
+    it(fault.name, async () => {
+      const guestId = await createUser(database, 'guest');
+      await createUser(database, 'active', {
+        genderOptionId: womanGenderId,
+        genderPreferenceId: menPreferenceId,
+        birthYear: new Date().getUTCFullYear() - 30,
+        primaryPhoto: true,
+      });
+      const input = query(guestId, 'guest_preview'),
+        effects = generated();
+      await sql`CREATE SEQUENCE public.reservation_retry_probe;
+        CREATE FUNCTION public.fail_reservation_retry() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+          IF NEW.event_type='discovery.candidate-reserved.v1' AND NEW.aggregate_id=${sql.lit(effects.deliveryId)}::uuid
+            AND nextval('public.reservation_retry_probe')<=${sql.lit(fault.failures)} THEN
+            RAISE EXCEPTION 'synthetic reservation retry fault' USING ERRCODE=${sql.lit(fault.code)};
+          END IF;
+          RETURN NEW;
+        END $$;
+        CREATE TRIGGER aaa_reservation_retry_probe BEFORE INSERT ON platform.outbox_events
+          FOR EACH ROW EXECUTE FUNCTION public.fail_reservation_retry()`.execute(database);
+      try {
+        const reserve = new PostgresCandidateReservationStore(database).reserveNext(input, effects);
+        if (fault.success)
+          await expect(reserve).resolves.toMatchObject({ deliveryId: effects.deliveryId });
+        else await expect(reserve).rejects.toMatchObject({ code: fault.code });
+        expect(
+          (
+            await sql<{
+              count: number;
+            }>`SELECT last_value::integer AS count FROM public.reservation_retry_probe`.execute(
+              database,
+            )
+          ).rows,
+        ).toEqual([{ count: fault.attempts }]);
+        expect(
+          await database
+            .selectFrom('discovery.candidate_deliveries')
+            .select('id')
+            .where('viewer_user_id', '=', guestId)
+            .execute(),
+        ).toHaveLength(fault.success ? 1 : 0);
+        expect(
+          await database
+            .selectFrom('platform.outbox_events')
+            .select('id')
+            .where('id', '=', effects.eventId)
+            .execute(),
+        ).toHaveLength(fault.success ? 1 : 0);
+        expect(
+          await database
+            .selectFrom('platform.idempotency_records')
+            .select('id')
+            .where('actor_user_id', '=', guestId)
+            .where('idempotency_key', '=', input.requestId)
+            .execute(),
+        ).toHaveLength(fault.success ? 1 : 0);
+        expect(
+          (
+            await database
+              .selectFrom('identity.guest_preview_counters')
+              .select('preview_count')
+              .where('user_id', '=', guestId)
+              .executeTakeFirstOrThrow()
+          ).preview_count,
+        ).toBe(0);
+      } finally {
+        await sql`DROP TRIGGER aaa_reservation_retry_probe ON platform.outbox_events;
+          DROP FUNCTION public.fail_reservation_retry(); DROP SEQUENCE public.reservation_retry_probe`.execute(
+          database,
+        );
+      }
+    });
+  }
 
   it('selects only a reciprocal visible candidate and replays one live reservation under race', async () => {
     const currentYear = new Date().getUTCFullYear();

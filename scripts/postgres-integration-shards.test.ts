@@ -5,6 +5,7 @@ import {
   integrationShardEnvironment,
   NATIVE_SHARDS,
   planIntegrationShards,
+  planNativeShards,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
   mergeIntegrationPartitions,
@@ -20,6 +21,40 @@ function report(file: string, total = 1): IntegrationShardReport {
 }
 
 describe('complete isolated native integration shards', () => {
+  it('dedicates one existing job to policy and schedules every other file across three jobs', () => {
+    const policy = resolve(
+      'packages/persistence-postgres/src/retention-policy-store.integration.test.ts',
+    );
+    const files = [first, second, third, fourth, policy];
+    const plan = planNativeShards(files, {});
+    expect(plan.files).toHaveLength(4);
+    expect(plan.files[0]).toEqual([policy]);
+    expect(plan.files.slice(1).flat().sort()).toEqual([first, second, third, fourth].sort());
+    expect(plan.files.flat().sort()).toEqual([...files].sort());
+    expect(planNativeShards([...files].reverse(), {})).toEqual(plan);
+    expect(() => planNativeShards([first, second, third, fourth], {})).toThrow('coverage');
+    expect(() => planNativeShards([...files, policy], {})).toThrow('coverage');
+  });
+  it('still requires all four outer receipts including the dedicated policy job', () => {
+    const policy = resolve(
+      'packages/persistence-postgres/src/retention-policy-store.integration.test.ts',
+    );
+    const plan = planNativeShards([first, second, third, policy], {});
+    const reports = plan.files.map((files) => report(files[0]!));
+    expect(verifyIntegrationShardCoverage(reports, [first, second, third, policy], 4).passed).toBe(
+      4,
+    );
+    expect(() =>
+      verifyIntegrationShardCoverage(reports.slice(1), [first, second, third, policy], 4),
+    ).toThrow('coverage');
+    expect(() =>
+      verifyIntegrationShardCoverage(
+        [{ ...reports[0]!, skipped: 1 }, ...reports.slice(1)],
+        [first, second, third, policy],
+        4,
+      ),
+    ).toThrow('coverage');
+  });
   it('balances two private child runs without changing the four source receipt groups', () => {
     const files = [first, second, third, fourth];
     const plan = planIntegrationShards(files, {}, process.cwd(), 2);
