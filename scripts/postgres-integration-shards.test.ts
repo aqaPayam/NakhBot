@@ -6,6 +6,7 @@ import {
   NATIVE_SHARDS,
   planIntegrationShards,
   planNativeShards,
+  nativePartitionCount,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
   mergeIntegrationPartitions,
@@ -21,6 +22,34 @@ function report(file: string, total = 1): IntegrationShardReport {
 }
 
 describe('complete isolated native integration shards', () => {
+  it('uses the serial policy job spare capacity without losing or duplicating any suite', () => {
+    const policy = resolve(
+      'packages/persistence-postgres/src/retention-policy-store.integration.test.ts',
+    );
+    const ordinary = Array.from({ length: 42 }, (_, index) =>
+      resolve(`packages/ordinary-${index}.integration.test.ts`),
+    );
+    const files = [policy, ...ordinary];
+    const plan = planNativeShards(files, {});
+    expect(plan.files[0]).toContain(policy);
+    expect(plan.files[0]!.length).toBeGreaterThan(1);
+    expect(plan.files.slice(1).flat()).not.toContain(policy);
+    expect(plan.files.flat().sort()).toEqual([...files].sort());
+    expect(planNativeShards([...files].reverse(), {})).toEqual(plan);
+    expect(plan.estimatedMs.reduce((total, ms) => total + ms, 0)).toBe(files.length * 30000);
+    expect(plan.files.every((group) => group.length > 0)).toBe(true);
+  });
+  it('keeps policy completely serial and preserves independent parallel children elsewhere', () => {
+    expect(nativePartitionCount(1, 20, true)).toBe(1);
+    expect(nativePartitionCount(1, 1, true)).toBe(1);
+    for (const shard of [2, 3, 4] as const) {
+      expect(nativePartitionCount(shard, 20, true)).toBe(2);
+      expect(nativePartitionCount(shard, 1, true)).toBe(1);
+      expect(nativePartitionCount(shard, 20, false)).toBe(1);
+    }
+    for (const files of [0, -1, 1.5, Number.NaN])
+      expect(() => nativePartitionCount(1, files, true)).toThrow('coverage');
+  });
   it('dedicates one existing job to policy and schedules every other file across three jobs', () => {
     const policy = resolve(
       'packages/persistence-postgres/src/retention-policy-store.integration.test.ts',

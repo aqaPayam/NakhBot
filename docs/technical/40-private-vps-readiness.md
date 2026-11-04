@@ -172,3 +172,15 @@ secret. It used the accepted `8bc89ad` image as a diagnostic carrier, performed
 no cohort/role grants, and did not deploy the candidate application or register
 a webhook. Its private receipt explicitly denies launch and production
 qualification. Complete exact-source six-job CI remains required.
+
+Candidate `6f036b1` passed all 1,513 unit cases and all completed native
+assertions, but its Telegram job reached the unchanged twenty-minute cap just
+after reporting 543 passed native cases. Cancellation prevented receipt upload
+and the final reliability gate, so this is not complete source acceptance.
+All 174 completed suite timings from that run update routing estimates only.
+Scheduling now uses seven weighted execution lanes across the same four native
+jobs: one serial lane containing retention policy plus ordinary suites that
+fit its spare capacity, and two independent parallel children on each other
+job. Policy never shares its job's CPU with a second test process. Four exact
+source receipts, strict child coverage for parallel jobs, native durability,
+sixty-second case deadlines, six jobs and twenty-minute job caps remain intact.

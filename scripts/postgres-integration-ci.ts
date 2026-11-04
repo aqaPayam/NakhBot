@@ -24,6 +24,7 @@ import {
   NATIVE_SHARDS,
   planIntegrationShards,
   planNativeShards,
+  nativePartitionCount,
   parseIntegrationShardReport,
   verifyIntegrationShardCoverage,
   mergeIntegrationPartitions,
@@ -325,7 +326,7 @@ async function execute(): Promise<void> {
 
   async function runShard(shard: NativeShard): Promise<IntegrationShardReport> {
     const files = dispatch.files[shard - 1]!;
-    if (partitions === undefined || files.length < 2)
+    if (nativePartitionCount(shard, files.length, partitions === '2') === 1)
       return runPartition(shard, 1, url!, process.env.NAKH_TEST_REDIS_URL, files);
     const sibling = await startNativeSiblingServices();
     try {

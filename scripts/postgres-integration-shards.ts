@@ -46,8 +46,8 @@ export function planIntegrationShards(
   return planGroups(files, durations, directory, partitions);
 }
 
-/** Keep the multi-Root policy suite on one existing job so neither its case
- * deadlines nor the job cap depend on concurrent fixture CPU consumption. */
+/** One serial policy lane and six parallel lanes use the existing four jobs.
+ * Policy never competes with a sibling; other files may use its spare capacity. */
 export function planNativeShards(
   files: readonly string[],
   durations: Readonly<Record<string, number>>,
@@ -59,6 +59,23 @@ export function planNativeShards(
     (file) => relative(resolve(directory), resolve(file)).replaceAll('\\', '/') === key,
   );
   if (policy.length !== 1) invalid();
+  if (files.length >= 7) {
+    const lanes = planGroups(files, durations, directory, 7, policy[0]);
+    const estimatedMs = [
+      lanes.estimatedMs[0]!,
+      ...[1, 3, 5].map((index) => lanes.estimatedMs[index]! + lanes.estimatedMs[index + 1]!),
+    ];
+    if (estimatedMs.some((ms) => !Number.isSafeInteger(ms))) invalid();
+    return {
+      files: Object.freeze([
+        lanes.files[0]!,
+        ...[1, 3, 5].map((index) =>
+          Object.freeze([...lanes.files[index]!, ...lanes.files[index + 1]!]),
+        ),
+      ]),
+      estimatedMs: Object.freeze(estimatedMs),
+    };
+  }
   const other = planGroups(
     files.filter((file) => file !== policy[0]),
     durations,
@@ -76,6 +93,7 @@ function planGroups(
   durations: Readonly<Record<string, number>>,
   directory: string,
   partitions: number,
+  pinnedFirst?: string,
 ): ReturnType<typeof planIntegrationShards> {
   if (
     files.length < partitions ||
@@ -92,7 +110,14 @@ function planGroups(
   candidates.sort((a, b) => b.ms - a.ms || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const buckets = Array.from({ length: partitions }, (): string[] => []);
   const totals = Array.from({ length: partitions }, () => 0);
+  if (pinnedFirst !== undefined) {
+    const pinned = candidates.find((candidate) => candidate.file === pinnedFirst);
+    if (pinned === undefined) invalid();
+    buckets[0]!.push(pinned.file);
+    totals[0] = pinned.ms;
+  }
   for (const candidate of candidates) {
+    if (candidate.file === pinnedFirst) continue;
     const shard = totals.indexOf(Math.min(...totals));
     buckets[shard]!.push(candidate.file);
     totals[shard] = totals[shard]! + candidate.ms;
@@ -102,6 +127,16 @@ function planGroups(
     files: Object.freeze(buckets.map((bucket) => Object.freeze(bucket))),
     estimatedMs: Object.freeze(totals),
   };
+}
+
+/** Policy's job is serial even when it also owns ordinary suites. */
+export function nativePartitionCount(
+  shard: NativeShard,
+  files: number,
+  configured: boolean,
+): 1 | 2 {
+  if (!NATIVE_SHARDS.includes(shard) || !Number.isSafeInteger(files) || files < 1) invalid();
+  return shard !== 1 && configured && files > 1 ? 2 : 1;
 }
 
 /** Read only coverage facts; assertion text and private fixture diagnostics are
