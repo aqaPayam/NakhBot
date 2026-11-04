@@ -69,10 +69,10 @@ wrong original database login and host drift. Their injected host/TLS fixtures
 do not qualify real host ownership, private-file permissions or deployed TLS.
 Each of the four native CI jobs uses at most two concurrent child runs, with
 independent PostgreSQL clusters and Redis servers. The CPU-heavy retention-policy
-suite owns one existing job by itself; the remaining files are balanced across
-the other three jobs. Every report must account for every assigned file exactly
-once before a source-bound shard receipt is written. All four receipts, including
-the dedicated policy job, are still mandatory.
+suite shares one serial execution lane with ordinary suites; no sibling process
+competes with it. The other three jobs each run two independent children. Every
+report must account for every assigned file exactly once before a source-bound
+shard receipt is written. All four receipts remain mandatory.
 Failed, skipped, missing or duplicate coverage denies that receipt. Database
 admission requires `fsync`, `synchronous_commit` and `full_page_writes` to be on.
 All database fixtures use disk storage; the six jobs, original time limits,

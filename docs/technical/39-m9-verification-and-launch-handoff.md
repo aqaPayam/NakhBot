@@ -1,6 +1,55 @@
 # M9 implementation verification and launch handoff
 
-Status: **implementation tooling verified; actual controlled launch not accepted**.
+Status: **private VPS deployed; owner MFA verified; controlled launch acceptance pending**.
+
+## Current private staging checkpoint
+
+The deployed application is `3d227521a3e41512322c253c7e702e66ee58ecc7`, with
+[all six CI jobs successful](https://github.com/aqaPayam/NakhBot/actions/runs/41856418428):
+`pnpm check`, 1,529 unit cases in 276 files, and 1,505 native cases in 174 files
+with zero skips. Ten source-bound artifacts were downloaded and verified.
+Tracked lines at that application source were **296,972**. A later documentation
+commit does not change the source labels of the four deployed images.
+
+The owner chose a low-cost private VPS pilot instead of provisioning the original
+AWS production plan. The VPS, owned domain/DNS/HTTPS, private R2 bucket, test bot,
+five native database-purpose logins, private operator and health-transition
+alerts now exist. Actual native authenticator activation and one audited browser
+administrator sign-in were verified. Enrollment and sign-in are distinct from
+product admission; expired staff sessions require normal reauthentication.
+
+After explicit configuration and opening approvals, a fresh blocker-free review
+authorized one original owner life on the exact deployed source. Native policy
+version 2, actual Telegram webhook registration, authentication-negative HTTP
+checks and admission denial for an unlisted identity were observed. Two old
+owner setup updates were preserved privately and discarded with approval.
+The prepared maximum window is one hour, with native expiry and a host timer
+that restores the transport hold, independently closes the policy and removes
+only the matching canary webhook while preserving pending updates. Elapsed
+execution of that timer is not claimed by this checkpoint.
+
+The actual storage SDK probe uploaded/read/deleted its own test object and
+verified absence; its anonymous request returned a non-success response without
+the test bytes. An authenticated encrypted off-host backup was decrypted in PC
+memory and its database dump streamed to an owner-only disposable database on
+the original VPS. Recovery verified all 163 migrations, administrator identity,
+active authenticator and activation audit, and archived credential-key references.
+The scratch database was removed. The private backup key stayed on the PC; no
+plaintext archive was written. This is schema/data recovery on the original
+host, not PITR, offsite disaster recovery or runtime-role recovery qualification.
+The live worker's configured ClamAV transport also accepted a clean sample and
+detected EICAR; neither sample was ingested as user media or uploaded to storage.
+
+There are still **zero completed real product canary journeys**. Authenticated
+empty HTTP probes, local replay of approved setup commands, provider setup
+responses and a blocker-free dossier do not substitute for a user sending a
+fresh message through Telegram and completing the ordinary product flows.
+Payments, retained-data erasure and support-body release remain disabled.
+The owner will return for supervised testing; private evidence stays outside Git.
+
+The historical audit below preserves the original production requirements.
+It must not be read as saying that the already-prepared private pilot resources
+are absent or that AWS purchases are required to perform the owner-only VPS test.
 
 The low-cost private staging VPS preparation now has a separate
 [read-only readiness boundary](40-private-vps-readiness.md). It observes the
@@ -13,7 +62,7 @@ This audit uses the five original M9 requirements in
 remaining-work estimates in the M9 execution guide. It does not close M9 or
 authorize deployment, cloud charges or real-user traffic.
 
-## Verified source and evidence boundary
+## Historical implementation baseline and evidence boundary
 
 The verified implementation baseline is
 `ce1cbabbe8d6edb4f6cfbea375f17d8955fc4c3d`, with
@@ -59,13 +108,14 @@ through the reviewed archive procedure before it expires.
 | Original M9 requirement | Implementation and inspected automated evidence | Actual acceptance still required |
 |---|---|---|
 | Seed/verify production catalogs, UI text, prompts, prices/config and administrator roles | `release-reference.ts`, its private CLI and five native cases capture every declared reference category and migration checksum in one read-only repeatable snapshot. They detect text/prompt/price/activation/role drift, preserve exact bigint prices and prove concurrent snapshot consistency. The config projection rejects unknown leaves and excludes secret material. | Capture and review actual production reference inputs separately for all four services, seed only approved values and role assignments, and verify the exact reviewed snapshots. A fixture or new capture is not approval. |
-| Create production infrastructure, secrets, bot, webhook and R2 | Shared runtime plus separate inactive production/bootstrap roots, guarded production deploy/rollback workflows, source/image attestations, signed archive/custody protocol, drain/migrate/role/compatibility admission, held activation and scaling restoration. Database-purpose isolation is mandatory in production. Native/compiled-host, protocol, image and mocked-IaC cases cover these controls. | Owner accounts/regions, budget/capacity, actual domain/DNS, bot/R2 and secrets are absent. Qualify actual least-privilege IAM/OIDC and native TLS/roles; execute reviewed infrastructure plans, real custody, provider health, drain, failover/PITR/DR and rollback observations. |
+| Create production infrastructure, secrets, bot, webhook and R2 | Shared runtime plus separate inactive production/bootstrap roots, guarded production deploy/rollback workflows, source/image attestations, signed archive/custody protocol, drain/migrate/role/compatibility admission, held activation and scaling restoration. Database-purpose isolation is mandatory in production. Native/compiled-host, protocol, image and mocked-IaC cases cover these controls. | The private VPS, domain/DNS/HTTPS, test bot, R2 and native TLS/purpose roles now exist; see the current checkpoint. The original AWS production account/region/IAM/OIDC path remains unqualified. Complete actual production custody, provider journeys, drain, failover/PITR/DR and rollback acceptance for the selected production architecture. |
 | Run synthetic canaries and moderation/payment drills | Ordinary gateway/API/worker composition and native host suites cover signup/profile/media, discovery/interactions/Nakh, chat/relay/reporting, Stars/correction/refund, admin MFA/evidence, support/appeal and deletion/Return paths. The source-bound review procedure specifies supervised provider journeys and required private evidence roles. | Designated testers must execute the real deployed bot/provider journeys, moderation/permission/MFA and separately approved funded payment/refund drills. Preserve actual native/provider/audit outcomes, including replay and failure/recovery evidence. Test transports do not satisfy this item. |
-| Launch a small cohort, observe support/safety/capacity and expand gradually | Migration 163 and native cohort/gateway suites prove immutable audited manifests, exact source/environment/bot and original-life grants, expiry, concurrent CAS/idempotency, owner/runtime denial, Root/Return fencing, indexed admission and limited safety/financial/privacy availability during holds. The private operator requires exact principal/secret/database admission and approved command digest. Reviewed CLI openings require a fresh dossier, including deadline checks after native locks; closing and read-only receipt recovery remain independent. | Approve real operators, private ACLs, roster/lives, stop plan, source/config and explicit release. Execute the initial synthetic-only canary plan, then accept completed drills before public cohort/expansion. Observe actual support, safety and capacity; demonstrate stop and recovery. No cohort has been opened through real providers. |
+| Launch a small cohort, observe support/safety/capacity and expand gradually | Migration 163 and native cohort/gateway suites prove immutable audited manifests, exact source/environment/bot and original-life grants, expiry, concurrent CAS/idempotency, owner/runtime denial, Root/Return fencing, indexed admission and limited safety/financial/privacy availability during holds. The private operator requires exact principal/secret/database admission and approved command digest. Reviewed CLI openings require a fresh dossier, including deadline checks after native locks; closing and read-only receipt recovery remain independent. | Approve real operators, private ACLs, roster/lives, stop plan, source/config and explicit release. Execute the initial synthetic-only canary plan, then accept completed drills before public cohort/expansion. Observe actual support, safety and capacity; demonstrate stop and recovery. A one-owner private canary policy and webhook were opened with explicit review approval; completed real product journeys, public release and expansion remain unaccepted. |
 | Hold daily launch review until error budget, payments, safety and deletion are healthy | Native health reuses the existing safety/deletion samplers in a read-only repeatable snapshot, plus four latest reconciliation probes checked at 20,000 rows under 1,500 ms. Review code binds exact intent/audience, native facts, attachment bytes/roles/times and expiry. Unit/native/compiled-CLI cases reject missing/stale/changed references and verify non-authorizing results. Historical findings remain distinct from current drift. | Review actual error-budget denominators/burn, capacity, metric freshness, alert delivery, reconciliation and dispositions, safety/support queues, deletion/provider completion, staffing and security/privacy sign-offs on the deployed source. Hashes, empty blockers and native metadata do not authenticate external records or replace the human decision. |
 
 The source audit found the implementation tools for each original requirement.
-The actual actions in the right column remain unperformed or unverified. M9 is
+The remaining acceptance actions in the right column are not satisfied by the
+partial private-pilot observations above. M9 is
 therefore not complete. Provider qualification can expose concrete defects; fix
 them through the same checked-commit/six-job process rather than pre-certifying
 untested behavior or adding unrelated business modules.
@@ -104,10 +154,11 @@ untested behavior or adding unrelated business modules.
    README, then qualify actual least privilege. Review protected GitHub environments,
    permissions boundaries, state/evidence custody and private operator access.
 
-The owner has said none of these accounts/bots/domain are prepared yet and will
-prepare them when requested. Preparation can now begin while the final handoff
-revision is verified. This checklist requests setup information; it is not an
-authorization for an infrastructure apply or real-user release.
+This was the preparation list for the original AWS production path. The owner
+subsequently prepared the VPS, Cloudflare/R2, domain and test bot described in
+the current checkpoint. Separate production infrastructure/bot decisions and
+their actual qualification remain outstanding. This historical list does not
+authorize purchases, production release or expansion beyond the reviewed pilot.
 
 ## Release sequence and outstanding evidence
 
