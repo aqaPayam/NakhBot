@@ -1,4 +1,4 @@
-FROM node:24.19.0-bookworm-slim AS build
+FROM node:26.13.0-bookworm-slim AS build
 
 ARG NAKH_RELEASE=dev
 WORKDIR /workspace
@@ -20,7 +20,7 @@ FROM scratch AS native-fixtures
 COPY --from=build /native-fixtures.tar /
 COPY --from=build /native-fixtures-source-sha.txt /
 
-FROM node:24.19.0-bookworm-slim AS runtime
+FROM node:26.13.0-bookworm-slim AS runtime
 
 ARG APP
 ARG NAKH_RELEASE=dev
