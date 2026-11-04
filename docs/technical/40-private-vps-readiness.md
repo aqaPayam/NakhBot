@@ -81,6 +81,15 @@ local PostgreSQL fixture with durable writes enabled. A one-CPU VPS policy
 diagnostic missed case deadlines and is not acceptance evidence. Complete
 exact-source CI must still pass before any deployment or launch progression.
 
+Candidate `94101d7` passed quality, the dedicated policy job and two other
+application jobs. Scheduler reached the unchanged twenty-minute limit without
+a completed test failure: migrations took 540,320 ms against a 226,376 ms
+estimate, and final deletion took 322,846 ms against 156,021 ms. Dispatch now
+uses the maximum of prior estimates and all 157 completed passing suite timings
+from that run; 16 unfinished suites retain their earlier weights. These partial
+observations affect routing only and cannot satisfy complete native acceptance.
+All 173 files, four source receipts, six jobs and original limits remain required.
+
 An isolated private candidate probe also passed eight checks on the actual VPS:
 the real host and verified database TLS, non-root denial, production-binding
 denial, wrong machine identity, symlink and hard-link denial, non-private secret
