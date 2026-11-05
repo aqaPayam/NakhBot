@@ -346,7 +346,11 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     throw new Error('Invalid configuration: Guest Preview requires signup Telegram readiness.');
   if (candidate.telegram.exploreEnabled && !candidate.telegram.signupEnabled)
     throw new Error('Invalid configuration: Explore requires signup Telegram readiness.');
-  if (candidate.telegram.chatEnabled && !candidate.telegram.signupEnabled)
+  if (
+    candidate.telegram.chatEnabled &&
+    !candidate.telegram.signupEnabled &&
+    candidate.serviceName !== 'worker'
+  )
     throw new Error('Invalid configuration: Chat requires signup Telegram readiness.');
   if (candidate.deletion.returnTelegramEnabled && !candidate.deletion.telegramEnabled)
     throw new Error(

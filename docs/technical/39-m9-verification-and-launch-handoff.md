@@ -2,7 +2,34 @@
 
 Status: **private VPS deployed; owner MFA verified; controlled launch acceptance pending**.
 
-## Current private staging checkpoint
+## Private-trial preparation update
+
+Application `541dfb10f79df98a88da0b588f258e0cc9c536c2` passed
+[all six CI jobs](https://github.com/aqaPayam/NakhBot/actions/runs/41993354949)
+and was deployed after schema, runtime-role and exact migration-byte checks.
+Both owner-controlled accounts have now completed ordinary signup, with two
+eligible photos each. The second signup recovered its saved answers after the
+one-photo review repair. This is actual signup evidence; it does not establish
+completed matching, chat, moderation or production launch drills.
+
+The supervised window was intentionally closed early to prepare independent
+private use. Its old timer was disabled after successful native closure and
+transport hold, so it cannot accidentally stop a replacement window. This early
+closure is not evidence that this particular timer reached its original deadline.
+The owner requested independent preparation and subsequent testing with friends,
+rather than supervised testing of each screen. Friend identification is deferred
+until access is needed; unknown accounts remain outside the private cohort.
+
+Background chat delivery needs the worker's existing notification and chat
+switches. The worker may configure chat without configuring public signup;
+gateway and other service configurations retain the signup requirement. Actual
+worker startup still checks its database, localization, bot identity, navigation
+key and Redis composition. This change neither enables delivery by default nor
+opens a cohort. Deployment, fresh review, a bounded admission window and a bound
+automatic stop remain necessary. Payments, retained erasure and support-body
+release stay disabled. A private trial does not complete M9 launch acceptance.
+
+## Historical initial private staging checkpoint
 
 The deployed application is `3d227521a3e41512322c253c7e702e66ee58ecc7`, with
 [all six CI jobs successful](https://github.com/aqaPayam/NakhBot/actions/runs/41856418428):

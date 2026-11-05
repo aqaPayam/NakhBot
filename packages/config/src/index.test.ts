@@ -18,6 +18,27 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('allows the background worker to relay chat without exposing signup entry', () => {
+    const config = parseConfig({
+      ...validEnvironment,
+      NAKH_SERVICE_NAME: 'worker',
+      NAKH_TELEGRAM_CHAT_ENABLED: 'true',
+      NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED: 'true',
+    });
+    expect(config.telegram.chatEnabled).toBe(true);
+    expect(config.telegram.notificationDeliveryEnabled).toBe(true);
+    expect(config.telegram.signupEnabled).toBe(false);
+    expect(config.telegram.startDeliveryEnabled).toBe(false);
+    expect(config.media.ingestionEnabled).toBe(false);
+    for (const service of ['telegram-gateway', 'api', 'scheduler'])
+      expect(() =>
+        parseConfig({
+          ...validEnvironment,
+          NAKH_SERVICE_NAME: service,
+          NAKH_TELEGRAM_CHAT_ENABLED: 'true',
+        }),
+      ).toThrow('Chat requires signup');
+  });
   it('enables public chat only alongside the existing primary signup entry', () => {
     expect(parseConfig(validEnvironment).telegram.chatEnabled).toBe(false);
     expect(() => parseConfig({ ...validEnvironment, NAKH_TELEGRAM_CHAT_ENABLED: 'true' })).toThrow(
