@@ -216,6 +216,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     }
     expect(Object.keys(english.messages)).toHaveLength(
       607 +
+        3 +
         Object.keys(M9_SIGNUP_TEXTS).length +
         Object.keys(M9_PREVIEW_TEXTS).length +
         Object.keys(M9_PROFILE_TEXTS).length +
@@ -225,6 +226,9 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
     );
     expect(Object.keys(english.messages)).toEqual(
       expect.arrayContaining([
+        'trial.invitation.unavailable',
+        'trial.feedback.prompt',
+        'trial.feedback.sent',
         'return.button.confirm',
         'return.button.cancel',
         'return.confirm',

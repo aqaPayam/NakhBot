@@ -171,6 +171,65 @@ describe.skipIf(url === undefined)('native bounded private trial invitations', (
       }),
     ).rejects.toThrow();
   });
+  it('rolls back an upgrade containing invitation facts written before their guards existed', async () => {
+    const legacy = await createIsolatedTestDatabase(url!, 'nakh_trial_untrusted');
+    const previous = await mkdtemp(join(tmpdir(), 'nakh-trial-untrusted-'));
+    let old: NakhDatabase | undefined;
+    try {
+      for (const name of await readdir(resolve('migrations')))
+        if (/^\d+.*\.sql$/u.test(name) && name !== '000164_m9_private_trial_invitations.sql')
+          await copyFile(resolve('migrations', name), join(previous, name));
+      await runMigrations(legacy.url, previous);
+      old = createDatabase({
+        url: legacy.url,
+        poolMax: 1,
+        statementTimeoutMs: 30000,
+        lockTimeoutMs: 10000,
+      });
+      const id = randomUUID();
+      await old
+        .insertInto('platform.audit_logs')
+        .values({
+          id,
+          category: 'security',
+          event_type: 'platform.trial-invitation-created.v1',
+          actor_type: 'system',
+          actor_user_id: null,
+          actor_admin_id: null,
+          subject_type: 'launch_policy',
+          subject_id: randomUUID(),
+          result_code: 'ready',
+          metadata_schema_version: 1,
+          metadata: {},
+          command_id: id,
+          request_id: id,
+          occurred_at: new Date(),
+        })
+        .execute();
+      await expect(runMigrations(legacy.url, resolve('migrations'))).rejects.toMatchObject({
+        code: '55000',
+      });
+      expect(
+        await old.selectFrom('platform.schema_migrations').select('name').execute(),
+      ).toHaveLength(163);
+      expect(
+        (
+          await sql<{
+            absent: boolean;
+          }>`SELECT to_regprocedure('platform.trial_invitation_policy(uuid)') IS NULL AS absent`.execute(
+            old,
+          )
+        ).rows[0]!.absent,
+      ).toBe(true);
+      expect(
+        await old.selectFrom('platform.audit_logs').select('id').where('id', '=', id).execute(),
+      ).toHaveLength(1);
+    } finally {
+      await old?.destroy();
+      await legacy.destroy();
+      await rm(previous, { recursive: true, force: true });
+    }
+  });
   it('converges twenty duplicate joins to one seat and does not charge an existing member a seat', async () => {
     const value = await invitation(),
       userId = await createReportUser(database);

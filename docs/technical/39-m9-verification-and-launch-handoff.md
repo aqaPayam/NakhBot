@@ -33,6 +33,15 @@ Deployment still requires the full check, all six exact-source CI jobs, a pre-mi
 backup, runtime grant provisioning and a fresh bounded review. An owner's instruction
 to proceed without supervised testing does not mark unperformed human journeys passed.
 
+The first invitation candidate `e0675bc` passed quality, including `pnpm check`, but
+failed native CI: existing populated-upgrade manifests and current migration/catalog
+counts still described schema 163. The repair adds the exact new migration and three
+catalog entries to those expectations and advances the unknown-future-schema probe to
+165. Historical baselines, preserved-row comparisons and rejection assertions remain.
+Review also adds rejection of unprotected pre-164 invitation facts, with native proof
+that an attempted upgrade rolls back without deleting those facts or adding a ledger
+entry. The failed candidate is not deployed; the repair requires its own six-job CI.
+
 Application `541dfb10f79df98a88da0b588f258e0cc9c536c2` passed
 [all six CI jobs](https://github.com/aqaPayam/NakhBot/actions/runs/41993354949)
 and was deployed after schema, runtime-role and exact migration-byte checks.

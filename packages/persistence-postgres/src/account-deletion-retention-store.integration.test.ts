@@ -455,7 +455,7 @@ describe.skipIf(url === undefined)(
     });
     it('rejects a migration ledger advance after preflight before recording inventory', async () => {
       const lease = await scene();
-      const name = '000164_retention_preflight_probe.sql';
+      const name = '000165_retention_preflight_probe.sql';
       try {
         const result = await whileWaitingForIdentity(lease, async () => {
           await sql`INSERT INTO platform.schema_migrations(name,sha256) VALUES (${name},${'a'.repeat(64)})`.execute(

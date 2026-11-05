@@ -414,6 +414,7 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
         '000161_m9_chat_reporting.sql',
         '000162_m9_runtime_permission_lock.sql',
         '000163_m9_launch_cohort_authority.sql',
+        '000164_m9_private_trial_invitations.sql',
       ]);
       await verifyMigrations(upgrade.url, resolve('migrations/verify'));
       const current = await db
@@ -1125,6 +1126,7 @@ describe.skipIf(url === undefined)('M8 protected profile change original lives',
         '000161_m9_chat_reporting.sql',
         '000162_m9_runtime_permission_lock.sql',
         '000163_m9_launch_cohort_authority.sql',
+        '000164_m9_private_trial_invitations.sql',
       ]);
       await verifyMigrations(upgrade.url, resolve('migrations/verify'));
       expect((await runMigrations(upgrade.url, resolve('migrations'))).applied).toHaveLength(0);

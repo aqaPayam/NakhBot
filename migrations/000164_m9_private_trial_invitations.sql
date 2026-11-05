@@ -1,5 +1,12 @@
 -- A protected operator may delegate a bounded staging invitation. Existing launch
 -- policy/member authority remains immutable and owner-only. Tokens are never stored.
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM platform.audit_logs WHERE event_type IN
+ ('platform.trial-invitation-created.v1','platform.trial-invitation-redeemed.v1')) THEN
+  RAISE EXCEPTION 'Untrusted trial history predates admission guards' USING ERRCODE='55000';
+ END IF;
+END $$;
+
 CREATE FUNCTION platform.trial_invitation_policy(source_id uuid) RETURNS uuid
 LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
 DECLARE a platform.audit_logs; p platform.audit_logs; capacity numeric; expiry timestamptz;
