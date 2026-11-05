@@ -2,6 +2,45 @@
 
 Status: **private VPS deployed; owner MFA verified; controlled launch acceptance pending**.
 
+## Verified private trial checkpoint — 5 November 2026
+
+Application `13411398e2597bab548f23bd9add01d5a365ca5c` passed
+[all six CI jobs](https://github.com/aqaPayam/NakhBot/actions/runs/42022043319).
+The ten source-bound artifacts were verified and preserved. Its archive SHA-256 is
+`2fc87788c78fc14bf1270ce40891510226eacc3539f32189c98a7ff982f58662`: all 163 previously
+applied CRLF migrations were preserved, migration 164 was applied, and the five
+runtime-purpose permissions were provisioned before schema/role/compatibility and
+four-service readiness verification. Both existing profiles and MFA were retained.
+Encrypted snapshots before and after rollout were copied off-host and authenticated;
+this does not claim a restore of those new snapshots.
+
+The reviewed window admits the two owner-controlled accounts plus one eight-seat
+shareable invitation, expires 6 November at 12:26:36 UTC and has its bound automatic
+stop. Native invitation creation/replay, wrong-secret denial, existing-account
+admission and unlisted-identity denial were observed. No synthetic tester was enrolled
+to claim a real user journey. The owner subsequently reported that the flows they
+tested worked and asked to continue implementation without routine supervised tests.
+This is owner-reported acceptance of their tested flows; it does not identify or
+certify separately unperformed funded payment, moderation, deletion/Return or recovery
+drills. Payments, deletion/Return, retained erasure and support-body release stay off.
+
+Actual configuration inspection found the deletion worker/ingress lack the account
+control and confirmation keys, worker evidence-key references, deletion object-key
+references, cache-purge credential and recorded producer-drain hash. The existing
+ingestion object credential already passed upload/read/delete probes; no broader
+bucket access is implied. The next independent preparation is the
+[private VPS deletion cutover observer](../../deploy/runbooks/private-vps-deletion-cutover.md).
+It is a separate host tool, not a new application release or deletion activation.
+Its synthetic tests do not substitute for the required physical drain. The active
+trial must not be relabelled as drained merely to supply a configuration hash.
+
+Creating a zone-scoped Cloudflare cache-purge token and any service login remain
+subject to the owner's access approval instructions. The existing
+[Cloudflare purge API](https://developers.cloudflare.com/api/resources/cache/methods/purge/)
+accepts `Cache Purge` permission and distinguishes accepted requests from proof that
+content was cached or removed. Keep provider acceptance, object absence, current
+media authority and independent native checkpoints distinct.
+
 ## Private-trial preparation update
 
 The owner subsequently requested shareable access for new testers and private
