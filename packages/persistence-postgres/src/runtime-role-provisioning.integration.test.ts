@@ -17,6 +17,7 @@ import { PostgresAppealStore } from './appeal-store.js';
 import { PostgresCreditLedgerStore } from './credit-ledger-store.js';
 import { PostgresDirectNakhStore } from './direct-nakh-store.js';
 import { SystemIdGenerator } from './foundation-store.js';
+import { PostgresTrialInvitationStore } from './trial-invitation-store.js';
 import { PostgresFundingStore } from './funding-store.js';
 import { PostgresRefundStore } from './refund-store.js';
 import { PostgresAccountDeletionStore } from './account-deletion-store.js';
@@ -915,6 +916,33 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
         telegramBotId: '123456789',
       });
     expect(await reader.allows(user)).toBe(true);
+    const invited = await createReportUser(database, true),
+      invitationToken = randomBytes(24).toString('base64url');
+    const audience = {
+      sourceSha: command.sourceSha,
+      environment: 'staging' as const,
+      telegramBotId: command.telegramBotId,
+    };
+    await new PostgresTrialInvitationStore(database, audience).create({
+      requestId: randomUUID(),
+      policyId: command.requestId,
+      token: invitationToken,
+      capacity: 2,
+      expiresAt: expiry,
+    });
+    expect(
+      await new PostgresTrialInvitationStore(runtime, audience).redeem(invitationToken, {
+        userId: invited,
+        productEpoch: 0,
+      }),
+    ).toBe(true);
+    expect(await reader.allows(invited)).toBe(true);
+    await expect(
+      new PostgresTrialInvitationStore(pools.get('financial')!, audience).redeem(invitationToken, {
+        userId: invited,
+        productEpoch: 0,
+      }),
+    ).rejects.toMatchObject({ code: '42501' });
     await expect(
       new PostgresLaunchCohortControl(runtime, { operatorId }).apply({
         ...command,

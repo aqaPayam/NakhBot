@@ -48,6 +48,36 @@ const fixture = (
   };
 };
 describe('Telegram support and appeal ingress boundary', () => {
+  it('collects a bounded private rating through the existing support workflow only for admitted testers', async () => {
+    const f = fixture(),
+      allowed = vi.fn().mockResolvedValue(true);
+    const adapter = new TelegramSupportAppealAdapter('987', f.users, f.handler, f.limiter, allowed);
+    f.handler.execute.mockResolvedValue({ key: 'support.sent', variables: {} });
+    expect(await adapter.handle(update('/feedback 5 Clear and useful'))).toMatchObject({
+      notice: { key: 'trial.feedback.sent' },
+    });
+    expect(f.handler.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'support',
+        text: '[Private trial feedback]\nRating: 5/5\nClear and useful',
+        productEpoch: 0,
+      }),
+    );
+    const command = f.handler.execute.mock.calls[0]![0];
+    await adapter.handle(update('/feedback 5 Clear and useful'));
+    expect(f.handler.execute.mock.calls[1]![0]).toEqual(command);
+    f.handler.execute.mockClear();
+    for (const text of ['/feedback', '/feedback 0 bad', '/feedback 6 bad', '/feedback 5.5 bad'])
+      expect(await adapter.handle(update(text))).toMatchObject({
+        notice: { key: 'trial.feedback.prompt' },
+      });
+    expect(f.handler.execute).not.toHaveBeenCalled();
+    allowed.mockResolvedValue(false);
+    expect(await adapter.handle(update('/feedback 5 test'))).toMatchObject({
+      notice: { key: 'error.m7.unavailable' },
+    });
+    expect(f.handler.execute).not.toHaveBeenCalled();
+  });
   it('freezes native life before a limiter wait and separates later-life replay identities', async () => {
     const f = fixture();
     let release!: () => void, observed!: () => void;

@@ -1,6 +1,9 @@
 import { ApplicationError, calculateCreditBalance, type CreditTransactionType } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { sql } from 'kysely';
+import type { LaunchAudience } from './launch-cohort-store.js';
+import { trialCreditCandidates } from './trial-invitation-store.js';
 
 export type CreditTransactionReference = Readonly<{
   paymentRecordId?: string;
@@ -17,6 +20,8 @@ export type AppendCreditTransactionInput = Readonly<{
   idempotencyKey: string;
   correlationId: string;
   reference?: CreditTransactionReference;
+  expectedProductEpoch?: number;
+  trialClaim?: Readonly<{ id: string; audience: LaunchAudience }>;
 }>;
 
 export type CreditTransactionResult = Readonly<{
@@ -92,6 +97,10 @@ export class PostgresCreditLedgerStore {
 
   public async append(input: AppendCreditTransactionInput): Promise<CreditTransactionResult> {
     return this.database.transaction().execute(async (transaction) => {
+      if (input.trialClaim !== undefined)
+        await sql`SELECT pg_advisory_xact_lock(hashtext('nakh-launch-cohort'))`.execute(
+          transaction,
+        );
       await transaction
         .selectFrom('identity.users')
         .select('id')
@@ -106,6 +115,28 @@ export class PostgresCreditLedgerStore {
         .executeTakeFirst();
       if (owner?.state !== 'active')
         throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+      if (
+        input.expectedProductEpoch !== undefined &&
+        (!Number.isSafeInteger(input.expectedProductEpoch) ||
+          input.expectedProductEpoch !== owner.product_epoch)
+      )
+        throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+      if (input.trialClaim !== undefined) {
+        if (
+          input.transactionType !== 'admin_adjustment' ||
+          input.amount !== 100n ||
+          input.reference !== undefined ||
+          input.expectedProductEpoch === undefined ||
+          input.idempotencyKey !== `private-trial-initial:${input.userId}:${owner.product_epoch}` ||
+          !(await trialCreditCandidates(input.trialClaim.audience).execute(transaction)).rows.some(
+            (claim) =>
+              claim.claimId === input.trialClaim!.id &&
+              claim.userId === input.userId &&
+              claim.productEpoch === owner.product_epoch,
+          )
+        )
+          throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+      }
       const account = await transaction
         .selectFrom('billing.credit_accounts')
         .select(['balance', 'version', 'product_epoch'])

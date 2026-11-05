@@ -16,6 +16,7 @@ import {
   PostgresSafetyContactStore,
   PostgresSupportStore,
   PostgresTelegramUserResolver,
+  PostgresLaunchCohortAdmission,
   SystemIdGenerator,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -86,6 +87,14 @@ export function createTelegramSupportAppealIngress(
   const identities = new PostgresIdentityStore(input.database);
   const localization = new PostgresLocalizationStore(input.database);
   const client = new TelegramBotApiMenuClient(botToken);
+  const feedbackAdmission =
+    input.config.environment === 'staging'
+      ? new PostgresLaunchCohortAdmission(input.database, {
+          sourceSha: input.config.release,
+          environment: 'staging',
+          telegramBotId: match[1]!,
+        })
+      : undefined;
   return new TelegramSupportAppealIngress(
     new TelegramSupportAppealAdapter(
       match[1]!,
@@ -112,6 +121,7 @@ export function createTelegramSupportAppealIngress(
         },
       },
       new RedisRateLimiter(input.redis, input.config.redis.queuePrefix),
+      (life) => feedbackAdmission?.allows(life.userId) ?? Promise.resolve(false),
     ),
     async (notice): Promise<void> => {
       const identity = await identities.getByUserId(notice.userId);

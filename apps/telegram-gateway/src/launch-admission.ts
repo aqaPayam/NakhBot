@@ -2,6 +2,7 @@ import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import {
   PostgresLaunchCohortAdmission,
   PostgresTelegramUserResolver,
+  PostgresTrialInvitationStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { signupRecord as record } from './signup-navigation.js';
@@ -11,6 +12,7 @@ export interface TelegramLaunchAdmissionPort {
   readonly enabled: boolean;
   allowsUpdate(update: unknown): Promise<boolean>;
   allowsLife(recipient: string, life: Life): Promise<boolean>;
+  redeemStart?(payload: string | undefined, recipient: string, life: Life): Promise<void>;
 }
 
 /** Admission of a new dispatch, not cancellation of an already executing command.
@@ -107,13 +109,33 @@ export function createTelegramLaunchAdmission(
       (recipient) => users.resolveProductLife(recipient),
       (userId) => admission.allows(userId),
     );
+  const invitations = new PostgresTrialInvitationStore(database, {
+    sourceSha: config.release,
+    environment: config.environment,
+    telegramBotId: match[1]!,
+  });
   return Object.assign(gate, {
+    redeemStart: async (
+      payload: string | undefined,
+      recipient: string,
+      life: Life,
+    ): Promise<void> => {
+      if (
+        config.environment !== 'staging' ||
+        payload === undefined ||
+        !/^trial_[A-Za-z0-9_-]{32}$/u.test(payload)
+      )
+        return;
+      const current = await users.resolveProductLife(recipient);
+      if (current?.userId !== life.userId || current.productEpoch !== life.productEpoch) return;
+      await invitations.redeem(payload.slice(6), { ...life });
+    },
     onModuleInit: async (): Promise<void> => {
       if (
         (await database
           .selectFrom('platform.schema_migrations')
           .select('name')
-          .where('name', '=', '000163_m9_launch_cohort_authority.sql')
+          .where('name', '=', '000164_m9_private_trial_invitations.sql')
           .executeTakeFirst()) === undefined
       )
         throw new Error('Launch admission schema unavailable.');

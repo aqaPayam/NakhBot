@@ -14,7 +14,7 @@ type StartAdapter = Pick<TelegramStartAdapter, 'handle'>;
 type Life = Readonly<{ userId: string; productEpoch: number; accountVersion: number }>;
 type State = Readonly<{ life: Life; context: IdentityContextSnapshot }>;
 export type TelegramStartDeliveryNotice = State &
-  Readonly<{ telegramUserId: string; updateId: number }>;
+  Readonly<{ telegramUserId: string; updateId: number; startPayload?: string }>;
 type ReadState = (telegramUserId: string) => Promise<State | undefined>;
 
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -92,7 +92,15 @@ export class TelegramStartDelivery implements StartAdapter {
       )
         throw unavailable();
       if (this.onStart === undefined) await this.send(telegramUserId, text);
-      else await this.onStart({ ...state, telegramUserId, updateId: root.update_id });
+      else {
+        const payload = /^\/start\s+([A-Za-z0-9_-]{1,64})$/u.exec(message.text)?.[1];
+        await this.onStart({
+          ...state,
+          telegramUserId,
+          updateId: root.update_id,
+          ...(payload === undefined ? {} : { startPayload: payload }),
+        });
+      }
       return { ...result, view: routeStart(state.context.entryRoute) };
     } catch (error) {
       if (error instanceof ApplicationError && error.status < 500) throw error;
@@ -120,7 +128,11 @@ export function createTelegramStartDelivery(
     users = new PostgresTelegramUserResolver(input.database),
     localization = new PostgresLocalizationStore(input.database),
     client = new TelegramBotApiMenuClient(token);
-  const render = async (context: IdentityContextSnapshot, denied = false): Promise<string> => {
+  const render = async (
+    context: IdentityContextSnapshot,
+    denied = false,
+    invitation = false,
+  ): Promise<string> => {
     const catalog = await localization.loadActiveCatalog(context.uiLocale),
       renderer = new CatalogRenderer(
         { [catalog.resolvedLocale]: catalog.messages },
@@ -129,7 +141,10 @@ export function createTelegramStartDelivery(
     return renderer.render(
       catalog.resolvedLocale,
       denied
-        ? { key: 'error.capability.denied', variables: {} }
+        ? {
+            key: invitation ? 'trial.invitation.unavailable' : 'error.capability.denied',
+            variables: {},
+          }
         : routeStart(context.entryRoute).title,
     );
   };
@@ -156,7 +171,14 @@ export function createTelegramStartDelivery(
       ? input.onStart
       : async (notice) => {
           if (!(await canOpenProduct(notice)))
-            await send(notice.telegramUserId, await render(notice.context, true));
+            await send(
+              notice.telegramUserId,
+              await render(
+                notice.context,
+                true,
+                notice.startPayload?.startsWith('trial_') === true,
+              ),
+            );
           else if (input.onStart !== undefined) await input.onStart(notice);
           else await send(notice.telegramUserId, await render(notice.context));
         },

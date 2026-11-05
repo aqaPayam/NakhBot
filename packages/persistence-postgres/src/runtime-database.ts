@@ -54,6 +54,7 @@ export async function verifyRuntimeDatabaseRole(
         auth: string | null;
         permissionLock: boolean;
         reasonLock: boolean;
+        trialRedemption: boolean;
         missingViewRead: boolean;
         custodyKeyRead: boolean;
         appealAdmissionMissing: boolean;
@@ -84,6 +85,7 @@ export async function verifyRuntimeDatabaseRole(
       system_user::text AS auth,
       has_function_privilege(r.oid,'administration.lock_runtime_admin_permission(uuid,text)'::regprocedure,'EXECUTE') AS "permissionLock",
       has_function_privilege(r.oid,'moderation.lock_runtime_report_reason(text)'::regprocedure,'EXECUTE') AS "reasonLock",
+      has_function_privilege(r.oid,'platform.redeem_trial_invitation(text,uuid,integer,text,text)'::regprocedure,'EXECUTE') AS "trialRedemption",
       EXISTS(SELECT 1 FROM jsonb_each(${JSON.stringify(RUNTIME_DATABASE_READ_VIEWS)}::jsonb) projection
         CROSS JOIN LATERAL jsonb_array_elements_text(projection.value) field(name)
         WHERE NOT has_column_privilege(r.oid,projection.key,field.name,'SELECT')) AS "missingViewRead",
@@ -109,6 +111,7 @@ export async function verifyRuntimeDatabaseRole(
       row.mutableCatalog ||
       row.permissionLock !== (purpose === 'administration') ||
       row.reasonLock !== (purpose === 'user' || purpose === 'administration') ||
+      row.trialRedemption !== (purpose === 'user') ||
       row.missingViewRead ||
       row.custodyKeyRead !== (purpose === 'administration' || purpose === 'maintenance') ||
       (purpose === 'user' && (row.appealAdmissionMissing || row.appealReviewWrite)) ||

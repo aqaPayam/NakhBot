@@ -67,7 +67,7 @@ function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 export const RUNTIME_ROLE_POLICY_DIGEST = digest([
-  3,
+  4,
   RUNTIME_DATABASE_ROLES,
   RUNTIME_DATABASE_SCHEMAS,
   BILLING_SUMMARY_COLUMNS,
@@ -350,6 +350,13 @@ export class PostgresRuntimeRoleProvisioning {
                 tx,
               );
             }
+            await sql`REVOKE ALL ON FUNCTION platform.redeem_trial_invitation(text,uuid,integer,text,text) FROM ${sql.id(role)}`.execute(
+              tx,
+            );
+            if (purpose === 'user')
+              await sql`GRANT EXECUTE ON FUNCTION platform.redeem_trial_invitation(text,uuid,integer,text,text) TO ${sql.id(role)}`.execute(
+                tx,
+              );
             if (purpose === 'user') {
               await sql`GRANT INSERT(id,user_id,ban_state_history_id,message_text) ON moderation.user_appeals TO ${sql.id(role)}`.execute(
                 tx,

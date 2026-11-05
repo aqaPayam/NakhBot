@@ -56,6 +56,7 @@ import { WorkerEventProcessor } from './event-processor.js';
 import { createTelegramLikedByDeliveryRuntime } from './liked-by-delivery-runtime.js';
 import { SharpPhotoTransformer } from './media/image-transformer.js';
 import { createTelegramNotificationDeliveryRuntime } from './notification-delivery-runtime.js';
+import { createTrialCreditRuntime } from './trial-credit-runtime.js';
 import { PaymentFulfillmentProcessor } from './payment-fulfillment-processor.js';
 import { createTelegramStarsRefundRuntime } from './stars-refund-runtime.js';
 import {
@@ -212,6 +213,7 @@ const notificationDelivery = createTelegramNotificationDeliveryRuntime({
   owner: `telegram-notification-${randomUUID()}`,
 });
 await notificationDelivery?.verifyReadiness?.();
+const trialCredits = createTrialCreditRuntime({ config, database, financialDatabase });
 const chatMetrics = notificationDelivery === undefined ? undefined : new M6Metrics();
 const mediaOwner = randomUUID();
 const mediaEnvironment = config.environment === 'local' ? 'development' : config.environment;
@@ -538,8 +540,19 @@ const dispatchDeletion = async (): Promise<void> => {
     );
 };
 
+const dispatchTrialCredits = async (): Promise<void> => {
+  try {
+    await trialCredits?.process();
+  } catch {
+    logger.warn(
+      { operation: 'private-trial.credits' },
+      'Private trial credits deferred; eligibility will be rechecked.',
+    );
+  }
+};
 await Promise.all([
   dispatch(),
+  dispatchTrialCredits(),
   dispatchLikedBy(),
   dispatchPaymentFulfillment(),
   dispatchStarsRefund(),
@@ -555,6 +568,8 @@ const deletionHealthTimer =
 const deletionTimer =
   deletionRuntime === undefined ? undefined : setInterval(() => void dispatchDeletion(), 250);
 const timer = setInterval(() => void dispatch(), 250);
+const trialCreditTimer =
+  trialCredits === undefined ? undefined : setInterval(() => void dispatchTrialCredits(), 5000);
 const queueMigrationTimer = setInterval(() => void migrateLegacyQueue(), 5000);
 const paymentFulfillmentTimer = setInterval(() => void dispatchPaymentFulfillment(), 250);
 const starsRefundTimer =
@@ -584,6 +599,7 @@ const shutdown = async (): Promise<void> => {
   if (deletionTimer !== undefined) clearInterval(deletionTimer);
   if (deletionHealthTimer !== undefined) clearInterval(deletionHealthTimer);
   clearInterval(timer);
+  if (trialCreditTimer !== undefined) clearInterval(trialCreditTimer);
   clearInterval(queueMigrationTimer);
   clearInterval(paymentFulfillmentTimer);
   if (starsRefundTimer !== undefined) clearInterval(starsRefundTimer);

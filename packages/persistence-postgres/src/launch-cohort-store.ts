@@ -377,5 +377,19 @@ export function launchCohortAdmissionStatement(
      AND policy.metadata->>'environment'=${audience.environment} AND policy.metadata->>'telegramBotId'=${audience.telegramBotId}
      AND (policy.metadata->>'expiresAt')::timestamptz>clock_timestamp()
      AND platform.launch_policy_version(policy.id) IS NOT NULL
-     AND platform.launch_member_epoch(member.id)=account.product_epoch AND account.state<>'deleted') AS allowed`;
+     AND platform.launch_member_epoch(member.id)=account.product_epoch AND account.state<>'deleted')
+   OR EXISTS(SELECT 1 FROM policy
+    JOIN platform.audit_logs invitation ON invitation.event_type='platform.trial-invitation-created.v1'
+     AND (invitation.metadata->>'policyId')::uuid=policy.id
+    JOIN platform.audit_logs claim ON claim.event_type='platform.trial-invitation-redeemed.v1'
+     AND (claim.metadata->>'invitationId')::uuid=invitation.id AND claim.subject_id=${userId}::uuid
+    JOIN identity.accounts account ON account.user_id=claim.subject_id
+    WHERE policy.result_code='cohort' AND policy.metadata->>'sourceSha'=${audience.sourceSha}
+     AND policy.metadata->>'environment'='staging' AND ${audience.environment}='staging'
+     AND policy.metadata->>'telegramBotId'=${audience.telegramBotId}
+     AND platform.launch_policy_version(policy.id) IS NOT NULL
+     AND (policy.metadata->>'expiresAt')::timestamptz>clock_timestamp()
+     AND platform.trial_invitation_policy(invitation.id)=policy.id
+     AND (invitation.metadata->>'expiresAt')::timestamptz>clock_timestamp()
+     AND platform.trial_claim_epoch(claim.id)=account.product_epoch AND account.state<>'deleted') AS allowed`;
 }

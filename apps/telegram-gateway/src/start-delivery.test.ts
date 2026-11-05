@@ -2,7 +2,9 @@ import { routeStart, type IdentityContextSnapshot } from '@nakh/application';
 import type { AppConfig } from '@nakh/config';
 import type { NakhDatabase } from '@nakh/persistence-postgres';
 import { describe, expect, it, vi } from 'vitest';
+import type { TelegramStartAdapter } from '@nakh/telegram';
 import { createTelegramStartDelivery, TelegramStartDelivery } from './start-delivery.js';
+type DeliveryParameters = ConstructorParameters<typeof TelegramStartDelivery>;
 
 function context(): IdentityContextSnapshot {
   return {
@@ -33,27 +35,27 @@ function fixture(): {
     life: { userId: string; productEpoch: number; accountVersion: number };
     context: IdentityContextSnapshot;
   };
-  read: ReturnType<typeof vi.fn>;
-  adapter: { handle: ReturnType<typeof vi.fn> };
-  render: ReturnType<typeof vi.fn>;
-  send: ReturnType<typeof vi.fn>;
+  read: ReturnType<typeof vi.fn<DeliveryParameters[1]>>;
+  adapter: { handle: ReturnType<typeof vi.fn<TelegramStartAdapter['handle']>> };
+  render: ReturnType<typeof vi.fn<DeliveryParameters[2]>>;
+  send: ReturnType<typeof vi.fn<DeliveryParameters[3]>>;
   port: TelegramStartDelivery;
 } {
   const state = {
     life: { userId: 'user', productEpoch: 0, accountVersion: 1 },
     context: context(),
   };
-  const read = vi.fn().mockResolvedValue(state),
+  const read = vi.fn<DeliveryParameters[1]>().mockResolvedValue(state),
     adapter = {
-      handle: vi.fn().mockResolvedValue({
+      handle: vi.fn<TelegramStartAdapter['handle']>().mockResolvedValue({
         handled: true,
         userId: 'user',
         replayed: true,
         view: routeStart('main'),
       }),
     },
-    render = vi.fn().mockResolvedValue('Welcome'),
-    send = vi.fn().mockResolvedValue(undefined);
+    render = vi.fn<DeliveryParameters[2]>().mockResolvedValue('Welcome'),
+    send = vi.fn<DeliveryParameters[3]>().mockResolvedValue(undefined);
   return {
     state,
     read,
@@ -65,6 +67,27 @@ function fixture(): {
 }
 
 describe('private start status delivery', () => {
+  it('passes only a bounded payload from the authenticated private Start to the admission hook', async () => {
+    const f = fixture(),
+      onStart = vi.fn().mockResolvedValue(undefined);
+    const port = new TelegramStartDelivery(f.adapter, f.read, f.render, f.send, onStart);
+    const input = update() as { message: { text: string } };
+    input.message.text = '/start trial_' + 'a'.repeat(32);
+    await port.handle(input);
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startPayload: 'trial_' + 'a'.repeat(32),
+        telegramUserId: '123',
+        life: f.state.life,
+      }),
+    );
+    input.message.text = '/start ' + 'a'.repeat(65);
+    await port.handle(input);
+    expect(onStart.mock.calls[1]![0]).not.toHaveProperty('startPayload');
+    input.message.text = '/start valid another';
+    await port.handle(input);
+    expect(onStart.mock.calls[2]![0]).not.toHaveProperty('startPayload');
+  });
   it('stays disabled without resolving credentials or opening services', () => {
     const adapter = { handle: vi.fn() },
       resolveSecret = vi.fn();

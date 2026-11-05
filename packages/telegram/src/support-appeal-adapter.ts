@@ -27,6 +27,9 @@ export class TelegramSupportAppealAdapter {
     private readonly users: TelegramLikedByLifeResolver,
     private readonly handler: Pick<UserSafetyContactHandler, 'execute'>,
     private readonly limiter: RateLimiterPort,
+    private readonly feedbackAllowed?: (
+      life: Readonly<{ userId: string; productEpoch: number }>,
+    ) => Promise<boolean>,
   ) {
     if (!/^[1-9][0-9]{0,19}$/u.test(botId) || !Number.isSafeInteger(Number(botId)))
       throw new Error('Telegram bot identity is invalid.');
@@ -37,7 +40,7 @@ export class TelegramSupportAppealAdapter {
     const message = record(root?.message);
     const match =
       typeof message?.text === 'string'
-        ? /^\/(support|appeal)(?:\s+([\s\S]*))?$/u.exec(message.text)
+        ? /^\/(support|appeal|feedback)(?:\s+([\s\S]*))?$/u.exec(message.text)
         : null;
     if (match === null) return { handled: false };
     const from = record(message?.from);
@@ -79,13 +82,35 @@ export class TelegramSupportAppealAdapter {
         windowSeconds: 60,
       });
       if (!rate.allowed) throw new ApplicationError('rate_limited', 'error.m7.rate_limited', 429);
+      const feedback = match[1] === 'feedback';
+      const rating = feedback ? /^([1-5])(?:\s+([\s\S]*))?$/u.exec((match[2] ?? '').trim()) : null;
+      if (feedback && !(await this.feedbackAllowed?.({ userId, productEpoch })))
+        return {
+          handled: true,
+          userId,
+          productEpoch,
+          telegramUserId,
+          notice: { key: 'error.m7.unavailable', variables: {} },
+        };
+      if (feedback && rating === null)
+        return {
+          handled: true,
+          userId,
+          productEpoch,
+          telegramUserId,
+          notice: { key: 'trial.feedback.prompt', variables: {} },
+        };
       notice = await this.handler.execute({
         userId,
         productEpoch,
         commandId,
-        kind: match[1] as 'support' | 'appeal',
-        text: match[2] ?? '',
+        kind: feedback ? 'support' : (match[1] as 'support' | 'appeal'),
+        text: feedback
+          ? `[Private trial feedback]\nRating: ${rating![1]}/5\n${rating![2] ?? ''}`
+          : (match[2] ?? ''),
       });
+      if (feedback && notice.key === 'support.sent')
+        notice = { key: 'trial.feedback.sent', variables: {} };
     } catch (error) {
       if (!(error instanceof ApplicationError) || error.status >= 500)
         throw new ApplicationError('internal_error', 'error.m7.internal', 500);

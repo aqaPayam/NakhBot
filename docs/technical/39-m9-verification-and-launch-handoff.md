@@ -4,6 +4,35 @@ Status: **private VPS deployed; owner MFA verified; controlled launch acceptance
 
 ## Private-trial preparation update
 
+The owner subsequently requested shareable access for new testers and private
+ratings/comments, without supervised testing. Migration 164 adds an operator-created
+staging invitation bound to the current source, bot, policy and its existing expiry.
+The explicit members plus invitation capacity cannot exceed ten. Only a SHA-256
+token hash is stored. A narrowly granted, token-checking database function consumes
+one seat per user; concurrent joins, retries and policy closure share the existing
+launch lock. Closing, expiry, deployment-source mismatch and Root/Return deny old
+claims. Original launch-policy/member writes remain owner-only. No public mode or
+production qualification is added.
+
+After ordinary signup, the worker grants each invited account life 100 noncash
+credits once. Native ledger writes recheck the original life and current invitation
+authority under locks. Renewals and duplicate deliveries do not replenish credits.
+Payments remain disabled. `/feedback 1` through `/feedback 5`, with optional comments,
+uses the existing rate-limited private support workflow and its access, text-length,
+idempotency and retention controls. It neither publishes reviews nor releases support
+bodies. Trial notices use the existing English fallback.
+
+The audit facts contain no token, profile, photo or comment content. There is no new
+user-data table or foreign key: the deletion inventory accepts exactly schema 164
+with its existing layouts, while valid original-life claim metadata remains fenced
+and retained under the existing operational security policy. Retained erasure stays
+disabled. Native fixtures cover the populated 163-to-164 upgrade, constrained-purpose
+logins, twenty-way replay/capacity races, credits, real deletion/approved Return and
+first-Start registration. Fixture/provider stubs are not real human acceptance evidence.
+Deployment still requires the full check, all six exact-source CI jobs, a pre-migration
+backup, runtime grant provisioning and a fresh bounded review. An owner's instruction
+to proceed without supervised testing does not mark unperformed human journeys passed.
+
 Application `541dfb10f79df98a88da0b588f258e0cc9c536c2` passed
 [all six CI jobs](https://github.com/aqaPayam/NakhBot/actions/runs/41993354949)
 and was deployed after schema, runtime-role and exact migration-byte checks.

@@ -551,10 +551,15 @@ export class TelegramGatewayModule {
             ...(signup.openStart === undefined ? {} : { onStart: signup.openStart }),
             ...(launchAdmission.enabled
               ? {
-                  canOpenProduct: (notice: TelegramStartDeliveryNotice) =>
-                    notice.context.accountState === 'deleted'
-                      ? Promise.resolve(true)
-                      : launchAdmission.allowsLife(notice.telegramUserId, notice.life),
+                  canOpenProduct: async (notice: TelegramStartDeliveryNotice) => {
+                    if (notice.context.accountState === 'deleted') return true;
+                    await launchAdmission.redeemStart?.(
+                      notice.startPayload,
+                      notice.telegramUserId,
+                      notice.life,
+                    );
+                    return launchAdmission.allowsLife(notice.telegramUserId, notice.life);
+                  },
                 }
               : {}),
           }),

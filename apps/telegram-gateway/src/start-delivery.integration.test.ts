@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -8,6 +8,8 @@ import {
   createDatabase,
   runMigrations,
   PostgresIdentityStore,
+  PostgresLaunchCohortControl,
+  PostgresTrialInvitationStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import { TelegramBotApiMenuClient, TelegramStartAdapter } from '@nakh/telegram';
@@ -25,6 +27,8 @@ import {
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
 import { TelegramGatewayModule } from './app.js';
 import { createTelegramStartDelivery } from './start-delivery.js';
+import { createTelegramLaunchAdmission } from './launch-admission.js';
+import { createReportUser } from '../../../packages/persistence-postgres/src/testing/report-fixture.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL,
   redisUrl = process.env.NAKH_TEST_REDIS_URL;
@@ -97,6 +101,83 @@ describe.skipIf(url === undefined)('native startup delivery', () => {
           menu.replyMarkup.inline_keyboard.length === 0,
       ),
     ).toBe(true);
+  });
+  it('admits a newly registered invite recipient without an operator identifying that account first', async () => {
+    const ownerId = await createReportUser(database),
+      payload = 'trial_' + randomBytes(24).toString('base64url');
+    const audience = {
+      sourceSha: 'a'.repeat(40),
+      environment: 'staging' as const,
+      telegramBotId: '12345',
+    };
+    const policyId = randomUUID(),
+      expiry = new Date(Date.now() + 3600000).toISOString();
+    await new PostgresLaunchCohortControl(database, { operatorId: randomUUID() }).apply({
+      ...audience,
+      requestId: policyId,
+      expectedVersion: 0,
+      mode: 'cohort',
+      expiresAt: expiry,
+      reviewDigest: 'b'.repeat(64),
+      members: [{ userId: ownerId, productEpoch: 0 }],
+    });
+    await new PostgresTrialInvitationStore(database, audience).create({
+      requestId: randomUUID(),
+      policyId,
+      token: payload.slice(6),
+      capacity: 1,
+      expiresAt: expiry,
+    });
+    const config = {
+      environment: 'staging',
+      release: audience.sourceSha,
+      telegram: { signupEnabled: true, startDeliveryEnabled: true, botTokenRef: 'bot' },
+      media: { ingestionEnabled: false },
+    } as AppConfig;
+    const gate = createTelegramLaunchAdmission({ config, database, resolveSecret: () => botToken });
+    await gate.onModuleInit?.();
+    const onStart = vi.fn().mockResolvedValue(undefined);
+    const ingress = createTelegramStartDelivery({
+      config,
+      database,
+      adapter: TelegramStartAdapter.withStore(new PostgresIdentityStore(database)),
+      resolveSecret: () => botToken,
+      onStart,
+      canOpenProduct: async (notice) => {
+        await gate.redeemStart?.(notice.startPayload, notice.telegramUserId, notice.life);
+        return gate.allowsLife(notice.telegramUserId, notice.life);
+      },
+    });
+    const sender = serial++,
+      input = start(sender) as { message: { text: string } };
+    input.message.text = '/start ' + payload;
+    await Promise.all(Array.from({ length: 10 }, () => ingress.handle(input)));
+    expect(onStart).toHaveBeenCalledTimes(10);
+    const identity = await database
+      .selectFrom('identity.telegram_identities')
+      .select('user_id')
+      .where('telegram_user_id', '=', String(sender))
+      .executeTakeFirstOrThrow();
+    expect(onStart.mock.calls[0]![0]).toMatchObject({
+      life: { userId: identity.user_id, productEpoch: 0 },
+    });
+    expect(
+      await database
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('event_type', '=', 'platform.trial-invitation-redeemed.v1')
+        .where('subject_id', '=', identity.user_id)
+        .execute(),
+    ).toHaveLength(1);
+    onStart.mockClear();
+    await ingress.handle(start(serial++));
+    const denied = start(serial++) as { message: { text: string } };
+    denied.message.text = '/start ' + payload;
+    await ingress.handle(denied);
+    expect(onStart).not.toHaveBeenCalled();
+    expect(send.mock.calls.every(([, menu]) => menu.replyMarkup.inline_keyboard.length === 0)).toBe(
+      true,
+    );
   });
   it('re-reads native account routing when an old successful update is replayed', async () => {
     const sender = serial++,
