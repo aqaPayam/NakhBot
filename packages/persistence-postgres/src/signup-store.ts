@@ -13,6 +13,7 @@ import {
   assertAccountTransition,
   nextSignupStep,
   normalizeSignupStep,
+  PROFILE_LIMITS,
   type SignupCatalogSnapshot,
 } from '@nakh/domain';
 
@@ -91,7 +92,7 @@ function hasOnly(entry: Readonly<Record<string, unknown>>, keys: readonly string
   return Object.keys(entry).every((key) => keys.includes(key));
 }
 
-function isStringArray(value: unknown): boolean {
+function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
@@ -736,9 +737,20 @@ export class PostgresSignupStore implements SignupStore {
           currentStep: progress.current_step,
           currentVersion: String(draft.version),
         });
+      const currentDraft = decodeDraft(draft.draft_data, draft.schema_version);
+      const additional = currentDraft.additional_photos;
+      // Older clients could advance with only the primary photo. Repair only
+      // that incomplete selection; keep the remaining answers and final step.
+      const repairingPhotos =
+        progress.current_step === 'confirm_profile' &&
+        write.command.data.value.step === 'additional_photos' &&
+        isRecord(additional) &&
+        isStringArray(additional.mediaAssetIds) &&
+        additional.mediaAssetIds.length + 1 < PROFILE_LIMITS.minimumPhotos;
       if (
-        progress.current_step !== write.command.data.value.step ||
-        progress.current_step === 'confirm_profile'
+        !repairingPhotos &&
+        (progress.current_step !== write.command.data.value.step ||
+          progress.current_step === 'confirm_profile')
       )
         throw new ApplicationError('invalid_signup_step', 'error.signup.step.invalid', 409, {
           currentStep: progress.current_step,
@@ -749,14 +761,13 @@ export class PostgresSignupStore implements SignupStore {
         await this.catalogs(transaction),
         { now: () => write.processedAt },
       );
-      const currentDraft = decodeDraft(draft.draft_data, draft.schema_version);
-      const nextStep = nextSignupStep(progress.current_step);
+      const nextStep = repairingPhotos ? 'confirm_profile' : nextSignupStep(progress.current_step);
       const nextVersion = draft.version + 1;
       await transaction
         .updateTable('identity.signup_drafts')
         .set({
           draft_data: { ...currentDraft, [normalized.step]: normalized },
-          last_completed_step: progress.current_step,
+          last_completed_step: normalized.step,
           version: nextVersion,
           updated_at: write.processedAt,
         })

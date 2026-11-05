@@ -17,7 +17,7 @@ import {
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import type { AdministratorTelegramPort } from './admin-runtime.js';
 import type { TelegramChatRuntimePort } from './chat-runtime.js';
-import { ApplicationError, SystemClock, validateNakhText } from '@nakh/domain';
+import { ApplicationError, PROFILE_LIMITS, SystemClock, validateNakhText } from '@nakh/domain';
 import {
   CatalogRenderer,
   M9_SIGNUP_TEXTS,
@@ -1094,7 +1094,13 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         context.accountState === 'incomplete'
           ? await store.getSignupState(actor.userId)
           : undefined;
-    const screen = state?.currentStep ?? 'root',
+    const draft = state === undefined ? {} : await store.getUiDraft(actor.userId);
+    const additional = record(draft.additional_photos)?.mediaAssetIds;
+    const repairingPhotos =
+      state?.currentStep === 'confirm_profile' &&
+      Array.isArray(additional) &&
+      additional.length + 1 < PROFILE_LIMITS.minimumPhotos;
+    const screen = repairingPhotos ? 'additional_photos' : (state?.currentStep ?? 'root'),
       version = state?.draftVersion ?? context.accountVersion;
     let nav: Nav = {
       ...(prior?.version === version && prior.screen === screen ? prior : {}),
@@ -1123,7 +1129,6 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     let prompt = false;
     const choices =
       screen === 'root' ? undefined : await new PostgresSignupChoices(this.database, actor).list();
-    const draft = screen === 'root' ? {} : await store.getUiDraft(actor.userId);
     const savedOptional = record(record(draft.optional_details)?.value) ?? {};
     if (
       nav.screen === 'optional_details' &&
@@ -1249,7 +1254,13 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         if (page > 0) await button(t('signup.ui.back'), { action: 'page', code: String(page - 1) });
         if (list.length > (page + 1) * 8)
           await button(t('signup.ui.next'), { action: 'page', code: String(page + 1) });
-        if (this.multi(nav)) await button(t('signup.ui.continue'), { action: 'save' });
+        if (
+          this.multi(nav) &&
+          (screen !== 'additional_photos' ||
+            ((nav.selection?.length ?? 0) >= PROFILE_LIMITS.minimumPhotos - 1 &&
+              (nav.selection?.length ?? 0) <= PROFILE_LIMITS.maximumPhotos - 1))
+        )
+          await button(t('signup.ui.continue'), { action: 'save' });
         if (screen === 'primary_photo' || screen === 'additional_photos')
           await button(t('signup.ui.refresh'), { action: 'resume' });
       }

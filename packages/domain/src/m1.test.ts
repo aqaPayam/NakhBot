@@ -225,5 +225,13 @@ describe('M1 Profile validation', () => {
     expect(() =>
       normalizeSignupStep({ step: 'gender', code: 'inactive' }, catalogs, clock),
     ).toThrowError(expect.objectContaining({ code: 'inactive_catalog_selection' }));
+    for (const mediaAssetIds of [[], ['same', 'same'], ['1', '2', '3', '4', '5', '6']])
+      expect(() =>
+        normalizeSignupStep({ step: 'additional_photos', mediaAssetIds }, catalogs, clock),
+      ).toThrowError(expect.objectContaining({ code: 'media_not_eligible' }));
+    for (const mediaAssetIds of [['1'], ['1', '2', '3', '4', '5']])
+      expect(
+        normalizeSignupStep({ step: 'additional_photos', mediaAssetIds }, catalogs, clock),
+      ).toEqual({ step: 'additional_photos', mediaAssetIds });
   });
 });

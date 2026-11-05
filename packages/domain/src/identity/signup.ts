@@ -133,7 +133,14 @@ export function normalizeSignupStep(
       requireActive(input.code, catalogs.relationshipGoalCodes, 'relationshipGoal');
       return input;
     case 'primary_photo':
+      return input;
     case 'additional_photos':
+      if (
+        input.mediaAssetIds.length < PROFILE_LIMITS.minimumPhotos - 1 ||
+        input.mediaAssetIds.length > PROFILE_LIMITS.maximumPhotos - 1 ||
+        new Set(input.mediaAssetIds).size !== input.mediaAssetIds.length
+      )
+        throw new ApplicationError('media_not_eligible', 'error.profile.media_not_eligible', 400);
       return input;
     case 'highlight':
       return {

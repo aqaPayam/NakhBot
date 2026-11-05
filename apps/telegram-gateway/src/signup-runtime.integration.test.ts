@@ -327,6 +327,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
   }
   async function toOptional(
     sender: string,
+    checkAdditional?: () => void,
   ): Promise<{ userId: string; oldPrompt: number; primary: string; additional: string }> {
     const userId = await open(sender);
     await action(sender, 'begin');
@@ -348,11 +349,71 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
     await seedValidMedia(database, userId, additional);
     await action(sender, 'resume');
     await pick(sender, primary);
+    checkAdditional?.();
     await pick(sender, additional);
     await action(sender, 'save');
     await answer(sender, 'Private profile highlight');
     return { userId, oldPrompt, primary, additional };
   }
+  it('keeps Continue unavailable until an additional photo is selected', async () => {
+    const sender = String(serial++);
+    await toOptional(sender, () => {
+      expect(transport.last(sender).text).toContain('Add at least one more photo.');
+      expect(find(sender, (nav) => nav.action === 'save')).toBeUndefined();
+    });
+  });
+  it('repairs a legacy one-photo final review without losing answers or replaying the repair', async () => {
+    const sender = String(serial++),
+      f = await toOptional(sender);
+    await action(sender, 'save');
+    const before = await database
+      .selectFrom('identity.signup_drafts')
+      .select(['draft_data', 'version'])
+      .where('user_id', '=', f.userId)
+      .executeTakeFirstOrThrow();
+    // Reproduce the persisted draft produced by the previous client.
+    const legacy = {
+      ...record(before.draft_data),
+      additional_photos: { step: 'additional_photos', mediaAssetIds: [] },
+    };
+    await database
+      .updateTable('identity.signup_drafts')
+      .set({ draft_data: legacy })
+      .where('user_id', '=', f.userId)
+      .execute();
+    await open(sender, f.userId);
+    expect(transport.last(sender).text).toContain('Add at least one more photo.');
+    expect(find(sender, (nav) => nav.action === 'finish')).toBeUndefined();
+    expect(find(sender, (nav) => nav.action === 'save')).toBeUndefined();
+    await pick(sender, f.additional);
+    const data = find(sender, (nav) => nav.action === 'save')!;
+    const update = callback(sender, data);
+    await runtime.handle(update);
+    await runtime.handle(update);
+    const after = await database
+      .selectFrom('identity.signup_drafts')
+      .select(['draft_data', 'version'])
+      .where('user_id', '=', f.userId)
+      .executeTakeFirstOrThrow();
+    expect(after.version).toBe(before.version + 1);
+    expect(after.draft_data).toEqual(before.draft_data);
+    expect(transport.last(sender).text).toContain('Photos: 2');
+    expect(
+      await database
+        .selectFrom('identity.signup_progress')
+        .select('current_step')
+        .where('user_id', '=', f.userId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ current_step: 'confirm_profile' });
+    await action(sender, 'finish');
+    expect(
+      await database
+        .selectFrom('identity.accounts')
+        .select('state')
+        .where('user_id', '=', f.userId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ state: 'active' });
+  });
   it('completes all required steps and optional fields through signed buttons/replies, with one native confirmation across retries', async () => {
     const sender = String(serial++),
       f = await toOptional(sender);
