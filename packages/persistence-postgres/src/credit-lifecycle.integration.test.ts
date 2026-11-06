@@ -391,6 +391,7 @@ describe.skipIf(url === undefined)('M8 original credit lifecycle provenance', ()
         '000164_m9_private_trial_invitations.sql',
         '000165_m9_free_test_credits.sql',
         '000166_m9_profile_settings_menus.sql',
+        '000167_m9_profile_correction_review.sql',
       ]);
       expect(
         await legacy

@@ -1,3 +1,26 @@
+export const M9_REVIEW_TEXTS = {
+  'profile.review.title': 'Profile corrections',
+  'profile.review.empty': 'No pending profile corrections.',
+  'profile.review.row': '{field} · {submitted}',
+  'profile.review.open': 'Open this correction request? Viewing its contents is audited.',
+  'profile.review.view': 'View request',
+  'profile.review.body':
+    '{field}\nCurrent: {old}\nRequested: {requested}\nReason: {reason}\nStatus: {status}',
+  'profile.review.approve': 'Approve correction',
+  'profile.review.reject': 'Reject correction',
+  'profile.review.confirm_approve':
+    'Approve this correction and change the protected profile field?',
+  'profile.review.confirm_reject': 'Reject this correction request?',
+  'profile.review.confirm': 'Confirm review',
+  'profile.review.cancel': 'Cancel',
+  'profile.review.back': 'Back to corrections',
+  'profile.review.saved': 'Review saved.',
+  'profile.review.processed':
+    'This action has already been processed. Open /admin_changes for a fresh menu.',
+  'profile.review.unavailable':
+    'This administrator action is unavailable. Sign in again or open /admin_changes for a current menu.',
+} as const;
+
 export const M9_ACCOUNT_TEXTS = {
   'account.menu.title': 'Settings',
   'account.credits.title': 'Your credits',
@@ -59,7 +82,7 @@ export const M9_EDITOR_TEXTS = {
   'profile.edit.invalid':
     'That change could not be saved. Please use the current choices or reply to the latest prompt.',
   'profile.edit.multi':
-    'Changes save as you tap. Add new interests before removing any; keep at least five interests.',
+    'Changes save as you tap. Keep five to twenty interests. Add one before removing if only five are selected; remove one before adding if twenty are selected.',
   'profile.edit.multi_optional':
     'Changes save as you tap. Remove a selection before adding another if the selection limit is reached.',
   'profile.edit.request_change': 'Request birth-year or gender correction',
@@ -169,7 +192,7 @@ export const M9_ADMIN_TEXTS = {
   'admin.auth.activated':
     'Enrollment is complete. Wait for the next authenticator code, then sign in.',
   'admin.auth.signed_in':
-    'Signed in. Return to the bot and send /admin_reports, /admin_support or /admin_appeals.',
+    'Signed in. Return to the bot and send /admin_reports, /admin_support, /admin_appeals or /admin_changes.',
   'admin.auth.signed_out': 'You are signed out.',
   'admin.auth.signout': 'Sign out',
   'admin.auth.unavailable':

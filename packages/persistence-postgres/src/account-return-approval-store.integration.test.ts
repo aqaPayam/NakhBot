@@ -430,6 +430,7 @@ describe.skipIf(url === undefined)('M8 separate native account return approval',
             '000164_m9_private_trial_invitations.sql',
             '000165_m9_free_test_credits.sql',
             '000166_m9_profile_settings_menus.sql',
+            '000167_m9_profile_correction_review.sql',
           ]);
           await verifyMigrations(target.url, resolve('migrations/verify'));
           expect(

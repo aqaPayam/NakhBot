@@ -67,8 +67,8 @@ management remains available through `/photos` from the editor's instructions.
 
 Birth year and gender stay protected. Their editor entries submit correction
 requests with a private reason and show the owner's current-life request status;
-they do not change protected values or grant reviewer authority. Completing the
-permission-checked staff review surface remains separate work.
+they do not change protected values or grant reviewer authority. Administrator
+review uses the authenticated and audited flow below.
 
 Settings exposes active interface languages, profile visibility and the four
 ordinary notification switches. The native settings and notification writes
@@ -86,6 +86,34 @@ Synthetic PostgreSQL/Redis bot journeys cover private prompt ownership, stale
 edits, optional-field preservation, revoked/borrowed controls, correction requests
 and account switches. These checks do not activate the new menus on the live VPS
 or qualify public launch.
+
+## Administrator profile correction review
+
+Authenticated staff with `review_change_requests` can open `/admin_changes`.
+The bounded pending queue shows field names and submission times. Viewing the
+current/requested values and private reason requires a separate View request
+action; its required audit commits before the protected plain-text delivery.
+Link previews and forwarding are disabled. Private content is never saved in
+navigation or replay receipts, and an ambiguous delivery cannot replay the body.
+The administrator must open a fresh queue/read action to view it again.
+
+Approval and rejection each require a separate confirmation. The native M7
+command boundary pins the original authenticator session, current Telegram
+binding and current permission before cached results and effects. Role/session/
+credential revocation cannot be replaced by a newer sign-in. The protected-field
+resolver also checks the exact target profile/account life and its current
+protected value; ordinary deletion and Return cannot revive a stale request.
+Required audit failure rolls back the entire review, including the profile,
+review row, outbox and command receipt. Replayed reads contain no private body.
+
+The real authenticator host refuses unbound M1 review construction. Historical
+M1 fixtures with generic synthetic factor providers remain distinct from this
+host policy. Reusing an existing database transaction keeps the M7 command audit
+and protected-field change atomic. Migration 167 adds 16 English staff messages
+and updates sign-in/editing instructions. It reuses the existing M1 review queue
+index and adds no table, column or foreign key; the unchanged deletion inventory
+accepts schema 167. Synthetic native and bot-serialization evidence does not
+establish live operator review or public-launch acceptance.
 
 ## Invoice-pause composition repair
 

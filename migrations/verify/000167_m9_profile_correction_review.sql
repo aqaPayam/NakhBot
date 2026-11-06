@@ -1,0 +1,5 @@
+DO $$ BEGIN
+ IF (SELECT count(*) FROM catalog.ui_texts WHERE locale_code='en' AND is_active AND text_key IN(E'profile.review.approve',E'profile.review.back',E'profile.review.body',E'profile.review.cancel',E'profile.review.confirm',E'profile.review.confirm_approve',E'profile.review.confirm_reject',E'profile.review.empty',E'profile.review.open',E'profile.review.processed',E'profile.review.reject',E'profile.review.row',E'profile.review.saved',E'profile.review.title',E'profile.review.unavailable',E'profile.review.view'))<>16 THEN RAISE EXCEPTION 'Profile correction review presentation incomplete'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM catalog.ui_texts WHERE locale_code='en' AND text_key='profile.review.body' AND variables='["field","old","reason","requested","status"]'::jsonb) THEN RAISE EXCEPTION 'Profile review variables invalid'; END IF;
+ IF to_regclass('profile.profile_change_requests_review_queue_idx') IS NULL THEN RAISE EXCEPTION 'Profile correction queue index missing'; END IF;
+END $$;

@@ -2,7 +2,14 @@ import { RevokePhotoDeliveryCache, type UserSessionActor } from '@nakh/applicati
 import { CloudflareMediaCachePurger } from '@nakh/media-delivery';
 import { AwsR2ObjectClient } from '@nakh/media-r2';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
-import { CatalogRenderer, M7_LOCALIZATION_ENTRIES, M9_ADMIN_TEXTS } from '@nakh/localization';
+import {
+  CatalogRenderer,
+  M7_LOCALIZATION_ENTRIES,
+  M9_ADMIN_TEXTS,
+  M9_REVIEW_TEXTS,
+  M9_EDITOR_TEXTS,
+  M9_SIGNUP_TEXTS,
+} from '@nakh/localization';
 import {
   AdminRuntimeKeys,
   createPostgresTotpAdminSessions,
@@ -22,6 +29,7 @@ import { TelegramAdminTextDelivery, TelegramBotApiMenuClient } from '@nakh/teleg
 import { TelegramAdministratorSignIn } from './admin-signin-entry.js';
 import { createTelegramAdminSafetyReadIngress } from './admin-safety-read-ingress.js';
 import { createTelegramAdminEvidenceDelivery } from './admin-evidence-delivery.js';
+import { TelegramAdminProfileReviewRuntime } from './admin-profile-review-runtime.js';
 
 export interface AdministratorTelegramPort {
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
@@ -31,6 +39,7 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
   private readonly keys: AdminRuntimeKeys;
   private readonly users: ReturnType<typeof createPostgresUserSessions>;
   private readonly ingress: ReturnType<typeof createTelegramAdminSafetyReadIngress>;
+  private readonly profileReviews: TelegramAdminProfileReviewRuntime;
   private renderer: CatalogRenderer | undefined;
   private defaultLocale = 'en';
   private readonly signIn: TelegramAdministratorSignIn;
@@ -60,6 +69,22 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
       throw new Error('Administrator bot identity unavailable.');
     this.users = createPostgresUserSessions(userDatabase, this.keys.userSessionKey);
     const client = new TelegramBotApiMenuClient(botToken);
+    this.profileReviews = new TelegramAdminProfileReviewRuntime(
+      database,
+      redis,
+      config.redis.queuePrefix,
+      bot[1]!,
+      this.keys.uiReferenceKey,
+      client,
+      new TelegramAdminTextDelivery(botToken),
+      {
+        render: (locale, intent) => {
+          if (this.renderer === undefined)
+            throw new Error('Administrator localization unavailable.');
+          return this.renderer.render(locale, intent);
+        },
+      },
+    );
     this.signIn = new TelegramAdministratorSignIn({
       botId: bot[1]!,
       limiter: new RedisRateLimiter(redis, config.redis.queuePrefix),
@@ -134,9 +159,10 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
           .where('name', 'in', [
             '000158_m9_administrator_signin_presentation.sql',
             '000162_m9_runtime_permission_lock.sql',
+            '000167_m9_profile_correction_review.sql',
           ])
           .execute()
-      ).length !== 2
+      ).length !== 3
     )
       throw new Error('Administrator schema unavailable.');
     await this.keys.verifyCustody(this.database);
@@ -148,13 +174,30 @@ class AdministratorTelegramRuntime implements AdministratorTelegramPort {
         ]),
       ),
       ...M9_ADMIN_TEXTS,
+      ...M9_REVIEW_TEXTS,
+      ...Object.fromEntries(
+        (
+          [
+            'profile.edit.birth_year',
+            'profile.edit.gender',
+            'profile.edit.status.pending',
+            'profile.edit.status.approved',
+            'profile.edit.status.rejected',
+            'profile.edit.status.cancelled',
+          ] as const
+        ).map((key) => [key, M9_EDITOR_TEXTS[key]]),
+      ),
+      'signup.ui.next': M9_SIGNUP_TEXTS['signup.ui.next'],
     });
     this.renderer = new CatalogRenderer(catalogs.messages, catalogs.defaultLocale);
     this.defaultLocale = catalogs.defaultLocale;
+    await this.profileReviews.onModuleInit();
   }
   public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
     const result = await this.signIn.handle(update);
-    return result === 'unhandled' ? this.ingress.handle(update) : result;
+    if (result !== 'unhandled') return result;
+    const profile = await this.profileReviews.handle(update);
+    return profile === 'unhandled' ? this.ingress.handle(update) : profile;
   }
   public async link(actor: UserSessionActor, locale: string): Promise<string | undefined> {
     // Capture before the first role/session lookup; never enrich an old actor with

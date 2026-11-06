@@ -22,6 +22,8 @@ import {
   currentNativeAdminSession,
   inheritNativeAdminSessionPolicy,
   nativeAdminSessionsRequired,
+  requireNativeAdminTotp,
+  type NativeAdminSessionPrincipal,
 } from './admin-session-policy.js';
 
 type RecordedAdminAction = Readonly<{
@@ -58,7 +60,21 @@ function isIdenticalCommand(row: RecordedAdminAction, attempt: AdminCommandAttem
  * and database failures remain outside that classification and abort the whole outer transaction.
  */
 export class PostgresAdminCommandStore implements AdminCommandExecutionStore<NakhDatabase> {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly originalSession: NativeAdminSessionPrincipal | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    originalSession?: NativeAdminSessionPrincipal,
+  ) {
+    this.originalSession =
+      originalSession === undefined
+        ? undefined
+        : Object.freeze({
+            adminUserId: originalSession.adminUserId,
+            actorUserId: originalSession.actorUserId,
+            sessionId: originalSession.sessionId,
+          });
+    if (originalSession !== undefined) requireNativeAdminTotp(database);
+  }
 
   protected async lockPermission(
     transaction: NakhDatabase,
@@ -80,14 +96,34 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
     attempt: AdminCommandAttempt,
     effect: (transaction: NakhDatabase) => Promise<AdminCommandEffectResult<T>>,
     onRecorded?: (transaction: NakhDatabase, outcome: AdminCommandRecordedOutcome) => Promise<void>,
+    authorizeReplay?: (transaction: NakhDatabase) => Promise<void>,
   ): Promise<AdminCommandExecutionResult<T>> {
     validateAdminCommandAttempt(attempt);
-    return this.database.transaction().execute(async (transaction) => {
+    const execute = async (transaction: NakhDatabase): Promise<AdminCommandExecutionResult<T>> => {
       inheritNativeAdminSessionPolicy(this.database, transaction);
       const requireSession = nativeAdminSessionsRequired(transaction);
       await sql`SELECT pg_advisory_xact_lock(
         hashtextextended(${'admin-command:'} || ${attempt.adminUserId}::text || ':' || ${attempt.commandId}::text, 0)
       )`.execute(transaction);
+
+      // Native-bound callers cannot replay a former permission or substitute a
+      // newer MFA session for the one attached to the original action.
+      if (this.originalSession !== undefined) {
+        const original = this.originalSession;
+        if (original.adminUserId !== attempt.adminUserId)
+          throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+        const binding = await transaction
+          .selectFrom('administration.admin_users')
+          .select('id')
+          .where('id', '=', original.adminUserId)
+          .where('user_id', '=', original.actorUserId)
+          .where('is_active', '=', true)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!binding || !(await this.lockPermission(transaction, attempt)))
+          throw new ApplicationError('forbidden', 'error.m7.unavailable', 403);
+        await assertNativeAdminSession(transaction, original.adminUserId, original.sessionId);
+      }
 
       const existing = await transaction
         .selectFrom('administration.admin_action_logs')
@@ -108,7 +144,21 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
         .executeTakeFirst();
       if (existing !== undefined) {
         if (!isIdenticalCommand(existing, attempt)) throw idempotencyConflict();
-        if (requireSession) await assertNativeAdminSession(transaction, attempt.adminUserId);
+        if (requireSession)
+          await assertNativeAdminSession(
+            transaction,
+            attempt.adminUserId,
+            this.originalSession?.sessionId,
+          );
+        if (authorizeReplay !== undefined) {
+          await authorizeReplay(transaction);
+          if (requireSession)
+            await assertNativeAdminSession(
+              transaction,
+              attempt.adminUserId,
+              this.originalSession?.sessionId,
+            );
+        }
         return {
           logId: existing.id,
           result: existing.result,
@@ -143,7 +193,11 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
       const permission =
         identity !== undefined ? await this.lockPermission(transaction, attempt) : undefined;
       if (requireSession)
-        pinnedSession = await currentNativeAdminSession(transaction, attempt.adminUserId);
+        pinnedSession = await currentNativeAdminSession(
+          transaction,
+          attempt.adminUserId,
+          this.originalSession?.sessionId,
+        );
       if (
         !admin.is_active ||
         permission === undefined ||
@@ -241,7 +295,10 @@ export class PostgresAdminCommandStore implements AdminCommandExecutionStore<Nak
         replayed: false,
         value,
       };
-    });
+    };
+    return this.database.isTransaction
+      ? execute(this.database)
+      : this.database.transaction().execute(execute);
   }
 
   public async recordEvidenceAccess(attempt: EvidenceAccessAttempt): Promise<EvidenceAccessResult> {

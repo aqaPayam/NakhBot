@@ -24,6 +24,16 @@ import {
 import type { NakhDatabase, ProfileChangeRequestTable } from './database.js';
 import { profilePhotosAreEligible } from './media-eligibility.js';
 import { PostgresUserSessionStore } from './user-session-store.js';
+import {
+  assertNativeAdminSession,
+  inheritNativeAdminSessionPolicy,
+  nativeAdminTotpRequired,
+  requireNativeAdminTotp,
+  type NativeAdminSessionPrincipal,
+} from './admin-session-policy.js';
+
+/** Original server-verified administrator session, never a transport-supplied identity. */
+export type ProtectedProfileReviewer = NativeAdminSessionPrincipal;
 
 type ProtectedWrite = RequestProtectedProfileChangeWrite | ResolveProtectedProfileChangeWrite;
 
@@ -147,6 +157,7 @@ async function profileFieldsAreValid(database: NakhDatabase, profileId: string):
 
 export class PostgresProfileChangeStore implements ProfileChangeStore {
   private readonly owner: UserSessionActor | undefined;
+  private readonly reviewer: ProtectedProfileReviewer | undefined;
   /** Bind user operations to a trusted ingress principal before its waits.
    * Legacy construction serves only first lives that have never issued a product
    * grant. It never selects a later epoch or bypasses modern grant revocation.
@@ -154,7 +165,10 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
   public constructor(
     private readonly database: NakhDatabase,
     owner?: UserSessionActor,
+    reviewer?: ProtectedProfileReviewer,
   ) {
+    this.reviewer = reviewer === undefined ? undefined : Object.freeze({ ...reviewer });
+    if (reviewer !== undefined) requireNativeAdminTotp(database);
     this.owner =
       owner === undefined
         ? undefined
@@ -164,6 +178,47 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
             productEpoch: owner.productEpoch,
             sessionGrantId: owner.sessionGrantId,
           });
+  }
+
+  private async requireReviewer(
+    transaction: NakhDatabase,
+    write: ResolveProtectedProfileChangeWrite,
+  ): Promise<void> {
+    const reviewer = this.reviewer;
+    if (reviewer === undefined) {
+      // Preserve pre-authenticator M1 fixtures, including generic synthetic MFA
+      // providers. The real authenticator host sets this monotonic policy and
+      // cannot use unbound review, even after a later generic composition.
+      if (nativeAdminTotpRequired(transaction))
+        throw new ApplicationError(
+          'reviewer_unauthorized',
+          'error.profile.change.reviewer_unauthorized',
+          403,
+        );
+      return;
+    }
+    requireNativeAdminTotp(transaction);
+    if (
+      reviewer.adminUserId !== write.authorization.adminUserId ||
+      reviewer.actorUserId !== write.authorization.reviewerUserId ||
+      reviewer.actorUserId !== write.command.actor.userId
+    )
+      throw new ApplicationError(
+        'reviewer_unauthorized',
+        'error.profile.change.reviewer_unauthorized',
+        403,
+      );
+    await assertNativeAdminSession(transaction, reviewer.adminUserId, reviewer.sessionId);
+    const permission = await sql<{ permission_code: string }>`SELECT permission_code
+      FROM administration.lock_runtime_admin_permission(${reviewer.adminUserId}::uuid,'review_change_requests')`.execute(
+      transaction,
+    );
+    if (permission.rows[0]?.permission_code !== 'review_change_requests')
+      throw new ApplicationError(
+        'reviewer_unauthorized',
+        'error.profile.change.reviewer_unauthorized',
+        403,
+      );
   }
 
   private async ownerAllowed(database: NakhDatabase, userId: string): Promise<boolean> {
@@ -447,14 +502,10 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
         'error.profile.change.reviewer_unauthorized',
         403,
       );
-    return this.database.transaction().execute(async (transaction) => {
-      const requestReference = await transaction
-        .selectFrom('profile.profile_change_requests')
-        .select('user_id')
-        .where('id', '=', write.command.data.profileChangeRequestId)
-        .executeTakeFirst();
-      if (requestReference === undefined)
-        throw new ApplicationError('not_found', 'error.profile.change.not_found', 404);
+    const execute = async (
+      transaction: NakhDatabase,
+    ): Promise<ResolveProtectedProfileChangeResult> => {
+      inheritNativeAdminSessionPolicy(this.database, transaction);
       const admin = await transaction
         .selectFrom('administration.admin_users')
         .select('id')
@@ -469,6 +520,14 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
           'error.profile.change.reviewer_unauthorized',
           403,
         );
+      await this.requireReviewer(transaction, write);
+      const requestReference = await transaction
+        .selectFrom('profile.profile_change_requests')
+        .select('user_id')
+        .where('id', '=', write.command.data.profileChangeRequestId)
+        .executeTakeFirst();
+      if (requestReference === undefined)
+        throw new ApplicationError('not_found', 'error.profile.change.not_found', 404);
       await transaction
         .selectFrom('identity.users')
         .select('id')
@@ -556,6 +615,7 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
           audit.occurred_at.getTime() !== review.reviewed_at.getTime()
         )
           throw new ApplicationError('profile_change_invalid', 'error.profile.change.invalid', 409);
+        await this.requireReviewer(transaction, write);
         return {
           request: view(request),
           decision: write.command.data.decision,
@@ -740,8 +800,12 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
         })
         .where('id', '=', write.command.commandId)
         .executeTakeFirstOrThrow();
+      await this.requireReviewer(transaction, write);
       return result;
-    });
+    };
+    return this.database.isTransaction
+      ? execute(this.database)
+      : this.database.transaction().execute(execute);
   }
 
   public async getProtectedChangeRequest(

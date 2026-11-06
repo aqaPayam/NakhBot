@@ -139,6 +139,7 @@ describe.skipIf(url === undefined)('M8 minimal original Match references', () =>
       '000164_m9_private_trial_invitations.sql',
       '000165_m9_free_test_credits.sql',
       '000166_m9_profile_settings_menus.sql',
+      '000167_m9_profile_correction_review.sql',
     ]);
     expect(await verifyMigrations(isolated.url, resolve('migrations/verify'))).toContain(
       '000092_m8_match_references.sql',

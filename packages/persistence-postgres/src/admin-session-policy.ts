@@ -2,6 +2,13 @@ import { sql } from 'kysely';
 import { ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
 
+/** Captured from native verified session state, never refreshed from a later sign-in. */
+export type NativeAdminSessionPrincipal = Readonly<{
+  adminUserId: string;
+  actorUserId: string;
+  sessionId: string;
+}>;
+
 const required = new WeakSet<NakhDatabase>();
 const totpRequired = new WeakSet<NakhDatabase>();
 /** Trusted host configuration, monotonic for this database owner. No transport input can relax it. */
