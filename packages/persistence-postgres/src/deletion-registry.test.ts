@@ -29,27 +29,31 @@ describe('M8 schema coverage denial', () => {
           : {
               ...t,
               columns: t.columns.filter(
-                (c) => c.name !== 'candidate_delivery_id' && c.name !== 'session_grant_id',
+                (c) =>
+                  c.name !== 'candidate_delivery_id' &&
+                  c.name !== 'session_grant_id' &&
+                  c.name !== 'feature_unlock_id',
               ),
             },
       ),
     };
+    const beforeLike = {
+      ...current,
+      tables: current.tables.map((t) =>
+        t.schema === 'media' && t.table === 'delivery_grants'
+          ? { ...t, columns: t.columns.filter((c) => c.name !== 'feature_unlock_id') }
+          : t,
+      ),
+    };
     expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion: 152 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 153 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 154 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 155 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 157 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 159 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 160 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 161 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 162 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 163 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 164 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 165 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 166 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 167 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 168 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 169 })).toThrow();
+    for (const schemaVersion of [
+      153, 154, 155, 157, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168,
+    ])
+      expect(() => assertDeletionCatalogCoverage({ ...beforeLike, schemaVersion })).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 169 })).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 170 })).toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...beforeLike, schemaVersion: 169 })).toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 168 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion: 153 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 152 })).toThrow();
     for (const schemaVersion of [Number.NaN, 0, 136, 159, 152.5])

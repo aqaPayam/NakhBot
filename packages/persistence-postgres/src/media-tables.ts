@@ -13,6 +13,7 @@ export interface MediaDeliveryGrantTable {
   like_id: string | null;
   candidate_delivery_id: Generated<string | null>;
   session_grant_id: Generated<string | null>;
+  feature_unlock_id: Generated<string | null>;
   purpose: 'owner_preview' | 'liked_by_blur' | 'profile_card' | 'profile_detail';
   variant_type: 'thumbnail' | 'blurred_preview';
   delivery_path: string;

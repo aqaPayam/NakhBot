@@ -155,6 +155,7 @@ describe.skipIf(url === undefined)(
         '000166_m9_profile_settings_menus.sql',
         '000167_m9_profile_correction_review.sql',
         '000168_m9_explore_filter_menus.sql',
+        '000169_m9_liked_by_profile_authority.sql',
       ]);
       expect(await legacyFacts()).toEqual(before);
       expect(

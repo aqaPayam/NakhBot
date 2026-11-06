@@ -88,7 +88,7 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
     actual.schemaVersion !== undefined &&
     (!Number.isSafeInteger(actual.schemaVersion) ||
       actual.schemaVersion < 137 ||
-      actual.schemaVersion > 168)
+      actual.schemaVersion > 169)
   )
     throw conflict();
   const tableNames = actual.tables.map((item) => `${item.schema}.${item.table}`).sort();
@@ -100,14 +100,14 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
       items: DeletionCatalog['tables'][number]['columns'],
     ): readonly (readonly [string, string, boolean])[] =>
       items.map(({ name, type, nullable }) => [name, type, nullable] as const);
-    // These are two explicitly reviewed layouts, never a general allowance for
-    // nullable/missing columns. Applied migration 153 requires both new fields.
+    // Reviewed ordinary media layouts are tied to their native migration.
     const expectedColumns =
-      expected.table === 'media.delivery_grants' &&
-      actual.schemaVersion !== undefined &&
-      actual.schemaVersion < 153
+      expected.table === 'media.delivery_grants' && actual.schemaVersion !== undefined
         ? expected.columns.filter(
-            (c) => c.name !== 'candidate_delivery_id' && c.name !== 'session_grant_id',
+            (c) =>
+              (actual.schemaVersion! >= 153 ||
+                (c.name !== 'candidate_delivery_id' && c.name !== 'session_grant_id')) &&
+              (actual.schemaVersion! >= 169 || c.name !== 'feature_unlock_id'),
           )
         : expected.columns;
     if (

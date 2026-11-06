@@ -5378,6 +5378,11 @@
           "name": "session_grant_id",
           "type": "uuid",
           "nullable": true
+        },
+        {
+          "name": "feature_unlock_id",
+          "type": "uuid",
+          "nullable": true
         }
       ],
       "foreignKeys": [

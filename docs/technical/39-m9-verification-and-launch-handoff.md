@@ -20,6 +20,29 @@ tests: the canonical profile/settings menus, contextual credit access and Liked 
 unlock presentation need actual bot wiring. Backend gates alone do not prove a
 finished customer application. Complete these flows before final owner testing.
 
+## Exact-unlock Liked By profile foundation
+
+Migration 169 extends ordinary media receipts with the original FeatureUnlock
+identifier. Interactive blurred previews retain their original user session;
+full profile thumbnails additionally require the exact active owned unlock,
+original Like, both current account lives and the original native session.
+The database insertion guard rechecks these facts after canonical lock waits.
+Revocation, deletion, inbox visibility withdrawal, rejection or pair closure
+invalidates existing receipts. A sender hiding their profile or changing their
+preferences does not retract their already-sent Like.
+
+The private profile projection is shared with delivered candidate details and
+remains transient. Reads collect every current visible photo, issue separate
+short-lived receipts, then recheck the exact sources and complete photo set
+before loading prose. Subsequent sends must recheck that source and text version.
+No profile body is added to a transport queue, idempotency receipt or cache.
+Historical retained manifests keep their immutable proofs; new manifests require
+the current schema inventory. Retained-data erasure stays disabled.
+
+This is the native access foundation. Interactive inbox/unlock delivery wiring
+and real release qualification remain separate work; this section does not claim
+the new feature is deployed.
+
 ## Repeatable free test credits
 
 The account menu now has Settings → Your credits → Add 100 free credits,

@@ -103,6 +103,8 @@ export * from './profile-review-store.js';
 export { PostgresGuestPreviewStore } from './guest-preview-store.js';
 export { PostgresExploreFilterStore } from './explore-filter-store.js';
 export type { OwnExploreFilterSnapshot } from './explore-filter-store.js';
+export { PostgresLikedByProfileStore } from './liked-by-profile-store.js';
+export { PostgresLikedByMediaAuthorization } from './liked-by-media-authorization.js';
 export { PostgresCandidateReservationStore } from './candidate-reservation-store.js';
 export { PostgresCandidateDeliveryStore } from './candidate-delivery-store.js';
 export { PostgresInteractionStore } from './interaction-store.js';
