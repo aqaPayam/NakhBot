@@ -558,6 +558,7 @@ Restrict a target when at least 5 distinct reporters have unresolved Reports sub
 ### Support and appeal
 
 - Non-banned users may create SupportThread.
+- Telegram `/paysupport` routes to the same support entry as `/support`, including private actor resolution, current product life, rate and unanswered-message limits, and idempotency. It does not authorize refunds or change banned/deleted-account rules. Public payment support must also offer an approved contact for customers unable to use product support.
 - At most 2 unanswered user SupportMessages are allowed across open threads.
 - An unanswered message is a user message created after the latest admin/support reply. An admin/support reply therefore starts a new unanswered-count segment.
 - Support and appeal messages are required and at most 2000 characters.

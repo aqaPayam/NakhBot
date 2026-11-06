@@ -88,89 +88,96 @@ describe.skipIf(url === undefined || databaseUrl === undefined)(
         await drain(next.store);
       },
     );
-    it('fences actual ingress after a limiter wait and native tombstone without provider delivery', async () => {
-      const isolated = await createIsolatedTestDatabase(databaseUrl!, 'm8_contact_runtime');
-      let database: NakhDatabase | undefined;
-      let outcome: Promise<unknown> | undefined;
-      let release!: () => void, observed!: () => void;
-      const waiting = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const started = new Promise<void>((resolve) => {
-        observed = resolve;
-      });
-      const send = vi
-        .spyOn(TelegramBotApiMenuClient.prototype, 'sendMenu')
-        .mockResolvedValue(undefined);
-      vi.spyOn(RedisRateLimiter.prototype, 'consume').mockImplementationOnce(async () => {
-        observed();
-        await waiting;
-        return { allowed: true, remaining: 9, retryAfterSeconds: 0 };
-      });
-      try {
-        await runMigrations(isolated.url, resolve('migrations'));
-        await verifyMigrations(isolated.url, resolve('migrations/verify'));
-        database = createDatabase({
-          url: isolated.url,
-          poolMax: 8,
-          statementTimeoutMs: 20000,
-          lockTimeoutMs: 15000,
+    it.each(['support', 'paysupport'] as const)(
+      'fences %s ingress after a limiter wait and native tombstone without provider delivery',
+      async (command) => {
+        const isolated = await createIsolatedTestDatabase(databaseUrl!, 'm8_contact_runtime');
+        let database: NakhDatabase | undefined;
+        let outcome: Promise<unknown> | undefined;
+        let release!: () => void, observed!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          release = resolve;
         });
-        const ingress = createTelegramSupportAppealIngress({
-          database,
-          redis,
-          config: {
-            telegram: { supportAppealEnabled: true, botTokenRef: 'bot', actionTokenKeyRef: 'key' },
-            redis: { queuePrefix: prefix },
-          } as AppConfig,
-          resolveSecret: (reference) =>
-            reference === 'bot' ? `12345:${'a'.repeat(24)}` : key.toString('base64url'),
+        const started = new Promise<void>((resolve) => {
+          observed = resolve;
         });
-        const { userId } = await createDeletionFixture(database, async (subjectId) => {
-          const identity = await database!
-            .selectFrom('identity.telegram_identities')
-            .select('telegram_user_id')
-            .where('user_id', '=', subjectId)
-            .executeTakeFirstOrThrow();
-          const sender = Number(identity.telegram_user_id);
-          outcome = ingress
-            .handle({
-              update_id: 91,
-              message: {
-                from: { id: sender, is_bot: false },
-                chat: { id: sender, type: 'private' },
-                text: '/support Synthetic delayed contact',
+        const send = vi
+          .spyOn(TelegramBotApiMenuClient.prototype, 'sendMenu')
+          .mockResolvedValue(undefined);
+        vi.spyOn(RedisRateLimiter.prototype, 'consume').mockImplementationOnce(async () => {
+          observed();
+          await waiting;
+          return { allowed: true, remaining: 9, retryAfterSeconds: 0 };
+        });
+        try {
+          await runMigrations(isolated.url, resolve('migrations'));
+          await verifyMigrations(isolated.url, resolve('migrations/verify'));
+          database = createDatabase({
+            url: isolated.url,
+            poolMax: 8,
+            statementTimeoutMs: 20000,
+            lockTimeoutMs: 15000,
+          });
+          const ingress = createTelegramSupportAppealIngress({
+            database,
+            redis,
+            config: {
+              telegram: {
+                supportAppealEnabled: true,
+                botTokenRef: 'bot',
+                actionTokenKeyRef: 'key',
               },
-            })
-            .then(
-              (value) => value,
-              (error) => error as unknown,
-            );
-          await Promise.race([
-            started,
-            outcome.then(() => {
-              throw new Error('Ingress finished before the native-life barrier.');
-            }),
-          ]);
-        });
-        release();
-        expect(await outcome).toMatchObject({ code: 'unauthorized' });
-        expect(send).not.toHaveBeenCalled();
-        expect(
-          await database
-            .selectFrom('support.support_threads')
-            .select('id')
-            .where('user_id', '=', userId)
-            .execute(),
-        ).toEqual([]);
-        expect(await redis.keys(`${subject(userId, 0).values}*`)).toEqual([]);
-      } finally {
-        release();
-        await outcome;
-        vi.restoreAllMocks();
-        await database?.destroy();
-        await isolated.destroy();
-      }
-    });
+              redis: { queuePrefix: prefix },
+            } as AppConfig,
+            resolveSecret: (reference) =>
+              reference === 'bot' ? `12345:${'a'.repeat(24)}` : key.toString('base64url'),
+          });
+          const { userId } = await createDeletionFixture(database, async (subjectId) => {
+            const identity = await database!
+              .selectFrom('identity.telegram_identities')
+              .select('telegram_user_id')
+              .where('user_id', '=', subjectId)
+              .executeTakeFirstOrThrow();
+            const sender = Number(identity.telegram_user_id);
+            outcome = ingress
+              .handle({
+                update_id: 91,
+                message: {
+                  from: { id: sender, is_bot: false },
+                  chat: { id: sender, type: 'private' },
+                  text: `/${command} Synthetic delayed contact`,
+                },
+              })
+              .then(
+                (value) => value,
+                (error) => error as unknown,
+              );
+            await Promise.race([
+              started,
+              outcome.then(() => {
+                throw new Error('Ingress finished before the native-life barrier.');
+              }),
+            ]);
+          });
+          release();
+          expect(await outcome).toMatchObject({ code: 'unauthorized' });
+          expect(send).not.toHaveBeenCalled();
+          expect(
+            await database
+              .selectFrom('support.support_threads')
+              .select('id')
+              .where('user_id', '=', userId)
+              .execute(),
+          ).toEqual([]);
+          expect(await redis.keys(`${subject(userId, 0).values}*`)).toEqual([]);
+        } finally {
+          release();
+          await outcome;
+          vi.restoreAllMocks();
+          await database?.destroy();
+          await isolated.destroy();
+        }
+      },
+    );
   },
 );

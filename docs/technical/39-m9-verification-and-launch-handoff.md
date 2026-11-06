@@ -2,6 +2,35 @@
 
 Status: **private VPS deployed; owner MFA verified; controlled launch acceptance pending**.
 
+## Public-launch preparation - 6 November 2026
+
+The owner expanded delivery from a completed private trial to public-launch
+preparation, retaining the existing `@NakhTestBot` identity and choosing
+`@NakhSupport` as the public payment/account/privacy contact. No second bot,
+new service login, purchase, funded payment drill or unrestricted activation is
+implied by that preparation request. One bot has one active delivery destination;
+prepare an explicit held cutover rather than two competing webhooks. Existing
+private trial identities, noncash credits and profile data must be reviewed before
+any production migration or exposure.
+
+Telegram requires a `/paysupport` entry for digital-goods merchants. The gateway
+now recognizes it through the existing support route, with the same private actor,
+original-life, throttling, replay and native support constraints. The actual
+PostgreSQL/Redis tombstone-race case runs for both support commands. This first
+entry increment does not change refund authority or banned/deleted-account rules.
+An independent public contact route, reviewed purchase terms and explicit terms
+acceptance are still required before accepting Stars; an ordinary support alias
+alone does not qualify payments. See
+[Telegram's official Stars requirements](https://core.telegram.org/bots/payments-stars).
+
+The current private VPS operator explicitly accepts staging only. Public production
+admission therefore needs a reviewed production deployment/operator procedure;
+changing `NAKH_ENV` or removing the staging guard is not an accepted cutover.
+The existing production AWS implementation remains available, but the owner chose
+the existing low-cost VPS. No AWS provisioning or additional expenditure is
+approved. Retained erasure and support-body release remain disabled pending the
+previously required policies and approvals.
+
 ## Private deletion and recovery checkpoint — 6 November 2026
 
 After explicit owner approval, the private trial was held without discarding

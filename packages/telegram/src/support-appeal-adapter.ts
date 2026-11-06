@@ -40,7 +40,7 @@ export class TelegramSupportAppealAdapter {
     const message = record(root?.message);
     const match =
       typeof message?.text === 'string'
-        ? /^\/(support|appeal|feedback)(?:\s+([\s\S]*))?$/u.exec(message.text)
+        ? /^\/(support|paysupport|appeal|feedback)(?:\s+([\s\S]*))?$/u.exec(message.text)
         : null;
     if (match === null) return { handled: false };
     const from = record(message?.from);
@@ -104,7 +104,7 @@ export class TelegramSupportAppealAdapter {
         userId,
         productEpoch,
         commandId,
-        kind: feedback ? 'support' : (match[1] as 'support' | 'appeal'),
+        kind: match[1] === 'appeal' ? 'appeal' : 'support',
         text: feedback
           ? `[Private trial feedback]\nRating: ${rating![1]}/5\n${rating![2] ?? ''}`
           : (match[2] ?? ''),

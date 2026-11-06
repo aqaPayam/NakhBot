@@ -48,6 +48,54 @@ const fixture = (
   };
 };
 describe('Telegram support and appeal ingress boundary', () => {
+  it('routes payment support through the same native life, rate limit and replay identity as ordinary support', async () => {
+    const f = fixture();
+    f.users.resolveProductLife.mockResolvedValue({ userId: f.userId, productEpoch: 3 });
+    const notice = await f.adapter.handle(update('/paysupport My purchase is missing'));
+    expect(notice).toMatchObject({
+      handled: true,
+      productEpoch: 3,
+      notice: { key: 'support.sent' },
+    });
+    expect(JSON.stringify(notice)).not.toContain('My purchase');
+    const command = f.handler.execute.mock.calls[0]![0];
+    expect(command).toMatchObject({
+      userId: f.userId,
+      productEpoch: 3,
+      kind: 'support',
+      text: 'My purchase is missing',
+    });
+    await f.adapter.handle(update('/support My purchase is missing'));
+    expect(f.handler.execute.mock.calls[1]![0]).toEqual(command);
+    expect(f.limiter.consume).toHaveBeenCalledWith({
+      scope: 'telegram_support_appeal',
+      subject: f.userId,
+      limit: 10,
+      windowSeconds: 60,
+    });
+    await f.adapter.handle(update('/paysupport', 43));
+    expect(f.handler.execute.mock.calls[2]![0]).toMatchObject({ kind: 'support', text: '' });
+  });
+  it('keeps payment support private and rejects unknown or throttled callers before writes', async () => {
+    const f = fixture();
+    const group = update('/paysupport private charge');
+    group.message.chat.type = 'group';
+    await expect(f.adapter.handle(group)).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(f.users.resolveProductLife).not.toHaveBeenCalled();
+    f.users.resolveProductLife.mockResolvedValueOnce(undefined);
+    await expect(f.adapter.handle(update('/paysupport private charge'))).rejects.toMatchObject({
+      code: 'unauthorized',
+    });
+    f.limiter.consume.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 10 });
+    expect(await f.adapter.handle(update('/paysupport private charge'))).toMatchObject({
+      notice: { key: 'error.m7.rate_limited' },
+    });
+    expect(f.handler.execute).not.toHaveBeenCalled();
+    expect(await f.adapter.handle(update('/paysupporting private charge'))).toEqual({
+      handled: false,
+    });
+  });
+
   it('collects a bounded private rating through the existing support workflow only for admitted testers', async () => {
     const f = fixture(),
       allowed = vi.fn().mockResolvedValue(true);

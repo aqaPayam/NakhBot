@@ -18,7 +18,8 @@ describe('Telegram support/appeal activation and delivery', () => {
       redis: {} as ReturnType<typeof createRedisConnection>,
       resolveSecret,
     });
-    expect(await ingress.handle({ message: { text: '/support' } })).toBe('unhandled');
+    for (const text of ['/support', '/paysupport'])
+      expect(await ingress.handle({ message: { text } })).toBe('unhandled');
     expect(resolveSecret).not.toHaveBeenCalled();
   });
   it('finishes business handling before delivering the content-free notice', async () => {
