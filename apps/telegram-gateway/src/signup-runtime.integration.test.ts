@@ -1245,6 +1245,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         NAKH_TELEGRAM_BOT_TOKEN_REF: 'M9_UI_BOT',
         NAKH_TELEGRAM_EXPLORE_ENABLED: 'true',
         NAKH_TELEGRAM_STARS_ENABLED: 'true',
+        NAKH_TELEGRAM_STARS_INVOICES_ENABLED: 'true',
         NAKH_TELEGRAM_REPORTS_ENABLED: 'true',
         NAKH_REPORT_SNAPSHOT_KEY_ID: 'report-key',
         NAKH_REPORT_SNAPSHOT_KEY_VERSION: '1',
@@ -1440,6 +1441,21 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
       const marker = `${prefix}:owned-action:{${createHash('sha256').update(f.userId).digest('hex')}}:life`;
       await redis.set(marker, 'blocked:0');
       try {
+        // Exercise the real process startup with callbacks enabled and new invoices paused.
+        // No provider event, account mutation or old test assertion is skipped.
+        app = await NestFactory.create<NestFastifyApplication>(
+          TelegramGatewayModule.register({
+            ...config,
+            telegram: { ...config.telegram, starsInvoiceCreationEnabled: false },
+          }),
+          new FastifyAdapter(),
+          { logger: false },
+        );
+        await app.init();
+        await app.getHttpAdapter().getInstance().ready();
+        expect((await app.inject({ method: 'GET', url: '/health/live' })).statusCode).toBe(200);
+        await app.close();
+        app = undefined;
         app = await NestFactory.create<NestFastifyApplication>(
           TelegramGatewayModule.register(config),
           new FastifyAdapter(),

@@ -559,7 +559,9 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         (
           [
             ['nakh.button.send_credits', 'nakh_credits'],
-            ...(this.stars?.enabled ? [['nakh.button.pay_stars', 'nakh_stars'] as const] : []),
+            ...(this.stars?.invoiceCreationEnabled
+              ? [['nakh.button.pay_stars', 'nakh_stars'] as const]
+              : []),
             ['nakh.button.save_pending', 'nakh_pending'],
             ['signup.ui.back', 'resume'],
           ] as const
@@ -582,7 +584,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     const screen = nav.action === 'reply' ? nav.screen : nav.action;
     if (screen !== 'nakh_credits' && screen !== 'nakh_pending' && screen !== 'nakh_stars')
       throw denied();
-    if (screen === 'nakh_stars' && !this.stars?.enabled) throw denied();
+    if (screen === 'nakh_stars' && !this.stars?.invoiceCreationEnabled) throw denied();
     const prompt = await this.client.sendPrompt(
       telegramId,
       [
@@ -626,7 +628,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       });
       await this.notice(telegramId, 'nakh.pending.created');
       if (nav.screen === 'nakh_stars') {
-        if (!this.stars?.enabled) throw denied();
+        if (!this.stars?.invoiceCreationEnabled) throw denied();
         await this.stars.invoice({
           ...envelope,
           actor: nav.actor,
@@ -1351,6 +1353,8 @@ export function createTelegramSignupRuntime(
     throw new Error('Chat composition unavailable.');
   if (input.config.telegram.starsEnabled && !input.stars?.enabled)
     throw new Error('Stars composition unavailable.');
+  if (input.config.telegram.starsInvoiceCreationEnabled && !input.stars?.invoiceCreationEnabled)
+    throw new Error('Stars invoice composition unavailable.');
   if (input.config.telegram.reportsEnabled && !input.reports?.enabled)
     throw new Error('Report composition unavailable.');
   const resolve = input.resolveSecret ?? resolveSecretReference,

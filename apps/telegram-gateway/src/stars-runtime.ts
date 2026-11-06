@@ -35,6 +35,7 @@ type InvoiceInput = Readonly<{
 }>;
 export interface TelegramStarsRuntimePort {
   readonly enabled: boolean;
+  readonly invoiceCreationEnabled: boolean;
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
   invoice(input: InvoiceInput): Promise<void>;
   assertSeparateNavigationKey?(key: Uint8Array): void;
@@ -153,6 +154,7 @@ export class TelegramStarsClient {
   }
 }
 export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
+  public readonly enabled = true;
   private readonly ids = new SystemIdGenerator();
   public constructor(
     private readonly database: NakhDatabase,
@@ -160,7 +162,7 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
     private readonly environment: AppConfig['environment'],
     private readonly botId: string,
     private readonly client: TelegramStarsClient,
-    public readonly enabled = true,
+    public readonly invoiceCreationEnabled = true,
   ) {}
   public assertSeparateNavigationKey(key: Uint8Array): void {
     this.keys.assertSeparateNavigationKey(key);
@@ -215,7 +217,7 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
       throw new ApplicationError('unauthorized', 'error.billing.payment_unavailable', 401);
   }
   public async invoice(input: InvoiceInput): Promise<void> {
-    if (!this.enabled) unavailable();
+    if (!this.invoiceCreationEnabled) unavailable();
     const request = structuredClone(input);
     await this.current(request.actor, request.telegramUserId);
     const prepared = await new PrepareStarsInvoiceHandler(
@@ -340,6 +342,7 @@ export function createTelegramStarsRuntime(
   if (!input.config.telegram.starsEnabled)
     return {
       enabled: false,
+      invoiceCreationEnabled: false,
       invoice: () =>
         Promise.reject(
           new ApplicationError('internal_error', 'error.billing.payment_unavailable', 503),

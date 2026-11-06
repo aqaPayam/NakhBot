@@ -2,6 +2,36 @@
 
 Status: **private VPS deployed; owner MFA verified; controlled launch acceptance pending**.
 
+## Current owner direction - non-payment test release
+
+The owner chose a clean public user database while preserving the protected test
+backup. Existing test profiles and balances must not be carried into that database.
+Real payment implementation and the payment box are deferred. Instead, every
+admitted user of the test version should be able to add internal test credits
+repeatedly for free. This is a requested implementation, not an activated feature
+or a claim that payment qualification has passed. Keep Stars purchases disabled;
+do not create fake provider receipts or represent test credits as real money.
+The previous one-time 100-credit question is superseded by repeatable free top-ups.
+The owner also confirmed that `@NakhSupport` still needs setup; it is not yet a
+working public support channel.
+
+The source audit found unfinished customer surfaces beyond the backend milestone
+tests: the canonical profile/settings menus, contextual credit access and Liked By
+unlock presentation need actual bot wiring. Backend gates alone do not prove a
+finished customer application. Complete these flows before final owner testing.
+
+## Invoice-pause composition repair
+
+Commit `23396fe` passed local checks but failed the native process-composition
+case: the new invoice switch overloaded the existing Stars `enabled` field, so
+signup interpreted paused invoices as a missing callback service. Do not accept
+that failed head as a release. The repair retains `enabled` for callback-service
+readiness and adds explicit `invoiceCreationEnabled` for menu/invoice admission.
+Both composition requirements remain checked. The native process boots in paused
+mode before executing the complete original invoice-enabled journey; unit
+regressions retain missing-service and missing-invoice-service rejection. All six
+exact-head CI jobs must pass before further feature work.
+
 ## Public-launch preparation - 6 November 2026
 
 The owner expanded delivery from a completed private trial to public-launch

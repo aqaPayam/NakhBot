@@ -46,7 +46,8 @@ describe('Telegram Stars transport', () => {
       database: new Proxy({} as NakhDatabase, { get: databaseAccess }),
       resolveSecret,
     });
-    expect(runtime.enabled).toBe(false);
+    expect(runtime.enabled).toBe(true);
+    expect(runtime.invoiceCreationEnabled).toBe(false);
     await expect(
       runtime.invoice({} as Parameters<typeof runtime.invoice>[0]),
     ).rejects.toMatchObject({ status: 503 });
