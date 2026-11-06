@@ -42,6 +42,24 @@ import. A real-container synthetic roundtrip, corrupt-import refusal and cleanup
 are now required in the final CI job, with a separate non-authorizing artifact.
 This fixture evidence does not substitute for the pending real backup observation.
 
+## Dependency security maintenance - 6 November 2026
+
+The inspected advisories are addressed by exact overrides for `fast-uri` 3.1.9
+and 4.2.3, Fastify 5.12.6, glob 14.0.2 and minimatch 11.0.1; Vitest and its
+coverage adapter move together to 4.1.12. The glob/minimatch major overrides are
+restricted to the previously affected major lines. The archive and cleanup
+consumers were exercised with synthetic files, including exclusions and preservation
+of an unrelated file. Existing sign-in, API and release tests plus all six exact-source
+CI jobs remain required. No advisory allowlist or package safety gate is relaxed.
+An updated source lockfile does not establish deployment of the patched application.
+
+Restore repair `46e395a` passed all six jobs, including the real-container synthetic
+roundtrip and refusal/cleanup rehearsal. Its ten ordinary CI artifacts and separate
+source-bound rehearsal artifact were verified privately. The real encrypted backup
+is still not certified restored: transferring its decrypted database members back
+to the isolated VPS container requires the owner's separate approval. The fixture
+never substitutes for that observation or for photo recovery/PITR qualification.
+
 ## Verified private trial checkpoint — 5 November 2026
 
 Application `13411398e2597bab548f23bd9add01d5a365ca5c` passed
