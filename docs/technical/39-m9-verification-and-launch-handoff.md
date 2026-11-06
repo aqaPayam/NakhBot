@@ -2,6 +2,38 @@
 
 Status: **private VPS deployed; owner MFA verified; controlled launch acceptance pending**.
 
+## Private deletion and recovery checkpoint — 6 November 2026
+
+After explicit owner approval, the private trial was held without discarding
+Telegram updates, native admission was closed and all four application producers
+were physically stopped. The six-job-green `2ffb1f6` host observer recorded two
+matching actual-host observations. The same accepted application `1341139` then
+restarted with ordinary deletion ingress/worker and real zone-scoped cache purge
+configured. A fresh source/config review reported no blockers; policy 14 reopened
+the two original tester lives plus a new eight-seat invitation at the original
+6 November 12:26:36 UTC deadline. The new bound stop timer, actual webhook,
+four-service readiness, original-life admission and unlisted-identity denial were
+verified. The old invitation was invalidated by closure; use the new private handoff.
+
+The owner supplied the new purge credential through the masked private entry form.
+Cloudflare accepted a single unused-URL purge request; this does not claim a cached
+photo was removed. A disposable R2 object passed upload/read/delete and separate
+HEAD-absence verification. No real tester account was deleted by the operator.
+The owner reports their tested product flows worked; the newly enabled deletion
+journey remains separately unverified. Payments, Return/fresh entry, retained erasure
+and support-body release remain disabled. This is private-trial activation, not M9
+completion or public-launch qualification.
+
+The final encrypted snapshot was copied off-host and authenticated, including its
+actual drain receipt and reopened configuration. The next recovery implementation
+is the [isolated backup restore tool](../../deploy/runbooks/private-vps-backup-restore.md).
+It restores only authenticated database members into a disposable network-disabled
+RAM-backed database, verifies the exact source migration ledger and withholds success
+until cleanup is independently observed. Its synthetic tests are not an actual
+snapshot restore, PITR, photo recovery or production DR acceptance. Execute its
+reviewed bytes only after all six exact-source jobs pass and preserve the actual
+result privately; the tool is independent of the running application release.
+
 ## Verified private trial checkpoint — 5 November 2026
 
 Application `13411398e2597bab548f23bd9add01d5a365ca5c` passed
