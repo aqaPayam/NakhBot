@@ -377,7 +377,7 @@ describe.skipIf(url === undefined)('M8 original funded Nakh references', () => {
     expect((await runMigrations(isolated.url, resolve('migrations'))).applied).toEqual([]);
     const catalog = await readDeletionCatalog(database);
     expect(catalog.tables).toHaveLength(153);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1421);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1422);
     expect(catalog.foreignKeys).toHaveLength(307);
     assertDeletionCatalogCoverage(catalog);
   });
