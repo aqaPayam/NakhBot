@@ -6,6 +6,7 @@ import {
   runMigrations,
   verifyMigrations,
   PostgresProfileStore,
+  PostgresExploreFilterStore,
   PostgresUserSessionStore,
   PostgresNotificationPreferenceStore,
   type NakhDatabase,
@@ -295,7 +296,97 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       await account.handle(callback(button('Main menu')));
       await rootMenu.handle(callback(button('Edit profile')));
       expect(latest().buttons.some((b) => b.text === 'Name')).toBe(true);
+      await profile.handle(callback(button('Main menu')));
+      await rootMenu.handle(callback(button('Explore filters')));
+      expect(latest().text).toContain('Genders:');
       expect((await actor()).sessionGrantId).toBe(original.sessionGrantId);
+    });
+    it('saves numeric ages and an optional relationship goal without clearing other filters', async () => {
+      await profile.handle(incoming('/filters'));
+      const filters = new PostgresExploreFilterStore(database, await actor()),
+        before = await filters.getOwnFilter(userId);
+      await profile.handle(callback(button('Minimum age')));
+      const minimum = button('24');
+      await profile.handle(callback(minimum));
+      await profile.handle(callback(minimum));
+      expect(await filters.getOwnFilter(userId)).toMatchObject({
+        version: 1,
+        minAge: 24,
+        maxAge: before.maxAge,
+        city: before.city,
+        targetGenderOptionIds: before.targetGenderOptionIds,
+      });
+      await profile.handle(callback(button('Relationship goal')));
+      await profile.handle(callback(button('Serious Relationship')));
+      expect((await filters.getOwnFilter(userId)).relationshipGoalCode).toBe(
+        'serious_relationship',
+      );
+      await profile.handle(callback(button('Relationship goal')));
+      await profile.handle(callback(button('Any relationship goal')));
+      expect(await filters.getOwnFilter(userId)).toMatchObject({ version: 3, minAge: 24 });
+      expect((await filters.getOwnFilter(userId)).relationshipGoalCode).toBeUndefined();
+    });
+    it('changes filter location only after the city, keeping it independent of the profile location', async () => {
+      await profile.handle(incoming('/filters'));
+      const filters = new PostgresExploreFilterStore(database, await actor());
+      await profile.handle(callback(button('Location')));
+      await profile.handle(callback(button('Iran')));
+      await profile.handle(callback(button('Isfahan')));
+      expect((await filters.getOwnFilter(userId)).version).toBeUndefined();
+      await profile.handle(callback(button('Isfahan')));
+      expect((await filters.getOwnFilter(userId)).city.code).toBe('isfahan');
+      expect(
+        (await new PostgresProfileStore(database, await actor()).getOwnProfile(userId))?.cityCode,
+      ).toBe('tehran');
+    });
+    it('rejects borrowed or revoked filter menus and refuses old competing choices', async () => {
+      await profile.handle(incoming('/filters'));
+      await profile.handle(callback(button('Minimum age')));
+      const first = button('24'),
+        competing = button('25');
+      await expect(profile.handle(callback(first, sender + 1))).rejects.toMatchObject({
+        status: 401,
+      });
+      await profile.handle(callback(first));
+      await profile.handle(callback(competing));
+      expect(latest().text).toContain('These filters changed');
+      const original = await actor(),
+        filters = new PostgresExploreFilterStore(database, original);
+      expect((await filters.getOwnFilter(userId)).minAge).toBe(24);
+      const old = button('Apply shown filters');
+      await new PostgresUserSessionStore(database).revoke(
+        original,
+        original.sessionGrantId,
+        randomUUID(),
+      );
+      const count = messages.length;
+      await expect(profile.handle(callback(old))).rejects.toMatchObject({ status: 401 });
+      expect(messages).toHaveLength(count);
+    });
+    it('toggles genders idempotently and keeps one choice required', async () => {
+      await profile.handle(incoming('/filters'));
+      const filters = new PostgresExploreFilterStore(database, await actor()),
+        initial = await filters.getOwnFilter(userId);
+      expect(initial.allowedGenders.length).toBeGreaterThan(1);
+      await profile.handle(callback(button('Genders')));
+      const remove = latest().buttons.find((b) => b.text.startsWith('✓ '))!.callback_data;
+      await profile.handle(callback(remove));
+      await profile.handle(callback(remove));
+      expect((await filters.getOwnFilter(userId)).targetGenderOptionIds).toHaveLength(
+        initial.targetGenderOptionIds.length - 1,
+      );
+      while ((await filters.getOwnFilter(userId)).targetGenderOptionIds.length > 1) {
+        await profile.handle(callback(button('Genders')));
+        await profile.handle(
+          callback(latest().buttons.find((b) => b.text.startsWith('✓ '))!.callback_data),
+        );
+      }
+      await profile.handle(callback(button('Genders')));
+      await profile.handle(
+        callback(latest().buttons.find((b) => b.text.startsWith('✓ '))!.callback_data),
+      );
+      expect(latest().text).toContain('at least one available gender');
+      expect((await filters.getOwnFilter(userId)).targetGenderOptionIds).toHaveLength(1);
     });
     it('changes an optional field without clearing existing bio, height or other fields', async () => {
       await profile.handle(incoming('/edit_profile'));

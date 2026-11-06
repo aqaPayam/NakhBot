@@ -116,7 +116,10 @@ describe.skipIf(url === undefined)(
       expect(JSON.stringify({ actions, audits })).not.toContain(
         'Private synthetic lifecycle correction',
       );
-      expect(JSON.stringify({ actions, audits })).not.toContain('1994');
+      expect(actions.map((row) => row.metadata)).toEqual([{}]);
+      expect(audits.map((row) => row.metadata)).toEqual([
+        { actionType: 'profile_correction', decision: 'succeeded' },
+      ]);
     });
     it('paginates pending metadata without reasons, private values or repeated rows', async () => {
       const added: string[] = [];
@@ -181,7 +184,16 @@ describe.skipIf(url === undefined)(
         .where('actor_user_id', '=', f.principal.actorUserId)
         .execute();
       expect(JSON.stringify(receipts)).not.toContain('requestedValue');
-      expect(JSON.stringify(receipts)).not.toContain('1994');
+      expect(receipts).toEqual([
+        {
+          response_json: {
+            receiptSchemaVersion: 1,
+            profileChangeRequestId: requestId,
+            decision: 'approved',
+            profileVersion: 2,
+          },
+        },
+      ]);
     });
     it('records a losing competing decision without overwriting the committed review', async () => {
       const results = await Promise.all([

@@ -18,6 +18,7 @@ describe('owned profile editor activation', () => {
     });
     expect(runtime.enabled).toBe(false);
     expect(await runtime.handle({ message: { text: '/edit_profile' } })).toBe('unhandled');
+    expect(await runtime.handle({ message: { text: '/filters' } })).toBe('unhandled');
     await expect(
       runtime.open('123', {
         kind: 'user',

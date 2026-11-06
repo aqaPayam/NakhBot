@@ -27,6 +27,7 @@ export type SignupNavigation = Readonly<{
     | 'chat'
     | 'settings'
     | 'edit_profile'
+    | 'filters'
     | 'home';
   code?: string | undefined;
   selection?: readonly string[] | undefined;
@@ -237,6 +238,7 @@ export class SignupNavigationTokens {
         'chat',
         'settings',
         'edit_profile',
+        'filters',
         'home',
       ].includes(row.action) &&
       ['code', 'field', 'country', 'province', 'reference', 'reason'].every(

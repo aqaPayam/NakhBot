@@ -1420,6 +1420,7 @@ describe.skipIf(url === undefined)('M8 native retention policy attestations', ()
         '000165_m9_free_test_credits.sql',
         '000166_m9_profile_settings_menus.sql',
         '000167_m9_profile_correction_review.sql',
+        '000168_m9_explore_filter_menus.sql',
       ]);
       await verifyMigrations(target.url, resolve('migrations/verify'));
       const after = await snapshot();

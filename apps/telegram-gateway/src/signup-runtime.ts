@@ -27,6 +27,7 @@ import {
   M9_ACCOUNT_TEXTS,
   M9_SETTINGS_TEXTS,
   M9_EDITOR_TEXTS,
+  M9_FILTER_TEXTS,
   M9_PREVIEW_TEXTS,
   M9_PROFILE_TEXTS,
   englishCatalogFromManifest,
@@ -145,6 +146,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         ...(this.chat?.enabled ? M9_CHAT_TEXTS : {}),
         ...(this.account?.enabled ? { ...M9_ACCOUNT_TEXTS, ...M9_SETTINGS_TEXTS } : {}),
         ...(this.profile?.enabled ? M9_EDITOR_TEXTS : {}),
+        ...(this.profile?.enabled && this.profile.openFilters ? M9_FILTER_TEXTS : {}),
         ...(this.previewDelivery === undefined && this.exploreDelivery === undefined
           ? {}
           : { ...M9_PREVIEW_TEXTS, ...M9_PROFILE_TEXTS }),
@@ -885,6 +887,11 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           await this.profile.open(telegramId, nav.actor);
           return 'notice';
         }
+        if (nav.action === 'filters') {
+          if (!this.profile?.enabled || !this.profile.openFilters) throw denied();
+          await this.profile.openFilters(telegramId, nav.actor);
+          return 'notice';
+        }
         const next = this.next(nav),
           claim = await tokens.claim(nav, updateId, String(data), next);
         if (!claim.accepted) {
@@ -1172,6 +1179,13 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         await button(t('profile.edit.title'), { action: 'edit_profile' });
       if (this.account?.enabled && ['active', 'restricted'].includes(context.accountState))
         await button(t('account.menu.title'), { action: 'settings' });
+      if (
+        this.profile?.enabled &&
+        this.profile.openFilters &&
+        context.accountState === 'active' &&
+        context.profileCompletion === 'complete'
+      )
+        await button(t('filters.title'), { action: 'filters' });
       if (
         this.chat?.enabled &&
         (context.accountState === 'active' || context.accountState === 'restricted')

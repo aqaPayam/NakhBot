@@ -137,7 +137,7 @@ async function effectiveFilter(
   const age = viewer.currentYear - viewer.birthYear;
   return {
     genderOptionIds: genderRows.map((row) => row.gender_option_id),
-    minAge: viewer.filterMinAge ?? Math.max(18, age - 5),
+    minAge: viewer.filterMinAge ?? Math.min(120, Math.max(18, age - 5)),
     maxAge: viewer.filterMaxAge ?? Math.min(120, age + 5),
     cityId: viewer.filterCityId ?? viewer.cityId,
     relationshipGoalId: viewer.filterRelationshipGoalId,

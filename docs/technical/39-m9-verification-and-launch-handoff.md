@@ -87,6 +87,26 @@ edits, optional-field preservation, revoked/borrowed controls, correction reques
 and account switches. These checks do not activate the new menus on the live VPS
 or qualify public launch.
 
+## Owned Explore filters
+
+The account-menu composition adds Explore filters and `/filters`, using the
+original native product session on every callback. Numeric age pages, current
+allowed genders, an atomic country/province/city choice and an optional
+relationship goal reuse the M3 filter command. Changes preserve sibling values,
+compare the original filter version and retain one result for identical retries.
+Navigation stores public selectors, expected versions and grant references only.
+
+The owned read displays the existing age/location defaults without creating a
+filter. A profile preference change is disclosed before the available gender
+selection is saved by an explicit filter action. Both default age bounds remain
+within 18–120. Native writes recheck current account/profile capability before
+cached outcomes and validate active city, province and country together.
+Migration 168 installs thirteen English presentation messages, with fallback and
+exact reference inventory checks; it introduces no retained resource. Native
+coverage includes concurrent retries, competing versions, old-grant revocation,
+borrowed owners, catalog withdrawal and independent filter/profile locations.
+This implementation does not establish deployed activation or live acceptance.
+
 ## Administrator profile correction review
 
 Authenticated staff with `review_change_requests` can open `/admin_changes`.

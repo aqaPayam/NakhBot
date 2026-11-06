@@ -262,6 +262,7 @@ describe.skipIf(url === undefined)('M8 original Flow references', () => {
       '000165_m9_free_test_credits.sql',
       '000166_m9_profile_settings_menus.sql',
       '000167_m9_profile_correction_review.sql',
+      '000168_m9_explore_filter_menus.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);

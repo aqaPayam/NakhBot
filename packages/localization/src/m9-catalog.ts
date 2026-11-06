@@ -1,3 +1,22 @@
+export const M9_FILTER_TEXTS = {
+  'filters.title': 'Explore filters',
+  'filters.summary':
+    'Genders: {genders}\nAge: {min}–{max}\nLocation: {location}\nRelationship goal: {goal}\nChanges save as you tap.',
+  'filters.genders': 'Genders',
+  'filters.min_age': 'Minimum age',
+  'filters.max_age': 'Maximum age',
+  'filters.location': 'Location',
+  'filters.goal': 'Relationship goal',
+  'filters.any': 'Any relationship goal',
+  'filters.apply': 'Apply shown filters',
+  'filters.saved': 'Explore filters saved.',
+  'filters.changed': 'These filters changed. Use the current menu and try again.',
+  'filters.invalid':
+    'Choose at least one available gender, ages 18–120 in order, and an active location.',
+  'filters.preference_adjusted':
+    'Your profile preference changed. The next filter change will also save the available genders shown here.',
+} as const;
+
 export const M9_REVIEW_TEXTS = {
   'profile.review.title': 'Profile corrections',
   'profile.review.empty': 'No pending profile corrections.',

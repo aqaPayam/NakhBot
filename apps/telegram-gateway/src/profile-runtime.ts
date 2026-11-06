@@ -2,9 +2,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   UpdateOwnProfileHandler,
   RequestProtectedProfileChangeHandler,
+  SaveExploreFilterHandler,
   type UserSessionActor,
 } from '@nakh/application';
-import type { UpdateProfileCommand, RequestProtectedProfileChangeCommand } from '@nakh/contracts';
+import type {
+  UpdateProfileCommand,
+  RequestProtectedProfileChangeCommand,
+  SaveExploreFilterCommand,
+} from '@nakh/contracts';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import { ApplicationError, SystemClock } from '@nakh/domain';
 import {
@@ -12,9 +17,11 @@ import {
   M9_EDITOR_TEXTS,
   M9_SETTINGS_TEXTS,
   M9_SIGNUP_TEXTS,
+  M9_FILTER_TEXTS,
 } from '@nakh/localization';
 import {
   PostgresProfileStore,
+  PostgresExploreFilterStore,
   PostgresProfileChangeStore,
   PostgresSignupChoices,
   PostgresUserSessionStore,
@@ -123,6 +130,7 @@ export interface TelegramProfileRuntimePort {
   readonly enabled: boolean;
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
   open(recipient: string, actor: UserSessionActor): Promise<void>;
+  openFilters?(recipient: string, actor: UserSessionActor): Promise<void>;
 }
 
 /** Field text goes directly to native profile commands, never to navigation storage. */
@@ -157,7 +165,7 @@ export class TelegramProfileRuntime implements TelegramProfileRuntimePort {
       !(await this.database
         .selectFrom('platform.schema_migrations')
         .select('name')
-        .where('name', '=', '000166_m9_profile_settings_menus.sql')
+        .where('name', '=', '000168_m9_explore_filter_menus.sql')
         .executeTakeFirst())
     )
       throw new Error('Profile editor schema unavailable.');
@@ -171,6 +179,7 @@ export class TelegramProfileRuntime implements TelegramProfileRuntimePort {
         ...M9_EDITOR_TEXTS,
         ...M9_SETTINGS_TEXTS,
         ...M9_SIGNUP_TEXTS,
+        ...M9_FILTER_TEXTS,
       })) {
         const value = catalog.messages[key],
           variables = (text: string): string =>
@@ -601,6 +610,214 @@ export class TelegramProfileRuntime implements TelegramProfileRuntimePort {
       'profile.edit.saved',
     );
   }
+  private async renderFilters(
+    recipient: string,
+    actor: UserSessionActor,
+    input: Partial<Nav> = {},
+    notice?: string,
+  ): Promise<void> {
+    const s = await this.state(recipient, actor),
+      t = s.t,
+      f = await new PostgresExploreFilterStore(this.database, actor).getOwnFilter(actor.userId);
+    const nav: Nav = {
+      ...input,
+      actor,
+      version: s.snapshot.profile.version,
+      reference: input.reference ?? String(f.version ?? 0),
+      screen: input.screen ?? 'filter_root',
+      action: 'resume',
+      group: randomBytes(12).toString('base64url'),
+    };
+    const keyboard: Array<Array<{ text: string; callback_data: string }>> = [],
+      tokens = this.tokens(recipient, actor);
+    const button = async (
+      text: string,
+      action: Nav['action'],
+      extra: Partial<Nav> = {},
+    ): Promise<void> => {
+      keyboard.push([{ text, callback_data: await tokens.button({ ...nav, action, ...extra }) }]);
+    };
+    const lines = [t('filters.title')];
+    if (notice) lines.push(t(notice));
+    if (f.preferenceAdjusted) lines.push(t('filters.preference_adjusted'));
+    if (nav.screen === 'filter_root') {
+      lines.push(
+        t('filters.summary', {
+          genders: f.allowedGenders
+            .filter((g) => f.targetGenderOptionIds.includes(g.id))
+            .map((g) => t(g.labelKey))
+            .join(', '),
+          min: f.minAge,
+          max: f.maxAge,
+          location: [f.city.countryLabelKey, f.city.provinceLabelKey, f.city.labelKey]
+            .map((key) => t(key))
+            .join(' / '),
+          goal: f.relationshipGoalCode
+            ? this.label(s, 'relationship_goal', f.relationshipGoalCode)
+            : t('filters.any'),
+        }),
+      );
+      for (const [field, key] of [
+        ['genders', 'filters.genders'],
+        ['min', 'filters.min_age'],
+        ['max', 'filters.max_age'],
+        ['country', 'filters.location'],
+        ['goal', 'filters.goal'],
+      ] as const)
+        await button(t(key), 'page', {
+          screen: 'filter_' + field,
+          page: 0,
+          field: undefined,
+          code: undefined,
+        });
+      await button(t('filters.apply'), 'save', { field: 'filter_apply' });
+      await button(t('account.menu.home'), 'home');
+    } else {
+      const screen = nav.screen.slice('filter_'.length);
+      let choices: Array<{ code: string; label: string; selected?: boolean }>;
+      if (screen === 'genders')
+        choices = f.allowedGenders.map((g) => ({
+          code: g.code,
+          label: t(g.labelKey),
+          selected: f.targetGenderOptionIds.includes(g.id),
+        }));
+      else if (screen === 'min' || screen === 'max') {
+        const low = screen === 'min' ? 18 : f.minAge,
+          high = screen === 'max' ? 120 : f.maxAge;
+        choices = Array.from({ length: high - low + 1 }, (_, n) => ({
+          code: String(low + n),
+          label: String(low + n),
+        }));
+      } else if (['country', 'province', 'city', 'goal'].includes(screen)) {
+        let rows = s.choices.catalogs[screen === 'goal' ? 'relationship_goal' : screen] ?? [];
+        if (screen === 'province') rows = rows.filter((r) => r.parent === nav.country);
+        if (screen === 'city')
+          rows = rows.filter((r) => r.parent === `${nav.country}/${nav.province}`);
+        choices = rows.map((r) => ({ code: r.code, label: t(r.labelKey) }));
+        if (screen === 'goal')
+          await button(t('filters.any'), 'clear', { field: 'filter_goal', code: undefined });
+      } else invalid();
+      const page = Math.max(
+        0,
+        Math.min(nav.page ?? 0, Math.max(0, Math.ceil(choices.length / 10) - 1)),
+      );
+      for (const choice of choices.slice(page * 10, page * 10 + 10))
+        await button((choice.selected ? '✓ ' : '') + choice.label, 'save', {
+          field: 'filter_' + screen,
+          code: choice.code,
+          reason: choice.selected ? 'remove' : 'add',
+        });
+      if (page > 0) await button(t('signup.ui.back'), 'page', { page: page - 1 });
+      if ((page + 1) * 10 < choices.length)
+        await button(t('signup.ui.next'), 'page', { page: page + 1 });
+      await button(t('filters.title'), 'resume', {
+        screen: 'filter_root',
+        field: undefined,
+        code: undefined,
+        page: undefined,
+      });
+    }
+    await this.send(recipient, actor, lines.join('\n\n'), keyboard);
+  }
+  private async filterAction(
+    recipient: string,
+    actor: UserSessionActor,
+    updateId: number,
+    nav: Nav,
+  ): Promise<void> {
+    if (nav.action === 'save' && nav.screen === 'filter_country') {
+      if (!nav.code) invalid();
+      await this.renderFilters(recipient, actor, {
+        ...nav,
+        screen: 'filter_province',
+        country: nav.code,
+        province: undefined,
+        code: undefined,
+        page: 0,
+      });
+      return;
+    }
+    if (nav.action === 'save' && nav.screen === 'filter_province') {
+      if (!nav.code || !nav.country) invalid();
+      await this.renderFilters(recipient, actor, {
+        ...nav,
+        screen: 'filter_city',
+        province: nav.code,
+        code: undefined,
+        page: 0,
+      });
+      return;
+    }
+    if (nav.action !== 'save' && nav.action !== 'clear') {
+      await this.renderFilters(recipient, actor, nav);
+      return;
+    }
+    const s = await this.state(recipient, actor),
+      store = new PostgresExploreFilterStore(this.database, actor),
+      f = await store.getOwnFilter(actor.userId);
+    if (
+      !nav.reference ||
+      !/^(0|[1-9][0-9]*)$/u.test(nav.reference) ||
+      !Number.isSafeInteger(Number(nav.reference))
+    )
+      invalid();
+    let genders = [...f.targetGenderOptionIds],
+      min = f.minAge,
+      max = f.maxAge,
+      cityId = f.city.id,
+      goal = f.relationshipGoalCode;
+    if (nav.field === 'filter_genders') {
+      const gender = f.allowedGenders.find((g) => g.code === nav.code);
+      if (!gender || !['add', 'remove'].includes(nav.reason ?? '')) invalid();
+      genders =
+        nav.reason === 'remove'
+          ? genders.filter((id) => id !== gender.id)
+          : [...new Set([...genders, gender.id])];
+    } else if (nav.field === 'filter_min' || nav.field === 'filter_max') {
+      if (!nav.code || !/^[0-9]{2,3}$/u.test(nav.code)) invalid();
+      if (nav.field === 'filter_min') min = Number(nav.code);
+      else max = Number(nav.code);
+    } else if (nav.field === 'filter_goal') {
+      if (nav.action === 'clear') goal = undefined;
+      else {
+        if (!nav.code) invalid();
+        goal = nav.code;
+      }
+    } else if (nav.field === 'filter_city') {
+      if (!nav.country || !nav.province || !nav.code) invalid();
+      const city = await this.database
+        .selectFrom('catalog.cities as c')
+        .innerJoin('catalog.provinces as p', 'p.id', 'c.province_id')
+        .innerJoin('catalog.countries as n', 'n.id', 'p.country_id')
+        .select('c.id')
+        .where('c.code', '=', nav.code)
+        .where('p.code', '=', nav.province)
+        .where('n.code', '=', nav.country)
+        .where('c.is_active', '=', true)
+        .where('p.is_active', '=', true)
+        .where('n.is_active', '=', true)
+        .executeTakeFirst();
+      if (!city) invalid();
+      cityId = city.id;
+    } else if (nav.field !== 'filter_apply') invalid();
+    const data: SaveExploreFilterCommand['data'] = {
+      targetGenderOptionIds: genders,
+      minAge: min,
+      maxAge: max,
+      cityId,
+      ...(goal === undefined ? {} : { relationshipGoalCode: goal }),
+      ...(nav.reference === '0' ? {} : { expectedVersion: Number(nav.reference) }),
+    };
+    await new SaveExploreFilterHandler(store, this.ids, this.clock).execute({
+      ...this.envelope(actor, recipient, updateId, nav, s.locale),
+      commandType: 'discovery.save-explore-filter',
+      data,
+    });
+    await this.renderFilters(recipient, actor, {}, 'filters.saved');
+  }
+  public async openFilters(recipient: string, input: UserSessionActor): Promise<void> {
+    await this.renderFilters(recipient, Object.freeze({ ...input }));
+  }
   public async open(recipient: string, input: UserSessionActor): Promise<void> {
     await this.render(recipient, Object.freeze({ ...input }));
   }
@@ -612,7 +829,8 @@ export class TelegramProfileRuntime implements TelegramProfileRuntimePort {
       typeof callback?.data === 'string' && callback.data.startsWith('m9p:')
         ? callback.data
         : undefined;
-    const command = message?.text === '/edit_profile',
+    const filterCommand = message?.text === '/filters',
+      command = message?.text === '/edit_profile' || filterCommand,
       reply = record(message?.reply_to_message),
       replyFrom = record(reply?.from);
     const replyId =
@@ -693,13 +911,18 @@ export class TelegramProfileRuntime implements TelegramProfileRuntimePort {
     try {
       if (callback !== undefined) await this.client.answerCallback(String(callback.id));
       if (command) {
-        await this.render(recipient, actor);
+        if (filterCommand) await this.renderFilters(recipient, actor);
+        else await this.render(recipient, actor);
         return 'notice';
       }
       if (!nav) invalid();
       if (nav.action === 'home') {
         if (this.home) await this.home(recipient, actor);
         else await this.render(recipient, actor);
+        return 'notice';
+      }
+      if (nav.screen.startsWith('filter_')) {
+        await this.filterAction(recipient, actor, updateId, nav);
         return 'notice';
       }
       if (nav.action === 'reply') {
@@ -743,6 +966,15 @@ export class TelegramProfileRuntime implements TelegramProfileRuntimePort {
         error.status === 403
       )
         throw error;
+      if (filterCommand || nav?.screen.startsWith('filter_')) {
+        await this.renderFilters(
+          recipient,
+          actor,
+          {},
+          error.status === 409 ? 'filters.changed' : 'filters.invalid',
+        );
+        return 'notice';
+      }
       await this.render(
         recipient,
         actor,

@@ -428,7 +428,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         await target.query('COMMIT');
       }
       expect((await runMigrations(targetUrl.toString(), directory)).applied).toHaveLength(
-        167 - baseline,
+        168 - baseline,
       );
       await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
       if (previewEvent !== undefined) {
@@ -871,6 +871,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
         '000165_m9_free_test_credits.sql',
         '000166_m9_profile_settings_menus.sql',
         '000167_m9_profile_correction_review.sql',
+        '000168_m9_explore_filter_menus.sql',
       ]);
       expect(upgrade.existing).toHaveLength(9);
       const verified = await verifyMigrations(targetUrl.toString(), join(directory, 'verify'));
@@ -985,7 +986,7 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
       expect(verified).toContain('000166_m9_profile_settings_menus.sql');
       const replay = await runMigrations(targetUrl.toString(), directory);
       expect(replay.applied).toEqual([]);
-      expect(replay.existing).toHaveLength(167);
+      expect(replay.existing).toHaveLength(168);
     } finally {
       try {
         if (created) await admin.query(`DROP DATABASE "${name}"`);

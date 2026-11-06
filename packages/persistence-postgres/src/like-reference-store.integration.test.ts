@@ -146,6 +146,7 @@ describe.skipIf(url === undefined)(
           '000165_m9_free_test_credits.sql',
           '000166_m9_profile_settings_menus.sql',
           '000167_m9_profile_correction_review.sql',
+          '000168_m9_explore_filter_menus.sql',
         ]);
         const verified = await verifyMigrations(isolated.url, resolve('migrations/verify'));
         expect(verified).toContain('000104_m8_like_original_lives.sql');
