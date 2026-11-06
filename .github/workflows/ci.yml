@@ -245,6 +245,21 @@ jobs:
         env:
           POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: bash deploy/scripts/restore-smoke.sh
+      - name: Isolated private VPS restore rehearsal with synthetic data
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          image_id=$(docker inspect --format '{{.Image}}' "$POSTGRES_CONTAINER_ID")
+          postgres_uid=$(docker exec "$POSTGRES_CONTAINER_ID" id -u postgres)
+          postgres_gid=$(docker exec "$POSTGRES_CONTAINER_ID" id -g postgres)
+          python3 -I -B deploy/vps/restore_rehearsal.py "$image_id" "$postgres_uid" "$postgres_gid" artifacts/private-vps-restore-rehearsal.json
+      - name: Retain isolated restore rehearsal evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: private-vps-restore-${{ github.sha }}
+          path: artifacts/private-vps-restore-rehearsal.json
+          if-no-files-found: error
+          retention-days: 14
 
   container-build:
     name: container-build (${{ matrix.app }})

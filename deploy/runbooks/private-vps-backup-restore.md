@@ -44,10 +44,13 @@ and the implementation before raising its limits.
 The operator creates one uniquely labelled, non-root container with no network,
 published ports, bind mounts, extra capabilities or host PID/IPC access. Its root
 filesystem is read-only. Database files and sockets use private bounded tmpfs;
-CPU, memory and process counts are limited. Swap is disabled by equal memory/swap
-limits and the [kernel's `noswap` tmpfs option](https://docs.kernel.org/filesystems/tmpfs.html).
-The host must support those memory/swap limits and mounts; otherwise the tool
-refuses to restore. At least 2 GiB of host memory must be available before the
+CPU, memory and process counts are limited. Swap is disabled by
+[equal positive memory/swap limits](https://docs.docker.com/engine/containers/resource_constraints/#--memory-swap-details).
+The effective cgroup v2 `memory.swap.max` must independently read zero inside the
+private cgroup namespace before import and after verification. Docker's tmpfs
+option parser does not accept the kernel's `noswap` mount option; do not pass it
+or silently substitute a swappable container. The host must support these controls;
+otherwise the tool refuses to restore. At least 2 GiB of host memory must be available before the
 bounded 1 GiB restore container starts. The isolated bootstrap role is unique
 to that invocation, so the authenticated original role inventory can be restored
 before `pg_restore --exit-on-error` imports the complete dump with original
@@ -67,6 +70,15 @@ source migration inventory, manifest, operator code hash/CI, actual restore rece
 and receipt hash in protected recovery custody. Never attach raw private backup
 members to CI. Unit tests and the Vitest wrapper use synthetic payloads only; they
 cannot supply an actual-host restore receipt.
+
+The final CI database job additionally runs `restore_rehearsal.py` against the
+pinned PostgreSQL image with only a synthetic one-migration/two-account fixture.
+It exercises actual container startup, kernel swap controls, cross-cluster role
+ownership/import and successful cleanup, then corrupt-import refusal and cleanup.
+Its separately retained `private-vps-restore` report is explicitly synthetic; the
+existing ten-artifact acceptance contract is unchanged. Three GiB must be available
+for its two simultaneous bounded containers. It cannot issue a private-host receipt
+or access a private backup, and does not replace the real snapshot observation.
 
 This verifies a disposable database snapshot restore, not live recovery, photo
 object recovery, point-in-time recovery, failover, complete disaster recovery or

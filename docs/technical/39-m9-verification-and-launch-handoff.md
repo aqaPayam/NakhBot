@@ -34,6 +34,14 @@ snapshot restore, PITR, photo recovery or production DR acceptance. Execute its
 reviewed bytes only after all six exact-source jobs pass and preserve the actual
 result privately; the tool is independent of the running application release.
 
+The first actual restore attempt withheld success before importing private data:
+Docker rejected the kernel-only `noswap` tmpfs option. Cleanup and unchanged live
+health were independently observed. The repair keeps equal positive memory/swap
+limits and verifies the effective cgroup v2 swap limit is zero before and after
+import. A real-container synthetic roundtrip, corrupt-import refusal and cleanup
+are now required in the final CI job, with a separate non-authorizing artifact.
+This fixture evidence does not substitute for the pending real backup observation.
+
 ## Verified private trial checkpoint — 5 November 2026
 
 Application `13411398e2597bab548f23bd9add01d5a365ca5c` passed

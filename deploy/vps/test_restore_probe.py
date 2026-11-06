@@ -9,7 +9,7 @@ import tarfile
 import unittest
 from unittest.mock import patch
 
-from restore_probe import main, read_payload, restore, validate_isolation, validate_manifest
+from restore_probe import main, read_payload, restore, validate_isolation, validate_manifest, verify_no_swap
 
 
 def fixture():
@@ -40,9 +40,9 @@ def isolated(manifest):
             'Config': {'User': '999:999', 'Labels': {'nakh.restore-probe': 'nonce'}},
             'HostConfig': {'NetworkMode': 'none', 'ReadonlyRootfs': True, 'PortBindings': {},
                            'Privileged': False, 'Binds': None, 'Devices': [], 'CapAdd': None,
-                           'PidMode': '', 'IpcMode': 'private', 'CapDrop': ['ALL'],
+                           'PidMode': '', 'IpcMode': 'private', 'CgroupnsMode': 'private', 'CapDrop': ['ALL'],
                            'SecurityOpt': ['no-new-privileges'], 'Memory': 1024 ** 3, 'MemorySwap': 1024 ** 3,
-                           'NanoCpus': 10 ** 9, 'PidsLimit': 128, 'Tmpfs': dict.fromkeys(paths, 'rw,noswap')},
+                           'NanoCpus': 10 ** 9, 'PidsLimit': 128, 'Tmpfs': dict.fromkeys(paths, 'rw')},
             'Mounts': [{'Type': 'tmpfs', 'Destination': path} for path in paths]}
 
 
@@ -114,7 +114,7 @@ class RestoreProbeTests(unittest.TestCase):
     def test_exact_private_ram_isolation(self):
         manifest, _, _ = fixture()
         self.assertIsNone(validate_isolation(isolated(manifest), manifest, 'nonce'))
-        for key, value in [('NetworkMode', 'bridge'), ('ReadonlyRootfs', False), ('Privileged', True), ('PortBindings', {'5432/tcp': [{}]}), ('CapAdd', ['SYS_ADMIN']), ('Binds', ['/opt/nakh:/live']), ('IpcMode', 'host'), ('PidsLimit', 0), ('Memory', 0), ('MemorySwap', -1), ('Tmpfs', {'/tmp': 'rw'})]:
+        for key, value in [('NetworkMode', 'bridge'), ('ReadonlyRootfs', False), ('Privileged', True), ('PortBindings', {'5432/tcp': [{}]}), ('CapAdd', ['SYS_ADMIN']), ('Binds', ['/opt/nakh:/live']), ('IpcMode', 'host'), ('CgroupnsMode', 'host'), ('PidsLimit', 0), ('Memory', 0), ('MemorySwap', -1), ('Tmpfs', {'/tmp': 'rw'})]:
             info = isolated(manifest)
             info['HostConfig'][key] = value
             with self.subTest(key=key), self.assertRaises(ValueError):
@@ -135,6 +135,13 @@ class RestoreProbeTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_isolation(info, manifest, 'nonce')
 
+    def test_effective_kernel_swap_limit_must_be_zero(self):
+        with patch('restore_probe.command', return_value=b'0\n'):
+            self.assertIsNone(verify_no_swap('1' * 64))
+        for value in [b'max\n', b'1073741824\n', b'', b'unknown']:
+            with self.subTest(value=value), patch('restore_probe.command', return_value=value), self.assertRaises(ValueError):
+                verify_no_swap('1' * 64)
+
     def test_non_linux_cli_cannot_issue_actual_receipt(self):
         with patch('restore_probe.sys.platform', 'win32'), self.assertRaises(ValueError):
             main(['fixture', 'fixture', 'output'])
@@ -149,10 +156,11 @@ class RestoreProbeTests(unittest.TestCase):
     def test_failed_isolation_cleans_only_new_container(self):
         manifest, _, members = fixture()
         identifier = '1' * 64
-        responses = [identifier.encode(), json.dumps([{}]).encode(), b'']
+        responses = [identifier.encode(), json.dumps([{}]).encode(), b'', b'']
         with patch('restore_probe.command', side_effect=responses) as call, self.assertRaises(ValueError):
             restore(manifest, members)
-        self.assertEqual(call.call_args.args[0], ['docker', 'rm', '--force', '--volumes', identifier])
+        self.assertEqual(call.call_args_list[-2].args[0], ['docker', 'rm', '--force', '--volumes', identifier])
+        self.assertEqual(call.call_args.args[0], ['docker', 'ps', '--all', '--no-trunc', '--quiet', '--filter', 'id=' + identifier])
 
 
 if __name__ == '__main__':

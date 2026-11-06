@@ -5,6 +5,7 @@ database.dump and database-roles.sql. This tool never receives a backup key,
 connects to the live database, restores photos or authorizes a production restore.
 """
 import datetime
+from contextlib import contextmanager
 import hashlib
 import io
 import json
@@ -101,8 +102,7 @@ def validate_isolation(info, manifest, nonce):
             host.get('PidsLimit') != 128):
         deny()
     paths = {'/var/lib/postgresql/data', '/var/run/postgresql', '/tmp'}
-    if (set(host.get('Tmpfs', {})) != paths or
-            any('noswap' not in options.split(',') for options in host['Tmpfs'].values()) or any(
+    if (host.get('CgroupnsMode') != 'private' or set(host.get('Tmpfs', {})) != paths or any(
             mount.get('Type') != 'tmpfs' or mount.get('Destination') not in paths
             for mount in info.get('Mounts', []))):
         deny()
@@ -115,7 +115,13 @@ def command(args, data=None, timeout=120):
     return result.stdout
 
 
-def restore(manifest, members):
+def verify_no_swap(identifier):
+    if command(['docker', 'exec', identifier, 'cat', '/sys/fs/cgroup/memory.swap.max']).strip() != b'0':
+        deny()
+
+
+@contextmanager
+def temporary_database(manifest):
     nonce = uuid.uuid4().hex
     user = 'nakh_restore_' + nonce[:16]
     uid, gid = manifest['postgresUid'], manifest['postgresGid']
@@ -123,11 +129,11 @@ def restore(manifest, members):
             '--label', 'nakh.restore-probe=' + nonce, '--network', 'none',
             '--read-only', '--user', str(uid) + ':' + str(gid), '--cap-drop', 'ALL',
             '--security-opt', 'no-new-privileges', '--memory', '1g', '--memory-swap', '1g', '--cpus', '1',
-            '--pids-limit', '128', '--ipc', 'private',
+            '--pids-limit', '128', '--ipc', 'private', '--cgroupns', 'private',
             '--env', 'POSTGRES_USER=' + user, '--env', 'POSTGRES_DB=restore_probe',
             '--env', 'POSTGRES_HOST_AUTH_METHOD=trust', '--env', 'PGDATA=/var/lib/postgresql/data']
     for path, size in [('/var/lib/postgresql/data', '768m'), ('/var/run/postgresql', '16m'), ('/tmp', '16m')]:
-        args += ['--tmpfs', path + ':rw,noexec,nosuid,nodev,noswap,size=' + size + ',uid=' + str(uid) + ',gid=' + str(gid)]
+        args += ['--tmpfs', path + ':rw,noexec,nosuid,nodev,size=' + size + ',uid=' + str(uid) + ',gid=' + str(gid)]
     identifier = command(args + [manifest['postgresImageId']]).decode().strip()
     if not HEX.fullmatch(identifier):
         deny()
@@ -135,6 +141,7 @@ def restore(manifest, members):
         info = json.loads(command(['docker', 'inspect', identifier]))[0]
         validate_isolation(info, manifest, nonce)
         command(['docker', 'start', identifier])
+        verify_no_swap(identifier)
         deadline = time.monotonic() + 90
         while True:
             logs = command(['docker', 'logs', identifier])
@@ -144,6 +151,17 @@ def restore(manifest, members):
             if time.monotonic() > deadline:
                 deny()
             time.sleep(1)
+        yield identifier, user, nonce
+    finally:
+        # Only the exact new container ID returned by this invocation is removed.
+        command(['docker', 'rm', '--force', '--volumes', identifier])
+        remaining = command(['docker', 'ps', '--all', '--no-trunc', '--quiet', '--filter', 'id=' + identifier])
+        if remaining.strip():
+            deny()
+
+
+def restore(manifest, members):
+    with temporary_database(manifest) as (identifier, user, nonce):
         base = ['docker', 'exec', '-i', identifier]
         socket = ['-h', '/var/run/postgresql', '-U', user]
         command(base + ['psql', *socket, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], members['database-roles.sql'])
@@ -154,14 +172,9 @@ def restore(manifest, members):
                 type(facts.get('accounts')) is not int or facts['accounts'] < 0):
             deny()
         validate_isolation(json.loads(command(['docker', 'inspect', identifier]))[0], manifest, nonce)
-    finally:
-        # Only the exact new container ID returned by this invocation is removed.
-        command(['docker', 'rm', '--force', '--volumes', identifier])
-    remaining = command(['docker', 'ps', '--all', '--no-trunc', '--quiet', '--filter', 'id=' + identifier])
-    if remaining.strip():
-        deny()
+        verify_no_swap(identifier)
     return {'migrationInventoryVerified': True, 'restoredMigrationCount': len(manifest['migrations']),
-            'restoredAccountCount': facts['accounts'], 'temporaryContainerRemoved': True}
+            'restoredAccountCount': facts['accounts'], 'temporaryContainerRemoved': True, 'effectiveSwapDisabled': True}
 
 
 def main(args):
@@ -180,7 +193,8 @@ def main(args):
     if memory.get('MemAvailable', 0) < 2 * 1024 ** 3:
         deny()
     limits = json.loads(command(['docker', 'info', '--format', '{{json .}}']))
-    if limits.get('MemoryLimit') is not True or limits.get('SwapLimit') is not True:
+    if (limits.get('MemoryLimit') is not True or limits.get('SwapLimit') is not True or
+            str(limits.get('CgroupVersion')) != '2'):
         deny()
     compose = ['docker', 'compose', '-p', 'nakh-trial', '-f', str(ROOT / 'compose.yaml'), '-f', str(ROOT / 'compose.scanner.yaml')]
     live = command(compose + ['ps', '--quiet', 'postgres']).decode().strip()
