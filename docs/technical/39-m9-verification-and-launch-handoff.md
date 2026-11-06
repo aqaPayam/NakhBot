@@ -52,6 +52,16 @@ consumers were exercised with synthetic files, including exclusions and preserva
 of an unrelated file. Existing sign-in, API and release tests plus all six exact-source
 CI jobs remain required. No advisory allowlist or package safety gate is relaxed.
 An updated source lockfile does not establish deployment of the patched application.
+The security revision `bec484d` passed all six CI jobs; a fresh full dependency
+audit and GitHub alert refresh both reported zero current findings.
+
+Actual reference capture on the existing image failed safely because its build
+omitted `dist/cli/release-reference.js`. The package build now includes that
+existing operator command. A compiled-command native rehearsal covers capture,
+verification, changed-reference rejection, private file permissions, refusal to
+overwrite a receipt and wrong-source rejection. This packaging fix does not
+certify a successful live snapshot; capture and verify the installed revision
+with its actual four service configurations after its six-job acceptance.
 
 Restore repair `46e395a` passed all six jobs, including the real-container synthetic
 roundtrip and refusal/cleanup rehearsal. Its ten ordinary CI artifacts and separate
