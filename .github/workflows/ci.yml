@@ -21,7 +21,7 @@ jobs:
         with:
           fetch-depth: 0 # The state rehearsal reads the fixed accepted baseline.
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24.19.0
           cache: pnpm
@@ -138,7 +138,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24.19.0
           cache: pnpm
