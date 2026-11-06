@@ -27,7 +27,7 @@ export async function resolveProfileReportSource(
   let row: Readonly<{ id: string; user_id: string }> | undefined;
   if (source.kind === 'received_like') {
     let query = database
-      .selectFrom('interaction.likes as source')
+      .selectFrom('interaction.current_like_lives as source')
       .innerJoin('profile.profiles as profile', 'profile.user_id', 'source.sender_user_id')
       .select(['profile.id', 'profile.user_id'])
       .where('source.id', '=', source.referenceId)

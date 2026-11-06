@@ -91,6 +91,10 @@ export interface TelegramLikedByDeliveryRequestTable {
   update_id: string;
   viewer_user_id: string;
   product_epoch: Generated<number>;
+  session_grant_id: Generated<string | null>;
+  source_like_id: Generated<string | null>;
+  feature_unlock_id: Generated<string | null>;
+  profile_version: Generated<number | null>;
   telegram_user_id: string;
   request_id: string;
   cursor: string | null;

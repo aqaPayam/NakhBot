@@ -19,6 +19,7 @@ export type TelegramCandidateCard = Readonly<{
   photo: MediaDeliveryGrant;
   caption: string;
   keyboard: Keyboard;
+  protectContent?: boolean;
 }>;
 function row(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -101,6 +102,7 @@ export class TelegramCandidateMediaRelay {
         !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(url.searchParams.get('token') ?? '') ||
         card.caption.length < 1 ||
         card.caption.length > 1024 ||
+        (card.protectContent !== undefined && typeof card.protectContent !== 'boolean') ||
         card.keyboard.length < 1 ||
         card.keyboard.length > 5 ||
         card.keyboard.some(
@@ -111,7 +113,7 @@ export class TelegramCandidateMediaRelay {
               (button) =>
                 button.text.length < 1 ||
                 button.text.length > 64 ||
-                !/^m9[sr]:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{22}$/u.test(button.callback_data),
+                !/^m9[srl]:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{22}$/u.test(button.callback_data),
             ),
         )
       )
@@ -145,6 +147,7 @@ export class TelegramCandidateMediaRelay {
       body.set('chat_id', card.telegramUserId);
       body.set('caption', card.caption);
       body.set('reply_markup', JSON.stringify({ inline_keyboard: card.keyboard }));
+      if (card.protectContent === true) body.set('protect_content', 'true');
       body.set('photo', new Blob([bytes], { type: 'image/webp' }), 'candidate.webp');
       const response = await this.fetcher(
         `https://api.telegram.org/bot${this.botToken}/sendPhoto`,

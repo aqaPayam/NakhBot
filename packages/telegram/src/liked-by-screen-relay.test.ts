@@ -16,6 +16,61 @@ function success(id = 42): Response {
 }
 
 describe('Telegram locked Liked By screen relay', () => {
+  it('protects full profile text and accepts only a receipt for the intended private recipient', async () => {
+    const callback = 'm9l:' + 'a'.repeat(16) + ':' + 'b'.repeat(22);
+    const input = {
+      botId: '123',
+      telegramUserId: '456',
+      text: 'Synthetic private profile',
+      keyboard: [[{ text: 'Back', callback_data: callback }]],
+    };
+    const fetcher = vi
+      .fn<(_url: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: {
+              message_id: 7,
+              chat: { id: 456, type: 'private' },
+              from: { id: 123, is_bot: true },
+            },
+          }),
+        ),
+      );
+    expect(
+      await new TelegramLockedLikedByScreenRelay(botToken, fetcher).sendPrivateText(input),
+    ).toBe(7);
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string) as unknown).toMatchObject({
+      protect_content: true,
+      link_preview_options: { is_disabled: true },
+    });
+    for (const chat of [
+      { id: 457, type: 'private' },
+      { id: 456, type: 'group' },
+    ]) {
+      const relay = new TelegramLockedLikedByScreenRelay(botToken, () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              result: { message_id: 7, chat, from: { id: 123, is_bot: true } },
+            }),
+          ),
+        ),
+      );
+      await expect(relay.sendPrivateText(input)).rejects.toMatchObject({
+        reasonCode: 'provider_unavailable',
+      });
+    }
+    await expect(
+      new TelegramLockedLikedByScreenRelay(botToken, fetcher).sendPrivateText({
+        ...input,
+        keyboard: [[{ text: 'Other', callback_data: callback.replace('m9l:', 'm9s:') }]],
+      }),
+    ).rejects.toMatchObject({ reasonCode: 'provider_rejected' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it('sends one bounded localized header with an opaque pagination control', async () => {
     const calls: Array<{ input: string; init: RequestInit | undefined }> = [];
     const relay = new TelegramLockedLikedByScreenRelay(

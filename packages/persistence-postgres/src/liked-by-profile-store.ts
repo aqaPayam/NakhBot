@@ -19,6 +19,7 @@ export class PostgresLikedByProfileStore {
     private readonly database: NakhDatabase,
     private readonly environment: 'development' | 'test' | 'staging' | 'production',
     owner: UserSessionActor,
+    private readonly deliveryTtlSeconds = 60,
   ) {
     this.owner = Object.freeze({ ...owner });
   }
@@ -137,6 +138,7 @@ export class PostgresLikedByProfileStore {
         photoId,
         purpose: 'profile_detail',
         requestedVariant: 'thumbnail',
+        ttlSeconds: this.deliveryTtlSeconds,
       });
       photos.push({
         photoId,

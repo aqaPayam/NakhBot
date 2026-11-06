@@ -30,6 +30,82 @@ function fixture(): {
   };
 }
 describe('signup navigation integrity and concurrency', () => {
+  it('reuses worker buttons under concurrent retries without renewing their original expiry', async () => {
+    const f = fixture();
+    let now = 1000;
+    const tokens = new SignupNavigationTokens(
+      f.store,
+      Buffer.alloc(32, 1),
+      '12345',
+      '123',
+      life,
+      () => now,
+      'liked_by',
+    );
+    const nav: SignupNavigation = {
+      ...f.nav,
+      screen: 'profile',
+      action: 'like',
+      likeId: '30000000-0000-4000-8000-000000000001',
+      unlockId: '40000000-0000-4000-8000-000000000001',
+      code: undefined,
+    };
+    const buttons = await Promise.all(
+      Array.from({ length: 20 }, () => tokens.stableButton(nav, 'delivery:photo:1')),
+    );
+    expect(new Set(buttons).size).toBe(1);
+    expect(f.data.size).toBe(1);
+    expect(buttons[0]).toMatch(/^m9l:/u);
+    expect(await tokens.callback(buttons[0]!)).toEqual({ ...nav, code: undefined });
+    const original = [...f.data.values()][0];
+    now += 899000;
+    expect(await tokens.stableButton({ ...nav }, 'delivery:photo:1')).toBe(buttons[0]);
+    expect([...f.data.values()][0]).toBe(original);
+    now += 1000;
+    await expect(tokens.stableButton(nav, 'delivery:photo:1')).rejects.toThrow();
+    expect(await tokens.callback(buttons[0]!)).toBeUndefined();
+  });
+  it('keeps stable Like selectors isolated by purpose, recipient and original native session', async () => {
+    const f = fixture(),
+      key = Buffer.alloc(32, 1);
+    const tokens = new SignupNavigationTokens(
+      f.store,
+      key,
+      '12345',
+      '123',
+      life,
+      undefined,
+      'liked_by',
+    );
+    const nav: SignupNavigation = {
+      ...f.nav,
+      likeId: '30000000-0000-4000-8000-000000000001',
+      unlockId: '40000000-0000-4000-8000-000000000001',
+    };
+    const token = await tokens.stableButton(nav, 'original-delivery');
+    expect(await f.tokens.callback(token)).toBeUndefined();
+    expect(
+      await new SignupNavigationTokens(
+        f.store,
+        key,
+        '12345',
+        '124',
+        life,
+        undefined,
+        'liked_by',
+      ).callback(token),
+    ).toBeUndefined();
+    const changed = {
+      ...nav,
+      actor: { ...actor, sessionGrantId: '20000000-0000-4000-8000-000000000002' },
+    };
+    expect(await tokens.stableButton(changed, 'original-delivery')).not.toBe(token);
+    await expect(f.tokens.button(nav)).rejects.toThrow();
+    const id = token.split(':')[1]!,
+      other = await tokens.stableButton(changed, 'other-delivery');
+    f.data.set(id, f.data.get(other.split(':')[1]!)!);
+    expect(await tokens.callback(token)).toBeUndefined();
+  });
   it('keeps profile edit prompts and callbacks separate from account, signup and other product lives', async () => {
     const f = fixture(),
       key = Buffer.alloc(32, 1),

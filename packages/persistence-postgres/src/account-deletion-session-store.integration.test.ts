@@ -331,6 +331,7 @@ describe.skipIf(url === undefined)('M8 session authority migration provenance', 
             '000167_m9_profile_correction_review.sql',
             '000168_m9_explore_filter_menus.sql',
             '000169_m9_liked_by_profile_authority.sql',
+            '000170_m9_liked_by_customer_delivery.sql',
           ]);
           await verifyMigrations(isolated.url, resolve('migrations/verify'));
           expect(

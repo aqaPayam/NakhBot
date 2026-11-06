@@ -21,9 +21,28 @@ function expectedCatalog(): DeletionCatalog {
 describe('M8 schema coverage denial', () => {
   it('binds both reviewed media layouts to the native migration version', () => {
     const current = expectedCatalog();
-    const previous = {
+    const beforeQueue = {
       ...current,
       tables: current.tables.map((t) =>
+        t.schema === 'channel_telegram' && t.table === 'liked_by_delivery_requests'
+          ? {
+              ...t,
+              columns: t.columns.filter(
+                (c) =>
+                  ![
+                    'session_grant_id',
+                    'source_like_id',
+                    'feature_unlock_id',
+                    'profile_version',
+                  ].includes(c.name),
+              ),
+            }
+          : t,
+      ),
+    };
+    const previous = {
+      ...beforeQueue,
+      tables: beforeQueue.tables.map((t) =>
         t.schema !== 'media' || t.table !== 'delivery_grants'
           ? t
           : {
@@ -38,8 +57,8 @@ describe('M8 schema coverage denial', () => {
       ),
     };
     const beforeLike = {
-      ...current,
-      tables: current.tables.map((t) =>
+      ...beforeQueue,
+      tables: beforeQueue.tables.map((t) =>
         t.schema === 'media' && t.table === 'delivery_grants'
           ? { ...t, columns: t.columns.filter((c) => c.name !== 'feature_unlock_id') }
           : t,
@@ -50,8 +69,12 @@ describe('M8 schema coverage denial', () => {
       153, 154, 155, 157, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168,
     ])
       expect(() => assertDeletionCatalogCoverage({ ...beforeLike, schemaVersion })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 169 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 170 })).toThrow();
+    expect(() =>
+      assertDeletionCatalogCoverage({ ...beforeQueue, schemaVersion: 169 }),
+    ).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 170 })).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 171 })).toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...beforeQueue, schemaVersion: 170 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...beforeLike, schemaVersion: 169 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 168 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...previous, schemaVersion: 153 })).toThrow();

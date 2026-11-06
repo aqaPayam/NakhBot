@@ -14,6 +14,7 @@ import {
 } from '@nakh/persistence-postgres';
 import {
   TelegramCandidateMediaRelay,
+  fullProfileTextParts,
   TelegramCandidateSendFailure,
   type TelegramCandidateCard,
 } from '@nakh/telegram';
@@ -105,31 +106,7 @@ export class GuestPreviewRuntime implements GuestPreviewRuntimePort {
     if (profile.telegramUserId !== telegramUserId)
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     const current = (): Promise<boolean> => store.detailIsCurrent(deliveryId, profile);
-    const label = (key: string): string => render(key, {});
-    const text = render('profile.ui.details', {
-      name: profile.name,
-      age: profile.age,
-      location: profile.locationLabelKeys.map(label).join(', '),
-      gender: label(profile.genderLabelKey),
-      preference: label(profile.preferenceLabelKey),
-      goal: label(profile.goalLabelKey),
-      interests: profile.interestLabelKeys.map(label).join(', '),
-      highlight: profile.highlight,
-      bio: profile.bio,
-      optional: profile.optional
-        .map((o) =>
-          render('profile.ui.optional', {
-            label: label(o.labelKey),
-            value:
-              typeof o.value === 'string' || typeof o.value === 'number'
-                ? o.value
-                : o.value.map(label).join(', '),
-          }),
-        )
-        .join('\n'),
-    });
-    if (text.length < 1 || text.length > 16000)
-      throw new ApplicationError('internal_error', 'error.identity.user_context_invalid', 500);
+    const chunks = fullProfileTextParts(profile, render);
     for (const [position, photo] of profile.photos.entries())
       await this.relay.send(
         {
@@ -158,16 +135,6 @@ export class GuestPreviewRuntime implements GuestPreviewRuntimePort {
         },
         current,
       );
-    const chunks: string[] = [];
-    let chunk = '';
-    for (const point of text) {
-      if (chunk.length + point.length > 3500) {
-        chunks.push(chunk);
-        chunk = '';
-      }
-      chunk += point;
-    }
-    if (chunk) chunks.push(chunk);
     for (const part of chunks) {
       if (!(await current()))
         throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);

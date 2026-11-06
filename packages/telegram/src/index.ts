@@ -687,4 +687,5 @@ export * from './account-fresh-entry-adapter.js';
 export * from './candidate-media-relay.js';
 
 export * from './product-navigation.js';
+export * from './profile-detail-text.js';
 export { m7Record, requirePrivateM7Actor } from './m7-private-update.js';

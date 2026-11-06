@@ -77,6 +77,7 @@ import {
 import type { TelegramReportIngressPort } from './report-ingress.js';
 import { createTelegramStartDelivery, type TelegramStartDeliveryNotice } from './start-delivery.js';
 import { createTelegramSignupRuntime, type TelegramSignupRuntimePort } from './signup-runtime.js';
+import { createTelegramLikedByCustomerRuntime } from './liked-by-customer-runtime.js';
 import {
   createTelegramAccountRuntime,
   type TelegramAccountRuntimePort,
@@ -417,6 +418,19 @@ export class TelegramGatewayModule {
       home,
     });
     const profile = createTelegramProfileRuntime({ config, database, redis, home });
+    const likedBy = createTelegramLikedByCustomerRuntime({
+      config,
+      database,
+      financialDatabase,
+      redis,
+      home,
+      ...(account.enabled && account.openCredits
+        ? {
+            credits: (recipient: string, actor: UserSessionActor) =>
+              account.openCredits!(recipient, actor),
+          }
+        : {}),
+    });
     const signup = createTelegramSignupRuntime({
       config,
       database,
@@ -427,9 +441,12 @@ export class TelegramGatewayModule {
       chat,
       account,
       profile,
+      likedBy,
       ...(administration === undefined ? {} : { administration }),
     });
-    const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
+    const likedByIngress = likedBy.enabled
+      ? likedBy
+      : createTelegramLikedByIngress({ config, database, redis });
     const supportAppealIngress = createTelegramSupportAppealIngress({ config, database, redis });
     const afterActivation = signup.afterActivation;
     const accountDeletionIngress = createTelegramAccountDeletionIngress({

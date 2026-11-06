@@ -3,6 +3,9 @@ import { ApplicationError } from '@nakh/domain';
 import { sql } from 'kysely';
 
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
+import { requireOriginalUnlockedLikeSource } from './liked-by-action-source.js';
+import { lockAndValidatePaidActionTarget } from './paid-action-store.js';
 
 export type TelegramLikedByDeliveryInput = Readonly<{
   botId: string;
@@ -13,6 +16,9 @@ export type TelegramLikedByDeliveryInput = Readonly<{
   requestId: string;
   cursor?: string;
   callbackQueryId?: string;
+  sessionGrantId?: string;
+  sourceLikeId?: string;
+  featureUnlockId?: string;
 }>;
 
 export type TelegramLikedByEnqueueResult = Readonly<{
@@ -35,6 +41,10 @@ export type ClaimedTelegramLikedByDelivery = Readonly<{
   requestId: string;
   cursor?: string;
   callbackQueryId?: string;
+  sessionGrantId?: string;
+  sourceLikeId?: string;
+  featureUnlockId?: string;
+  profileVersion?: number;
   attemptCount: number;
 }>;
 
@@ -77,7 +87,7 @@ const UPDATE_ID = /^(?:0|[1-9][0-9]{0,19})$/u;
 const CURSOR = /^v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}$/u;
 const OWNER = /^[\x20-\x7e]{1,128}$/u;
 const MESSAGE_KEY =
-  /^(?:card:v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}|screen:[A-Za-z0-9_-]{43})$/u;
+  /^(?:card:v1\.lb\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{16}|(?:screen|detail):[A-Za-z0-9_-]{43})$/u;
 const ERROR_CODES = new Set<TelegramLikedByDeliveryErrorCode>([
   'identity_unavailable',
   'page_unavailable',
@@ -126,7 +136,16 @@ function validate(input: TelegramLikedByDeliveryInput): void {
     !Number.isSafeInteger(Number(input.telegramUserId)) ||
     typeof input.requestId !== 'string' ||
     !UUID.test(input.requestId) ||
-    (input.cursor === undefined) !== (input.callbackQueryId === undefined) ||
+    (input.sessionGrantId === undefined
+      ? (input.cursor === undefined) !== (input.callbackQueryId === undefined)
+      : !UUID.test(input.sessionGrantId) ||
+        (input.cursor !== undefined && input.callbackQueryId === undefined)) ||
+    (input.sourceLikeId === undefined) !== (input.featureUnlockId === undefined) ||
+    (input.featureUnlockId !== undefined &&
+      (input.sessionGrantId === undefined ||
+        input.cursor !== undefined ||
+        !UUID.test(input.featureUnlockId) ||
+        !UUID.test(input.sourceLikeId!))) ||
     (input.cursor !== undefined &&
       (typeof input.cursor !== 'string' || !CURSOR.test(input.cursor))) ||
     (input.callbackQueryId !== undefined &&
@@ -146,11 +165,30 @@ export class PostgresTelegramLikedByDeliveryStore {
   ) {}
 
   public async enqueue(input: TelegramLikedByDeliveryInput): Promise<TelegramLikedByEnqueueResult> {
+    input = structuredClone(input);
     validate(input);
     const deliveryId = this.ids.uuid();
     const eventId = this.ids.uuid();
     const now = this.clock.now();
     return this.database.transaction().execute(async (transaction) => {
+      if (input.sessionGrantId !== undefined) {
+        const actor = {
+          kind: 'user' as const,
+          userId: input.userId,
+          productEpoch: input.productEpoch,
+          sessionGrantId: input.sessionGrantId,
+        };
+        if (input.featureUnlockId !== undefined) {
+          await requireOriginalUnlockedLikeSource(transaction, actor, {
+            likeId: input.sourceLikeId!,
+            unlockId: input.featureUnlockId,
+          });
+          await lockAndValidatePaidActionTarget(transaction, actor.userId, {
+            type: 'like',
+            targetId: input.sourceLikeId!,
+          });
+        } else await requireCurrentUserSession(transaction, actor.userId, actor);
+      }
       const identity = await transaction
         .selectFrom('identity.telegram_identities')
         .select('user_id')
@@ -171,6 +209,10 @@ export class PostgresTelegramLikedByDeliveryStore {
           request_id: input.requestId,
           cursor: input.cursor ?? null,
           callback_query_id: input.callbackQueryId ?? null,
+          session_grant_id: input.sessionGrantId ?? null,
+          source_like_id: input.sourceLikeId ?? null,
+          feature_unlock_id: input.featureUnlockId ?? null,
+          profile_version: null,
           available_at: now,
           lease_owner: null,
           lease_expires_at: null,
@@ -192,6 +234,10 @@ export class PostgresTelegramLikedByDeliveryStore {
             'telegram_user_id',
             'cursor',
             'callback_query_id',
+            'request_id',
+            'session_grant_id',
+            'source_like_id',
+            'feature_unlock_id',
           ])
           .where('bot_id', '=', input.botId)
           .where('update_id', '=', input.updateId)
@@ -201,7 +247,11 @@ export class PostgresTelegramLikedByDeliveryStore {
           existing.product_epoch !== input.productEpoch ||
           existing.telegram_user_id !== input.telegramUserId ||
           existing.cursor !== (input.cursor ?? null) ||
-          existing.callback_query_id !== (input.callbackQueryId ?? null)
+          existing.callback_query_id !== (input.callbackQueryId ?? null) ||
+          existing.session_grant_id !== (input.sessionGrantId ?? null) ||
+          existing.source_like_id !== (input.sourceLikeId ?? null) ||
+          existing.feature_unlock_id !== (input.featureUnlockId ?? null) ||
+          (input.sessionGrantId !== undefined && existing.request_id !== input.requestId)
         )
           throw new ApplicationError(
             'idempotency_conflict',
@@ -316,7 +366,74 @@ export class PostgresTelegramLikedByDeliveryStore {
         ...(row.cursor === null ? {} : { cursor: row.cursor }),
         ...(row.callback_query_id === null ? {} : { callbackQueryId: row.callback_query_id }),
         attemptCount: row.attempt_count,
+        ...(row.session_grant_id === null ? {} : { sessionGrantId: row.session_grant_id }),
+        ...(row.source_like_id === null ? {} : { sourceLikeId: row.source_like_id }),
+        ...(row.feature_unlock_id === null ? {} : { featureUnlockId: row.feature_unlock_id }),
+        ...(row.profile_version === null ? {} : { profileVersion: row.profile_version }),
       }));
+    });
+  }
+
+  /** First profile version wins for this request. Private text is never stored.
+   * Source pair/account admission precedes the queue row lock. */
+  public async bindProfileVersion(
+    input: TelegramLikedByDeliverySettlement,
+    version: number,
+  ): Promise<'bound' | 'version_changed' | 'lease_lost'> {
+    input = structuredClone(input);
+    validateSettlement(input);
+    if (!Number.isSafeInteger(version) || version < 1) invalidLease();
+    return this.database.transaction().execute(async (tx) => {
+      const original = await tx
+        .selectFrom('channel_telegram.liked_by_delivery_requests')
+        .select([
+          'viewer_user_id',
+          'product_epoch',
+          'session_grant_id',
+          'source_like_id',
+          'feature_unlock_id',
+        ])
+        .where('id', '=', input.id)
+        .executeTakeFirst();
+      if (!original?.session_grant_id || !original.source_like_id || !original.feature_unlock_id)
+        invalidLease();
+      const actor = {
+        kind: 'user' as const,
+        userId: original.viewer_user_id,
+        productEpoch: original.product_epoch,
+        sessionGrantId: original.session_grant_id,
+      };
+      await requireOriginalUnlockedLikeSource(tx, actor, {
+        likeId: original.source_like_id,
+        unlockId: original.feature_unlock_id,
+      });
+      await lockAndValidatePaidActionTarget(tx, actor.userId, {
+        type: 'like',
+        targetId: original.source_like_id,
+      });
+      const row = await tx
+        .selectFrom('channel_telegram.liked_by_delivery_requests')
+        .select('profile_version')
+        .where('id', '=', input.id)
+        .where('state', '=', 'pending')
+        .where('lease_owner', '=', input.owner)
+        .where('attempt_count', '=', input.attemptCount)
+        .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!row) return 'lease_lost';
+      if (row.profile_version !== null)
+        return row.profile_version === version ? 'bound' : 'version_changed';
+      const changed = await tx
+        .updateTable('channel_telegram.liked_by_delivery_requests')
+        .set({ profile_version: version })
+        .where('id', '=', input.id)
+        .where('state', '=', 'pending')
+        .where('lease_owner', '=', input.owner)
+        .where('attempt_count', '=', input.attemptCount)
+        .where('lease_expires_at', '>', sql<Date>`clock_timestamp()`)
+        .executeTakeFirst();
+      return changed.numUpdatedRows === 1n ? 'bound' : 'lease_lost';
     });
   }
 

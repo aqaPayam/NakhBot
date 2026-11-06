@@ -37,6 +37,36 @@ function accepted(chatId = 789): Response {
   );
 }
 describe('private candidate photo relay', () => {
+  it('rechecks original authority after fetching and protects Liked By photos', async () => {
+    let calls = 0;
+    const fetcher = vi.fn((...args: [string, RequestInit?]) => {
+      expect(args[0]).toMatch(/^https:/u);
+      return Promise.resolve(++calls === 1 ? webp() : accepted());
+    });
+    const relay = new TelegramCandidateMediaRelay(
+      'https://media.example.test',
+      botToken,
+      { tokenFor: () => Promise.resolve(audienceSecret) },
+      fetcher,
+      () => now,
+    );
+    const card = {
+      ...base,
+      protectContent: true,
+      keyboard: [
+        [{ text: 'Like Back', callback_data: 'm9l:' + 'a'.repeat(16) + ':' + 'b'.repeat(22) }],
+      ],
+    };
+    await expect(relay.send(card, () => Promise.resolve(false))).rejects.toMatchObject({
+      code: 'not_started',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    calls = 0;
+    fetcher.mockClear();
+    expect(await relay.send(card, () => Promise.resolve(true))).toBe('42');
+    const body = fetcher.mock.calls[1]?.[1]?.body as FormData;
+    expect(body.get('protect_content')).toBe('true');
+  });
   it('accepts the distinct report callback namespace and rejects unknown namespaces before media fetch', async () => {
     let calls = 0;
     const fetcher = vi.fn(() => Promise.resolve(++calls === 1 ? webp() : accepted()));

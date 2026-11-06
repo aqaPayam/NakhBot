@@ -216,6 +216,7 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
       '000167_m9_profile_correction_review.sql',
       '000168_m9_explore_filter_menus.sql',
       '000169_m9_liked_by_profile_authority.sql',
+      '000170_m9_liked_by_customer_delivery.sql',
     ]);
     expect(await facts()).toEqual(original);
     for (const id of historicalIds) expect(await valid(id)).toBe(true);
@@ -225,7 +226,7 @@ describe.skipIf(url === undefined)('M8 original pending Nakh references', () => 
     );
     const catalog = await readDeletionCatalog(database);
     expect(catalog.tables).toHaveLength(153);
-    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1422);
+    expect(catalog.tables.reduce((count, table) => count + table.columns.length, 0)).toBe(1426);
     expect(catalog.foreignKeys).toHaveLength(307);
     assertDeletionCatalogCoverage(catalog);
   });

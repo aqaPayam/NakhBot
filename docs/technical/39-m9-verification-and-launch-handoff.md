@@ -40,8 +40,37 @@ Historical retained manifests keep their immutable proofs; new manifests require
 the current schema inventory. Retained-data erasure stays disabled.
 
 This is the native access foundation. Interactive inbox/unlock delivery wiring
-and real release qualification remain separate work; this section does not claim
-the new feature is deployed.
+is described below. Real release qualification remains separate; neither section
+claims the new feature is deployed.
+
+## Original-session Liked By customer delivery
+
+Migration 170 and the primary-entry gateway connect the home menu and `/liked_by`
+to the asynchronous inbox. Opaque card and cursor references authenticate the
+original user session, account life and exact Like. Legacy references cannot be
+upgraded by a newer sign-in. Confirmation displays the current internal-credit
+price and balance; native payment-command idempotency prevents repeat charges.
+Real payment purchases remain disabled under the owner's test-release decision.
+
+The durable handoff contains selectors, original authority and provider receipts,
+never profile prose or signed media URLs. Database guards make its selectors
+immutable. Workers recheck their lease and original authority before delivery,
+including after private photo retrieval. Full delivery freezes the first profile
+version and resumes only recorded provider successes; uncertain sends retain the
+existing at-least-once limitation. Protected photos and bounded private text use
+separate receipts. Changed profiles or revoked sources fail closed.
+
+Like Back and dismissal require the exact owned unlock and original Like. Native
+command receipts support replay after that command closes its own Like. Profile
+and individual-photo reporting retain historical safety access to that original
+Like without reopening ordinary profile access or selecting a returned user's
+new life. Report capture remains encrypted and separate from privileged reveal.
+
+The ordinary deletion inventory includes the four new queue columns. Historical
+retained manifests keep their original immutable proofs, and retained erasure
+remains disabled. A clean trial database, security custody transfer, deployment
+qualification and a current bounded admission review remain separate release
+work; existing test profiles and credits must not be silently carried forward.
 
 ## Repeatable free test credits
 

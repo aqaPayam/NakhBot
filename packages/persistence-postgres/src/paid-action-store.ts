@@ -136,10 +136,33 @@ export class PostgresPaidActionStore implements PaidActionStore {
 
       const existing = await transaction
         .selectFrom('interaction.feature_unlocks')
-        .select(['id', 'feature_type', 'unlocked_at'])
+        .select([
+          'id',
+          'feature_type',
+          'unlocked_at',
+          'status',
+          'expires_at',
+          'revoked_at',
+          'expired_at',
+        ])
         .where(write.target.type === 'like' ? 'like_id' : 'match_id', '=', write.target.targetId)
         .executeTakeFirst();
-      if (existing !== undefined) return result(existing, true);
+      if (existing !== undefined) {
+        // Revoked or expired authority cannot become active merely because the
+        // same original scope has an old funding receipt. Never charge again.
+        if (
+          existing.status !== 'active' ||
+          existing.revoked_at !== null ||
+          existing.expired_at !== null ||
+          (existing.expires_at !== null &&
+            existing.expires_at.getTime() <=
+              (
+                await sql<{ at: Date }>`SELECT clock_timestamp() AS at`.execute(transaction)
+              ).rows[0]!.at.getTime())
+        )
+          unavailable();
+        return result(existing, true);
+      }
 
       const account = await transaction
         .selectFrom('billing.credit_accounts')

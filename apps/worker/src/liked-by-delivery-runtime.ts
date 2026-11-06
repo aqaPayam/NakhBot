@@ -28,12 +28,14 @@ import {
   TelegramLockedLikedByMediaRelay,
   TelegramLockedLikedByPresenter,
   TelegramLockedLikedByScreenRelay,
+  TelegramCandidateMediaRelay,
 } from '@nakh/telegram';
 
 import { TelegramLikedByDeliveryProcessor } from './liked-by-delivery-processor.js';
 import { WorkerTelegramLikedByRendererProvider } from './liked-by-renderer-provider.js';
 import { ResumableTelegramLikedBySender } from './liked-by-resumable-sender.js';
 import { SharpBlurTransformer } from './media/blur-transformer.js';
+import { createLikedByCustomerDelivery } from './liked-by-customer-delivery.js';
 
 type RedisConnection = ReturnType<typeof createRedisConnection>;
 type SecretResolver = (reference: string) => string;
@@ -41,6 +43,7 @@ type SecretResolver = (reference: string) => string;
 export type TelegramLikedByDeliveryRuntime = Readonly<{
   processNext: TelegramLikedByDeliveryProcessor['processNext'];
   measureBacklog: PostgresTelegramLikedByDeliveryStore['measureBacklog'];
+  verifyReadiness: () => Promise<void>;
 }>;
 
 function secretKey(reference: string, resolve: SecretResolver, maximumBytes = 64): Uint8Array {
@@ -137,9 +140,61 @@ export function createTelegramLikedByDeliveryRuntime(
     new TelegramLikedByPageProcessor(page, new TelegramLockedLikedByPresenter(mediaOrigin)),
     sender,
     input.owner,
+    createLikedByCustomerDelivery({
+      database: input.database,
+      environment: mediaEnvironment,
+      owner: input.owner,
+      botId: botToken.split(':')[0]!,
+      actionKey,
+      mediaOrigin,
+      tokens: (life) =>
+        new RedisOwnedOpaqueTokenStore(input.redis, input.config.redis.queuePrefix, life),
+      reportsEnabled: input.config.telegram.reportsEnabled,
+      signer: new MediaDeliveryUrlSigner(
+        mediaOrigin,
+        new HmacMediaDeliveryTokens({
+          currentKeyId: input.config.media.signingKeyId,
+          keys: new Map([[input.config.media.signingKeyId, signingKey]]),
+        }),
+      ),
+      blur: new EnsureBlurredPreview(
+        new PostgresBlurGenerationStore(input.database, mediaEnvironment),
+        objects,
+        new SharpBlurTransformer(),
+      ),
+      store: deliveryStore,
+      renderers: renderer,
+      screens: new TelegramLockedLikedByScreenRelay(botToken),
+      cards: new TelegramLockedLikedByMediaRelay(
+        mediaOrigin,
+        botToken,
+        new HmacMediaAudienceCredentials(mediaOrigin, {
+          currentKeyId: input.config.media.audienceKeyId,
+          keys: new Map([[input.config.media.audienceKeyId, audienceKey]]),
+        }),
+      ),
+      photos: new TelegramCandidateMediaRelay(
+        mediaOrigin,
+        botToken,
+        new HmacMediaAudienceCredentials(mediaOrigin, {
+          currentKeyId: input.config.media.audienceKeyId,
+          keys: new Map([[input.config.media.audienceKeyId, audienceKey]]),
+        }),
+      ),
+    }),
   );
   return {
     processNext: () => processor.processNext(),
     measureBacklog: () => deliveryStore.measureBacklog(),
+    verifyReadiness: async () => {
+      if (
+        !(await input.database
+          .selectFrom('platform.schema_migrations')
+          .select('name')
+          .where('name', '=', '000170_m9_liked_by_customer_delivery.sql')
+          .executeTakeFirst())
+      )
+        throw new Error('Liked By customer delivery schema unavailable.');
+    },
   };
 }

@@ -19,6 +19,7 @@ export type TelegramLockedLikedByScreen = Readonly<{
   emptyState?: LocalizedIntent;
   cards: readonly TelegramLockedLikedByCard[];
   nextPage?: Readonly<{ label: LocalizedIntent; callbackData: string }>;
+  home?: Readonly<{ label: LocalizedIntent; callbackData: string }>;
 }>;
 
 function intent(key: string, variables: LocalizedIntent['variables'] = {}): LocalizedIntent {

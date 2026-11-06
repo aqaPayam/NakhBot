@@ -206,6 +206,7 @@ const likedByDelivery = createTelegramLikedByDeliveryRuntime({
   owner: `telegram-liked-by-${randomUUID()}`,
 });
 const likedByMetrics = likedByDelivery === undefined ? undefined : new M3Metrics();
+await likedByDelivery?.verifyReadiness();
 const notificationDelivery = createTelegramNotificationDeliveryRuntime({
   config,
   database,

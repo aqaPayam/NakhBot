@@ -26,7 +26,10 @@ function retryDelay(payload: Readonly<Record<string, unknown>> | undefined): num
     : undefined;
 }
 
-async function messageId(response: Response): Promise<number> {
+async function messageId(
+  response: Response,
+  expected?: { recipient: string; botId: string },
+): Promise<number> {
   let payload: Readonly<Record<string, unknown>> | undefined;
   try {
     const declared = response.headers.get('content-length');
@@ -52,6 +55,20 @@ async function messageId(response: Response): Promise<number> {
   const id = asRecord(payload.result)?.message_id;
   if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0)
     throw new TelegramLikedBySendFailure('provider_unavailable');
+  if (expected) {
+    const result = asRecord(payload.result),
+      chat = asRecord(result?.chat),
+      from = asRecord(result?.from);
+    if (
+      chat?.type !== 'private' ||
+      !Number.isSafeInteger(chat.id) ||
+      String(chat.id) !== expected.recipient ||
+      from?.is_bot !== true ||
+      !Number.isSafeInteger(from.id) ||
+      String(from.id) !== expected.botId
+    )
+      throw new TelegramLikedBySendFailure('provider_unavailable');
+  }
   return id;
 }
 
@@ -96,17 +113,73 @@ export class TelegramLockedLikedByScreenRelay {
         throw new TelegramLikedBySendFailure('provider_rejected');
       replyMarkup = { inline_keyboard: [[{ text: label, callback_data: callbackData }]] };
     }
+    if (input.screen.home !== undefined) {
+      const label = input.render(input.screen.home.label),
+        callbackData = input.screen.home.callbackData;
+      if (
+        !label.length ||
+        label.length > 64 ||
+        !/^m9l:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{22}$/u.test(callbackData)
+      )
+        throw new TelegramLikedBySendFailure('provider_rejected');
+      const rows = (replyMarkup?.inline_keyboard ?? []) as unknown[];
+      replyMarkup = { inline_keyboard: [...rows, [{ text: label, callback_data: callbackData }]] };
+    }
+    return this.post({
+      chat_id: input.telegramUserId,
+      text,
+      ...(replyMarkup === undefined ? {} : { reply_markup: replyMarkup }),
+    });
+  }
+  public async sendPrivateText(
+    input: Readonly<{
+      botId: string;
+      telegramUserId: string;
+      text: string;
+      keyboard: readonly (readonly Readonly<{ text: string; callback_data: string }>[])[];
+    }>,
+  ): Promise<number> {
+    if (
+      input.botId !== this.botId ||
+      !TELEGRAM_ID.test(input.telegramUserId) ||
+      !input.text.length ||
+      input.text.length > 4096 ||
+      input.keyboard.length > 5 ||
+      input.keyboard.some(
+        (row) =>
+          row.length < 1 ||
+          row.length > 3 ||
+          row.some(
+            (button) =>
+              !button.text.length ||
+              button.text.length > 64 ||
+              !/^m9[lr]:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{22}$/u.test(button.callback_data),
+          ),
+      )
+    )
+      throw new TelegramLikedBySendFailure('provider_rejected');
+    return this.post(
+      {
+        chat_id: input.telegramUserId,
+        text: input.text,
+        protect_content: true,
+        link_preview_options: { is_disabled: true },
+        reply_markup: { inline_keyboard: input.keyboard },
+      },
+      { recipient: input.telegramUserId, botId: this.botId },
+    );
+  }
+  private async post(
+    body: unknown,
+    expected?: { recipient: string; botId: string },
+  ): Promise<number> {
     let response: Response;
     try {
       response = await this.fetcher(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
         method: 'POST',
         redirect: 'error',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: input.telegramUserId,
-          text,
-          ...(replyMarkup === undefined ? {} : { reply_markup: replyMarkup }),
-        }),
+        body: JSON.stringify(body),
         signal: AbortSignal.timeout(10_000),
       });
     } catch (error) {
@@ -117,6 +190,6 @@ export class TelegramLockedLikedByScreenRelay {
           : 'provider_unavailable',
       );
     }
-    return messageId(response);
+    return messageId(response, expected);
   }
 }

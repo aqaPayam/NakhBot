@@ -105,6 +105,11 @@ export { PostgresExploreFilterStore } from './explore-filter-store.js';
 export type { OwnExploreFilterSnapshot } from './explore-filter-store.js';
 export { PostgresLikedByProfileStore } from './liked-by-profile-store.js';
 export { PostgresLikedByMediaAuthorization } from './liked-by-media-authorization.js';
+export {
+  readLikedByAccess,
+  requireOriginalUnlockedLikeSource,
+  type ReceivedLikeActionSource,
+} from './liked-by-action-source.js';
 export { PostgresCandidateReservationStore } from './candidate-reservation-store.js';
 export { PostgresCandidateDeliveryStore } from './candidate-delivery-store.js';
 export { PostgresInteractionStore } from './interaction-store.js';

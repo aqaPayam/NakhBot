@@ -122,6 +122,7 @@ export class TelegramLockedLikedByMediaRelay {
     telegramUserId: string,
     card: TelegramLockedLikedByCard,
     render: (intent: LocalizedIntent) => string,
+    beforeSend?: () => Promise<void>,
   ): Promise<number> {
     if (
       !USER_ID.test(viewerUserId) ||
@@ -166,6 +167,7 @@ export class TelegramLockedLikedByMediaRelay {
       }),
     );
     body.set('photo', new Blob([bytes], { type: 'image/webp' }), 'blurred-preview.webp');
+    await beforeSend?.();
     let response: Response;
     try {
       response = await this.fetcher(`https://api.telegram.org/bot${this.botToken}/sendPhoto`, {

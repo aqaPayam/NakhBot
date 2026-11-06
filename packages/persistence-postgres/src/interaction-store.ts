@@ -10,6 +10,12 @@ import type { NakhDatabase } from './database.js';
 import { lockUserPair, lockUserPairAccounts } from './pair-lock.js';
 import { requireCurrentUserSession } from './user-session-store.js';
 import { captureExploreCardSource, requireDeliveredExploreSource } from './explore-card-source.js';
+import {
+  captureReceivedLikeActionSource,
+  requireOriginalUnlockedLikeSource,
+  type ReceivedLikeActionSource,
+} from './liked-by-action-source.js';
+import { lockAndValidatePaidActionTarget } from './paid-action-store.js';
 
 type LikeGenerated = Parameters<InteractionStore['sendLike']>[1];
 type RejectionGenerated = Parameters<InteractionStore['markNotInterested']>[1];
@@ -23,7 +29,11 @@ type UserFacts = Readonly<{
   visibilityEnabled: boolean;
 }>;
 
-function commandHash(command: InteractionCommand, candidateDeliveryId?: string): string {
+function commandHash(
+  command: InteractionCommand,
+  candidateDeliveryId?: string,
+  receivedLike?: ReceivedLikeActionSource,
+): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -32,6 +42,7 @@ function commandHash(command: InteractionCommand, candidateDeliveryId?: string):
         actor: command.actor,
         data: command.data,
         ...(candidateDeliveryId === undefined ? {} : { candidateDeliveryId }),
+        ...(receivedLike === undefined ? {} : { receivedLike }),
       }),
     )
     .digest('hex');
@@ -42,8 +53,9 @@ async function claimCommand(
   command: InteractionCommand,
   occurredAt: Date,
   candidateDeliveryId?: string,
+  receivedLike?: ReceivedLikeActionSource,
 ): Promise<InteractionResult | undefined> {
-  const hash = commandHash(command, candidateDeliveryId);
+  const hash = commandHash(command, candidateDeliveryId, receivedLike);
   const claim = await database
     .insertInto('platform.idempotency_records')
     .values({
@@ -231,13 +243,18 @@ async function insertEvent(
 export class PostgresInteractionStore implements InteractionStore {
   private readonly owner: UserSessionActor | undefined;
   private readonly candidateDeliveryId: string | undefined;
+  private readonly receivedLike: ReceivedLikeActionSource | undefined;
   public constructor(
     private readonly database: NakhDatabase,
     owner?: UserSessionActor,
     candidateDeliveryId?: string,
+    receivedLike?: ReceivedLikeActionSource,
   ) {
     this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
     this.candidateDeliveryId = captureExploreCardSource(candidateDeliveryId, this.owner);
+    this.receivedLike = captureReceivedLikeActionSource(receivedLike, this.owner);
+    if (this.receivedLike !== undefined && this.candidateDeliveryId !== undefined)
+      throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
   }
 
   public sendLike(input: SendLikeCommand, effects: LikeGenerated): Promise<InteractionResult> {
@@ -254,6 +271,13 @@ export class PostgresInteractionStore implements InteractionStore {
         await requireCurrentUserSession(transaction, command.actor.userId, this.owner);
       if (accounts.length !== 2 || accounts.some((account) => account.state === 'deleted'))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
+      if (this.receivedLike !== undefined)
+        await requireOriginalUnlockedLikeSource(
+          transaction,
+          this.owner!,
+          this.receivedLike,
+          command.data.targetUserId,
+        );
       if (this.candidateDeliveryId !== undefined)
         await requireDeliveredExploreSource(
           transaction,
@@ -266,8 +290,14 @@ export class PostgresInteractionStore implements InteractionStore {
         command,
         generated.occurredAt,
         this.candidateDeliveryId,
+        this.receivedLike,
       );
       if (replay !== undefined) return replay;
+      if (this.receivedLike !== undefined)
+        await lockAndValidatePaidActionTarget(transaction, command.actor.userId, {
+          type: 'like',
+          targetId: this.receivedLike.likeId,
+        });
       const users = await lockAndLoadUsers(transaction, pair.userLowId, pair.userHighId);
       await assertPairAvailable(transaction, pair.userLowId, pair.userHighId);
       const rejections = await transaction
@@ -531,7 +561,10 @@ export class PostgresInteractionStore implements InteractionStore {
       );
     // Liked By unlock and Pending Nakh authorization arrive in M4/M5. The M3 adapter
     // must not turn a forged source into a free action against either later flow.
-    if (command.data.source !== 'explore')
+    if (
+      command.data.source !== 'explore' &&
+      !(command.data.source === 'liked_by' && this.receivedLike !== undefined)
+    )
       return Promise.reject(
         new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409),
       );
@@ -542,6 +575,20 @@ export class PostgresInteractionStore implements InteractionStore {
         await requireCurrentUserSession(transaction, command.actor.userId, this.owner);
       if (accounts.length !== 2 || accounts.some((account) => account.state === 'deleted'))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
+      if (this.receivedLike !== undefined) {
+        if (command.data.source !== 'liked_by')
+          throw new ApplicationError(
+            'interaction_unavailable',
+            'error.interaction.unavailable',
+            409,
+          );
+        await requireOriginalUnlockedLikeSource(
+          transaction,
+          this.owner!,
+          this.receivedLike,
+          command.data.targetUserId,
+        );
+      }
       if (this.candidateDeliveryId !== undefined)
         await requireDeliveredExploreSource(
           transaction,
@@ -554,8 +601,14 @@ export class PostgresInteractionStore implements InteractionStore {
         command,
         generated.occurredAt,
         this.candidateDeliveryId,
+        this.receivedLike,
       );
       if (replay !== undefined) return replay;
+      if (this.receivedLike !== undefined)
+        await lockAndValidatePaidActionTarget(transaction, command.actor.userId, {
+          type: 'like',
+          targetId: this.receivedLike.likeId,
+        });
       const users = await lockAndLoadUsers(transaction, pair.userLowId, pair.userHighId);
       await assertPairAvailable(transaction, pair.userLowId, pair.userHighId);
       const rejections = await transaction
@@ -611,7 +664,12 @@ export class PostgresInteractionStore implements InteractionStore {
       if (likes.some((like) => like.sender_user_id === command.actor.userId))
         throw new ApplicationError('interaction_unavailable', 'error.interaction.unavailable', 409);
       const receivedLike = likes.find((like) => like.sender_user_id === command.data.targetUserId);
-      assertEligible(users, command.actor.userId, command.data.targetUserId, true);
+      assertEligible(
+        users,
+        command.actor.userId,
+        command.data.targetUserId,
+        this.receivedLike === undefined,
+      );
       const consumptionCreated = await insertConsumption(
         transaction,
         command.actor.userId,

@@ -53,6 +53,9 @@ function screenMessageKey(deliveryId: string, screen: TelegramLockedLikedByScree
         screen.nextPage === undefined
           ? null
           : [canonicalIntent(screen.nextPage.label), screen.nextPage.callbackData],
+        ...(screen.home === undefined
+          ? []
+          : [[canonicalIntent(screen.home.label), screen.home.callbackData]]),
       ]),
     )
     .digest('base64url');
@@ -84,6 +87,7 @@ export class ResumableTelegramLikedBySender implements TelegramLikedBySendPort {
     if (known.has(screenKey) && pendingCards.length === 0) return;
     const render = await this.renderers.rendererFor(input.viewerUserId);
     if (!known.has(screenKey)) {
+      await input.beforeSend?.();
       const providerMessageId = await this.screens.sendScreen({
         botId: input.botId,
         telegramUserId: input.telegramUserId,
@@ -93,12 +97,16 @@ export class ResumableTelegramLikedBySender implements TelegramLikedBySendPort {
       await this.record(settlement, screenKey, providerMessageId);
     }
     for (const card of pendingCards) {
+      await input.beforeSend?.(card.unlock.callbackData);
       const messageKey = `card:${card.unlock.callbackData}`;
       const providerMessageId = await this.cards.sendCard(
         input.viewerUserId,
         input.telegramUserId,
         card,
         render,
+        input.beforeSend === undefined
+          ? undefined
+          : () => input.beforeSend!(card.unlock.callbackData),
       );
       await this.record(settlement, messageKey, providerMessageId);
     }

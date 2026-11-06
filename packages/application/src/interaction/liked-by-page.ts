@@ -22,6 +22,7 @@ export class GetLockedLikedByPageHandler {
     private readonly references: ReferenceFactory,
     private readonly blur: Blur,
     private readonly grants: Grants,
+    private readonly grantsForLike?: (likeId: string) => Grants,
   ) {}
 
   public async execute(
@@ -47,7 +48,7 @@ export class GetLockedLikedByPageHandler {
         ...(await Promise.all(
           batch.map(async (row) => {
             await this.blur.execute(row.assetId);
-            const blurredPhoto = await this.grants.execute({
+            const blurredPhoto = await (this.grantsForLike?.(row.likeId) ?? this.grants).execute({
               actor: query.actor,
               requestId: query.requestId,
               photoId: row.primaryPhotoId,

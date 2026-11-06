@@ -50,6 +50,37 @@ function fixture(claimed: ClaimedTelegramLikedByDelivery | null = delivery): Fix
 }
 
 describe('Telegram Liked By delivery processor', () => {
+  it('refuses to downgrade a session-bound request into legacy delivery', async () => {
+    const f = fixture({ ...delivery, sessionGrantId: '40000000-0000-4000-8000-000000000000' });
+    expect(await f.processor.processNext()).toEqual({
+      outcome: 'failed',
+      reasonCode: 'identity_unavailable',
+    });
+    expect(f.page.execute).not.toHaveBeenCalled();
+    expect(f.sender.send).not.toHaveBeenCalled();
+  });
+  it('hands original selectors to modern delivery and settles only its successful result', async () => {
+    const request = {
+      ...delivery,
+      sessionGrantId: '40000000-0000-4000-8000-000000000000',
+      sourceLikeId: '50000000-0000-4000-8000-000000000000',
+      featureUnlockId: '60000000-0000-4000-8000-000000000000',
+      profileVersion: 3,
+    };
+    const f = fixture(request),
+      modern = vi.fn().mockResolvedValue(undefined);
+    const processor = new TelegramLikedByDeliveryProcessor(
+      f.store,
+      f.page,
+      f.sender,
+      'sender-one',
+      modern,
+    );
+    expect(await processor.processNext()).toEqual({ outcome: 'delivered' });
+    expect(modern).toHaveBeenCalledWith(request);
+    expect(f.page.execute).not.toHaveBeenCalled();
+    expect(f.store.markDelivered).toHaveBeenCalledTimes(1);
+  });
   it('does no work when no request is due', async () => {
     const { processor, store, page, sender } = fixture(null);
     expect(await processor.processNext()).toEqual({ outcome: 'idle' });

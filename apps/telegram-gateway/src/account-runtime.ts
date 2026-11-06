@@ -44,6 +44,7 @@ export interface TelegramAccountRuntimePort {
   readonly enabled: boolean;
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
   open(recipient: string, actor: UserSessionActor): Promise<void>;
+  openCredits?(recipient: string, actor: UserSessionActor): Promise<void>;
 }
 /** Only public menu choices are cached; the ledger owns each repeatable grant. */
 export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
@@ -277,6 +278,11 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     const actor = Object.freeze({ ...input });
     await this.current(recipient, actor);
     await this.render(recipient, actor, 'settings');
+  }
+  public async openCredits(recipient: string, input: UserSessionActor): Promise<void> {
+    const actor = Object.freeze({ ...input });
+    await this.current(recipient, actor);
+    await this.render(recipient, actor, 'credits');
   }
   public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
     const root = record(structuredClone(update)),

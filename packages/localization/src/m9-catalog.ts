@@ -1,3 +1,19 @@
+export const M9_LIKED_BY_TEXTS = {
+  'liked_by.menu': 'Likes',
+  'liked_by.unlock.confirm':
+    'Spend {credits} credits to view this full profile?\nYour balance: {balance} credits.',
+  'liked_by.unlock.credits': 'Unlock for {credits} credits',
+  'liked_by.view': 'View profile',
+  'liked_by.like_back': 'Like back',
+  'liked_by.dismiss': 'Not interested',
+  'liked_by.unavailable': 'This Like is no longer available. Open Likes again.',
+  'liked_by.queued': 'Your profile view is being prepared.',
+  'liked_by.insufficient':
+    'You need {credits} credits to unlock this profile. Open Your credits to check your balance.',
+  'liked_by.back': 'Back to Likes',
+  'liked_by.rejected': 'This Like has been dismissed.',
+} as const;
+
 export const M9_FILTER_TEXTS = {
   'filters.title': 'Explore filters',
   'filters.summary':

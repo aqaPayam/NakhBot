@@ -39,6 +39,8 @@ export type SignupNavigation = Readonly<{
   reference?: string | undefined;
   reason?: string | undefined;
   photoId?: string | undefined;
+  likeId?: string | undefined;
+  unlockId?: string | undefined;
 }>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export function telegramChatAlias(
@@ -75,7 +77,8 @@ export class SignupNavigationTokens {
     private readonly telegramUserId: string,
     life: Readonly<{ userId: string; productEpoch: number }>,
     private readonly now: () => number = Date.now,
-    private readonly purpose: 'signup' | 'report' | 'chat' | 'account' | 'profile' = 'signup',
+    private readonly purpose:
+      'signup' | 'report' | 'chat' | 'account' | 'profile' | 'liked_by' = 'signup',
   ) {
     if (key.byteLength !== 32) throw new Error('Signup key unavailable.');
     this.key = createHmac('sha256', key).update(`nakh-${purpose}-navigation-v1`).digest();
@@ -98,9 +101,14 @@ export class SignupNavigationTokens {
       .toString('base64url');
   }
   private prefix(): string {
-    return { signup: 'm9s', report: 'm9r', chat: 'm9c', account: 'm9a', profile: 'm9p' }[
-      this.purpose
-    ];
+    return {
+      signup: 'm9s',
+      report: 'm9r',
+      chat: 'm9c',
+      account: 'm9a',
+      profile: 'm9p',
+      liked_by: 'm9l',
+    }[this.purpose];
   }
   public replyId(messageId: number): string {
     if (!Number.isSafeInteger(messageId) || messageId < 1)
@@ -127,6 +135,60 @@ export class SignupNavigationTokens {
   public button(state: SignupNavigation): Promise<string> {
     if (state.action === 'reply') throw new Error('Signup navigation purpose invalid.');
     return this.put(randomBytes(12).toString('base64url'), state);
+  }
+  /** Worker retries reuse the original envelope, token and expiry. The logical
+   * key contains only source/part selectors, never a profile body. */
+  public async stableButton(input: SignupNavigation, logicalKey: string): Promise<string> {
+    const state = structuredClone(input);
+    if (
+      !/^[A-Za-z0-9:_-]{1,200}$/u.test(logicalKey) ||
+      state.action === 'reply' ||
+      !this.valid(state)
+    )
+      throw new Error('Signup navigation unavailable.');
+    const canonical = (s: SignupNavigation): string =>
+      JSON.stringify(
+        Object.entries(s)
+          .filter(([, v]) => v !== undefined)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) =>
+            k === 'actor'
+              ? [k, [s.actor.kind, s.actor.userId, s.actor.productEpoch, s.actor.sessionGrantId]]
+              : [k, v],
+          ),
+      );
+    const id = this.tag(
+        'stable-navigation-id',
+        JSON.stringify([logicalKey, canonical(state)]),
+      ).slice(0, 16),
+      body = JSON.stringify({ expiresAt: this.now() + 900000, state }),
+      mac = this.tag(id, body),
+      value = JSON.stringify({ body, mac });
+    if (Buffer.byteLength(value) > 4096) throw new Error('Signup navigation unavailable.');
+    if (await this.store.putIfAbsent(id, value, 900)) return `${this.prefix()}:${id}:${mac}`;
+    const raw = await this.store.get(id);
+    try {
+      const envelope = raw === undefined ? undefined : signupRecord(JSON.parse(raw));
+      if (
+        !envelope ||
+        typeof envelope.body !== 'string' ||
+        typeof envelope.mac !== 'string' ||
+        !equal(envelope.mac, this.tag(id, envelope.body))
+      )
+        throw new Error();
+      const previous = signupRecord(JSON.parse(envelope.body));
+      if (
+        !previous ||
+        typeof previous.expiresAt !== 'number' ||
+        previous.expiresAt <= this.now() ||
+        !this.valid(previous.state) ||
+        canonical(previous.state) !== canonical(state)
+      )
+        throw new Error();
+      return `${this.prefix()}:${id}:${envelope.mac}`;
+    } catch {
+      throw new Error('Signup navigation unavailable.');
+    }
   }
   public async prompt(messageId: number, state: SignupNavigation): Promise<void> {
     if (state.action !== 'reply') throw new Error('Signup navigation purpose invalid.');
@@ -173,7 +235,7 @@ export class SignupNavigationTokens {
     };
   }
   public async callback(data: string): Promise<SignupNavigation | undefined> {
-    const match = /^(m9s|m9r|m9c|m9a|m9p):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
+    const match = /^(m9s|m9r|m9c|m9a|m9p|m9l):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
     return match === null || match[1] !== this.prefix()
       ? undefined
       : this.read(match[2]!, match[3], false);
@@ -203,6 +265,8 @@ export class SignupNavigationTokens {
           'reference',
           'reason',
           'photoId',
+          'likeId',
+          'unlockId',
         ].includes(k),
       ) &&
       Object.keys(actor).sort().join(',') === 'kind,productEpoch,sessionGrantId,userId' &&
@@ -248,6 +312,11 @@ export class SignupNavigationTokens {
       ) &&
       (row.photoId === undefined ||
         (this.purpose === 'report' && typeof row.photoId === 'string' && UUID.test(row.photoId))) &&
+      ['likeId', 'unlockId'].every(
+        (k) =>
+          row[k] === undefined ||
+          (this.purpose === 'liked_by' && typeof row[k] === 'string' && UUID.test(row[k])),
+      ) &&
       (row.page === undefined ||
         (Number.isSafeInteger(row.page) && Number(row.page) >= 0 && Number(row.page) <= 10000)) &&
       (row.group === undefined ||

@@ -1,10 +1,16 @@
 import { sql, type RawBuilder } from 'kysely';
 
-import type { ActionableLikedByPage, LikedByKeyset, LikedByReadStore } from '@nakh/application';
+import type {
+  ActionableLikedByPage,
+  LikedByKeyset,
+  LikedByReadStore,
+  UserSessionActor,
+} from '@nakh/application';
 import type { GetLikedByPageQuery } from '@nakh/contracts';
 import { ApplicationError } from '@nakh/domain';
 
 import type { NakhDatabase } from './database.js';
+import { PostgresUserSessionStore } from './user-session-store.js';
 
 /** Shared actionable predicate for the inbox and its media-grant authorization. */
 export function actionableLikedByFrom(receiverUserId: string): RawBuilder<unknown> {
@@ -101,7 +107,13 @@ function denied(): never {
 }
 
 export class PostgresLikedByStore implements LikedByReadStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
 
   public readActionablePage(
     query: GetLikedByPageQuery,
@@ -121,6 +133,18 @@ export class PostgresLikedByStore implements LikedByReadStore {
       .setIsolationLevel('repeatable read')
       .setAccessMode('read only')
       .execute(async (transaction) => {
+        // This snapshot is READ ONLY. Validate the original grant without
+        // introducing the write locks used by mutation admission.
+        if (
+          this.owner !== undefined &&
+          (query.actor.userId !== this.owner.userId ||
+            productEpoch !== this.owner.productEpoch ||
+            !(await new PostgresUserSessionStore(transaction).current(
+              this.owner,
+              this.owner.sessionGrantId,
+            )))
+        )
+          denied();
         const receiver = await transaction
           .selectFrom('identity.accounts as account')
           .innerJoin('identity.user_settings as settings', 'settings.user_id', 'account.user_id')

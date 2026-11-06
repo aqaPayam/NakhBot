@@ -2738,6 +2738,26 @@
           "name": "product_epoch",
           "type": "integer",
           "nullable": false
+        },
+        {
+          "name": "session_grant_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "source_like_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "feature_unlock_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "profile_version",
+          "type": "integer",
+          "nullable": true
         }
       ],
       "foreignKeys": [

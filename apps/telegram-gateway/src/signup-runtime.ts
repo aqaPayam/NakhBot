@@ -19,6 +19,7 @@ import type { AdministratorTelegramPort } from './admin-runtime.js';
 import type { TelegramChatRuntimePort } from './chat-runtime.js';
 import type { TelegramAccountRuntimePort } from './account-runtime.js';
 import type { TelegramProfileRuntimePort } from './profile-runtime.js';
+import type { TelegramLikedByCustomerRuntimePort } from './liked-by-customer-runtime.js';
 import { ApplicationError, PROFILE_LIMITS, SystemClock, validateNakhText } from '@nakh/domain';
 import {
   CatalogRenderer,
@@ -28,6 +29,7 @@ import {
   M9_SETTINGS_TEXTS,
   M9_EDITOR_TEXTS,
   M9_FILTER_TEXTS,
+  M9_LIKED_BY_TEXTS,
   M9_PREVIEW_TEXTS,
   M9_PROFILE_TEXTS,
   englishCatalogFromManifest,
@@ -146,6 +148,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         ...(this.chat?.enabled ? M9_CHAT_TEXTS : {}),
         ...(this.account?.enabled ? { ...M9_ACCOUNT_TEXTS, ...M9_SETTINGS_TEXTS } : {}),
         ...(this.profile?.enabled ? M9_EDITOR_TEXTS : {}),
+        ...(this.likedBy?.enabled ? M9_LIKED_BY_TEXTS : {}),
         ...(this.profile?.enabled && this.profile.openFilters ? M9_FILTER_TEXTS : {}),
         ...(this.previewDelivery === undefined && this.exploreDelivery === undefined
           ? {}
@@ -237,6 +240,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     private readonly financialDatabase: NakhDatabase = database,
     private readonly account?: TelegramAccountRuntimePort,
     private readonly profile?: TelegramProfileRuntimePort,
+    private readonly likedBy?: TelegramLikedByCustomerRuntimePort,
   ) {
     this.key = Buffer.from(key);
     this.stars?.assertSeparateNavigationKey?.(this.key);
@@ -1175,6 +1179,12 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         nav = { ...nav, selection: selected };
     }
     if (screen === 'root') {
+      if (
+        this.likedBy?.enabled &&
+        context.accountState === 'active' &&
+        context.profileCompletion === 'complete'
+      )
+        keyboard.push([await this.likedBy.entryButton(telegramId, actor)]);
       if (this.profile?.enabled && ['active', 'restricted'].includes(context.accountState))
         await button(t('profile.edit.title'), { action: 'edit_profile' });
       if (this.account?.enabled && ['active', 'restricted'].includes(context.accountState))
@@ -1391,9 +1401,12 @@ export function createTelegramSignupRuntime(
     chat?: TelegramChatRuntimePort;
     account?: TelegramAccountRuntimePort;
     profile?: TelegramProfileRuntimePort;
+    likedBy?: TelegramLikedByCustomerRuntimePort;
   }>,
 ): TelegramSignupRuntimePort {
   if (!input.config.telegram.signupEnabled) return { handle: () => Promise.resolve('unhandled') };
+  if (input.config.telegram.likedByDeliveryEnabled && !input.likedBy?.enabled)
+    throw new Error('Liked By composition unavailable.');
   if (input.config.telegram.accountMenuEnabled && !input.account?.enabled)
     throw new Error('Account menu composition unavailable.');
   if (input.config.telegram.accountMenuEnabled && !input.profile?.enabled)
@@ -1436,5 +1449,6 @@ export function createTelegramSignupRuntime(
     input.financialDatabase,
     input.account,
     input.profile,
+    input.likedBy,
   );
 }

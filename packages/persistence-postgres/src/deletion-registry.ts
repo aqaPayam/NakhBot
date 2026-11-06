@@ -88,7 +88,7 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
     actual.schemaVersion !== undefined &&
     (!Number.isSafeInteger(actual.schemaVersion) ||
       actual.schemaVersion < 137 ||
-      actual.schemaVersion > 169)
+      actual.schemaVersion > 170)
   )
     throw conflict();
   const tableNames = actual.tables.map((item) => `${item.schema}.${item.table}`).sort();
@@ -101,7 +101,7 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
     ): readonly (readonly [string, string, boolean])[] =>
       items.map(({ name, type, nullable }) => [name, type, nullable] as const);
     // Reviewed ordinary media layouts are tied to their native migration.
-    const expectedColumns =
+    let expectedColumns =
       expected.table === 'media.delivery_grants' && actual.schemaVersion !== undefined
         ? expected.columns.filter(
             (c) =>
@@ -110,6 +110,17 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
               (actual.schemaVersion! >= 169 || c.name !== 'feature_unlock_id'),
           )
         : expected.columns;
+    if (
+      expected.table === 'channel_telegram.liked_by_delivery_requests' &&
+      actual.schemaVersion !== undefined &&
+      actual.schemaVersion < 170
+    )
+      expectedColumns = expectedColumns.filter(
+        (c) =>
+          !['session_grant_id', 'source_like_id', 'feature_unlock_id', 'profile_version'].includes(
+            c.name,
+          ),
+      );
     if (
       table === undefined ||
       canonical(columns(table.columns)) !== canonical(columns(expectedColumns))

@@ -25,6 +25,7 @@ export type TelegramLikedBySendInput = Readonly<{
   telegramUserId: string;
   callbackQueryId?: string;
   screen: TelegramLockedLikedByScreen;
+  beforeSend?: (actionToken?: string) => Promise<void>;
 }>;
 
 export interface TelegramLikedBySendPort {
@@ -80,6 +81,7 @@ export class TelegramLikedByDeliveryProcessor {
     private readonly page: PageProcessor,
     private readonly sender: TelegramLikedBySendPort,
     private readonly owner: string,
+    private readonly modern?: (delivery: ClaimedTelegramLikedByDelivery) => Promise<void>,
   ) {}
 
   public async processNext(): Promise<TelegramLikedByPollResult> {
@@ -101,31 +103,37 @@ export class TelegramLikedByDeliveryProcessor {
       attemptCount: delivery.attemptCount,
     };
     try {
-      const screen = await this.page.execute({
-        handled: true,
-        kind: 'page_request',
-        updateId: delivery.updateId,
-        userId: delivery.viewerUserId,
-        productEpoch: delivery.productEpoch,
-        telegramUserId: delivery.telegramUserId,
-        requestId: delivery.requestId,
-        ...(delivery.cursor === undefined ? {} : { cursor: delivery.cursor }),
-        ...(delivery.callbackQueryId === undefined
-          ? {}
-          : { callbackQueryId: delivery.callbackQueryId }),
-      });
-      await this.sender.send({
-        deliveryId: delivery.id,
-        owner: this.owner,
-        attemptCount: delivery.attemptCount,
-        botId: delivery.botId,
-        viewerUserId: delivery.viewerUserId,
-        telegramUserId: delivery.telegramUserId,
-        ...(delivery.callbackQueryId === undefined
-          ? {}
-          : { callbackQueryId: delivery.callbackQueryId }),
-        screen,
-      });
+      if (delivery.sessionGrantId !== undefined) {
+        if (!this.modern)
+          throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+        await this.modern(delivery);
+      } else {
+        const screen = await this.page.execute({
+          handled: true,
+          kind: 'page_request',
+          updateId: delivery.updateId,
+          userId: delivery.viewerUserId,
+          productEpoch: delivery.productEpoch,
+          telegramUserId: delivery.telegramUserId,
+          requestId: delivery.requestId,
+          ...(delivery.cursor === undefined ? {} : { cursor: delivery.cursor }),
+          ...(delivery.callbackQueryId === undefined
+            ? {}
+            : { callbackQueryId: delivery.callbackQueryId }),
+        });
+        await this.sender.send({
+          deliveryId: delivery.id,
+          owner: this.owner,
+          attemptCount: delivery.attemptCount,
+          botId: delivery.botId,
+          viewerUserId: delivery.viewerUserId,
+          telegramUserId: delivery.telegramUserId,
+          ...(delivery.callbackQueryId === undefined
+            ? {}
+            : { callbackQueryId: delivery.callbackQueryId }),
+          screen,
+        });
+      }
     } catch (error) {
       if (error instanceof TelegramLikedByLeaseLost) return { outcome: 'lease_lost' };
       const failure = classify(error);
