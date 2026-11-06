@@ -502,7 +502,16 @@ describe.skipIf(databaseUrl === undefined)('PostgreSQL migration bootstrap and M
               [previousLikedByRequest.id],
             )
           ).rows,
-        ).toEqual([{ ...previousLikedByRequest, product_epoch: 0 }]);
+        ).toEqual([
+          {
+            ...previousLikedByRequest,
+            product_epoch: 0,
+            session_grant_id: null,
+            source_like_id: null,
+            feature_unlock_id: null,
+            profile_version: null,
+          },
+        ]);
       }
       if (previousPayment !== undefined) {
         const saved = previousPayment;
