@@ -135,6 +135,12 @@ export const CreateStarsInvoiceCommandSchema = commandSchema(
 );
 export type CreateStarsInvoiceCommand = Static<typeof CreateStarsInvoiceCommandSchema>;
 
+export const GrantFreeTestCreditsCommandSchema = commandSchema(
+  'billing.grant-free-test-credits',
+  Type.Object({}, { additionalProperties: false }),
+);
+export type GrantFreeTestCreditsCommand = Static<typeof GrantFreeTestCreditsCommandSchema>;
+
 export const CreditBalanceSchema = Type.Object(
   { balance: CreditAmountSchema, version: Type.Integer({ minimum: 1 }) },
   { additionalProperties: false },

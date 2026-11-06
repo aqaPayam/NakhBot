@@ -45,10 +45,14 @@ describe('M9 exact release reference comparison', () => {
     expect(projected['telegram.exploreEnabled']).toBe(false);
     expect(projected['telegram.publicSupportUsername']).toBe('');
     expect(projected['telegram.starsInvoiceCreationEnabled']).toBe(false);
+    expect(projected['telegram.accountMenuEnabled']).toBe(false);
+    expect(projected['telegram.freeTestTopupsEnabled']).toBe(false);
     const config = referenceFixtureConfig();
     for (const telegram of [
       { ...config.telegram, publicSupportUsername: 'NakhSupport' },
       { ...config.telegram, starsInvoiceCreationEnabled: true },
+      { ...config.telegram, accountMenuEnabled: true },
+      { ...config.telegram, freeTestTopupsEnabled: true },
     ])
       expect(releaseConfig({ ...config, telegram })).not.toEqual(projected);
     expect(

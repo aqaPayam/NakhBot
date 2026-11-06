@@ -52,6 +52,8 @@ const ConfigSchema = Type.Object(
       notificationDeliveryEnabled: Type.Boolean(),
       supportAppealEnabled: Type.Boolean(),
       publicSupportUsername: Type.String({ pattern: '^(?:|[A-Za-z][A-Za-z0-9_]{4,31})$' }),
+      accountMenuEnabled: Type.Boolean(),
+      freeTestTopupsEnabled: Type.Boolean(),
       startDeliveryEnabled: Type.Boolean(),
       signupEnabled: Type.Boolean(),
       guestPreviewEnabled: Type.Boolean(),
@@ -217,6 +219,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       notificationDeliveryEnabled: boolean(env.NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED, false),
       supportAppealEnabled: boolean(env.NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED, false),
       publicSupportUsername: env.NAKH_PUBLIC_SUPPORT_TELEGRAM_USERNAME ?? '',
+      accountMenuEnabled: boolean(env.NAKH_TELEGRAM_ACCOUNT_MENU_ENABLED, false),
+      freeTestTopupsEnabled: boolean(env.NAKH_FREE_TEST_TOPUPS_ENABLED, false),
       startDeliveryEnabled: boolean(env.NAKH_TELEGRAM_START_DELIVERY_ENABLED, false),
       signupEnabled: boolean(env.NAKH_TELEGRAM_SIGNUP_ENABLED, false),
       guestPreviewEnabled: boolean(env.NAKH_TELEGRAM_GUEST_PREVIEW_ENABLED, false),
@@ -380,6 +384,17 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
 
   if (candidate.telegram.starsInvoiceCreationEnabled && !candidate.telegram.starsEnabled)
     throw new Error('Invalid configuration: Stars invoice creation requires payment ingress.');
+  if (candidate.telegram.accountMenuEnabled && !candidate.telegram.signupEnabled)
+    throw new Error('Invalid configuration: account menu requires signup readiness.');
+  if (
+    candidate.telegram.freeTestTopupsEnabled &&
+    (candidate.environment !== 'staging' ||
+      !candidate.telegram.accountMenuEnabled ||
+      candidate.telegram.starsInvoiceCreationEnabled)
+  )
+    throw new Error(
+      'Invalid configuration: free test top-ups require staging account menus with real invoices disabled.',
+    );
 
   return deepFreeze(candidate) as AppConfig;
 }

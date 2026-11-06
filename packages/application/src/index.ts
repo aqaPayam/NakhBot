@@ -189,3 +189,4 @@ export * from './identity/account-return-activation.js';
 export * from './identity/retention-policy.js';
 export * from './identity/confirmed-account-return-approval.js';
 export * from './moderation/report-snapshot-keys.js';
+export * from './billing/free-test-credits.js';

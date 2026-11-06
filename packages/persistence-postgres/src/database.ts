@@ -568,6 +568,7 @@ export interface CreditTransactionTable {
   account_version: number;
   transaction_type:
     | 'purchase'
+    | 'free_test_topup'
     | 'spend_nakh'
     | 'spend_chat_unlock'
     | 'spend_liked_by_unlock'

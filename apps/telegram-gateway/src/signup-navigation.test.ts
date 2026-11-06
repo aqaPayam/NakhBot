@@ -30,6 +30,48 @@ function fixture(): {
   };
 }
 describe('signup navigation integrity and concurrency', () => {
+  it('binds credit callbacks to their original user, session, product life and account purpose', async () => {
+    const f = fixture(),
+      key = Buffer.alloc(32, 1);
+    const account = new SignupNavigationTokens(
+      f.store,
+      key,
+      '12345',
+      '123',
+      life,
+      undefined,
+      'account',
+    );
+    const nav: SignupNavigation = { ...f.nav, screen: 'credits', action: 'save', code: 'topup' };
+    const button = await account.button(nav);
+    expect(button).toMatch(/^m9a:/u);
+    expect(Buffer.byteLength(button)).toBeLessThanOrEqual(64);
+    expect(await account.callback(button)).toEqual(nav);
+    expect(await f.tokens.callback(button)).toBeUndefined();
+    expect(await account.callback(button.replace('m9a:', 'm9c:'))).toBeUndefined();
+    expect(
+      await new SignupNavigationTokens(
+        f.store,
+        key,
+        '12345',
+        '999',
+        life,
+        undefined,
+        'account',
+      ).callback(button),
+    ).toBeUndefined();
+    expect(
+      await new SignupNavigationTokens(
+        f.store,
+        key,
+        '12345',
+        '123',
+        { ...life, productEpoch: 1 },
+        undefined,
+        'account',
+      ).callback(button),
+    ).toBeUndefined();
+  });
   it('isolates chat callbacks, prompt replies and claims from signup and reporting', async () => {
     const f = fixture();
     const make = (purpose: 'signup' | 'report' | 'chat', epoch = 0): SignupNavigationTokens =>

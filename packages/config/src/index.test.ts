@@ -18,6 +18,29 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('allows repeatable free funding only in the staging account menu without new invoices', () => {
+    const defaults = parseConfig(validEnvironment);
+    expect(defaults.telegram.accountMenuEnabled).toBe(false);
+    expect(defaults.telegram.freeTestTopupsEnabled).toBe(false);
+    const env = {
+      ...validEnvironment,
+      NAKH_ENV: 'staging',
+      NAKH_TELEGRAM_SIGNUP_ENABLED: 'true',
+      NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
+      NAKH_MEDIA_INGESTION_ENABLED: 'true',
+      NAKH_TELEGRAM_ACCOUNT_MENU_ENABLED: 'true',
+      NAKH_FREE_TEST_TOPUPS_ENABLED: 'true',
+    };
+    expect(parseConfig(env).telegram.freeTestTopupsEnabled).toBe(true);
+    for (const patch of [
+      { NAKH_ENV: 'production' },
+      { NAKH_ENV: 'test' },
+      { NAKH_TELEGRAM_ACCOUNT_MENU_ENABLED: 'false' },
+      { NAKH_TELEGRAM_SIGNUP_ENABLED: 'false' },
+      { NAKH_TELEGRAM_STARS_ENABLED: 'true', NAKH_TELEGRAM_STARS_INVOICES_ENABLED: 'true' },
+    ])
+      expect(() => parseConfig({ ...env, ...patch })).toThrow();
+  });
   it('keeps public payment contact and new invoices disabled until separately configured', () => {
     const defaults = parseConfig(validEnvironment);
     expect(defaults.telegram.publicSupportUsername).toBe('');

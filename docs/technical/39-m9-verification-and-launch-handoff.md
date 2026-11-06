@@ -20,6 +20,40 @@ tests: the canonical profile/settings menus, contextual credit access and Liked 
 unlock presentation need actual bot wiring. Backend gates alone do not prove a
 finished customer application. Complete these flows before final owner testing.
 
+## Repeatable free test credits
+
+The account menu now has Settings → Your credits → Add 100 free credits,
+with `/settings` and `/credits` entry commands. Each fresh refill action grants
+100 noncash credits. Retries of the same opaque, original-session-bound button
+reuse the ledger receipt; a newly rendered button allows another refill. Existing
+Nakh/chat credit costs and the credit-increased event remain unchanged. Previously
+approved pending Nakhes may consume the new balance through their existing FIFO
+processing. There are no payment records, provider receipts or cash refunds for
+these grants. A burst limit of ten new refills per minute prevents accidental
+loops without imposing a lifetime credit allowance.
+
+`NAKH_TELEGRAM_ACCOUNT_MENU_ENABLED` and `NAKH_FREE_TEST_TOPUPS_ENABLED` default
+off. Free funding is staging-only and rejects enabled real invoice creation.
+Migration 165 preserves the existing financial ledger constraints and adds an
+explicit `free_test_topup` kind, English menu text and deferred exact ledger/audit/
+outbox proofs. Each new grant requires a current native user session, active
+original account life, exact source/bot and current bounded cohort membership.
+Mode closure and grants share the cohort lock; user lifecycle and session changes
+retain their existing native locks. Valid historical financial proof survives mode
+closure, session expiry and ordinary deletion without relaxing the operational
+deletion blocker for unknown audit bodies. No new table, column or foreign-key
+classification is introduced; the unchanged deletion inventory accepts schema 165.
+
+Only the pinned Root owner operator can enable the native funding mode, with an
+exact command digest, current cohort-policy id and expiry within that policy.
+The compiled `vps-free-test-credit-operator` supports protected absolute input and
+output files and an independent disable command. Application flags alone cannot
+mint credits. This source change does not activate free refills, expand admission
+or replace the clean-database cutover. Native integration coverage includes real
+restricted-logins, retry/concurrency and closure races, an orphan audit borrowing
+attempt, populated 164-to-165 migration preservation, and PostgreSQL/Redis Bot API
+serialization. Synthetic rehearsals remain separate from live release evidence.
+
 ## Invoice-pause composition repair
 
 Commit `23396fe` passed local checks but failed the native process-composition

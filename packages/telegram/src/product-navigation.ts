@@ -24,7 +24,8 @@ export type SignupNavigation = Readonly<{
     | 'nakh_pending'
     | 'nakh_stars'
     | 'detail'
-    | 'chat';
+    | 'chat'
+    | 'settings';
   code?: string | undefined;
   selection?: readonly string[] | undefined;
   field?: string | undefined;
@@ -71,7 +72,7 @@ export class SignupNavigationTokens {
     private readonly telegramUserId: string,
     life: Readonly<{ userId: string; productEpoch: number }>,
     private readonly now: () => number = Date.now,
-    private readonly purpose: 'signup' | 'report' | 'chat' = 'signup',
+    private readonly purpose: 'signup' | 'report' | 'chat' | 'account' = 'signup',
   ) {
     if (key.byteLength !== 32) throw new Error('Signup key unavailable.');
     this.key = createHmac('sha256', key).update(`nakh-${purpose}-navigation-v1`).digest();
@@ -94,7 +95,7 @@ export class SignupNavigationTokens {
       .toString('base64url');
   }
   private prefix(): string {
-    return { signup: 'm9s', report: 'm9r', chat: 'm9c' }[this.purpose];
+    return { signup: 'm9s', report: 'm9r', chat: 'm9c', account: 'm9a' }[this.purpose];
   }
   public replyId(messageId: number): string {
     if (!Number.isSafeInteger(messageId) || messageId < 1)
@@ -167,7 +168,7 @@ export class SignupNavigationTokens {
     };
   }
   public async callback(data: string): Promise<SignupNavigation | undefined> {
-    const match = /^(m9s|m9r|m9c):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
+    const match = /^(m9s|m9r|m9c|m9a):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
     return match === null || match[1] !== this.prefix()
       ? undefined
       : this.read(match[2]!, match[3], false);
@@ -230,6 +231,7 @@ export class SignupNavigationTokens {
         'nakh_stars',
         'detail',
         'chat',
+        'settings',
       ].includes(row.action) &&
       ['code', 'field', 'country', 'province', 'reference', 'reason'].every(
         (k) =>

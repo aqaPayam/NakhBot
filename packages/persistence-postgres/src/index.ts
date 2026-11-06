@@ -269,3 +269,5 @@ export * from './report-entry-store.js';
 export * from './launch-operator-host.js';
 export * from './launch-health-store.js';
 export * from './launch-review.js';
+export * from './free-test-credit-mode.js';
+export * from './free-test-credit-store.js';

@@ -1,3 +1,19 @@
+export const M9_ACCOUNT_TEXTS = {
+  'account.menu.title': 'Settings',
+  'account.credits.title': 'Your credits',
+  'account.credits.balance': 'Balance: {credits} credits',
+  'account.credits.free_add': 'Add 100 free credits',
+  'account.credits.free_info':
+    'You can add test credits for free, as often as you need. Pending Nakhes you already approved may use these credits automatically.',
+  'account.credits.added': 'Added 100 free credits.',
+  'account.credits.unavailable':
+    'Free credit refills are unavailable. Please open the current menu again.',
+  'account.menu.support': 'Support',
+  'account.menu.support_help': 'Send /support followed by your message.',
+  'account.menu.delete': 'Delete account',
+  'account.menu.delete_help': 'Send /delete to review and confirm account deletion.',
+  'account.menu.back': 'Back to settings',
+} as const;
 export const M9_SIGNUP_TEXTS = {
   'signup.ui.confirm_age': 'I am at least 18',
   'signup.ui.next': 'Next',

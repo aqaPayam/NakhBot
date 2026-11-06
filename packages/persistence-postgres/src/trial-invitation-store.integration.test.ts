@@ -38,7 +38,7 @@ describe.skipIf(url === undefined)('native bounded private trial invitations', (
     const previous = await mkdtemp(join(tmpdir(), 'nakh-trial-upgrade-'));
     try {
       for (const name of await readdir(resolve('migrations')))
-        if (/^\d+.*\.sql$/u.test(name) && name !== '000164_m9_private_trial_invitations.sql')
+        if (/^\d+.*\.sql$/u.test(name) && name < '000164_m9_private_trial_invitations.sql')
           await copyFile(resolve('migrations', name), join(previous, name));
       await runMigrations(isolated.url, previous);
     } finally {
@@ -61,7 +61,7 @@ describe.skipIf(url === undefined)('native bounded private trial invitations', (
       await database
         .selectFrom('platform.schema_migrations')
         .selectAll()
-        .where('name', '!=', '000164_m9_private_trial_invitations.sql')
+        .where('name', '<', '000164_m9_private_trial_invitations.sql')
         .orderBy('name')
         .execute(),
     ).toEqual(before);
@@ -177,7 +177,7 @@ describe.skipIf(url === undefined)('native bounded private trial invitations', (
     let old: NakhDatabase | undefined;
     try {
       for (const name of await readdir(resolve('migrations')))
-        if (/^\d+.*\.sql$/u.test(name) && name !== '000164_m9_private_trial_invitations.sql')
+        if (/^\d+.*\.sql$/u.test(name) && name < '000164_m9_private_trial_invitations.sql')
           await copyFile(resolve('migrations', name), join(previous, name));
       await runMigrations(legacy.url, previous);
       old = createDatabase({

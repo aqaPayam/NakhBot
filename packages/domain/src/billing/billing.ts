@@ -15,6 +15,7 @@ export type PendingPaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled' |
 export type PaymentStatus = PendingPaymentStatus | 'refunded';
 export type CreditTransactionType =
   | 'purchase'
+  | 'free_test_topup'
   | 'spend_nakh'
   | 'spend_chat_unlock'
   | 'spend_liked_by_unlock'
@@ -29,6 +30,7 @@ export const PAID_ACTION_PRICES: Readonly<
 };
 
 export const PROVIDER_ATTEMPT_LIMIT = 10;
+export const FREE_TEST_TOPUP_CREDITS = 100n;
 export const PROVIDER_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 export const FUNDING_INTENT_TTL_MS = 15 * 60 * 1000;
 
@@ -60,7 +62,10 @@ export function calculateCreditBalance(
       400,
     );
 
-  const positive = transactionType === 'purchase' || transactionType === 'refund';
+  const positive =
+    transactionType === 'purchase' ||
+    transactionType === 'refund' ||
+    transactionType === 'free_test_topup';
   const negative = transactionType.startsWith('spend_');
   if ((positive && amount < 0n) || (negative && amount > 0n))
     throw new ApplicationError(
