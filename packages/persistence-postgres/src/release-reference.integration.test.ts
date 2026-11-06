@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { M7_PERMISSIONS } from '@nakh/domain';
+import { M9_ACCOUNT_TEXTS } from '@nakh/localization';
 import { resolve } from 'node:path';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { sql } from 'kysely';
@@ -43,7 +44,15 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
       second = await capture();
     expect(referenceDigest(first)).toBe(referenceDigest(second));
     expect(Object.keys(first.native).sort()).toEqual(Object.keys(RELEASE_REFERENCE_COLUMNS).sort());
-    expect(first.native['catalog.ui_texts']).toHaveLength(684);
+    expect(first.native['catalog.ui_texts']).toHaveLength(
+      684 + Object.keys(M9_ACCOUNT_TEXTS).length,
+    );
+    for (const [text_key, value] of Object.entries(M9_ACCOUNT_TEXTS))
+      expect(first.native['catalog.ui_texts']).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ locale_code: 'en', text_key, value, is_active: true }),
+        ]),
+      );
     expect(
       first.native['catalog.ui_texts']?.filter(
         (row) =>
@@ -55,7 +64,7 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
           'is_active' in row &&
           row.is_active === true,
       ),
-    ).toHaveLength(681);
+    ).toHaveLength(681 + Object.keys(M9_ACCOUNT_TEXTS).length);
     expect(first.native['platform.schema_migrations']).toHaveLength(165);
     expect(first.native['administration.admin_roles']).toHaveLength(3);
     expect(first.native['administration.admin_permissions']).toHaveLength(M7_PERMISSIONS.length);

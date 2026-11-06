@@ -11,7 +11,7 @@ import { PostgresAccountDeletionEphemeralStore } from './account-deletion-epheme
 import { PostgresAccountDeletionSessionStore } from './account-deletion-session-store.js';
 import { PostgresAccountDeletionRetentionStore } from './account-deletion-retention-store.js';
 import { PostgresAccountDeletionWorkStore } from './account-deletion-work-store.js';
-import { DELETION_REGISTRY } from './deletion-registry.js';
+import { DELETION_REGISTRY, readDeletionCatalog } from './deletion-registry.js';
 import { PostgresAccountDeletionSampleStore } from './account-deletion-sample-store.js';
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
@@ -455,7 +455,10 @@ describe.skipIf(url === undefined)(
     });
     it('rejects a migration ledger advance after preflight before recording inventory', async () => {
       const lease = await scene();
-      const name = '000165_retention_preflight_probe.sql';
+      const currentVersion = (await readDeletionCatalog(database)).schemaVersion;
+      expect(currentVersion).toBeTypeOf('number');
+      const nextVersion = currentVersion! + 1;
+      const name = `${String(nextVersion).padStart(6, '0')}_retention_preflight_probe.sql`;
       try {
         const result = await whileWaitingForIdentity(lease, async () => {
           await sql`INSERT INTO platform.schema_migrations(name,sha256) VALUES (${name},${'a'.repeat(64)})`.execute(
