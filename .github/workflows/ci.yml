@@ -147,7 +147,7 @@ jobs:
       - run: pnpm db:verify
       - run: pnpm build
       - name: Download source-bound native receipts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: postgres-native-${{ github.sha }}-*
           path: artifacts/native-shards
