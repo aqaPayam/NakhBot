@@ -10,6 +10,13 @@ import {
 
 import { ActorSchema, ChannelContextSchema, UtcTimestampSchema, UuidSchema } from './shared.js';
 
+export const NotificationPreferenceKindSchema = Type.Union([
+  Type.Literal('chat'),
+  Type.Literal('like'),
+  Type.Literal('nakh'),
+  Type.Literal('match'),
+]);
+
 type CommandProperties<TType extends string, TData extends TSchema> = {
   commandId: typeof UuidSchema;
   commandType: TLiteral<TType>;
@@ -43,6 +50,21 @@ function commandSchema<TType extends string, TData extends TSchema>(
     { additionalProperties: false },
   );
 }
+
+export const ChangeNotificationPreferenceCommandSchema = commandSchema(
+  'notification.change-preference',
+  Type.Object(
+    {
+      kind: NotificationPreferenceKindSchema,
+      enabled: Type.Boolean(),
+      expectedVersion: Type.Integer({ minimum: 1 }),
+    },
+    { additionalProperties: false },
+  ),
+);
+export type ChangeNotificationPreferenceCommand = Static<
+  typeof ChangeNotificationPreferenceCommandSchema
+>;
 
 export const ChatMessageTypeSchema = Type.Union([
   Type.Literal('predefined_question'),

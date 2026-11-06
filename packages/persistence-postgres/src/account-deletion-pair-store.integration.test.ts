@@ -116,6 +116,7 @@ describe.skipIf(url === undefined)('M8 original pair removal and Match lifetimes
       '000163_m9_launch_cohort_authority.sql',
       '000164_m9_private_trial_invitations.sql',
       '000165_m9_free_test_credits.sql',
+      '000166_m9_profile_settings_menus.sql',
     ]);
     expect(
       (

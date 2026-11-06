@@ -8,7 +8,12 @@ import type {
   UpdateProfileWrite,
   UserSessionActor,
 } from '@nakh/application';
-import type { ConfirmSignupCommand, ConfirmSignupResult, OwnProfile } from '@nakh/contracts';
+import type {
+  ConfirmSignupCommand,
+  ConfirmSignupResult,
+  OwnProfile,
+  UpdateProfileCommand,
+} from '@nakh/contracts';
 import {
   ApplicationError,
   assertAccountTransition,
@@ -21,6 +26,11 @@ import type { NakhDatabase } from './database.js';
 import { lockEligibleMedia, profilePhotosAreEligible } from './media-eligibility.js';
 import { SystemIdGenerator } from './foundation-store.js';
 import { requireCurrentUserSession } from './user-session-store.js';
+
+export type OwnProfileEditSnapshot = Readonly<{
+  profile: OwnProfile;
+  optionalDetails: NonNullable<UpdateProfileCommand['data']['patch']['optionalDetails']>;
+}>;
 
 type Json = Readonly<Record<string, unknown>>;
 type CompleteDraft = Readonly<{
@@ -684,6 +694,74 @@ export class PostgresProfileStore implements ProfileStore {
     return this.readOwned(userId, (database) => this.readProfile(database, userId));
   }
 
+  /** Native snapshot for merging an edited optional field without clearing its siblings. */
+  public getOwnEditSnapshot(userId: string): Promise<OwnProfileEditSnapshot | undefined> {
+    if (this.owner === undefined)
+      return Promise.reject(
+        new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401),
+      );
+    return this.readOwned(userId, async (database) => {
+      const account = await database
+        .selectFrom('identity.accounts')
+        .select('state')
+        .where('user_id', '=', userId)
+        .executeTakeFirst();
+      if (!account || !['active', 'restricted'].includes(account.state))
+        throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+      const profile = await this.readProfile(database, userId);
+      if (profile === undefined) return undefined;
+      const details = await database
+        .selectFrom('profile.profile_optional_details')
+        .selectAll()
+        .where('profile_id', '=', profile.profileId)
+        .executeTakeFirst();
+      const languages = await database
+        .selectFrom('profile.profile_languages as selected')
+        .innerJoin('catalog.languages as value', 'value.id', 'selected.language_id')
+        .select('value.code')
+        .where('selected.profile_id', '=', profile.profileId)
+        .orderBy('value.display_order')
+        .orderBy('value.code')
+        .execute();
+      const tags = await database
+        .selectFrom('profile.profile_personality_tags as selected')
+        .innerJoin('catalog.personality_tags as value', 'value.id', 'selected.personality_tag_id')
+        .select('value.code')
+        .where('selected.profile_id', '=', profile.profileId)
+        .orderBy('value.display_order')
+        .orderBy('value.code')
+        .execute();
+      return {
+        profile,
+        optionalDetails: {
+          ...(details?.height_cm == null ? {} : { heightCm: details.height_cm }),
+          ...(details?.job_title == null ? {} : { job: details.job_title }),
+          ...(details?.education_level_code == null
+            ? {}
+            : { educationLevelCode: details.education_level_code }),
+          ...(details?.smoking_preference_code == null
+            ? {}
+            : { smokingPreferenceCode: details.smoking_preference_code }),
+          ...(details?.pets_preference_code == null
+            ? {}
+            : { petsPreferenceCode: details.pets_preference_code }),
+          ...(details?.exercise_frequency_code == null
+            ? {}
+            : { exerciseFrequencyCode: details.exercise_frequency_code }),
+          ...(details?.religion_importance_code == null
+            ? {}
+            : { religionCode: details.religion_importance_code }),
+          ...(details?.children_preference_code == null
+            ? {}
+            : { childrenPreferenceCode: details.children_preference_code }),
+          ...(profile.bio === undefined ? {} : { bio: profile.bio }),
+          languageCodes: languages.map((row) => row.code),
+          personalityTagCodes: tags.map((row) => row.code),
+        },
+      };
+    });
+  }
+
   public async updateOwnProfile(write: UpdateProfileWrite): Promise<OwnProfile> {
     if (this.owner !== undefined) write = structuredClone(write);
     if (write.command.actor.kind !== 'user')
@@ -702,8 +780,11 @@ export class PostgresProfileStore implements ProfileStore {
         .where('user_id', '=', userId)
         .forUpdate()
         .executeTakeFirstOrThrow();
-      if (this.owner !== undefined)
+      if (this.owner !== undefined) {
         await requireCurrentUserSession(transaction, userId, this.owner);
+        if (!['active', 'restricted'].includes(account.state))
+          throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+      }
       const replay = await this.claimUpdate(transaction, write);
       if (replay !== undefined) return replay;
       const settings = await transaction
@@ -885,6 +966,21 @@ export class PostgresProfileStore implements ProfileStore {
               400,
             );
         await transaction
+          .insertInto('profile.profile_optional_details')
+          .values({
+            profile_id: current.id,
+            height_cm: null,
+            job_title: null,
+            education_level_code: null,
+            smoking_preference_code: null,
+            pets_preference_code: null,
+            exercise_frequency_code: null,
+            religion_importance_code: null,
+            children_preference_code: null,
+          })
+          .onConflict((conflict) => conflict.column('profile_id').doNothing())
+          .execute();
+        await transaction
           .updateTable('profile.profile_optional_details')
           .set({
             height_cm: value.heightCm ?? null,
@@ -903,6 +999,7 @@ export class PostgresProfileStore implements ProfileStore {
             children_preference_code: value.childrenPreferenceCode ?? null,
           })
           .where('profile_id', '=', current.id)
+          .returning('profile_id')
           .executeTakeFirstOrThrow();
         await transaction
           .deleteFrom('profile.profile_languages')

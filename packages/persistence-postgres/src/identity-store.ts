@@ -7,6 +7,7 @@ import type {
   LocalizationCatalog,
   LocalizationStore,
   RegisterTelegramIdentityWrite,
+  UserSessionActor,
 } from '@nakh/application';
 import type { ChangeSettingsResult, RegisterTelegramIdentityResult } from '@nakh/contracts';
 import {
@@ -18,6 +19,7 @@ import {
 import { sql } from 'kysely';
 
 import type { NakhDatabase } from './database.js';
+import { requireCurrentUserSession } from './user-session-store.js';
 
 function registrationHash(write: RegisterTelegramIdentityWrite): string {
   return createHash('sha256')
@@ -86,7 +88,14 @@ function parseStoredSettings(value: Readonly<Record<string, unknown>>): ChangeSe
 }
 
 export class PostgresIdentityStore implements IdentityStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly settingsOwner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    settingsOwner?: UserSessionActor,
+  ) {
+    this.settingsOwner =
+      settingsOwner === undefined ? undefined : Object.freeze({ ...settingsOwner });
+  }
 
   private contextFromRow(
     row: Readonly<{
@@ -474,6 +483,7 @@ export class PostgresIdentityStore implements IdentityStore {
   }
 
   public async changeSettings(write: ChangeSettingsWrite): Promise<ChangeSettingsResult> {
+    write = structuredClone(write);
     if (write.command.actor.kind !== 'user') {
       throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
     }
@@ -481,6 +491,46 @@ export class PostgresIdentityStore implements IdentityStore {
     const hash = settingsHash(write);
 
     return this.database.transaction().execute(async (transaction) => {
+      // Current User/Account authority precedes idempotency, including cached replies.
+      const user = await transaction
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', actorUserId)
+        .forNoKeyUpdate()
+        .executeTakeFirst();
+      if (user === undefined) {
+        throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
+      }
+      const account = await transaction
+        .selectFrom('identity.accounts')
+        .select(['state', 'version'])
+        .where('user_id', '=', actorUserId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (this.settingsOwner !== undefined)
+        await requireCurrentUserSession(transaction, actorUserId, this.settingsOwner);
+      const settings = await transaction
+        .selectFrom('identity.user_settings')
+        .select(['ui_locale_code', 'visibility_enabled', 'version'])
+        .where('user_id', '=', actorUserId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+
+      const decision = evaluateCapability(
+        {
+          accountState: account.state,
+          profileCompletion: null,
+          visibilityEnabled: settings.visibility_enabled,
+        },
+        'change_settings',
+      );
+      if (!decision.allowed) {
+        throw new ApplicationError('capability_denied', 'error.capability.denied', 403, {
+          reason: decision.reasonCode ?? 'account_state_denied',
+          requiredRoute: decision.requiredRoute,
+        });
+      }
+
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -518,43 +568,6 @@ export class PostgresIdentityStore implements IdentityStore {
           throw new ApplicationError('conflict', 'error.command.in_progress', 409);
         }
         return parseStoredSettings(existing.response_json);
-      }
-
-      const user = await transaction
-        .selectFrom('identity.users')
-        .select('id')
-        .where('id', '=', actorUserId)
-        .forUpdate()
-        .executeTakeFirst();
-      if (user === undefined) {
-        throw new ApplicationError('unauthorized', 'error.identity.user_context_invalid', 401);
-      }
-      const account = await transaction
-        .selectFrom('identity.accounts')
-        .select(['state', 'version'])
-        .where('user_id', '=', actorUserId)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      const settings = await transaction
-        .selectFrom('identity.user_settings')
-        .select(['ui_locale_code', 'visibility_enabled', 'version'])
-        .where('user_id', '=', actorUserId)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-
-      const decision = evaluateCapability(
-        {
-          accountState: account.state,
-          profileCompletion: null,
-          visibilityEnabled: settings.visibility_enabled,
-        },
-        'change_settings',
-      );
-      if (!decision.allowed) {
-        throw new ApplicationError('capability_denied', 'error.capability.denied', 403, {
-          reason: decision.reasonCode ?? 'account_state_denied',
-          requiredRoute: decision.requiredRoute,
-        });
       }
 
       if (settings.version !== write.command.data.expectedSettingsVersion) {

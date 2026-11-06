@@ -85,7 +85,7 @@ export {
   type TelegramLikedByEnqueueResult,
 } from './telegram-liked-by-delivery-store.js';
 export { PostgresSignupStore } from './signup-store.js';
-export { PostgresProfileStore } from './profile-store.js';
+export { PostgresProfileStore, type OwnProfileEditSnapshot } from './profile-store.js';
 export { PostgresMediaStore } from './media-store.js';
 export { PostgresMediaValidationStore } from './media-validation-store.js';
 export { PostgresPhotoManagementStore } from './photo-management-store.js';
@@ -271,3 +271,4 @@ export * from './launch-health-store.js';
 export * from './launch-review.js';
 export * from './free-test-credit-mode.js';
 export * from './free-test-credit-store.js';
+export * from './notification-preference-store.js';

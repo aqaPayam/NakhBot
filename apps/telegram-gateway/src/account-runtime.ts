@@ -1,14 +1,20 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { GrantFreeTestCreditsHandler, type UserSessionActor } from '@nakh/application';
+import {
+  GrantFreeTestCreditsHandler,
+  ChangeSettingsHandler,
+  ChangeNotificationPreferenceHandler,
+  type UserSessionActor,
+} from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
-import { ApplicationError } from '@nakh/domain';
-import { CatalogRenderer, M9_ACCOUNT_TEXTS } from '@nakh/localization';
+import { ApplicationError, SystemClock } from '@nakh/domain';
+import { CatalogRenderer, M9_ACCOUNT_TEXTS, M9_SETTINGS_TEXTS } from '@nakh/localization';
 import {
   PostgresFreeTestCreditStore,
   PostgresIdentityStore,
   PostgresLocalizationStore,
   PostgresTelegramUserResolver,
   PostgresUserSessionStore,
+  PostgresNotificationPreferenceStore,
   SystemIdGenerator,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
@@ -49,6 +55,7 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
   private readonly localization: PostgresLocalizationStore;
   private readonly limiter: RedisRateLimiter;
   private readonly ids = new SystemIdGenerator();
+  private readonly clock = new SystemClock();
   public constructor(
     private readonly config: AppConfig,
     private readonly database: NakhDatabase,
@@ -57,6 +64,7 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     private readonly botId: string,
     key: Uint8Array,
     private readonly client: TelegramBotApiMenuClient,
+    private readonly home?: (recipient: string, actor: UserSessionActor) => Promise<void>,
   ) {
     this.key = Buffer.from(key);
     this.users = new PostgresTelegramUserResolver(database);
@@ -70,7 +78,7 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
       !(await this.database
         .selectFrom('platform.schema_migrations')
         .select('name')
-        .where('name', '=', '000165_m9_free_test_credits.sql')
+        .where('name', '=', '000166_m9_profile_settings_menus.sql')
         .executeTakeFirst())
     )
       throw new Error('Account menu schema unavailable.');
@@ -81,7 +89,7 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
       .execute();
     for (const locale of locales) {
       const catalog = await this.localization.loadActiveCatalog(locale.code);
-      for (const [key, english] of Object.entries(M9_ACCOUNT_TEXTS)) {
+      for (const [key, english] of Object.entries({ ...M9_ACCOUNT_TEXTS, ...M9_SETTINGS_TEXTS })) {
         const value = catalog.messages[key];
         const variables = (text: string): string =>
           [...new Set([...text.matchAll(/\{([A-Za-z0-9_]+)\}/gu)].map((m) => m[1]))]
@@ -134,11 +142,11 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
   private async render(
     recipient: string,
     actor: UserSessionActor,
-    screen: 'settings' | 'credits',
+    screen: 'settings' | 'credits' | 'locales' | 'notifications',
     notice?: string,
   ): Promise<void> {
     const locale = await this.current(recipient, actor),
-      state = await this.store(actor).state();
+      state = screen === 'credits' ? await this.store(actor).state() : undefined;
     const catalog = await this.localization.loadActiveCatalog(locale),
       renderer = new CatalogRenderer(
         { [catalog.resolvedLocale]: catalog.messages },
@@ -146,9 +154,16 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
       );
     const t = (key: string, variables: Record<string, string | number> = {}): string =>
       renderer.render(catalog.resolvedLocale, { key, variables });
+    const identity = await this.identities.getByUserId(actor.userId);
+    if (!identity) denied();
+    const preferences =
+      screen === 'notifications'
+        ? await new PostgresNotificationPreferenceStore(this.database, actor).read()
+        : undefined;
+    const version = preferences?.version ?? state?.version ?? identity.settingsVersion;
     const nav: Nav = {
       actor: Object.freeze({ ...actor }),
-      version: state.version,
+      version,
       screen,
       action: 'resume',
       group: randomBytes(12).toString('base64url'),
@@ -162,23 +177,90 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
       text: t(key),
       callback_data: await tokens.button({
         ...nav,
+        version,
         action,
         ...(code === undefined ? {} : { code }),
       }),
     });
     const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
     const text = [
-      t(screen === 'settings' ? 'account.menu.title' : 'account.credits.title'),
-      t('account.credits.balance', { credits: state.balance }),
+      t(
+        screen === 'settings'
+          ? 'account.menu.title'
+          : screen === 'credits'
+            ? 'account.credits.title'
+            : screen === 'locales'
+              ? 'account.settings.language'
+              : 'account.settings.notifications',
+      ),
     ];
+    if (state) text.push(t('account.credits.balance', { credits: state.balance }));
     if (notice !== undefined) text.push(t(notice));
     if (screen === 'settings') {
+      text.push(t('account.settings.visibility_info'));
       keyboard.push([await button('account.credits.title', 'pick', 'credits')]);
+      keyboard.push([await button('account.settings.language', 'pick', 'locales')]);
+      keyboard.push([
+        await button(
+          identity.visibilityEnabled
+            ? 'account.settings.visibility_on'
+            : 'account.settings.visibility_off',
+          'save',
+          identity.visibilityEnabled ? 'visibility_off' : 'visibility_on',
+        ),
+      ]);
+      keyboard.push([await button('account.settings.notifications', 'pick', 'notifications')]);
       if (this.config.telegram.supportAppealEnabled)
         keyboard.push([await button('account.menu.support', 'pick', 'support')]);
       if (this.config.deletion.telegramEnabled)
         keyboard.push([await button('account.menu.delete', 'pick', 'delete')]);
+      keyboard.push([await button('account.menu.home', 'home')]);
+    } else if (screen === 'locales') {
+      text.push(t('account.settings.language'));
+      for (const locale of await this.database
+        .selectFrom('catalog.locales')
+        .select(['code', 'native_name'])
+        .where('is_active', '=', true)
+        .orderBy('code')
+        .execute())
+        keyboard.push([
+          {
+            text: (locale.code === identity.uiLocale ? '✓ ' : '') + locale.native_name,
+            callback_data: await tokens.button({
+              ...nav,
+              version,
+              action: 'save',
+              code: 'locale_' + locale.code,
+            }),
+          },
+        ]);
+      keyboard.push([await button('account.menu.back', 'resume')]);
+    } else if (screen === 'notifications') {
+      if (!preferences) denied();
+      text.push(t('account.settings.notification_info'));
+      for (const [kind, enabled] of [
+        ['chat', preferences.chatEnabled],
+        ['like', preferences.likeEnabled],
+        ['nakh', preferences.nakhEnabled],
+        ['match', preferences.matchEnabled],
+      ] as const)
+        keyboard.push([
+          {
+            text: t('account.settings.toggle', {
+              label: t('account.settings.' + kind),
+              state: t(enabled ? 'account.settings.on' : 'account.settings.off'),
+            }),
+            callback_data: await tokens.button({
+              ...nav,
+              version,
+              action: 'save',
+              code: `notify_${kind}_${enabled ? '0' : '1'}`,
+            }),
+          },
+        ]);
+      keyboard.push([await button('account.menu.back', 'resume')]);
     } else {
+      if (!state) denied();
       if (this.config.telegram.freeTestTopupsEnabled && state.enabled) {
         text.push(t('account.credits.free_info'));
         keyboard.push([await button('account.credits.free_add', 'save', 'topup')]);
@@ -197,7 +279,7 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     await this.render(recipient, actor, 'settings');
   }
   public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
-    const root = record(update),
+    const root = record(structuredClone(update)),
       message = record(root?.message),
       callback = record(root?.callback_query);
     const command =
@@ -260,6 +342,77 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     });
     if (!rate.allowed) throw new ApplicationError('rate_limited', 'error.rate_limit.exceeded', 429);
     try {
+      if (nav?.action === 'home') {
+        if (callbackId !== undefined) await this.client.answerCallback(callbackId);
+        if (this.home) await this.home(recipient, actor);
+        else await this.render(recipient, actor, 'settings');
+        return 'notice';
+      }
+      if (nav?.action === 'save' && nav.code !== undefined && nav.code !== 'topup') {
+        if (nav.group === undefined) denied();
+        const key = JSON.stringify([
+          'account-setting',
+          this.botId,
+          actor.userId,
+          actor.productEpoch,
+          actor.sessionGrantId,
+          nav.group,
+          nav.code,
+        ]);
+        const base = {
+          commandId: uuid(key),
+          requestId: uuid(key + ':request'),
+          schemaVersion: 1 as const,
+          actor: { kind: 'user' as const, userId: actor.userId },
+          idempotencyKey: createHash('sha256').update(key).digest('hex'),
+          occurredAt: this.clock.now().toISOString(),
+          locale: await this.current(recipient, actor),
+        };
+        let next: 'settings' | 'notifications' | 'locales' = 'settings';
+        if (nav.code === 'visibility_on' || nav.code === 'visibility_off')
+          await new ChangeSettingsHandler(
+            new PostgresIdentityStore(this.database, actor),
+            this.ids,
+            this.clock,
+          ).execute({
+            ...base,
+            commandType: 'identity.change-visibility',
+            data: {
+              expectedSettingsVersion: nav.version,
+              visibilityEnabled: nav.code === 'visibility_on',
+            },
+          });
+        else if (nav.code.startsWith('locale_')) {
+          await new ChangeSettingsHandler(
+            new PostgresIdentityStore(this.database, actor),
+            this.ids,
+            this.clock,
+          ).execute({
+            ...base,
+            commandType: 'identity.change-locale',
+            data: { expectedSettingsVersion: nav.version, locale: nav.code.slice(7) },
+          });
+          next = 'locales';
+        } else {
+          const match = /^notify_(chat|like|nakh|match)_([01])$/u.exec(nav.code);
+          if (!match) denied();
+          const kind = match[1];
+          if (kind !== 'chat' && kind !== 'like' && kind !== 'nakh' && kind !== 'match') denied();
+          await new ChangeNotificationPreferenceHandler(
+            new PostgresNotificationPreferenceStore(this.database, actor),
+            this.ids,
+            this.clock,
+          ).execute({
+            ...base,
+            commandType: 'notification.change-preference',
+            data: { kind, enabled: match[2] === '1', expectedVersion: nav.version },
+          });
+          next = 'notifications';
+        }
+        if (callbackId !== undefined) await this.client.answerCallback(callbackId);
+        await this.render(recipient, actor, next, 'account.settings.saved');
+        return 'notice';
+      }
       if (nav?.action === 'save' && nav.code === 'topup' && nav.screen === 'credits') {
         if (!this.config.telegram.freeTestTopupsEnabled || nav.group === undefined) denied();
         const key = JSON.stringify([
@@ -306,10 +459,23 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
           actor,
           command === '/credits' || (nav?.action === 'pick' && nav.code === 'credits')
             ? 'credits'
-            : 'settings',
+            : nav?.action === 'pick' && nav.code === 'locales'
+              ? 'locales'
+              : nav?.action === 'pick' && nav.code === 'notifications'
+                ? 'notifications'
+                : 'settings',
         );
       return 'notice';
     } catch (error) {
+      if (error instanceof ApplicationError && (error.status === 400 || error.status === 409)) {
+        await this.render(
+          recipient,
+          actor,
+          'settings',
+          error.status === 409 ? 'account.settings.changed' : 'account.settings.invalid',
+        );
+        return 'notice';
+      }
       if (error instanceof ApplicationError && error.status < 500) throw error;
       throw new ApplicationError('internal_error', 'error.billing.payment_unavailable', 500);
     }
@@ -322,6 +488,7 @@ export function createTelegramAccountRuntime(
     financialDatabase: NakhDatabase;
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
+    home?: (recipient: string, actor: UserSessionActor) => Promise<void>;
   }>,
 ): TelegramAccountRuntimePort {
   if (!input.config.telegram.accountMenuEnabled)
@@ -351,5 +518,6 @@ export function createTelegramAccountRuntime(
     match[1]!,
     key,
     new TelegramBotApiMenuClient(token),
+    input.home,
   );
 }

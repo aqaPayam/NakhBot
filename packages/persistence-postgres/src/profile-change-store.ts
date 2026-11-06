@@ -777,4 +777,35 @@ export class PostgresProfileChangeStore implements ProfileChangeStore {
       ? read(this.database)
       : this.database.transaction().execute(read);
   }
+
+  public async listOwnProtectedChanges(userId: string): Promise<readonly ProfileChangeRequest[]> {
+    const read = async (database: NakhDatabase): Promise<readonly ProfileChangeRequest[]> => {
+      await database
+        .selectFrom('identity.users')
+        .select('id')
+        .where('id', '=', userId)
+        .forNoKeyUpdate()
+        .execute();
+      await database
+        .selectFrom('identity.accounts')
+        .select('user_id')
+        .where('user_id', '=', userId)
+        .forShare()
+        .execute();
+      if (!(await this.ownerAllowed(database, userId))) return [];
+      const rows = await database
+        .selectFrom('profile.profile_change_requests')
+        .selectAll()
+        .where('user_id', '=', userId)
+        .where(sql<boolean>`profile.change_is_current(id,${userId}::uuid)`)
+        .orderBy('submitted_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(10)
+        .execute();
+      return rows.map(view);
+    };
+    return this.database.isTransaction
+      ? read(this.database)
+      : this.database.transaction().execute(read);
+  }
 }

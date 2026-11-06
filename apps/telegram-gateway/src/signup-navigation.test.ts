@@ -30,6 +30,42 @@ function fixture(): {
   };
 }
 describe('signup navigation integrity and concurrency', () => {
+  it('keeps profile edit prompts and callbacks separate from account, signup and other product lives', async () => {
+    const f = fixture(),
+      key = Buffer.alloc(32, 1),
+      make = (recipient = '123', epoch = 0): SignupNavigationTokens =>
+        new SignupNavigationTokens(
+          f.store,
+          key,
+          '12345',
+          recipient,
+          { ...life, productEpoch: epoch },
+          undefined,
+          'profile',
+        );
+    const editor = make(),
+      nav: SignupNavigation = { ...f.nav, action: 'pick', screen: 'root', field: 'name' };
+    const button = await editor.button(nav);
+    expect(button).toMatch(/^m9p:/u);
+    expect(await editor.callback(button)).toEqual(nav);
+    expect(await f.tokens.callback(button)).toBeUndefined();
+    expect(
+      await new SignupNavigationTokens(
+        f.store,
+        key,
+        '12345',
+        '123',
+        life,
+        undefined,
+        'account',
+      ).callback(button),
+    ).toBeUndefined();
+    expect(await make('124').callback(button)).toBeUndefined();
+    expect(await make('123', 1).callback(button)).toBeUndefined();
+    await editor.prompt(123456, { ...nav, action: 'reply' });
+    expect((await editor.reply(123456))?.actor.sessionGrantId).toBe(actor.sessionGrantId);
+    expect(await f.tokens.reply(123456)).toBeUndefined();
+  });
   it('binds credit callbacks to their original user, session, product life and account purpose', async () => {
     const f = fixture(),
       key = Buffer.alloc(32, 1);

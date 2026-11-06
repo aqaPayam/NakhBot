@@ -14,6 +14,70 @@ export const M9_ACCOUNT_TEXTS = {
   'account.menu.delete_help': 'Send /delete to review and confirm account deletion.',
   'account.menu.back': 'Back to settings',
 } as const;
+
+export const M9_SETTINGS_TEXTS = {
+  'account.menu.home': 'Main menu',
+  'account.settings.language': 'Language',
+  'account.settings.visibility_on': 'Profile visible: On',
+  'account.settings.visibility_off': 'Profile visible: Off',
+  'account.settings.visibility_info':
+    'Visibility controls whether new people can discover your profile. Existing chats remain available.',
+  'account.settings.notifications': 'Notifications',
+  'account.settings.notification_info':
+    'Choose notifications for new activity. Safety and account-service notices remain enabled.',
+  'account.settings.chat': 'Chat messages',
+  'account.settings.like': 'Likes',
+  'account.settings.nakh': 'Nakhes',
+  'account.settings.match': 'Matches',
+  'account.settings.on': 'On',
+  'account.settings.off': 'Off',
+  'account.settings.toggle': '{label}: {state}',
+  'account.settings.saved': 'Settings saved.',
+  'account.settings.changed': 'Your settings changed. Use the refreshed menu.',
+  'account.settings.invalid': 'This setting could not be saved. Use the current menu.',
+} as const;
+
+export const M9_EDITOR_TEXTS = {
+  'profile.edit.title': 'Edit profile',
+  'profile.edit.summary':
+    'Name: {name}\nBirth year: {year}\nGender: {gender}\nLooking for: {preference}\nInterests: {interests}\nLocation: {location}\nRelationship goal: {goal}\nHighlight: {highlight}',
+  'profile.edit.name': 'Name',
+  'profile.edit.preference': 'Looking for',
+  'profile.edit.interests': 'Interests',
+  'profile.edit.location': 'Location',
+  'profile.edit.goal': 'Relationship goal',
+  'profile.edit.highlight': 'Highlight',
+  'profile.edit.optional': 'Optional details',
+  'profile.edit.photos': 'Manage photos',
+  'profile.edit.photos_help':
+    'Send /photos to choose your primary photo, hide or delete photos. Send a new photo here to upload it.',
+  'profile.edit.current': '{label}: {value}',
+  'profile.edit.empty': 'Not set',
+  'profile.edit.reply': 'Reply to this message with your new {label}.',
+  'profile.edit.saved': 'Profile saved.',
+  'profile.edit.changed': 'Your profile changed. Use the refreshed menu.',
+  'profile.edit.invalid':
+    'That change could not be saved. Please use the current choices or reply to the latest prompt.',
+  'profile.edit.multi':
+    'Changes save as you tap. Add new interests before removing any; keep at least five interests.',
+  'profile.edit.multi_optional':
+    'Changes save as you tap. Remove a selection before adding another if the selection limit is reached.',
+  'profile.edit.request_change': 'Request birth-year or gender correction',
+  'profile.edit.birth_year': 'Birth year',
+  'profile.edit.gender': 'Gender',
+  'profile.edit.birth_request':
+    'Reply with your correct Gregorian birth year on the first line and a short reason below it. This submits a correction request for review.',
+  'profile.edit.gender_request':
+    'Reply with a short reason for this gender correction. This submits a request for review.',
+  'profile.edit.request_sent': 'Your correction request was submitted for review.',
+  'profile.edit.requests': 'Correction requests',
+  'profile.edit.requests_empty': 'No correction requests for your current account.',
+  'profile.edit.request_row': '{field}: {value} — {status}',
+  'profile.edit.status.pending': 'Pending',
+  'profile.edit.status.approved': 'Approved',
+  'profile.edit.status.rejected': 'Rejected',
+  'profile.edit.status.cancelled': 'Cancelled',
+} as const;
 export const M9_SIGNUP_TEXTS = {
   'signup.ui.confirm_age': 'I am at least 18',
   'signup.ui.next': 'Next',

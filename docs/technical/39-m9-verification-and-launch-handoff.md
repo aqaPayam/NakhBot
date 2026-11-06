@@ -54,6 +54,39 @@ restricted-logins, retry/concurrency and closure races, an orphan audit borrowin
 attempt, populated 164-to-165 migration preservation, and PostgreSQL/Redis Bot API
 serialization. Synthetic rehearsals remain separate from live release evidence.
 
+## Owned profile and account controls
+
+With the account menu enabled, the main menu offers Edit profile and Settings.
+The editor also accepts `/edit_profile`. Core edits use the current profile
+version; location is committed only after selecting its complete country,
+province and city hierarchy. Optional edits merge a fresh owned snapshot so
+changing one answer preserves biography, height and the other optional fields.
+Private text goes directly from the exact bot reply prompt to PostgreSQL; menu
+storage contains public selectors and original-session references only. Photo
+management remains available through `/photos` from the editor's instructions.
+
+Birth year and gender stay protected. Their editor entries submit correction
+requests with a private reason and show the owner's current-life request status;
+they do not change protected values or grant reviewer authority. Completing the
+permission-checked staff review surface remains separate work.
+
+Settings exposes active interface languages, profile visibility and the four
+ordinary notification switches. The native settings and notification writes
+recheck the original user session and account before returning cached command
+results, serialize retries and reject competing stale versions. Critical safety,
+account-service and payment categories retain their existing mandatory-delivery
+policy. Notification choices affect new activity, not already-queued messages.
+Settings screens do not require financial reads; the credit balance is read only
+when opening Your credits. Returning to the main menu preserves the same grant.
+
+Migration 166 seeds 49 English messages without introducing retained resources,
+tables, columns or foreign keys. The deletion inventory accepts that schema, and
+the release-reference inventory includes every new key and its exact value.
+Synthetic PostgreSQL/Redis bot journeys cover private prompt ownership, stale
+edits, optional-field preservation, revoked/borrowed controls, correction requests
+and account switches. These checks do not activate the new menus on the live VPS
+or qualify public launch.
+
 ## Invoice-pause composition repair
 
 Commit `23396fe` passed local checks but failed the native process-composition

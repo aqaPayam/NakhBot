@@ -18,12 +18,15 @@ import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import type { AdministratorTelegramPort } from './admin-runtime.js';
 import type { TelegramChatRuntimePort } from './chat-runtime.js';
 import type { TelegramAccountRuntimePort } from './account-runtime.js';
+import type { TelegramProfileRuntimePort } from './profile-runtime.js';
 import { ApplicationError, PROFILE_LIMITS, SystemClock, validateNakhText } from '@nakh/domain';
 import {
   CatalogRenderer,
   M9_SIGNUP_TEXTS,
   M9_CHAT_TEXTS,
   M9_ACCOUNT_TEXTS,
+  M9_SETTINGS_TEXTS,
+  M9_EDITOR_TEXTS,
   M9_PREVIEW_TEXTS,
   M9_PROFILE_TEXTS,
   englishCatalogFromManifest,
@@ -106,6 +109,7 @@ export interface TelegramSignupRuntimePort {
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
   openStart?: (notice: TelegramStartDeliveryNotice) => Promise<void>;
   afterActivation?: (notice: TelegramFreshEntryNotice) => Promise<void>;
+  openRoot?: (recipient: string, actor: UserSessionActor) => Promise<void>;
 }
 
 /** Thin transport composition. PostgreSQL owns answers, validation, versions,
@@ -139,7 +143,8 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       for (const [key, expected] of Object.entries({
         ...M9_SIGNUP_TEXTS,
         ...(this.chat?.enabled ? M9_CHAT_TEXTS : {}),
-        ...(this.account?.enabled ? M9_ACCOUNT_TEXTS : {}),
+        ...(this.account?.enabled ? { ...M9_ACCOUNT_TEXTS, ...M9_SETTINGS_TEXTS } : {}),
+        ...(this.profile?.enabled ? M9_EDITOR_TEXTS : {}),
         ...(this.previewDelivery === undefined && this.exploreDelivery === undefined
           ? {}
           : { ...M9_PREVIEW_TEXTS, ...M9_PROFILE_TEXTS }),
@@ -229,6 +234,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     private readonly chat?: TelegramChatRuntimePort,
     private readonly financialDatabase: NakhDatabase = database,
     private readonly account?: TelegramAccountRuntimePort,
+    private readonly profile?: TelegramProfileRuntimePort,
   ) {
     this.key = Buffer.from(key);
     this.stars?.assertSeparateNavigationKey?.(this.key);
@@ -305,6 +311,11 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
       notice.life,
       uuid(['signup-primary', this.botId, notice.telegramUserId, notice.updateId]),
     );
+  };
+  public readonly openRoot = async (recipient: string, input: UserSessionActor): Promise<void> => {
+    const actor = Object.freeze({ ...input });
+    await this.current(actor, recipient);
+    await this.render(recipient, actor);
   };
   public readonly afterActivation = async (notice: TelegramFreshEntryNotice): Promise<void> => {
     if (
@@ -869,6 +880,11 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           await this.account.open(telegramId, nav.actor);
           return 'notice';
         }
+        if (nav.action === 'edit_profile') {
+          if (!this.profile?.enabled) throw denied();
+          await this.profile.open(telegramId, nav.actor);
+          return 'notice';
+        }
         const next = this.next(nav),
           claim = await tokens.claim(nav, updateId, String(data), next);
         if (!claim.accepted) {
@@ -1152,6 +1168,8 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         nav = { ...nav, selection: selected };
     }
     if (screen === 'root') {
+      if (this.profile?.enabled && ['active', 'restricted'].includes(context.accountState))
+        await button(t('profile.edit.title'), { action: 'edit_profile' });
       if (this.account?.enabled && ['active', 'restricted'].includes(context.accountState))
         await button(t('account.menu.title'), { action: 'settings' });
       if (
@@ -1358,11 +1376,14 @@ export function createTelegramSignupRuntime(
     administration?: Pick<AdministratorTelegramPort, 'link'>;
     chat?: TelegramChatRuntimePort;
     account?: TelegramAccountRuntimePort;
+    profile?: TelegramProfileRuntimePort;
   }>,
 ): TelegramSignupRuntimePort {
   if (!input.config.telegram.signupEnabled) return { handle: () => Promise.resolve('unhandled') };
   if (input.config.telegram.accountMenuEnabled && !input.account?.enabled)
     throw new Error('Account menu composition unavailable.');
+  if (input.config.telegram.accountMenuEnabled && !input.profile?.enabled)
+    throw new Error('Profile editor composition unavailable.');
   if (input.config.telegram.chatEnabled && !input.chat?.enabled)
     throw new Error('Chat composition unavailable.');
   if (input.config.telegram.starsEnabled && !input.stars?.enabled)
@@ -1400,5 +1421,6 @@ export function createTelegramSignupRuntime(
     input.chat,
     input.financialDatabase,
     input.account,
+    input.profile,
   );
 }

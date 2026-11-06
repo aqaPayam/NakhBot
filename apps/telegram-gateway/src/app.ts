@@ -17,6 +17,7 @@ import {
   BeginTelegramPhotoIngestionHandler,
   ListOwnPhotosHandler,
   MutateOwnPhotosHandler,
+  type UserSessionActor,
 } from '@nakh/application';
 import { resolveSecretReference, type AppConfig } from '@nakh/config';
 import { ApplicationError, SystemClock } from '@nakh/domain';
@@ -80,6 +81,10 @@ import {
   createTelegramAccountRuntime,
   type TelegramAccountRuntimePort,
 } from './account-runtime.js';
+import {
+  createTelegramProfileRuntime,
+  type TelegramProfileRuntimePort,
+} from './profile-runtime.js';
 import { createTelegramStarsRuntime, type TelegramStarsRuntimePort } from './stars-runtime.js';
 import { createTelegramReportRuntime, type TelegramReportRuntimePort } from './report-runtime.js';
 import { createAdministratorTelegramRuntime } from './admin-runtime.js';
@@ -97,6 +102,7 @@ const DATABASE = Symbol('DATABASE');
 const START_ADAPTER = Symbol('START_ADAPTER');
 const SIGNUP_INGRESS = Symbol('SIGNUP_INGRESS');
 const ACCOUNT_INGRESS = Symbol('ACCOUNT_INGRESS');
+const PROFILE_INGRESS = Symbol('PROFILE_INGRESS');
 const CHAT_INGRESS = Symbol('CHAT_INGRESS');
 const LAUNCH_ADMISSION = Symbol('LAUNCH_ADMISSION');
 const STARS_INGRESS = Symbol('STARS_INGRESS');
@@ -180,6 +186,7 @@ class TelegramGatewayController {
     @Inject(START_ADAPTER) private readonly startAdapter: Pick<TelegramStartAdapter, 'handle'>,
     @Inject(SIGNUP_INGRESS) private readonly signupIngress: TelegramSignupRuntimePort,
     @Inject(ACCOUNT_INGRESS) private readonly accountIngress: TelegramAccountRuntimePort,
+    @Inject(PROFILE_INGRESS) private readonly profileIngress: TelegramProfileRuntimePort,
     @Inject(CHAT_INGRESS) private readonly chatIngress: TelegramChatRuntimePort,
     @Inject(LAUNCH_ADMISSION) private readonly launchAdmission: TelegramLaunchAdmissionPort,
     @Inject(STARS_INGRESS) private readonly starsIngress: TelegramStarsRuntimePort,
@@ -242,6 +249,8 @@ class TelegramGatewayController {
         return { accepted: true };
       const admitted = await this.launchAdmission.allowsUpdate(update);
       if (admitted && (await this.accountIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
+      if (admitted && (await this.profileIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
       if ((await this.chatIngress.handle(update, { safetyOnly: !admitted })) !== 'unhandled')
         return { accepted: true };
@@ -395,7 +404,19 @@ export class TelegramGatewayModule {
       redis,
     });
     const chat = createTelegramChatRuntime({ config, database, redis, reports });
-    const account = createTelegramAccountRuntime({ config, database, financialDatabase, redis });
+    const home = async (recipient: string, actor: UserSessionActor): Promise<void> => {
+      if (!signup.openRoot)
+        throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
+      await signup.openRoot(recipient, actor);
+    };
+    const account = createTelegramAccountRuntime({
+      config,
+      database,
+      financialDatabase,
+      redis,
+      home,
+    });
+    const profile = createTelegramProfileRuntime({ config, database, redis, home });
     const signup = createTelegramSignupRuntime({
       config,
       database,
@@ -405,6 +426,7 @@ export class TelegramGatewayModule {
       reports,
       chat,
       account,
+      profile,
       ...(administration === undefined ? {} : { administration }),
     });
     const likedByIngress = createTelegramLikedByIngress({ config, database, redis });
@@ -526,6 +548,7 @@ export class TelegramGatewayModule {
         { provide: DATABASES, useValue: databases },
         { provide: SIGNUP_INGRESS, useValue: signup },
         { provide: ACCOUNT_INGRESS, useValue: account },
+        { provide: PROFILE_INGRESS, useValue: profile },
         { provide: CHAT_INGRESS, useValue: chat },
         { provide: LAUNCH_ADMISSION, useValue: launchAdmission },
         { provide: STARS_INGRESS, useValue: stars },

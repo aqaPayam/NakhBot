@@ -157,8 +157,9 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
     });
     it('opens Settings and refills repeatedly with no invoices and no duplicate credit for old buttons', async () => {
       expect(await runtime.handle(incoming('/settings'))).toBe('notice');
-      expect(latest().text).toContain('Balance: 0 credits');
+      expect(latest().text).toContain('Settings');
       await runtime.handle(callback(button('Your credits')));
+      expect(latest().text).toContain('Balance: 0 credits');
       expect(latest().text).toContain('for free, as often as you need');
       const old = button('Add 100 free credits');
       await runtime.handle(callback(old));

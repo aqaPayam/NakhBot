@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { M7_PERMISSIONS } from '@nakh/domain';
-import { M9_ACCOUNT_TEXTS } from '@nakh/localization';
+import { M9_ACCOUNT_TEXTS, M9_SETTINGS_TEXTS, M9_EDITOR_TEXTS } from '@nakh/localization';
 import { resolve } from 'node:path';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { sql } from 'kysely';
@@ -45,9 +45,16 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
     expect(referenceDigest(first)).toBe(referenceDigest(second));
     expect(Object.keys(first.native).sort()).toEqual(Object.keys(RELEASE_REFERENCE_COLUMNS).sort());
     expect(first.native['catalog.ui_texts']).toHaveLength(
-      684 + Object.keys(M9_ACCOUNT_TEXTS).length,
+      684 +
+        Object.keys(M9_ACCOUNT_TEXTS).length +
+        Object.keys(M9_SETTINGS_TEXTS).length +
+        Object.keys(M9_EDITOR_TEXTS).length,
     );
-    for (const [text_key, value] of Object.entries(M9_ACCOUNT_TEXTS))
+    for (const [text_key, value] of Object.entries({
+      ...M9_ACCOUNT_TEXTS,
+      ...M9_SETTINGS_TEXTS,
+      ...M9_EDITOR_TEXTS,
+    }))
       expect(first.native['catalog.ui_texts']).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ locale_code: 'en', text_key, value, is_active: true }),
@@ -64,8 +71,13 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
           'is_active' in row &&
           row.is_active === true,
       ),
-    ).toHaveLength(681 + Object.keys(M9_ACCOUNT_TEXTS).length);
-    expect(first.native['platform.schema_migrations']).toHaveLength(165);
+    ).toHaveLength(
+      681 +
+        Object.keys(M9_ACCOUNT_TEXTS).length +
+        Object.keys(M9_SETTINGS_TEXTS).length +
+        Object.keys(M9_EDITOR_TEXTS).length,
+    );
+    expect(first.native['platform.schema_migrations']).toHaveLength(166);
     expect(first.native['administration.admin_roles']).toHaveLength(3);
     expect(first.native['administration.admin_permissions']).toHaveLength(M7_PERMISSIONS.length);
     expect(first.native['billing.credit_packages']).toEqual(
@@ -205,6 +217,6 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
         { name: '999999_unknown.sql', sha256: '1'.repeat(64) },
       ]),
     ).rejects.toThrow('Release reference unavailable.');
-    expect((await capture()).native['platform.schema_migrations']).toHaveLength(165);
+    expect((await capture()).native['platform.schema_migrations']).toHaveLength(166);
   });
 });
