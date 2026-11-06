@@ -413,6 +413,15 @@ proofs before whole-product completion. Neither a finished sweep nor `hasMore=fa
 advance, product-purged milestone, completion, retention release or fresh return.
 
 The Redis rows below name logical server-owned keys. The production adapter preserves
+short-lived public payment-contact counters at
+`{queuePrefix}:rate:telegram_payment_support_contact:{sha256(subject)}`. The subject
+is itself a SHA-256 digest of bot ID and private sender ID. Only a numeric count is
+stored, with a 60-second TTL allocated once and never refreshed by retries. No
+account, grant, support body, charge identifier or delivery receipt is created.
+This independent abuse counter can serve customers without a current product life;
+it grants no product access and expires independently of account deletion.
+
+The production adapter also preserves
 short public actions at `{queuePrefix}:action:{opaqueId}` and stores the reviewed
 internal UI formats at `{queuePrefix}:action:internal:{sha256(logicalKey)}`. Internal
 logical references are never physical keys and cannot alias public actions. Existing

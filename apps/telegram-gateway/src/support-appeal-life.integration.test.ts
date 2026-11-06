@@ -29,6 +29,80 @@ describe.skipIf(url === undefined || databaseUrl === undefined)(
     afterAll(async () => {
       await redis.quit();
     });
+    it('serves public payment contact with real throttling and no product-account or grant access', async () => {
+      const contactPrefix = `m9-public-contact-${randomUUID()}`;
+      const send = vi
+        .spyOn(TelegramBotApiMenuClient.prototype, 'sendMenu')
+        .mockResolvedValue(undefined);
+      const resolveSecret = vi.fn((reference: string) => {
+        if (reference !== 'bot') throw new Error('Unrelated secret accessed');
+        return `12345:${'a'.repeat(24)}`;
+      });
+      // Any lookup, grant issuance, support write or account-state dependency fails this fixture.
+      const database = new Proxy({} as NakhDatabase, {
+        get: () => {
+          throw new Error('Product database accessed');
+        },
+      });
+      try {
+        const ingress = createTelegramSupportAppealIngress({
+          database,
+          redis,
+          resolveSecret,
+          config: {
+            telegram: {
+              supportAppealEnabled: false,
+              publicSupportUsername: 'NakhSupport',
+              botTokenRef: 'bot',
+            },
+            redis: { queuePrefix: contactPrefix },
+          } as AppConfig,
+        });
+        const update = {
+          update_id: 700001,
+          message: {
+            text: '/paysupport never-save-this-charge-or-body',
+            from: { id: 700001, is_bot: false },
+            chat: { id: 700001, type: 'private' },
+          },
+        };
+        const outcomes = await Promise.allSettled(
+          Array.from({ length: 11 }, () => ingress.handle(update)),
+        );
+        expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(10);
+        expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+        expect(outcomes.find((outcome) => outcome.status === 'rejected')).toMatchObject({
+          reason: { code: 'rate_limited', status: 429 },
+        });
+        expect(send).toHaveBeenCalledTimes(10);
+        for (const call of send.mock.calls)
+          expect(call).toEqual([
+            '700001',
+            {
+              text: '@NakhSupport',
+              replyMarkup: {
+                inline_keyboard: [[{ text: '@NakhSupport', url: 'https://t.me/NakhSupport' }]],
+              },
+            },
+          ]);
+        expect(resolveSecret).toHaveBeenCalledExactlyOnceWith('bot');
+        expect(
+          await ingress.handle({ ...update, message: { ...update.message, text: '/support' } }),
+        ).toBe('unhandled');
+        const keys = await redis.keys(`${contactPrefix}:*`);
+        expect(keys).toHaveLength(1);
+        expect(keys[0]).toMatch(/:rate:telegram_payment_support_contact:[0-9a-f]{64}$/u);
+        expect(keys[0]).not.toContain('700001');
+        expect(await redis.get(keys[0]!)).toBe('11');
+        const ttl = await redis.ttl(keys[0]!);
+        expect(ttl).toBeGreaterThan(0);
+        expect(ttl).toBeLessThanOrEqual(60);
+      } finally {
+        send.mockRestore();
+        const keys = await redis.keys(`${contactPrefix}:*`);
+        if (keys.length) await redis.del(...keys);
+      }
+    });
     function subject(
       userId: string,
       productEpoch: number,

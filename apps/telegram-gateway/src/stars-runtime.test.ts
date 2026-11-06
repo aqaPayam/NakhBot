@@ -14,6 +14,51 @@ function receipt(chatId = 123, currency = 'XTR', amount = 2): Record<string, unk
   };
 }
 describe('Telegram Stars transport', () => {
+  it('pauses new invoices before database or provider access while keeping callback transport configured', async () => {
+    const databaseAccess = vi.fn(() => {
+      throw new Error('Unexpected database access');
+    });
+    const resolveSecret = vi.fn((reference: string) =>
+      reference === 'bot'
+        ? token
+        : JSON.stringify({
+            activeKeyId: 'v1',
+            digestKey: Buffer.alloc(32, 5).toString('base64url'),
+            keys: [
+              {
+                id: 'v1',
+                invoiceKey: Buffer.alloc(32, 1).toString('base64url'),
+                evidenceKey: Buffer.alloc(32, 2).toString('base64url'),
+              },
+            ],
+          }),
+    );
+    const runtime = createTelegramStarsRuntime({
+      config: {
+        environment: 'production',
+        telegram: {
+          starsEnabled: true,
+          starsInvoiceCreationEnabled: false,
+          botTokenRef: 'bot',
+          starsKeyRingRef: 'keys',
+        },
+      } as AppConfig,
+      database: new Proxy({} as NakhDatabase, { get: databaseAccess }),
+      resolveSecret,
+    });
+    expect(runtime.enabled).toBe(false);
+    await expect(
+      runtime.invoice({} as Parameters<typeof runtime.invoice>[0]),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(databaseAccess).not.toHaveBeenCalled();
+    expect(await runtime.handle({ message: { text: '/start' } })).toBe('unhandled');
+    expect(resolveSecret.mock.calls).toEqual([['bot'], ['keys']]);
+    // Unlike globally disabled ingress, this validates payment callbacks instead of discarding them.
+    await expect(runtime.handle({ update_id: 1, pre_checkout_query: {} })).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(databaseAccess).not.toHaveBeenCalled();
+  });
   it('sends one fixed two-Star price and a forwarded-invoice start parameter', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

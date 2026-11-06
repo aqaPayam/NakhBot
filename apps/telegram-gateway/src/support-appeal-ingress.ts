@@ -30,6 +30,7 @@ import {
   TelegramSupportAppealAdapter,
   type TelegramSupportAppealResult,
 } from '@nakh/telegram';
+import { TelegramPaymentSupportContact } from './payment-support-contact.js';
 
 type Notice = Extract<TelegramSupportAppealResult, { handled: true }>;
 export interface TelegramSupportAppealIngressPort {
@@ -41,10 +42,12 @@ export class TelegramSupportAppealIngress implements TelegramSupportAppealIngres
   public constructor(
     private readonly adapter: Pick<TelegramSupportAppealAdapter, 'handle'>,
     private readonly deliver: (notice: Notice) => Promise<void>,
+    private readonly publicContact?: Pick<TelegramPaymentSupportContact, 'handle'>,
   ) {}
 
   public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
     try {
+      if ((await this.publicContact?.handle(update)) === 'notice') return 'notice';
       const result = await this.adapter.handle(update);
       if (!result.handled) return 'unhandled';
       await this.deliver(result);
@@ -64,13 +67,36 @@ export function createTelegramSupportAppealIngress(
     resolveSecret?: (reference: string) => string;
   }>,
 ): TelegramSupportAppealIngressPort {
-  if (!input.config.telegram.supportAppealEnabled)
+  const username = input.config.telegram.publicSupportUsername ?? '';
+  if (!input.config.telegram.supportAppealEnabled && username === '')
     return { handle: () => Promise.resolve('unhandled') };
   const resolve = input.resolveSecret ?? resolveSecretReference;
   const botToken = resolve(input.config.telegram.botTokenRef);
   const match = /^([1-9][0-9]{0,19}):[A-Za-z0-9_-]{20,}$/u.exec(botToken);
   if (match === null || !Number.isSafeInteger(Number(match[1])))
     throw new Error('Telegram bot token is invalid.');
+  const client = new TelegramBotApiMenuClient(botToken);
+  const publicContact =
+    username === ''
+      ? undefined
+      : new TelegramPaymentSupportContact({
+          botId: match[1]!,
+          username,
+          limiter: new RedisRateLimiter(input.redis, input.config.redis.queuePrefix),
+          send: async (recipient, contact) =>
+            client.sendMenu(recipient, {
+              text: `@${contact}`,
+              replyMarkup: {
+                inline_keyboard: [[{ text: `@${contact}`, url: `https://t.me/${contact}` }]],
+              },
+            }),
+        });
+  if (!input.config.telegram.supportAppealEnabled)
+    return new TelegramSupportAppealIngress(
+      { handle: () => Promise.resolve({ handled: false }) },
+      () => Promise.resolve(),
+      publicContact,
+    );
   const encoded = resolve(input.config.telegram.actionTokenKeyRef);
   const key = Buffer.from(encoded, 'base64url');
   if (
@@ -86,7 +112,6 @@ export function createTelegramSupportAppealIngress(
   const ids = new SystemIdGenerator();
   const identities = new PostgresIdentityStore(input.database);
   const localization = new PostgresLocalizationStore(input.database);
-  const client = new TelegramBotApiMenuClient(botToken);
   const feedbackAdmission =
     input.config.environment === 'staging'
       ? new PostgresLaunchCohortAdmission(input.database, {
@@ -143,5 +168,6 @@ export function createTelegramSupportAppealIngress(
         replyMarkup: { inline_keyboard: [] },
       });
     },
+    publicContact,
   );
 }

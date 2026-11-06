@@ -31,6 +31,28 @@ the existing low-cost VPS. No AWS provisioning or additional expenditure is
 approved. Retained erasure and support-body release remain disabled pending the
 previously required policies and approvals.
 
+The independent public contact entry is opt-in through
+`NAKH_PUBLIC_SUPPORT_TELEGRAM_USERNAME` (username only, without `@`; empty by default).
+Once an approved working contact is configured, `/paysupport` returns only that
+public handle/button before native product support or cohort admission. Private
+sender/chat binding and independent ten-per-minute throttling still apply. It
+does not create an account, grant or support thread, forward the submitted body,
+or claim that a dispute has been filed. Ordinary `/support` and appeals retain
+their native account-life rules. The owner-provided `@NakhSupport` contact still
+needs confirmation of ownership and ability to receive private messages before
+live activation. Failed public web access is not evidence that the contact is absent.
+
+`NAKH_TELEGRAM_STARS_INVOICES_ENABLED` is a separate, default-off invoice creation
+switch; it requires `NAKH_TELEGRAM_STARS_ENABLED=true`. With payment ingress on
+and new invoices off, invoice preparation and delivery are denied before database
+work while pre-checkout decisions, successful-payment replay and existing financial
+obligations continue through their original native path. The native tests cover
+both switch states, including concurrent paid retries after session revocation.
+Do not disable the whole payment ingress to pause purchases with outstanding
+provider obligations. Both settings and the public contact participate in the
+exact release reference; no live payment activation or purchase-policy approval
+is implied by this implementation.
+
 ## Private deletion and recovery checkpoint — 6 November 2026
 
 After explicit owner approval, the private trial was held without discarding

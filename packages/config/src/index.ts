@@ -51,11 +51,13 @@ const ConfigSchema = Type.Object(
       likedByDeliveryEnabled: Type.Boolean(),
       notificationDeliveryEnabled: Type.Boolean(),
       supportAppealEnabled: Type.Boolean(),
+      publicSupportUsername: Type.String({ pattern: '^(?:|[A-Za-z][A-Za-z0-9_]{4,31})$' }),
       startDeliveryEnabled: Type.Boolean(),
       signupEnabled: Type.Boolean(),
       guestPreviewEnabled: Type.Boolean(),
       exploreEnabled: Type.Boolean(),
       starsEnabled: Type.Boolean(),
+      starsInvoiceCreationEnabled: Type.Boolean(),
       starsRefundsEnabled: Type.Boolean(),
       starsKeyRingRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       reportsEnabled: Type.Boolean(),
@@ -214,11 +216,13 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       likedByDeliveryEnabled: boolean(env.NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED, false),
       notificationDeliveryEnabled: boolean(env.NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED, false),
       supportAppealEnabled: boolean(env.NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED, false),
+      publicSupportUsername: env.NAKH_PUBLIC_SUPPORT_TELEGRAM_USERNAME ?? '',
       startDeliveryEnabled: boolean(env.NAKH_TELEGRAM_START_DELIVERY_ENABLED, false),
       signupEnabled: boolean(env.NAKH_TELEGRAM_SIGNUP_ENABLED, false),
       guestPreviewEnabled: boolean(env.NAKH_TELEGRAM_GUEST_PREVIEW_ENABLED, false),
       exploreEnabled: boolean(env.NAKH_TELEGRAM_EXPLORE_ENABLED, false),
       starsEnabled: boolean(env.NAKH_TELEGRAM_STARS_ENABLED, false),
+      starsInvoiceCreationEnabled: boolean(env.NAKH_TELEGRAM_STARS_INVOICES_ENABLED, false),
       starsRefundsEnabled: boolean(env.NAKH_TELEGRAM_STARS_REFUNDS_ENABLED, false),
       starsKeyRingRef: required(env, 'NAKH_STARS_KEY_RING_REF', 'NAKH_STARS_KEY_RING'),
       reportsEnabled: boolean(env.NAKH_TELEGRAM_REPORTS_ENABLED, false),
@@ -373,6 +377,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     !/^[a-f0-9]{32}$/u.test(candidate.media.cloudflareZoneId)
   )
     throw new Error('Invalid configuration: /media/cloudflareZoneId must be a 32-character ID');
+
+  if (candidate.telegram.starsInvoiceCreationEnabled && !candidate.telegram.starsEnabled)
+    throw new Error('Invalid configuration: Stars invoice creation requires payment ingress.');
 
   return deepFreeze(candidate) as AppConfig;
 }

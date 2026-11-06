@@ -8,6 +8,15 @@ import {
 } from './support-appeal-ingress.js';
 
 describe('Telegram support/appeal activation and delivery', () => {
+  it('routes public contact before native account support without acknowledging a support write', async () => {
+    const adapter = { handle: vi.fn() },
+      deliver = vi.fn();
+    const publicContact = { handle: vi.fn().mockResolvedValue('notice') };
+    const ingress = new TelegramSupportAppealIngress(adapter, deliver, publicContact);
+    expect(await ingress.handle({ message: { text: '/paysupport' } })).toBe('notice');
+    expect(adapter.handle).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+  });
   it('does not resolve secrets or touch services when disabled', async () => {
     const resolveSecret = vi.fn(() => {
       throw new Error('unexpected secret access');

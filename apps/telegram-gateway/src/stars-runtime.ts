@@ -153,7 +153,6 @@ export class TelegramStarsClient {
   }
 }
 export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
-  public readonly enabled = true;
   private readonly ids = new SystemIdGenerator();
   public constructor(
     private readonly database: NakhDatabase,
@@ -161,6 +160,7 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
     private readonly environment: AppConfig['environment'],
     private readonly botId: string,
     private readonly client: TelegramStarsClient,
+    public readonly enabled = true,
   ) {}
   public assertSeparateNavigationKey(key: Uint8Array): void {
     this.keys.assertSeparateNavigationKey(key);
@@ -215,6 +215,7 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
       throw new ApplicationError('unauthorized', 'error.billing.payment_unavailable', 401);
   }
   public async invoice(input: InvoiceInput): Promise<void> {
+    if (!this.enabled) unavailable();
     const request = structuredClone(input);
     await this.current(request.actor, request.telegramUserId);
     const prepared = await new PrepareStarsInvoiceHandler(
@@ -360,5 +361,6 @@ export function createTelegramStarsRuntime(
     input.config.environment,
     token.split(':')[0]!,
     client,
+    input.config.telegram.starsInvoiceCreationEnabled === true,
   );
 }

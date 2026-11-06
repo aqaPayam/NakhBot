@@ -181,77 +181,85 @@ describe.skipIf(url === undefined)('composed Stars ingress with native financial
           },
         };
   }
-  it('commits the pre-checkout decision before answering and retries an uncertain answer', async () => {
-    const f = await fixture(),
-      event = update(f, false),
-      fetcher = vi.fn<typeof fetch>();
-    fetcher.mockImplementation(async () => {
-      const row = await db
+  it.each([true, false])(
+    'commits pre-checkout before answering even when invoice creation is %s',
+    async (invoicesEnabled) => {
+      const f = await fixture(),
+        event = update(f, false),
+        fetcher = vi.fn<typeof fetch>();
+      fetcher.mockImplementation(async () => {
+        const row = await db
+          .selectFrom('billing.payment_provider_events')
+          .select('id')
+          .where('provider_event_id', '=', String(event.update_id))
+          .executeTakeFirst();
+        expect(row).toBeDefined();
+        if (fetcher.mock.calls.length === 1) throw new Error('lost provider acknowledgement');
+        return Response.json({ ok: true, result: true });
+      });
+      const runtime = new TelegramStarsRuntime(
+        db,
+        keys,
+        'test',
+        '12345',
+        new TelegramStarsClient(`12345:${'a'.repeat(24)}`, fetcher),
+        invoicesEnabled,
+      );
+      await runtime.onModuleInit();
+      await expect(runtime.handle(event)).rejects.toMatchObject({ status: 502 });
+      expect(await runtime.handle(event)).toBe('notice');
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      const events = await db
         .selectFrom('billing.payment_provider_events')
-        .select('id')
+        .selectAll()
         .where('provider_event_id', '=', String(event.update_id))
-        .executeTakeFirst();
-      expect(row).toBeDefined();
-      if (fetcher.mock.calls.length === 1) throw new Error('lost provider acknowledgement');
-      return Response.json({ ok: true, result: true });
-    });
-    const runtime = new TelegramStarsRuntime(
-      db,
-      keys,
-      'test',
-      '12345',
-      new TelegramStarsClient(`12345:${'a'.repeat(24)}`, fetcher),
-    );
-    await runtime.onModuleInit();
-    await expect(runtime.handle(event)).rejects.toMatchObject({ status: 502 });
-    expect(await runtime.handle(event)).toBe('notice');
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    const events = await db
-      .selectFrom('billing.payment_provider_events')
-      .selectAll()
-      .where('provider_event_id', '=', String(event.update_id))
-      .execute();
-    expect(events).toHaveLength(1);
-    expect(
-      JSON.stringify(
-        keys.openEvidence(events[0]!.raw_payload_ciphertext, events[0]!.raw_payload_key_id),
-      ),
-    ).not.toContain('never-retain-this');
-  });
-  it('records concurrent paid retries once after session revocation without calling Telegram', async () => {
-    const f = await fixture(),
-      event = update(f, true),
-      fetcher = vi.fn<typeof fetch>();
-    await new PostgresUserSessionStore(db).revoke(f.actor, f.actor.sessionGrantId, randomUUID());
-    const runtime = new TelegramStarsRuntime(
-      db,
-      keys,
-      'test',
-      '12345',
-      new TelegramStarsClient(`12345:${'a'.repeat(24)}`, fetcher),
-    );
-    expect(await Promise.all(Array.from({ length: 8 }, () => runtime.handle(event)))).toEqual(
-      Array(8).fill('notice'),
-    );
-    const payment = await db
-      .selectFrom('billing.payment_records')
-      .selectAll()
-      .where('id', '=', f.attempt.paymentRecordId)
-      .executeTakeFirstOrThrow();
-    expect(payment.status).toBe('paid');
-    expect(
-      await db
-        .selectFrom('billing.payment_provider_events')
-        .select('id')
-        .where('provider_event_id', '=', String(event.update_id))
-        .execute(),
-    ).toHaveLength(1);
-    expect(fetcher).not.toHaveBeenCalled();
-    await expect(f.funding.prepareStarsAttempt(f.attemptWrite)).rejects.toMatchObject({
-      status: 401,
-    });
-    await expect(f.funding.createFundingIntent(f.write)).rejects.toMatchObject({ status: 401 });
-  });
+        .execute();
+      expect(events).toHaveLength(1);
+      expect(
+        JSON.stringify(
+          keys.openEvidence(events[0]!.raw_payload_ciphertext, events[0]!.raw_payload_key_id),
+        ),
+      ).not.toContain('never-retain-this');
+    },
+  );
+  it.each([true, false])(
+    'records concurrent paid retries after session revocation even when invoice creation is %s',
+    async (invoicesEnabled) => {
+      const f = await fixture(),
+        event = update(f, true),
+        fetcher = vi.fn<typeof fetch>();
+      await new PostgresUserSessionStore(db).revoke(f.actor, f.actor.sessionGrantId, randomUUID());
+      const runtime = new TelegramStarsRuntime(
+        db,
+        keys,
+        'test',
+        '12345',
+        new TelegramStarsClient(`12345:${'a'.repeat(24)}`, fetcher),
+        invoicesEnabled,
+      );
+      expect(await Promise.all(Array.from({ length: 8 }, () => runtime.handle(event)))).toEqual(
+        Array(8).fill('notice'),
+      );
+      const payment = await db
+        .selectFrom('billing.payment_records')
+        .selectAll()
+        .where('id', '=', f.attempt.paymentRecordId)
+        .executeTakeFirstOrThrow();
+      expect(payment.status).toBe('paid');
+      expect(
+        await db
+          .selectFrom('billing.payment_provider_events')
+          .select('id')
+          .where('provider_event_id', '=', String(event.update_id))
+          .execute(),
+      ).toHaveLength(1);
+      expect(fetcher).not.toHaveBeenCalled();
+      await expect(f.funding.prepareStarsAttempt(f.attemptWrite)).rejects.toMatchObject({
+        status: 401,
+      });
+      await expect(f.funding.createFundingIntent(f.write)).rejects.toMatchObject({ status: 401 });
+    },
+  );
   it('uses native custody to reject lost historical keys, overwritten encryption and changed digest secrets', async () => {
     await fixture();
     await expect(

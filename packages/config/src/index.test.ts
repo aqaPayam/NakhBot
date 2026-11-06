@@ -18,6 +18,32 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps public payment contact and new invoices disabled until separately configured', () => {
+    const defaults = parseConfig(validEnvironment);
+    expect(defaults.telegram.publicSupportUsername).toBe('');
+    expect(defaults.telegram.starsInvoiceCreationEnabled).toBe(false);
+    expect(
+      parseConfig({ ...validEnvironment, NAKH_PUBLIC_SUPPORT_TELEGRAM_USERNAME: 'NakhSupport' })
+        .telegram.publicSupportUsername,
+    ).toBe('NakhSupport');
+    for (const username of ['@NakhSupport', 'https://t.me/NakhSupport', 'bad/name', 'abc'])
+      expect(() =>
+        parseConfig({ ...validEnvironment, NAKH_PUBLIC_SUPPORT_TELEGRAM_USERNAME: username }),
+      ).toThrow();
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_STARS_INVOICES_ENABLED: 'true' }),
+    ).toThrow('requires payment ingress');
+    const configured = parseConfig({
+      ...validEnvironment,
+      NAKH_TELEGRAM_STARS_ENABLED: 'true',
+      NAKH_TELEGRAM_STARS_INVOICES_ENABLED: 'true',
+    });
+    expect(configured.telegram.starsInvoiceCreationEnabled).toBe(true);
+    expect(
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_STARS_ENABLED: 'true' }).telegram
+        .starsInvoiceCreationEnabled,
+    ).toBe(false);
+  });
   it('allows the background worker to relay chat without exposing signup entry', () => {
     const config = parseConfig({
       ...validEnvironment,
