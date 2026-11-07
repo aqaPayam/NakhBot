@@ -1,6 +1,8 @@
 import { config as loadDotEnv } from 'dotenv';
 import { Ajv2020 as Ajv, type ErrorObject } from 'ajv/dist/2020.js';
 import { Type, type Static } from '@sinclair/typebox';
+import { constants, openSync, closeSync, fstatSync, readFileSync } from 'node:fs';
+import { isAbsolute, normalize } from 'node:path';
 
 const EnvironmentSchema = Type.Union([
   Type.Literal('local'),
@@ -405,16 +407,72 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   loadDotEnv({ quiet: true });
-  return parseConfig(env);
+  const input = { ...env };
+  // Connection strings and the webhook check need their value in memory, but need not
+  // be stored in Docker's inspectable environment. Other secrets remain refs.
+  for (const name of ['NAKH_DATABASE_URL', 'NAKH_REDIS_URL', 'NAKH_TELEGRAM_WEBHOOK_SECRET'])
+    if (input[name + '_FILE'] !== undefined) input[name] = resolveSecretReference(name, input);
+  return parseConfig(input);
 }
 
-/** Resolves an environment-variable reference without copying secret values into config. */
+function readPrivateSecretFile(path: string): string {
+  let fd: number | undefined;
+  try {
+    // Qualified for the Linux service hosts. Environment-only local development
+    // remains portable; never pretend Windows mode bits establish a private ACL.
+    if (process.platform !== 'linux' || !isAbsolute(path) || normalize(path) !== path)
+      throw new Error();
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const before = fstatSync(fd, { bigint: true }),
+      uid = BigInt(process.getuid!());
+    if (
+      !before.isFile() ||
+      before.nlink !== 1n ||
+      (before.uid !== 0n && before.uid !== uid) ||
+      (before.mode & 0o077n) !== 0n ||
+      before.size < 1n ||
+      before.size > 65536n
+    )
+      throw new Error();
+    const bytes = readFileSync(fd),
+      after = fstatSync(fd, { bigint: true });
+    try {
+      if (
+        BigInt(bytes.length) !== before.size ||
+        after.size !== before.size ||
+        after.mtimeNs !== before.mtimeNs ||
+        after.ctimeNs !== before.ctimeNs ||
+        after.mode !== before.mode ||
+        after.uid !== before.uid ||
+        after.nlink !== before.nlink
+      )
+        throw new Error();
+      const value = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/\r?\n$/u, '');
+      if (!value.length || value.includes('\0')) throw new Error();
+      return value;
+    } finally {
+      bytes.fill(0);
+    }
+  } catch {
+    throw new Error('Required secret is unavailable.');
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** Resolve either the existing environment value or one private mounted file.
+ * Conflicting sources fail closed; errors never include a path or secret. */
 export function resolveSecretReference(
   reference: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   if (!/^[A-Z][A-Z0-9_]{1,127}$/u.test(reference)) throw new Error('Invalid secret reference.');
   const value = env[reference];
+  const file = env[reference + '_FILE'];
+  if (file !== undefined) {
+    if (value !== undefined) throw new Error('Conflicting secret sources.');
+    return readPrivateSecretFile(file);
+  }
   if (value === undefined || value.length === 0) throw new Error('Required secret is unavailable.');
   return value;
 }

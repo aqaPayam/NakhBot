@@ -20,6 +20,51 @@ tests: the canonical profile/settings menus, contextual credit access and Liked 
 unlock presentation need actual bot wiring. Backend gates alone do not prove a
 finished customer application. Complete these flows before final owner testing.
 
+## Clean database and administrator continuity
+
+The private Root maintenance entry point `vps-workforce-carryover` copies only
+selected workforce identities, Telegram bindings, active role assignments and
+encrypted active TOTP credentials with their original activation audits. Necessary
+inactive role-assigner identities are included for foreign-key continuity. It
+creates fresh Guest accounts, settings and zero credit accounts. It does not copy
+profiles, photos, balances, old sign-in sessions, MFA proofs or pending enrollments.
+No real authenticator seed is decrypted and no administrator session is fabricated.
+
+Source and target must be different databases with the exact supplied native
+migration ledgers and compatible workforce table catalogs. Source checksums are
+not rewritten: a historical CRLF ledger can coexist with a fresh canonical LF
+target. Both connections require database superuser authority. Native row locks
+hold the encrypted credential/replay floor until target commit; a failed audit
+rolls the entire target import back. Native JSON/text preserves ciphertext,
+microsecond timestamps and bigint Telegram bindings/counters without JavaScript
+number rounding. The target receives the exact source replay floor through the
+existing insertion and monotonic-update guards. Same-command retries return a
+bound historical receipt and cannot overwrite an advanced target counter.
+
+This is one stopped-fleet maintenance step, not an online database migration.
+Before using it, preserve the encrypted backup, verify isolated restoration, hold
+new ingress, drain accepted work and stop all four source application services.
+Create a separate empty cluster/volume with fresh purpose credentials. Supply the
+private command, accepted exact-head CI evidence and exclusive private receipt
+paths to the Root CLI. After import, recheck the stopped source fleet and unchanged
+source credential floor before target traffic. Keep the source cluster/volume
+preserved offline. Once the target accepts activity, switching back requires
+explicit data and replay-floor reconciliation. Do not enable orphan photo
+cleanup against the empty product database while backed-up objects remain in R2.
+A successful synthetic carryover does not establish that this live cutover ran.
+
+Linux services can use `NAKH_DATABASE_URL_FILE`, `NAKH_REDIS_URL_FILE`,
+`NAKH_TELEGRAM_WEBHOOK_SECRET_FILE` and `<SECRET_REFERENCE>_FILE` for private mounted runtime values. Direct environment
+values remain supported, but supplying both forms fails closed. Mounted values
+must be canonical absolute regular files owned by Root or the service UID, with
+one hard link, no group/world permissions and at most 64 KiB. Final symlinks,
+malformed UTF-8, empty/NUL-containing values and detected concurrent changes are
+rejected without printing the value or path. One terminal line ending is removed;
+structured multiline keyrings are preserved. Connection values are resolved only
+in process memory. Deployment must omit the corresponding direct Docker environment
+values, mount only each service's required files and separately qualify TLS and
+host custody. This facility alone does not certify a deployed secret store.
+
 ## Exact-unlock Liked By profile foundation
 
 Migration 169 extends ordinary media receipts with the original FeatureUnlock

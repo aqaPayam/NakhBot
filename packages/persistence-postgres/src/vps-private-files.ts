@@ -38,10 +38,10 @@ export async function openVpsPrivateInput(path: string, limit = 16384): Promise<
     throw error;
   }
 }
-export async function readVpsPrivateJson(path: string): Promise<unknown> {
-  const file = await openVpsPrivateInput(path);
+export async function readVpsPrivateJson(path: string, limit = 16384): Promise<unknown> {
+  const file = await openVpsPrivateInput(path, limit);
   try {
-    const bytes = Buffer.alloc(16385);
+    const bytes = Buffer.alloc(limit + 1);
     try {
       let length = 0;
       while (length < bytes.length) {
@@ -49,7 +49,7 @@ export async function readVpsPrivateJson(path: string): Promise<unknown> {
         if (result.bytesRead === 0) break;
         length += result.bytesRead;
       }
-      if (length > 16384) throw new Error();
+      if (length > limit) throw new Error();
       return JSON.parse(bytes.subarray(0, length).toString('utf8')) as unknown;
     } finally {
       bytes.fill(0);
