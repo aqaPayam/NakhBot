@@ -19,6 +19,7 @@ import type { AdministratorTelegramPort } from './admin-runtime.js';
 import type { TelegramChatRuntimePort } from './chat-runtime.js';
 import type { TelegramAccountRuntimePort } from './account-runtime.js';
 import type { TelegramProfileRuntimePort } from './profile-runtime.js';
+import type { TelegramNakhCustomerRuntimePort } from './nakh-customer-runtime.js';
 import type { TelegramLikedByCustomerRuntimePort } from './liked-by-customer-runtime.js';
 import { ApplicationError, PROFILE_LIMITS, SystemClock, validateNakhText } from '@nakh/domain';
 import {
@@ -30,6 +31,7 @@ import {
   M9_EDITOR_TEXTS,
   M9_FILTER_TEXTS,
   M9_LIKED_BY_TEXTS,
+  M9_NAKH_TEXTS,
   M9_PREVIEW_TEXTS,
   M9_PROFILE_TEXTS,
   englishCatalogFromManifest,
@@ -149,6 +151,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         ...(this.account?.enabled ? { ...M9_ACCOUNT_TEXTS, ...M9_SETTINGS_TEXTS } : {}),
         ...(this.profile?.enabled ? M9_EDITOR_TEXTS : {}),
         ...(this.likedBy?.enabled ? M9_LIKED_BY_TEXTS : {}),
+        ...(this.nakhes?.enabled ? M9_NAKH_TEXTS : {}),
         ...(this.profile?.enabled && this.profile.openFilters ? M9_FILTER_TEXTS : {}),
         ...(this.previewDelivery === undefined && this.exploreDelivery === undefined
           ? {}
@@ -241,6 +244,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
     private readonly account?: TelegramAccountRuntimePort,
     private readonly profile?: TelegramProfileRuntimePort,
     private readonly likedBy?: TelegramLikedByCustomerRuntimePort,
+    private readonly nakhes?: TelegramNakhCustomerRuntimePort,
   ) {
     this.key = Buffer.from(key);
     this.stars?.assertSeparateNavigationKey?.(this.key);
@@ -881,9 +885,14 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           await this.chat.open(telegramId, nav.actor);
           return 'notice';
         }
-        if (nav.action === 'settings') {
+        if (nav.action === 'settings' && nav.code !== 'support') {
           if (!this.account?.enabled) throw denied();
           await this.account.open(telegramId, nav.actor);
+          return 'notice';
+        }
+        if (nav.action === 'settings' && nav.code === 'support') {
+          if (!this.account?.enabled || !this.account.openSupport) throw denied();
+          await this.account.openSupport(telegramId, nav.actor);
           return 'notice';
         }
         if (nav.action === 'edit_profile') {
@@ -1179,6 +1188,23 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         nav = { ...nav, selection: selected };
     }
     if (screen === 'root') {
+      if (this.nakhes?.enabled && context.accountState === 'active')
+        keyboard.push([await this.nakhes.entryButton(telegramId, actor)]);
+      if (
+        this.nakhes?.enabled &&
+        this.profile?.enabled &&
+        context.accountState === 'active' &&
+        context.profileCompletion !== 'complete'
+      )
+        await button(t('home.fix_profile'), { action: 'edit_profile' });
+      if (
+        this.nakhes?.enabled &&
+        this.account?.supportEnabled &&
+        this.account.openSupport &&
+        (context.accountState === 'restricted' ||
+          (context.accountState === 'active' && context.profileCompletion !== 'complete'))
+      )
+        await button(t('account.menu.support'), { action: 'settings', code: 'support' });
       if (
         this.likedBy?.enabled &&
         context.accountState === 'active' &&
@@ -1200,7 +1226,9 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
         this.chat?.enabled &&
         (context.accountState === 'active' || context.accountState === 'restricted')
       )
-        await button(t('chat.list.title'), { action: 'chat' });
+        await button(t(this.nakhes?.enabled ? 'home.matches' : 'chat.list.title'), {
+          action: 'chat',
+        });
       const administratorLink = await this.administration?.link(actor, context.uiLocale);
       if (administratorLink !== undefined)
         keyboard.push([{ text: t('admin.auth.open'), url: administratorLink }]);
@@ -1402,9 +1430,12 @@ export function createTelegramSignupRuntime(
     account?: TelegramAccountRuntimePort;
     profile?: TelegramProfileRuntimePort;
     likedBy?: TelegramLikedByCustomerRuntimePort;
+    nakhes?: TelegramNakhCustomerRuntimePort;
   }>,
 ): TelegramSignupRuntimePort {
   if (!input.config.telegram.signupEnabled) return { handle: () => Promise.resolve('unhandled') };
+  if (input.config.telegram.nakhEnabled && !input.nakhes?.enabled)
+    throw new Error('Nakh inbox composition unavailable.');
   if (input.config.telegram.likedByDeliveryEnabled && !input.likedBy?.enabled)
     throw new Error('Liked By composition unavailable.');
   if (input.config.telegram.accountMenuEnabled && !input.account?.enabled)
@@ -1450,5 +1481,6 @@ export function createTelegramSignupRuntime(
     input.account,
     input.profile,
     input.likedBy,
+    input.nakhes,
   );
 }

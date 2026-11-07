@@ -153,7 +153,7 @@ export class TelegramLockedLikedByScreenRelay {
             (button) =>
               !button.text.length ||
               button.text.length > 64 ||
-              !/^m9[lr]:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{22}$/u.test(button.callback_data),
+              !/^m9[lrn]:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{22}$/u.test(button.callback_data),
           ),
       )
     )

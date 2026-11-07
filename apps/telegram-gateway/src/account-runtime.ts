@@ -42,13 +42,18 @@ function uuid(value: string): string {
 }
 export interface TelegramAccountRuntimePort {
   readonly enabled: boolean;
+  readonly supportEnabled?: boolean;
   handle(update: unknown): Promise<'unhandled' | 'notice'>;
   open(recipient: string, actor: UserSessionActor): Promise<void>;
+  openSupport?(recipient: string, actor: UserSessionActor): Promise<void>;
   openCredits?(recipient: string, actor: UserSessionActor): Promise<void>;
 }
 /** Only public menu choices are cached; the ledger owns each repeatable grant. */
 export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
   public readonly enabled = true;
+  public get supportEnabled(): boolean {
+    return this.config.telegram.supportAppealEnabled;
+  }
   private readonly key: Buffer;
   private readonly users: PostgresTelegramUserResolver;
   private readonly sessions: PostgresUserSessionStore;
@@ -66,6 +71,7 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     key: Uint8Array,
     private readonly client: TelegramBotApiMenuClient,
     private readonly home?: (recipient: string, actor: UserSessionActor) => Promise<void>,
+    private readonly editProfile?: (recipient: string, actor: UserSessionActor) => Promise<void>,
   ) {
     this.key = Buffer.from(key);
     this.users = new PostgresTelegramUserResolver(database);
@@ -200,7 +206,18 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     if (screen === 'settings') {
       text.push(t('account.settings.visibility_info'));
       keyboard.push([await button('account.credits.title', 'pick', 'credits')]);
-      keyboard.push([await button('account.settings.language', 'pick', 'locales')]);
+      if (
+        (
+          await this.database
+            .selectFrom('catalog.locales')
+            .select('code')
+            .where('is_active', '=', true)
+            .limit(2)
+            .execute()
+        ).length > 1
+      )
+        keyboard.push([await button('account.settings.language', 'pick', 'locales')]);
+      if (this.editProfile) keyboard.push([await button('profile.edit.title', 'edit_profile')]);
       keyboard.push([
         await button(
           identity.visibilityEnabled
@@ -284,6 +301,23 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     await this.current(recipient, actor);
     await this.render(recipient, actor, 'credits');
   }
+  public async openSupport(recipient: string, actor: UserSessionActor): Promise<void> {
+    if (!this.config.telegram.supportAppealEnabled) denied();
+    const locale = await this.current(recipient, actor);
+    const catalog = await this.localization.loadActiveCatalog(locale);
+    const renderer = new CatalogRenderer(
+      { [catalog.resolvedLocale]: catalog.messages },
+      catalog.resolvedLocale,
+    );
+    await this.current(recipient, actor);
+    await this.client.sendMenu(recipient, {
+      text: renderer.render(catalog.resolvedLocale, {
+        key: 'account.menu.support_help',
+        variables: {},
+      }),
+      replyMarkup: { inline_keyboard: [] },
+    });
+  }
   public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
     const root = record(structuredClone(update)),
       message = record(root?.message),
@@ -348,6 +382,12 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     });
     if (!rate.allowed) throw new ApplicationError('rate_limited', 'error.rate_limit.exceeded', 429);
     try {
+      if (nav?.action === 'edit_profile') {
+        if (!this.editProfile) denied();
+        if (callbackId !== undefined) await this.client.answerCallback(callbackId);
+        await this.editProfile(recipient, actor);
+        return 'notice';
+      }
       if (nav?.action === 'home') {
         if (callbackId !== undefined) await this.client.answerCallback(callbackId);
         if (this.home) await this.home(recipient, actor);
@@ -495,6 +535,7 @@ export function createTelegramAccountRuntime(
     redis: ReturnType<typeof createRedisConnection>;
     resolveSecret?: (reference: string) => string;
     home?: (recipient: string, actor: UserSessionActor) => Promise<void>;
+    editProfile?: (recipient: string, actor: UserSessionActor) => Promise<void>;
   }>,
 ): TelegramAccountRuntimePort {
   if (!input.config.telegram.accountMenuEnabled)
@@ -525,5 +566,6 @@ export function createTelegramAccountRuntime(
     key,
     new TelegramBotApiMenuClient(token),
     input.home,
+    input.editProfile,
   );
 }

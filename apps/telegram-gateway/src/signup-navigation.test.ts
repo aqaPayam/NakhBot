@@ -30,6 +30,66 @@ function fixture(): {
   };
 }
 describe('signup navigation integrity and concurrency', () => {
+  it('isolates Nakh selectors from signup, Like, reporting, other recipients and later lives', async () => {
+    const f = fixture(),
+      key = Buffer.alloc(32, 1);
+    const tokens = new SignupNavigationTokens(
+      f.store,
+      key,
+      '12345',
+      '123',
+      life,
+      undefined,
+      'nakh',
+    );
+    const nav: SignupNavigation = {
+      ...f.nav,
+      screen: 'detail',
+      action: 'finish',
+      field: 'received',
+      reference: '30000000-0000-4000-8000-000000000001',
+    };
+    const value = await tokens.button(nav);
+    expect(value).toMatch(/^m9n:/u);
+    expect(Buffer.byteLength(value)).toBeLessThanOrEqual(64);
+    expect(await tokens.callback(value)).toEqual(nav);
+    for (const purpose of ['signup', 'liked_by', 'report'] as const)
+      expect(
+        await new SignupNavigationTokens(
+          f.store,
+          key,
+          '12345',
+          '123',
+          life,
+          undefined,
+          purpose,
+        ).callback(value),
+      ).toBeUndefined();
+    expect(
+      await new SignupNavigationTokens(
+        f.store,
+        key,
+        '12345',
+        '124',
+        life,
+        undefined,
+        'nakh',
+      ).callback(value),
+    ).toBeUndefined();
+    expect(
+      await new SignupNavigationTokens(
+        f.store,
+        key,
+        '12345',
+        '123',
+        { ...life, productEpoch: 1 },
+        undefined,
+        'nakh',
+      ).callback(value),
+    ).toBeUndefined();
+    await expect(tokens.button({ ...nav, likeId: nav.reference })).rejects.toThrow();
+    await expect(tokens.button({ ...nav, unlockId: nav.reference })).rejects.toThrow();
+  });
   it('reuses worker buttons under concurrent retries without renewing their original expiry', async () => {
     const f = fixture();
     let now = 1000;

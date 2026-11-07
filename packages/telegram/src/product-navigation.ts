@@ -78,7 +78,7 @@ export class SignupNavigationTokens {
     life: Readonly<{ userId: string; productEpoch: number }>,
     private readonly now: () => number = Date.now,
     private readonly purpose:
-      'signup' | 'report' | 'chat' | 'account' | 'profile' | 'liked_by' = 'signup',
+      'signup' | 'report' | 'chat' | 'account' | 'profile' | 'liked_by' | 'nakh' = 'signup',
   ) {
     if (key.byteLength !== 32) throw new Error('Signup key unavailable.');
     this.key = createHmac('sha256', key).update(`nakh-${purpose}-navigation-v1`).digest();
@@ -108,6 +108,7 @@ export class SignupNavigationTokens {
       account: 'm9a',
       profile: 'm9p',
       liked_by: 'm9l',
+      nakh: 'm9n',
     }[this.purpose];
   }
   public replyId(messageId: number): string {
@@ -235,7 +236,9 @@ export class SignupNavigationTokens {
     };
   }
   public async callback(data: string): Promise<SignupNavigation | undefined> {
-    const match = /^(m9s|m9r|m9c|m9a|m9p|m9l):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(data);
+    const match = /^(m9s|m9r|m9c|m9a|m9p|m9l|m9n):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{22})$/u.exec(
+      data,
+    );
     return match === null || match[1] !== this.prefix()
       ? undefined
       : this.read(match[2]!, match[3], false);

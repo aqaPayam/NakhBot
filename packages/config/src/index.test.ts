@@ -18,6 +18,21 @@ const validEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe('configuration', () => {
+  it('keeps Nakhes off by default and requires signup readiness when enabled', () => {
+    expect(parseConfig(validEnvironment).telegram.nakhEnabled).toBe(false);
+    expect(() =>
+      parseConfig({ ...validEnvironment, NAKH_TELEGRAM_NAKH_ENABLED: 'true' }),
+    ).toThrow();
+    expect(
+      parseConfig({
+        ...validEnvironment,
+        NAKH_TELEGRAM_NAKH_ENABLED: 'true',
+        NAKH_TELEGRAM_SIGNUP_ENABLED: 'true',
+        NAKH_TELEGRAM_START_DELIVERY_ENABLED: 'true',
+        NAKH_MEDIA_INGESTION_ENABLED: 'true',
+      }).telegram.nakhEnabled,
+    ).toBe(true);
+  });
   it('allows repeatable free funding only in the staging account menu without new invoices', () => {
     const defaults = parseConfig(validEnvironment);
     expect(defaults.telegram.accountMenuEnabled).toBe(false);

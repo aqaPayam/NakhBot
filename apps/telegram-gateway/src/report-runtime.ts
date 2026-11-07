@@ -293,6 +293,16 @@ export class TelegramReportRuntime implements TelegramReportRuntimePort {
     scope: UserReportScope;
   } {
     if (nav.code === undefined) throw unavailable();
+    if (nav.field === 'received_nakh')
+      return {
+        source: {
+          kind: 'received_nakh',
+          referenceId: nav.code,
+          ...(nav.photoId === undefined ? {} : { photoId: nav.photoId }),
+        },
+        type: nav.photoId === undefined ? 'profile' : 'photo',
+        scope: { actor: nav.actor, receivedNakhId: nav.code },
+      };
     if (nav.field === 'received_like')
       return {
         source: {

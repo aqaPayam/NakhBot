@@ -77,6 +77,10 @@ import {
 import type { TelegramReportIngressPort } from './report-ingress.js';
 import { createTelegramStartDelivery, type TelegramStartDeliveryNotice } from './start-delivery.js';
 import { createTelegramSignupRuntime, type TelegramSignupRuntimePort } from './signup-runtime.js';
+import {
+  createTelegramNakhCustomerRuntime,
+  type TelegramNakhCustomerRuntimePort,
+} from './nakh-customer-runtime.js';
 import { createTelegramLikedByCustomerRuntime } from './liked-by-customer-runtime.js';
 import {
   createTelegramAccountRuntime,
@@ -104,6 +108,7 @@ const START_ADAPTER = Symbol('START_ADAPTER');
 const SIGNUP_INGRESS = Symbol('SIGNUP_INGRESS');
 const ACCOUNT_INGRESS = Symbol('ACCOUNT_INGRESS');
 const PROFILE_INGRESS = Symbol('PROFILE_INGRESS');
+const NAKH_INGRESS = Symbol('NAKH_INGRESS');
 const CHAT_INGRESS = Symbol('CHAT_INGRESS');
 const LAUNCH_ADMISSION = Symbol('LAUNCH_ADMISSION');
 const STARS_INGRESS = Symbol('STARS_INGRESS');
@@ -188,6 +193,7 @@ class TelegramGatewayController {
     @Inject(SIGNUP_INGRESS) private readonly signupIngress: TelegramSignupRuntimePort,
     @Inject(ACCOUNT_INGRESS) private readonly accountIngress: TelegramAccountRuntimePort,
     @Inject(PROFILE_INGRESS) private readonly profileIngress: TelegramProfileRuntimePort,
+    @Inject(NAKH_INGRESS) private readonly nakhIngress: TelegramNakhCustomerRuntimePort,
     @Inject(CHAT_INGRESS) private readonly chatIngress: TelegramChatRuntimePort,
     @Inject(LAUNCH_ADMISSION) private readonly launchAdmission: TelegramLaunchAdmissionPort,
     @Inject(STARS_INGRESS) private readonly starsIngress: TelegramStarsRuntimePort,
@@ -250,6 +256,8 @@ class TelegramGatewayController {
         return { accepted: true };
       const admitted = await this.launchAdmission.allowsUpdate(update);
       if (admitted && (await this.accountIngress.handle(update)) !== 'unhandled')
+        return { accepted: true };
+      if (admitted && (await this.nakhIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
       if (admitted && (await this.profileIngress.handle(update)) !== 'unhandled')
         return { accepted: true };
@@ -416,12 +424,25 @@ export class TelegramGatewayModule {
       financialDatabase,
       redis,
       home,
+      editProfile: (recipient, actor) => profile.open(recipient, actor),
     });
     const profile = createTelegramProfileRuntime({ config, database, redis, home });
     const likedBy = createTelegramLikedByCustomerRuntime({
       config,
       database,
       financialDatabase,
+      redis,
+      home,
+      ...(account.enabled && account.openCredits
+        ? {
+            credits: (recipient: string, actor: UserSessionActor) =>
+              account.openCredits!(recipient, actor),
+          }
+        : {}),
+    });
+    const nakhes = createTelegramNakhCustomerRuntime({
+      config,
+      database,
       redis,
       home,
       ...(account.enabled && account.openCredits
@@ -442,6 +463,7 @@ export class TelegramGatewayModule {
       account,
       profile,
       likedBy,
+      nakhes,
       ...(administration === undefined ? {} : { administration }),
     });
     const likedByIngress = likedBy.enabled
@@ -566,6 +588,7 @@ export class TelegramGatewayModule {
         { provide: SIGNUP_INGRESS, useValue: signup },
         { provide: ACCOUNT_INGRESS, useValue: account },
         { provide: PROFILE_INGRESS, useValue: profile },
+        { provide: NAKH_INGRESS, useValue: nakhes },
         { provide: CHAT_INGRESS, useValue: chat },
         { provide: LAUNCH_ADMISSION, useValue: launchAdmission },
         { provide: STARS_INGRESS, useValue: stars },

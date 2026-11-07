@@ -7,6 +7,7 @@ import {
   M9_REVIEW_TEXTS,
   M9_FILTER_TEXTS,
   M9_LIKED_BY_TEXTS,
+  M9_NAKH_TEXTS,
   M9_ADMIN_TEXTS,
 } from '@nakh/localization';
 import { resolve } from 'node:path';
@@ -59,7 +60,8 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
         Object.keys(M9_EDITOR_TEXTS).length +
         Object.keys(M9_REVIEW_TEXTS).length +
         Object.keys(M9_FILTER_TEXTS).length +
-        Object.keys(M9_LIKED_BY_TEXTS).length,
+        Object.keys(M9_LIKED_BY_TEXTS).length +
+        Object.keys(M9_NAKH_TEXTS).length,
     );
     for (const [text_key, value] of Object.entries({
       ...M9_ACCOUNT_TEXTS,
@@ -68,6 +70,7 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
       ...M9_REVIEW_TEXTS,
       ...M9_FILTER_TEXTS,
       ...M9_LIKED_BY_TEXTS,
+      ...M9_NAKH_TEXTS,
       ...M9_ADMIN_TEXTS,
     }))
       expect(first.native['catalog.ui_texts']).toEqual(
@@ -93,9 +96,10 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
         Object.keys(M9_EDITOR_TEXTS).length +
         Object.keys(M9_REVIEW_TEXTS).length +
         Object.keys(M9_FILTER_TEXTS).length +
-        Object.keys(M9_LIKED_BY_TEXTS).length,
+        Object.keys(M9_LIKED_BY_TEXTS).length +
+        Object.keys(M9_NAKH_TEXTS).length,
     );
-    expect(first.native['platform.schema_migrations']).toHaveLength(170);
+    expect(first.native['platform.schema_migrations']).toHaveLength(171);
     expect(first.native['administration.admin_roles']).toHaveLength(3);
     expect(first.native['administration.admin_permissions']).toHaveLength(M7_PERMISSIONS.length);
     expect(first.native['billing.credit_packages']).toEqual(
@@ -235,6 +239,6 @@ describe.skipIf(url === undefined)('M9 native production reference verification'
         { name: '999999_unknown.sql', sha256: '1'.repeat(64) },
       ]),
     ).rejects.toThrow('Release reference unavailable.');
-    expect((await capture()).native['platform.schema_migrations']).toHaveLength(170);
+    expect((await capture()).native['platform.schema_migrations']).toHaveLength(171);
   });
 });

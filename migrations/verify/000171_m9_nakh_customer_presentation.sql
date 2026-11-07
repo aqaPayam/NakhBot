@@ -1,0 +1,7 @@
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='media.delivery_grants'::regclass
+   AND attname='nakh_id' AND atttypid='uuid'::regtype AND NOT attnotnull AND NOT attisdropped)
+  OR to_regprocedure('media.delivery_grant_pre_nakh_source_is_current(media.delivery_grants)') IS NULL
+  OR identity.retention_catalog_valid() IS NOT TRUE THEN RAISE EXCEPTION 'Nakh profile authority incomplete'; END IF;
+ IF (SELECT count(*) FROM catalog.ui_texts WHERE locale_code='en' AND is_active AND text_key IN(E'home.fix_profile',E'home.matches',E'nakh.ui.accept',E'nakh.ui.accepted',E'nakh.ui.back',E'nakh.ui.cancel',E'nakh.ui.cancel_info',E'nakh.ui.cancel_like',E'nakh.ui.cancel_reject',E'nakh.ui.cancelled',E'nakh.ui.close',E'nakh.ui.closed',E'nakh.ui.detail',E'nakh.ui.edit',E'nakh.ui.edit_prompt',E'nakh.ui.empty',E'nakh.ui.expires',E'nakh.ui.history',E'nakh.ui.item',E'nakh.ui.menu',E'nakh.ui.next',E'nakh.ui.pending',E'nakh.ui.profile_unavailable',E'nakh.ui.received',E'nakh.ui.saved',E'nakh.ui.sent',E'nakh.ui.status.accepted',E'nakh.ui.status.cancelled',E'nakh.ui.status.closed',E'nakh.ui.status.closed_by_system',E'nakh.ui.status.expired',E'nakh.ui.status.paid_and_sent',E'nakh.ui.status.pending_payment',E'nakh.ui.status.rejected',E'nakh.ui.status.seen',E'nakh.ui.status.sent',E'nakh.ui.unavailable',E'nakh.ui.view'))<>38 THEN RAISE EXCEPTION 'Nakh presentation incomplete'; END IF;
+END $$;

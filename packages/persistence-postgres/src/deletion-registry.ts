@@ -88,7 +88,7 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
     actual.schemaVersion !== undefined &&
     (!Number.isSafeInteger(actual.schemaVersion) ||
       actual.schemaVersion < 137 ||
-      actual.schemaVersion > 170)
+      actual.schemaVersion > 171)
   )
     throw conflict();
   const tableNames = actual.tables.map((item) => `${item.schema}.${item.table}`).sort();
@@ -107,7 +107,8 @@ export function assertDeletionCatalogCoverage(actual: DeletionCatalog): void {
             (c) =>
               (actual.schemaVersion! >= 153 ||
                 (c.name !== 'candidate_delivery_id' && c.name !== 'session_grant_id')) &&
-              (actual.schemaVersion! >= 169 || c.name !== 'feature_unlock_id'),
+              (actual.schemaVersion! >= 169 || c.name !== 'feature_unlock_id') &&
+              (actual.schemaVersion! >= 171 || c.name !== 'nakh_id'),
           )
         : expected.columns;
     if (

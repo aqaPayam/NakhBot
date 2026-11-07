@@ -72,6 +72,38 @@ remains disabled. A clean trial database, security custody transfer, deployment
 qualification and a current bounded admission review remain separate release
 work; existing test profiles and credits must not be silently carried forward.
 
+## Original-session Nakhes customer flow
+
+Migration 171 and the disabled-by-default `NAKH_TELEGRAM_NAKH_ENABLED` switch add
+the dedicated Nakhes menu and `/nakhes` entry. Received and sent pages retain
+terminal status history; sender-only pending drafts support versioned editing
+through an exact private reply and explicit cancellation to Like or Not Interested.
+Past pending entries remain read-only. Free credit refills use the existing account
+menu; original pending authorizations retain their FIFO settlement rules.
+
+Every callback retains its original native session and account life. Receiver
+actions check that session before returning cached command results. A profile view
+performs the existing sent-to-seen transition once. Full profile receipts bind the
+exact received, viewed, unexpired Nakh, both original lives and the same session;
+they cannot borrow a candidate, Like, unlock or another recipient's source. Receipt
+insertion rechecks admission after canonical pair locks. Acceptance, rejection,
+revocation and native deletion close ordinary profile access. Previously received
+Nakhes remain accessible when visibility is off; a receiver's incomplete profile
+does not block reading the sender's valid profile.
+
+Private profile and individual-photo reports use a separate original-source safety
+scope, including historical closed Nakhes, without reopening ordinary profiles or
+including private Nakh text as profile evidence. Text and photo delivery are
+protected, check current source authority before each send, and retain provider
+ambiguity as at-least-once delivery. Only selectors enter Redis; native commands
+are idempotent. This flow does not claim durable per-message provider receipts.
+
+The main menu exposes Matches and the appropriate Fix Profile, Nakhes and Support
+entries. Settings links to Edit Profile and hides Language while only one locale is
+active. The deletion inventory classifies the new receipt selector, preserving
+historical retained-manifest proofs. This source change does not activate traffic
+or replace clean-database deployment and actual launch qualification.
+
 ## Repeatable free test credits
 
 The account menu now has Settings → Your credits → Add 100 free credits,

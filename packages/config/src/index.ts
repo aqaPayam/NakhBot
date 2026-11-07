@@ -49,6 +49,7 @@ const ConfigSchema = Type.Object(
       webhookSecret: Type.String({ minLength: 32 }),
       actionTokenKeyRef: Type.String({ pattern: '^[A-Z][A-Z0-9_]{1,127}$' }),
       likedByDeliveryEnabled: Type.Boolean(),
+      nakhEnabled: Type.Boolean(),
       notificationDeliveryEnabled: Type.Boolean(),
       supportAppealEnabled: Type.Boolean(),
       publicSupportUsername: Type.String({ pattern: '^(?:|[A-Za-z][A-Za-z0-9_]{4,31})$' }),
@@ -216,6 +217,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
         'NAKH_TELEGRAM_ACTION_TOKEN_KEY',
       ),
       likedByDeliveryEnabled: boolean(env.NAKH_TELEGRAM_LIKED_BY_DELIVERY_ENABLED, false),
+      nakhEnabled: boolean(env.NAKH_TELEGRAM_NAKH_ENABLED, false),
       notificationDeliveryEnabled: boolean(env.NAKH_TELEGRAM_NOTIFICATION_DELIVERY_ENABLED, false),
       supportAppealEnabled: boolean(env.NAKH_TELEGRAM_SUPPORT_APPEAL_ENABLED, false),
       publicSupportUsername: env.NAKH_PUBLIC_SUPPORT_TELEGRAM_USERNAME ?? '',
@@ -354,6 +356,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     throw new Error('Invalid configuration: Guest Preview requires signup Telegram readiness.');
   if (candidate.telegram.exploreEnabled && !candidate.telegram.signupEnabled)
     throw new Error('Invalid configuration: Explore requires signup Telegram readiness.');
+  if (candidate.telegram.nakhEnabled && !candidate.telegram.signupEnabled)
+    throw new Error('Invalid configuration: Nakhes require signup Telegram readiness.');
   if (
     candidate.telegram.chatEnabled &&
     !candidate.telegram.signupEnabled &&

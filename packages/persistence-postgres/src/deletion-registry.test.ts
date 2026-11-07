@@ -21,9 +21,17 @@ function expectedCatalog(): DeletionCatalog {
 describe('M8 schema coverage denial', () => {
   it('binds both reviewed media layouts to the native migration version', () => {
     const current = expectedCatalog();
-    const beforeQueue = {
+    const beforeNakh = {
       ...current,
       tables: current.tables.map((t) =>
+        t.schema === 'media' && t.table === 'delivery_grants'
+          ? { ...t, columns: t.columns.filter((c) => c.name !== 'nakh_id') }
+          : t,
+      ),
+    };
+    const beforeQueue = {
+      ...beforeNakh,
+      tables: beforeNakh.tables.map((t) =>
         t.schema === 'channel_telegram' && t.table === 'liked_by_delivery_requests'
           ? {
               ...t,
@@ -72,8 +80,12 @@ describe('M8 schema coverage denial', () => {
     expect(() =>
       assertDeletionCatalogCoverage({ ...beforeQueue, schemaVersion: 169 }),
     ).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 170 })).not.toThrow();
-    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 171 })).toThrow();
+    expect(() =>
+      assertDeletionCatalogCoverage({ ...beforeNakh, schemaVersion: 170 }),
+    ).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 171 })).not.toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 172 })).toThrow();
+    expect(() => assertDeletionCatalogCoverage({ ...beforeNakh, schemaVersion: 171 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...beforeQueue, schemaVersion: 170 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...beforeLike, schemaVersion: 169 })).toThrow();
     expect(() => assertDeletionCatalogCoverage({ ...current, schemaVersion: 168 })).toThrow();

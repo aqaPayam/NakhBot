@@ -139,7 +139,7 @@ describe.skipIf(url === undefined)('M8 owned operational cancellation', () => {
     }
     const catalog = await readDeletionCatalog(database);
     expect(catalog.tables).toHaveLength(153);
-    expect(catalog.tables.reduce((n, row) => n + row.columns.length, 0)).toBe(1426);
+    expect(catalog.tables.reduce((n, row) => n + row.columns.length, 0)).toBe(1427);
     expect(catalog.foreignKeys).toHaveLength(307);
     assertDeletionCatalogCoverage(catalog);
   });

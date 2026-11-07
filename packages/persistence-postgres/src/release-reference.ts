@@ -44,7 +44,7 @@ const fields = `environment serviceName release http.host http.port
  database.roleIsolationEnabled database.financialUrlRef database.administrationUrlRef database.maintenanceUrlRef
  redis.url redis.queuePrefix telegram.botTokenRef telegram.webhookSecret telegram.actionTokenKeyRef
  telegram.likedByDeliveryEnabled telegram.notificationDeliveryEnabled telegram.supportAppealEnabled telegram.publicSupportUsername
- telegram.accountMenuEnabled telegram.freeTestTopupsEnabled
+ telegram.accountMenuEnabled telegram.freeTestTopupsEnabled telegram.nakhEnabled
  telegram.startDeliveryEnabled telegram.signupEnabled telegram.guestPreviewEnabled telegram.exploreEnabled
  telegram.starsEnabled telegram.starsInvoiceCreationEnabled telegram.starsRefundsEnabled telegram.starsKeyRingRef
  telegram.reportsEnabled telegram.reportSnapshotKeyId telegram.reportSnapshotKeyVersion telegram.chatEnabled

@@ -12,6 +12,7 @@ import type {
   NakhReceiverActionStore,
   RejectNakhWrite,
   ViewNakhProfileWrite,
+  UserSessionActor,
 } from '@nakh/application';
 import type {
   AcceptNakhCommand,
@@ -24,11 +25,13 @@ import { ApplicationError } from '@nakh/domain';
 import type { NakhDatabase } from './database.js';
 import { insertNotification } from './notification-store.js';
 import { lockNakhLifecyclePair } from './nakh-lifecycle-authority.js';
+import { PostgresUserSessionStore, requireCurrentUserSession } from './user-session-store.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 function commandHash(
   command: ViewNakhProfileCommand | AcceptNakhCommand | RejectNakhCommand,
+  owner?: UserSessionActor,
 ): string {
   return createHash('sha256')
     .update(
@@ -37,6 +40,7 @@ function commandHash(
         schemaVersion: command.schemaVersion,
         actor: command.actor,
         data: command.data,
+        ...(owner === undefined ? {} : { owner }),
       }),
     )
     .digest('hex');
@@ -57,7 +61,29 @@ function denied(): never {
 }
 
 export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhReceiverActionStore {
-  public constructor(private readonly database: NakhDatabase) {}
+  private readonly owner: UserSessionActor | undefined;
+  public constructor(
+    private readonly database: NakhDatabase,
+    owner?: UserSessionActor,
+  ) {
+    this.owner = owner === undefined ? undefined : Object.freeze({ ...owner });
+  }
+  private assertOwner(userId: string): void {
+    if (this.owner !== undefined && (this.owner.kind !== 'user' || this.owner.userId !== userId))
+      denied();
+  }
+  private async readable(database: NakhDatabase, userId: string): Promise<void> {
+    this.assertOwner(userId);
+    if (
+      this.owner !== undefined &&
+      !(await new PostgresUserSessionStore(database).current(this.owner, this.owner.sessionGrantId))
+    )
+      denied();
+  }
+  private async writable(database: NakhDatabase, userId: string): Promise<void> {
+    this.assertOwner(userId);
+    if (this.owner !== undefined) await requireCurrentUserSession(database, userId, this.owner);
+  }
 
   public readPage(
     viewerUserId: string,
@@ -80,6 +106,7 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
       .setIsolationLevel('repeatable read')
       .setAccessMode('read only')
       .execute(async (transaction) => {
+        await this.readable(transaction, viewerUserId);
         const account = await transaction
           .selectFrom('identity.accounts')
           .select('state')
@@ -159,15 +186,27 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
   }
 
   public async readDetail(viewerUserId: string, nakhId: string): Promise<AuthorizedNakhRow> {
+    return this.database
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute((database) => this.detailIn(database, viewerUserId, nakhId));
+  }
+  private async detailIn(
+    database: NakhDatabase,
+    viewerUserId: string,
+    nakhId: string,
+  ): Promise<AuthorizedNakhRow> {
     if (!UUID.test(viewerUserId) || !UUID.test(nakhId))
       throw new ApplicationError('invalid_request', 'error.nakh.detail_invalid', 400);
-    const account = await this.database
+    await this.readable(database, viewerUserId);
+    const account = await database
       .selectFrom('identity.accounts')
       .select('state')
       .where('user_id', '=', viewerUserId)
       .executeTakeFirst();
     if (account?.state !== 'active') denied();
-    const row = await this.database
+    const row = await database
       .selectFrom('nakh.nakhes as nakh')
       .innerJoin(
         'nakh.current_flow_lives as original_flow',
@@ -222,10 +261,12 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
     };
   }
 
-  public async viewProfile(write: ViewNakhProfileWrite): Promise<NakhActionResult> {
+  public async viewProfile(input: ViewNakhProfileWrite): Promise<NakhActionResult> {
+    const write = structuredClone(input);
     const { command } = write;
     const receiverUserId = command.actor.userId;
-    const requestHash = commandHash(command);
+    this.assertOwner(receiverUserId);
+    const requestHash = commandHash(command, this.owner);
     const locator = await this.database
       .selectFrom('nakh.nakhes')
       .select(['nakh_flow_id', 'sender_user_id', 'receiver_user_id'])
@@ -241,6 +282,7 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
         receiverUserId,
         locator.nakh_flow_id,
       );
+      await this.writable(transaction, receiverUserId);
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -381,10 +423,12 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
     });
   }
 
-  public async accept(write: AcceptNakhWrite): Promise<NakhActionResult> {
+  public async accept(input: AcceptNakhWrite): Promise<NakhActionResult> {
+    const write = structuredClone(input);
     const { command } = write;
     const receiverUserId = command.actor.userId;
-    const requestHash = commandHash(command);
+    this.assertOwner(receiverUserId);
+    const requestHash = commandHash(command, this.owner);
     const locator = await this.database
       .selectFrom('nakh.nakhes')
       .select(['nakh_flow_id', 'sender_user_id', 'receiver_user_id'])
@@ -400,6 +444,7 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
         receiverUserId,
         locator.nakh_flow_id,
       );
+      await this.writable(transaction, receiverUserId);
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({
@@ -741,10 +786,12 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
     });
   }
 
-  public async reject(write: RejectNakhWrite): Promise<NakhActionResult> {
+  public async reject(input: RejectNakhWrite): Promise<NakhActionResult> {
+    const write = structuredClone(input);
     const { command } = write;
     const receiverUserId = command.actor.userId;
-    const requestHash = commandHash(command);
+    this.assertOwner(receiverUserId);
+    const requestHash = commandHash(command, this.owner);
     const locator = await this.database
       .selectFrom('nakh.nakhes')
       .select(['nakh_flow_id', 'sender_user_id', 'receiver_user_id'])
@@ -760,6 +807,7 @@ export class PostgresDeliveredNakhStore implements DeliveredNakhReadStore, NakhR
         receiverUserId,
         locator.nakh_flow_id,
       );
+      await this.writable(transaction, receiverUserId);
       const claimed = await transaction
         .insertInto('platform.idempotency_records')
         .values({

@@ -395,6 +395,7 @@ describe.skipIf(url === undefined)('M8 original credit lifecycle provenance', ()
         '000168_m9_explore_filter_menus.sql',
         '000169_m9_liked_by_profile_authority.sql',
         '000170_m9_liked_by_customer_delivery.sql',
+        '000171_m9_nakh_customer_presentation.sql',
       ]);
       expect(
         await legacy

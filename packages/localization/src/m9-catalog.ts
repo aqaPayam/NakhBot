@@ -1,3 +1,47 @@
+export const M9_NAKH_TEXTS = {
+  'nakh.ui.menu': 'Nakhes',
+  'nakh.ui.received': 'Received',
+  'nakh.ui.sent': 'Sent',
+  'nakh.ui.pending': 'Pending',
+  'nakh.ui.history': 'Past pending Nakhes',
+  'nakh.ui.empty': 'Nothing here yet.',
+  'nakh.ui.item': '{name} · {status}',
+  'nakh.ui.detail': '{name}\n{status}\n{when}\n\n{text}',
+  'nakh.ui.accept': 'Accept',
+  'nakh.ui.close': 'Close Nakh',
+  'nakh.ui.view': 'View profile',
+  'nakh.ui.edit': 'Edit text',
+  'nakh.ui.cancel': 'Cancel pending Nakh',
+  'nakh.ui.cancel_info':
+    'Choose how to close this pending Nakh. Its place in Explore will not return.',
+  'nakh.ui.cancel_like': 'Cancel and Like',
+  'nakh.ui.cancel_reject': 'Cancel and Not interested',
+  'nakh.ui.edit_prompt':
+    'Reply to this message with your new Nakh text (up to 240 characters). To leave this form, send /nakhes.',
+  'nakh.ui.saved': 'Your pending Nakh has been updated.',
+  'nakh.ui.cancelled': 'Your pending Nakh has been cancelled.',
+  'nakh.ui.accepted': 'You have a new Match. Open Matches to chat.',
+  'nakh.ui.closed': 'This Nakh is now closed.',
+  'nakh.ui.unavailable': 'This Nakh or action is no longer available. Open Nakhes again.',
+  'nakh.ui.profile_unavailable':
+    'This profile is unavailable right now. You can still check the Nakh status.',
+  'nakh.ui.back': 'Back to Nakhes',
+  'nakh.ui.next': 'Next page',
+  'nakh.ui.expires': 'Expires {when} (UTC)',
+  'home.matches': 'Matches',
+  'home.fix_profile': 'Fix profile',
+  'nakh.ui.status.sent': 'Sent',
+  'nakh.ui.status.seen': 'Seen',
+  'nakh.ui.status.accepted': 'Accepted',
+  'nakh.ui.status.rejected': 'Closed',
+  'nakh.ui.status.expired': 'Expired',
+  'nakh.ui.status.closed': 'Closed',
+  'nakh.ui.status.pending_payment': 'Pending',
+  'nakh.ui.status.paid_and_sent': 'Sent',
+  'nakh.ui.status.cancelled': 'Cancelled',
+  'nakh.ui.status.closed_by_system': 'Closed',
+} as const;
+
 export const M9_LIKED_BY_TEXTS = {
   'liked_by.menu': 'Likes',
   'liked_by.unlock.confirm':

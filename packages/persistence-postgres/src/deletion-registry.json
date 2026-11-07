@@ -5403,6 +5403,11 @@
           "name": "feature_unlock_id",
           "type": "uuid",
           "nullable": true
+        },
+        {
+          "name": "nakh_id",
+          "type": "uuid",
+          "nullable": true
         }
       ],
       "foreignKeys": [

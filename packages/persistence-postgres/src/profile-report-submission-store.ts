@@ -36,8 +36,12 @@ export type ConversationReportScope = Readonly<{
   }>;
 }>;
 export type ReceivedLikeReportScope = Readonly<{ actor: UserSessionActor; receivedLikeId: string }>;
+export type ReceivedNakhReportScope = Readonly<{ actor: UserSessionActor; receivedNakhId: string }>;
 export type UserReportScope =
-  DeliveredReportScope | ConversationReportScope | ReceivedLikeReportScope;
+  | DeliveredReportScope
+  | ConversationReportScope
+  | ReceivedLikeReportScope
+  | ReceivedNakhReportScope;
 const REPORT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 /** Metadata-only, keyset-paged entry to native post-Unmatch reporting. Anchors
  * neither reopen chat history nor extend the immutable reporting deadline. */
@@ -66,6 +70,19 @@ export async function listEndedReportConversations(
   });
 }
 export function captureUserReportScope(input?: UserReportScope): UserReportScope | undefined {
+  if (input !== undefined && 'receivedNakhId' in input) {
+    const actor = Object.freeze({ ...input.actor });
+    if (
+      actor.kind !== 'user' ||
+      ![actor.userId, actor.sessionGrantId, input.receivedNakhId].every((id) =>
+        REPORT_UUID.test(id),
+      ) ||
+      !Number.isSafeInteger(actor.productEpoch) ||
+      actor.productEpoch < 0
+    )
+      throw reportUnavailable();
+    return Object.freeze({ actor, receivedNakhId: input.receivedNakhId });
+  }
   if (input !== undefined && 'receivedLikeId' in input) {
     const actor = Object.freeze({ ...input.actor });
     if (
@@ -99,6 +116,8 @@ export function captureUserReportScope(input?: UserReportScope): UserReportScope
   });
 }
 export function matchesUserReportScope(scope: UserReportScope, source: ReportSource): boolean {
+  if ('receivedNakhId' in scope)
+    return source.kind === 'received_nakh' && source.referenceId === scope.receivedNakhId;
   if ('receivedLikeId' in scope)
     return source.kind === 'received_like' && source.referenceId === scope.receivedLikeId;
   return 'conversation' in scope
@@ -113,6 +132,34 @@ export async function lockUserReportScope(
   database: NakhDatabase,
   scope: UserReportScope,
 ): Promise<string> {
+  if ('receivedNakhId' in scope) {
+    const original = (
+      await sql<{ target: string; receiver: string; senderEpoch: number; receiverEpoch: number }>`
+      SELECT sender_user_id AS target,receiver_user_id AS receiver,sender_product_epoch AS "senderEpoch",
+       receiver_product_epoch AS "receiverEpoch" FROM nakh.nakh_reference_anchors WHERE id=${scope.receivedNakhId}::uuid`.execute(
+        database,
+      )
+    ).rows[0];
+    if (
+      !original ||
+      original.receiver !== scope.actor.userId ||
+      original.receiverEpoch !== scope.actor.productEpoch
+    )
+      throw reportUnavailable();
+    await sql`SELECT pg_advisory_xact_lock(hashtextextended('moderation-threshold:' || ${original.target}::text,0))`.execute(
+      database,
+    );
+    const pair = await lockUserPair(database, scope.actor.userId, original.target);
+    if ((await lockUserPairAccounts(database, pair)).length !== 2) throw reportUnavailable();
+    await requireCurrentUserSession(database, scope.actor.userId, scope.actor);
+    const target = await database
+      .selectFrom('identity.accounts')
+      .select('product_epoch')
+      .where('user_id', '=', original.target)
+      .executeTakeFirst();
+    if (target?.product_epoch !== original.senderEpoch) throw reportUnavailable();
+    return original.target;
+  }
   if ('receivedLikeId' in scope) {
     const original = (
       await sql<{ target: string; receiver: string; senderEpoch: number; receiverEpoch: number }>`

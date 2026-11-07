@@ -241,6 +241,7 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
         Buffer.alloc(32, 53),
         client,
         home,
+        (recipient, original) => profile.open(recipient, original),
       );
       rootMenu = new TelegramSignupRuntime(
         database,
@@ -292,8 +293,10 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       const original = await actor();
       await profile.handle(callback(button('Main menu')));
       await rootMenu.handle(callback(button('Settings')));
-      expect(latest().buttons.some((b) => b.text === 'Language')).toBe(true);
-      await account.handle(callback(button('Main menu')));
+      expect(latest().buttons.some((b) => b.text === 'Language')).toBe(false);
+      await account.handle(callback(button('Edit profile')));
+      expect(latest().buttons.some((b) => b.text === 'Name')).toBe(true);
+      await profile.handle(callback(button('Main menu')));
       await rootMenu.handle(callback(button('Edit profile')));
       expect(latest().buttons.some((b) => b.text === 'Name')).toBe(true);
       await profile.handle(callback(button('Main menu')));
@@ -537,8 +540,7 @@ describe.skipIf(url === undefined || redisUrl === undefined)(
       ).toBe(false);
       expect(latest().buttons.some((b) => b.text === 'Chat messages: Off')).toBe(true);
       await account.handle(callback(button('Back to settings')));
-      await account.handle(callback(button('Language')));
-      expect(latest().buttons.some((b) => b.text === '✓ English')).toBe(true);
+      expect(latest().buttons.some((b) => b.text === 'Language')).toBe(false);
       expect(
         await database
           .selectFrom('billing.credit_accounts')

@@ -38,6 +38,12 @@ export async function resolveProfileReportSource(
   } else if (source.kind === 'received_nakh') {
     let query = database
       .selectFrom('nakh.nakhes as source')
+      .innerJoin('nakh.current_flow_lives as original_flow', (j) =>
+        j
+          .onRef('original_flow.id', '=', 'source.nakh_flow_id')
+          .onRef('original_flow.sender_user_id', '=', 'source.sender_user_id')
+          .onRef('original_flow.receiver_user_id', '=', 'source.receiver_user_id'),
+      )
       .innerJoin('profile.profiles as profile', 'profile.user_id', 'source.sender_user_id')
       .select(['profile.id', 'profile.user_id'])
       .where('source.id', '=', source.referenceId)

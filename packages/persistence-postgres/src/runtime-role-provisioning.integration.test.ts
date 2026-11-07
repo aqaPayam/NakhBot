@@ -8,6 +8,12 @@ import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ViewNakhProfileHandler } from '@nakh/application';
+import { PostgresUserSessionStore } from './user-session-store.js';
+import { PostgresDeliveredNakhStore } from './delivered-nakh-store.js';
+import { PostgresNakhProfileStore } from './nakh-profile-store.js';
+import { createMediaAuthorityFixture } from './testing/media-authority-fixture.js';
+import { createReportNakh } from './testing/report-fixture.js';
 import { CreateDirectNakhHandler } from '@nakh/application';
 import { createDatabase, type NakhDatabase } from './database.js';
 import { runMigrations, sourceMigrationDigests } from './migrations.js';
@@ -129,6 +135,53 @@ describe.skipIf(source === undefined)('native purpose role provisioning', () => 
       // Local developer PG may use trust. CI's service requires real SCRAM.
       if (process.env.GITHUB_ACTIONS === 'true') expect(auth).toMatch(/^scram-sha-256:/u);
     }
+  });
+  it('reads and views the received Nakh profile through the real user role without financial authority', async () => {
+    const source = await createMediaAuthorityFixture(database);
+    const receiver = await createReportUser(database, true),
+      user = pools.get('user')!;
+    const now = new Date();
+    await database
+      .insertInto('identity.telegram_identities')
+      .values({
+        user_id: receiver,
+        telegram_user_id: String(700000000000 + Math.floor(Math.random() * 100000000000)),
+        username: null,
+        first_seen_at: now,
+        last_seen_at: now,
+      })
+      .execute();
+    const nakhId = await createReportNakh(database, receiver, source.ownerUserId);
+    const grant = await new PostgresUserSessionStore(user).issue(
+      { userId: receiver, productEpoch: 0 },
+      randomUUID(),
+    );
+    if (!grant) throw new Error('Synthetic user session unavailable');
+    const actor = {
+      kind: 'user' as const,
+      userId: receiver,
+      productEpoch: 0,
+      sessionGrantId: grant.id,
+    };
+    const store = new PostgresDeliveredNakhStore(user, actor);
+    expect((await store.readPage(receiver, 'received', 3)).rows.map((r) => r.nakhId)).toEqual([
+      nakhId,
+    ]);
+    await new ViewNakhProfileHandler(store, new SystemIdGenerator()).execute({
+      commandType: 'nakh.view-profile',
+      schemaVersion: 1,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      actor: { kind: 'user', userId: receiver },
+      occurredAt: now.toISOString(),
+      locale: 'en',
+      data: { nakhId, expectedVersion: 1 },
+    });
+    const profiles = new PostgresNakhProfileStore(user, 'test', actor),
+      detail = await profiles.detail(nakhId);
+    expect(detail.photos.map((p) => p.photoId)).toEqual([source.photoId]);
+    expect(await profiles.detailIsCurrent(nakhId, detail)).toBe(true);
   });
   it('denies private financial payloads, seed writes, DDL and audit alteration', async () => {
     const user = pools.get('user')!;
