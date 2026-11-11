@@ -1,6 +1,90 @@
 # M9 implementation verification and launch handoff
 
-Status: **private VPS deployed; owner MFA verified; controlled launch acceptance pending**.
+Status: **clean private trial deployed; administrator authenticator preserved; public launch acceptance pending**.
+
+## Clean trial deployment - 11 November 2026
+
+Accepted application source `b55363d54e81d64a9d56730c606415d52c9e72a1`
+passed all six jobs on attempt one in
+[run 42298593585](https://github.com/aqaPayam/NakhBot/actions/runs/42298593585):
+1,584 unit tests and 1,627 native tests across 188 files, with no native skips.
+The unchanged 20,000-row M7 terminal query took 1,232.761 ms against its
+1,500 ms limit. Ten ordinary artifacts and the separate restore rehearsal were
+verified. No unchanged reliability retry or relaxed gate was needed.
+
+That application source is now deployed on the existing VPS. A final encrypted
+source backup was copied to protected off-host custody, authenticated in memory
+and restored into an isolated temporary database: 164 migrations and three
+accounts were verified before the temporary database was removed. The source
+policy was closed, authenticated incoming transport was held, and all four old
+application producers stopped gracefully before administrator carryover. The old
+PostgreSQL and Redis named volumes remain preserved offline.
+
+The fresh cluster has 171 migrations, five new purpose logins and verified TLS
+for PostgreSQL and Redis. The Root carryover command transferred one workforce
+identity, one active administrator, one role assignment and one encrypted TOTP
+credential. It rechecked the unchanged stopped-source credential fingerprint
+after target commit. Test dating profiles, photos, balances, old sign-in sessions,
+MFA proofs and pending enrollments were not copied. No real owner authenticator
+seed was decrypted, and no owner sign-in session was fabricated.
+
+The actual source archive and deployed target migration files use **CRLF**.
+An earlier preparation receipt described the target as canonical LF; that
+description was incorrect. The qualification checkout was rebuilt from the
+authentic commit with CRLF checkout configured before extraction. All 171 raw
+archive migration checksums match; original Git identity and clean status were
+verified. No native migration checksum was rewritten. The separate synthetic
+CRLF-source/LF-target carryover test remains valid evidence of that different
+case, rather than a description of the actual deployment.
+
+All four application images run as the unprivileged service user with read-only
+filesystems and purpose-specific private secret-file mounts. Database compatibility,
+schema and purpose-role checks passed. The authentic source CLI captured and
+verified the actual configurations and 24 native reference tables for each of
+API, gateway, worker and scheduler. Temporary reference commands used a separate
+administration connection; deployed worker/scheduler privileges were not expanded.
+
+The deployed worker uploaded and read back one synthetic R2 object, denied
+anonymous access, removed the object and verified absence. Actual ClamAV accepted
+clean content and detected the standard antivirus test sample. Telegram accepted
+the private health test alert and its recovery message; human receipt is not
+inferred. The final encrypted deployment backup also passed memory-only
+authentication and isolated recovery: 171 migrations and one account restored,
+temporary database removed, no plaintext archive written or private backup key
+uploaded. Neither check establishes photo-object restoration or point-in-time
+recovery qualification.
+
+A fresh canary dossier had no native blockers. The independent native close,
+same-command replay and physical authenticated transport hold were checked before
+opening the reviewed private trial. Telegram delivery is connected without
+discarding pending updates. Admission covers the existing administrator and a
+secret invitation for at most nine additional users, with independent automatic
+closure at `2026-11-12T13:47:24.394Z`. The invitation remains outside Git.
+Free-credit authority is bound to that exact policy and expiry: 100 noncash
+credits per refill, at most ten refills per minute, without a lifetime refill cap.
+Activation replay was verified without modifying the owner's balance.
+
+The four application services then completed a graceful restart rehearsal in
+15.531 seconds. Incoming transport was held during restart and restored only
+after healthy checks; the native trial policy, registered webhook and empty
+queue state were preserved. The independent expiry timer stayed active. This
+checks application restart, not an actual host reboot or production failover.
+
+This is a bounded **staging test release**, not unrestricted production admission.
+Real Stars payments, Return/fresh entry, retained-record erasure, support-body
+release and orphan photo sweeping remain disabled. Existing test media stays
+protected in R2 alongside the preserved source backup. The owner selected only
+`@NakhSupport` for the public contact, confirmed receiving private messages there
+and requested deferring further independent contact verification. That handle is
+configured on the gateway. No personal name or country is published, and an
+independent end-to-end contact check is not claimed.
+
+The current private VPS operators and free-credit controls deliberately accept
+staging only. Public production on this VPS requires its own reviewed deployment
+and operator procedure; do not relabel this trial, remove staging guards, invent
+completed real-user journeys or treat a clean dossier as public-launch approval.
+The observations above supersede earlier statements that the clean trial cutover
+had not yet run. They do not supersede outstanding public-launch acceptance.
 
 ## Current owner direction - non-payment test release
 
@@ -8,17 +92,19 @@ The owner chose a clean public user database while preserving the protected test
 backup. Existing test profiles and balances must not be carried into that database.
 Real payment implementation and the payment box are deferred. Instead, every
 admitted user of the test version should be able to add internal test credits
-repeatedly for free. This is a requested implementation, not an activated feature
-or a claim that payment qualification has passed. Keep Stars purchases disabled;
+repeatedly for free. The bounded staging activation is recorded above; it is not
+a claim that payment qualification has passed. Keep Stars purchases disabled;
 do not create fake provider receipts or represent test credits as real money.
 The previous one-time 100-credit question is superseded by repeatable free top-ups.
-The owner also confirmed that `@NakhSupport` still needs setup; it is not yet a
-working public support channel.
+The owner subsequently confirmed on 11 November that `@NakhSupport` can receive
+messages and requested configuring that handle alone, with further independent
+contact checks deferred until the final review.
 
 The source audit found unfinished customer surfaces beyond the backend milestone
-tests: the canonical profile/settings menus, contextual credit access and Liked By
-unlock presentation need actual bot wiring. Backend gates alone do not prove a
-finished customer application. Complete these flows before final owner testing.
+tests: profile/settings menus, contextual credit access and Liked By presentation.
+Those flows and the dedicated original-session Nakhes customer flow are now
+implemented in the accepted deployed source. Their automated evidence does not
+invent completed real-user journeys or public-launch acceptance.
 
 ## Clean database and administrator continuity
 
