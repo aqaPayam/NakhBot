@@ -1,6 +1,62 @@
 # M9 implementation verification and launch handoff
 
-Status: **clean private trial deployed; administrator authenticator preserved; public launch acceptance pending**.
+Status: **Stars checkout deployed with charging paused; administrator authenticator preserved; activation and public launch acceptance pending**.
+
+## Actual paused Stars deployment and stop observer - 12 November 2026
+
+Source `d2837ae5f2e637ee37ccbf05656b81cf0cb23669` passed all six jobs on
+attempt one in [run 43195970896](https://github.com/aqaPayam/NakhBot/actions/runs/43195970896).
+Its ten source-bound artifacts and supplemental restore fixture were verified;
+1,665 native cases in 189 files have zero skips. The unchanged 20,000-row,
+1,500 ms M7 terminal gate took 1,169.259 ms. Local `pnpm check` passed before
+commit. Tracked lines were 318,301, summed across every `wc` total chunk.
+
+All four services now run that accepted source on the existing VPS. Only
+migration 172 was applied. Schema verification, compatibility, five purpose
+roles and four actual service-reference captures passed. The older 171 migration
+files use CRLF on this server; the current archive uses LF. The first isolated
+upgrade correctly refused their differing raw checksums. Qualified VPS images
+preserve all 171 original raw files plus migration 172's archive bytes, prove
+canonical SQL and authentic Git tree unchanged, and verify every raw checksum
+in all four runtime images and the source carrier. No native migration record
+was rewritten. Existing database/Redis volumes and encrypted administrator
+authenticator credentials were preserved.
+
+The owner approved the proposed v1 English terms, support `@NakhSupport`, packages
+10/25/50/100 credits for 10/20/35/60 Stars, and direct Nakh for 2 Stars. The live
+financial-role capture matches that proposal and approval digest exactly. New
+financial keys are independent from navigation and retained in the protected
+encrypted backup. Actual private R2 upload/read/anonymous denial/delete/absence
+and clean/EICAR scanner probes passed with synthetic content only. The encrypted
+deployed-release backup was authenticated off-host and its database members
+actually restored into an isolated, networkless, non-root, swap-disabled RAM-only
+container: 172 migration records and one account, followed by verified removal.
+The private backup key stayed on the PC; plaintext was not written to disk.
+
+Graceful four-service restart and Telegram webhook registration passed, including
+pre-checkout updates, authentication rejection, an authenticated empty probe and
+preservation of pending updates. A diagnostic printed the old webhook check
+value; it was replaced in protected service files, proxy and Telegram before
+delivery resumed. No bot API token was changed or printed. Native product
+admission is closed, new invoices and free top-ups are off, while financial
+ingress and refunds remain enabled. The tested independent native stop preserves
+the webhook and financial processing. A separate live active-invoice stop drill
+was rejected by automatic approval review because it would enable real charges;
+it was not executed. Explicit activation permission is pending separately from
+price/terms approval. No funded purchase, real-provider receipt or unrestricted
+public launch acceptance is claimed. Cloudflare key renewal still needs the
+owner's separate login permission; cache-cleanup custody expires on 13 November
+at 20:29:59 UTC. Any bounded opening must end before that expiry unless renewed.
+
+The physical-drain observer still assumed an inline webhook secret despite the
+deployed protected-file configuration. The repair resolves only a single
+read-only bind below the private host secret root, opens each path component
+without following symlinks, checks private root/service ownership and file
+metadata before and after reading, and rejects ambiguous settings. The receipt
+still contains no secret. Ledger-format image tags require their exact reviewed
+build tag and image digest; arbitrary tags, changed images, active producers or
+missing physical hold remain denied. These changes do not enable deletion or
+payments. Their own full check and six-job acceptance remain required.
 
 ## Checkout repair after consent integration - 12 November 2026
 

@@ -8,7 +8,7 @@ it('verifies the physical-drain observer rejects active, changed and unqualified
     ['-B', '-m', 'unittest', 'discover', '-s', 'deploy/vps', '-p', 'test_deletion_cutover.py'],
     { timeout: 20000, maxBuffer: 65536 },
   );
-  expect(result.stderr).toContain('Ran 14 tests');
+  expect(result.stderr).toContain('Ran 22 tests');
   expect(result.stderr).toContain('OK');
   expect(result.stdout).not.toContain('DO_NOT_LEAK');
 });

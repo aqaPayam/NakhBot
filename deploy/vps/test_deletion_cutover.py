@@ -2,11 +2,13 @@
 import copy
 import json
 import stat
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, mock_open
 
-from deletion_cutover import APPS, REPOSITORY, main, private_json, validate_snapshot
+from deletion_cutover import (APPS, REPOSITORY, ROOT, main, private_json,
+                              private_webhook_file, validate_snapshot, webhook_secret)
 
 
 def fixture():
@@ -34,6 +36,138 @@ def fixture():
 
 
 class DeletionCutoverTests(unittest.TestCase):
+    def test_ledger_format_image_tag_requires_exact_reviewed_build_and_digest(self):
+        data = fixture()
+        for image, row in zip(data[1]["images"], data[3]):
+            image["image"] = row["Config"]["Image"] + "-vps-ledger"
+            row["Config"]["Image"] = image["image"]
+        self.assertTrue(validate_snapshot(*data)["allApplicationProducersStopped"])
+        for mutate in [lambda d: d[1]["images"][0].pop("image"),
+                       lambda d: d[1]["images"][0].update(image="unreviewed:image"),
+                       lambda d: d[3][0].update(Image="sha256:" + "f" * 64)]:
+            changed = copy.deepcopy(data)
+            mutate(changed)
+            with self.assertRaises(ValueError):
+                validate_snapshot(*changed)
+
+    def test_private_file_and_legacy_inline_webhook_secret_stay_out_of_receipts(self):
+        secret = "DO_NOT_LEAK_" * 5
+        gateway = {"Config": {"Env": ["NAKH_TELEGRAM_WEBHOOK_SECRET=" + secret]}}
+        self.assertEqual(webhook_secret(gateway), secret)
+        source = (ROOT / "secrets").as_posix() + "/release/services/telegram-gateway"
+        gateway = {"Config": {"Env": ["NAKH_TELEGRAM_WEBHOOK_SECRET_FILE=/run/nakh-secrets/webhook"]},
+                   "Mounts": [{"Type": "bind", "Source": source, "Destination": "/run/nakh-secrets", "RW": False}]}
+        with patch("deletion_cutover.private_webhook_file", return_value=secret) as read:
+            self.assertEqual(webhook_secret(gateway), secret)
+        self.assertEqual(read.call_args[0][0], ROOT / "secrets/release/services/telegram-gateway/webhook")
+        self.assertNotIn(secret, json.dumps(validate_snapshot(*fixture())))
+
+    def test_ambiguous_or_invalid_webhook_environment_never_reads_a_file(self):
+        for env in [[], ["NAKH_TELEGRAM_WEBHOOK_SECRET=short"],
+                    ["NAKH_TELEGRAM_WEBHOOK_SECRET=" + "a" * 32 + "\n"],
+                    ["NAKH_TELEGRAM_WEBHOOK_SECRET_FILE=/run/nakh-secrets/a/../webhook"],
+                    ["NAKH_TELEGRAM_WEBHOOK_SECRET_FILE=/etc/webhook"],
+                    ["NAKH_TELEGRAM_WEBHOOK_SECRET=", "NAKH_TELEGRAM_WEBHOOK_SECRET_FILE=/run/nakh-secrets/webhook"]]:
+            with patch("deletion_cutover.private_webhook_file") as read, self.assertRaises(ValueError):
+                webhook_secret({"Config": {"Env": env}})
+            read.assert_not_called()
+
+    def test_writable_foreign_duplicate_or_traversing_secret_mount_is_denied(self):
+        source = (ROOT / "secrets").as_posix() + "/release/services/gateway"
+        good = {"Type": "bind", "Source": source, "Destination": "/run/nakh-secrets", "RW": False}
+        bad = [{**good, "RW": True}, {**good, "Type": "volume"},
+               {**good, "Source": "/etc"}, {**good, "Source": source + "/../../../../etc"},
+               {**good, "Source": source + "//extra"}, {**good, "Destination": "/other"}]
+        for mounts in [[], [good, good], *[[m] for m in bad]]:
+            gateway = {"Config": {"Env": ["NAKH_TELEGRAM_WEBHOOK_SECRET_FILE=/run/nakh-secrets/webhook"]}, "Mounts": mounts}
+            with patch("deletion_cutover.private_webhook_file") as read, self.assertRaises(ValueError):
+                webhook_secret(gateway)
+            read.assert_not_called()
+
+    def test_private_webhook_file_rejects_unsafe_metadata_before_reading(self):
+        for change in [{"st_uid": 1000}, {"st_nlink": 2}, {"st_mode": stat.S_IFREG | 0o644},
+                       {"st_mode": stat.S_IFIFO | 0o400}, {"st_size": 0}, {"st_size": 259}]:
+            values = {"st_uid": 10001, "st_nlink": 1, "st_mode": stat.S_IFREG | 0o400, "st_size": 64}
+            values.update(change)
+            with (
+                patch("deletion_cutover.ROOT", Path.cwd()),
+                patch("deletion_cutover.private_parent"),
+                patch("deletion_cutover.os.O_DIRECTORY", 65536, create=True),
+                patch("deletion_cutover.os.O_NOFOLLOW", 131072, create=True),
+                patch("deletion_cutover.os.O_NONBLOCK", 2048, create=True),
+                patch("deletion_cutover.os.open", side_effect=[10, 11]) as opened,
+                patch("deletion_cutover.os.fstat", side_effect=[SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=0), SimpleNamespace(**values)]),
+                patch("deletion_cutover.os.fdopen") as read,
+                patch("deletion_cutover.os.close") as closed,
+                self.assertRaises(ValueError),
+            ):
+                private_webhook_file(Path.cwd() / "secrets/webhook")
+            read.assert_not_called()
+            self.assertTrue(all(c.args[1] & 131072 for c in opened.call_args_list))
+            self.assertEqual([c.args[0] for c in closed.call_args_list], [11, 10])
+
+    def test_changed_webhook_file_is_denied_and_service_owned_private_file_is_supported(self):
+        before = SimpleNamespace(st_mode=stat.S_IFREG | 0o400, st_uid=10001, st_nlink=1,
+                                 st_size=64, st_mtime_ns=1, st_ctime_ns=2)
+        for changed in [False, True]:
+            after = copy.copy(before)
+            if changed:
+                after.st_mtime_ns = 3
+            with (
+                patch("deletion_cutover.ROOT", Path.cwd()),
+                patch("deletion_cutover.private_parent"),
+                patch("deletion_cutover.os.O_DIRECTORY", 65536, create=True),
+                patch("deletion_cutover.os.O_NOFOLLOW", 131072, create=True),
+                patch("deletion_cutover.os.O_NONBLOCK", 2048, create=True),
+                patch("deletion_cutover.os.open", side_effect=[10, 11]),
+                patch("deletion_cutover.os.fstat", side_effect=[SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=0), before, after]),
+                patch("deletion_cutover.os.fdopen", mock_open(read_data=b"a" * 64)),
+                patch("deletion_cutover.os.close"),
+            ):
+                if changed:
+                    with self.assertRaises(ValueError):
+                        private_webhook_file(Path.cwd() / "secrets/webhook")
+                else:
+                    self.assertEqual(private_webhook_file(Path.cwd() / "secrets/webhook"), "a" * 64)
+
+    def test_webhook_symlinks_and_parent_traversal_never_read_content(self):
+        with patch("deletion_cutover.ROOT", Path.cwd()), patch("deletion_cutover.os.open") as opened:
+            with self.assertRaises(ValueError):
+                private_webhook_file(Path.cwd() / "secrets/../foreign/webhook")
+            opened.assert_not_called()
+        with (
+            patch("deletion_cutover.ROOT", Path.cwd()),
+            patch("deletion_cutover.private_parent"),
+            patch("deletion_cutover.os.O_DIRECTORY", 65536, create=True),
+            patch("deletion_cutover.os.O_NOFOLLOW", 131072, create=True),
+                patch("deletion_cutover.os.O_NONBLOCK", 2048, create=True),
+            patch("deletion_cutover.os.open", side_effect=OSError("symlink refused")) as opened,
+            patch("deletion_cutover.os.fdopen") as read,
+            self.assertRaises(OSError),
+        ):
+            private_webhook_file(Path.cwd() / "secrets/webhook")
+        self.assertTrue(opened.call_args.args[1] & 131072)
+        read.assert_not_called()
+
+    def test_nonprivate_or_foreign_intermediate_secret_directory_is_denied(self):
+        for mode, uid in [(stat.S_IFDIR | 0o755, 10001), (stat.S_IFDIR | 0o700, 1000),
+                          (stat.S_IFLNK | 0o700, 0)]:
+            with (
+                patch("deletion_cutover.ROOT", Path.cwd()),
+                patch("deletion_cutover.private_parent"),
+                patch("deletion_cutover.os.O_DIRECTORY", 65536, create=True),
+                patch("deletion_cutover.os.O_NOFOLLOW", 131072, create=True),
+                patch("deletion_cutover.os.O_NONBLOCK", 2048, create=True),
+                patch("deletion_cutover.os.open", side_effect=[10, 11]),
+                patch("deletion_cutover.os.fstat", side_effect=[SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=0), SimpleNamespace(st_mode=mode, st_uid=uid)]),
+                patch("deletion_cutover.os.fdopen") as read,
+                patch("deletion_cutover.os.close") as closed,
+                self.assertRaises(ValueError),
+            ):
+                private_webhook_file(Path.cwd() / "secrets/service/webhook")
+            read.assert_not_called()
+            self.assertEqual([c.args[0] for c in closed.call_args_list], [11, 10])
+
     def test_only_content_free_selected_facts_leave_validation(self):
         result = validate_snapshot(*fixture())
         self.assertTrue(result["allApplicationProducersStopped"])
@@ -174,6 +308,7 @@ class DeletionCutoverTests(unittest.TestCase):
             with (
                 patch("deletion_cutover.private_parent"),
                 patch("deletion_cutover.os.O_NOFOLLOW", 131072, create=True),
+                patch("deletion_cutover.os.O_NONBLOCK", 2048, create=True),
                 patch("deletion_cutover.os.open", return_value=123) as opened,
                 patch("deletion_cutover.os.fstat", return_value=SimpleNamespace(**values)),
                 patch("deletion_cutover.os.fdopen") as read,

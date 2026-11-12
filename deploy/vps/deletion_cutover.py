@@ -8,7 +8,7 @@ import datetime
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import subprocess
@@ -77,6 +77,13 @@ def validate_snapshot(binding, build, accepted, rows, running, node_pids, policy
             any(not IMAGE.fullmatch(r.get("imageId", "")) or r.get("nonRoot") is not True for r in images)):
         denied()
     expected = {r["service"]: r["imageId"] for r in images}
+    tags = {}
+    for row in images:
+        canonical = "nakh-" + row["service"] + ":" + source
+        tag = row.get("image", canonical)
+        if tag not in {canonical, canonical + "-vps-ledger"}:
+            denied()
+        tags[row["service"]] = tag
     if len(rows) != 4:
         denied()
     fleet = []
@@ -90,7 +97,7 @@ def validate_snapshot(binding, build, accepted, rows, running, node_pids, policy
                 labels.get("com.docker.compose.project") != "nakh-trial" or
                 labels.get("org.opencontainers.image.revision") != source or
                 labels.get("org.opencontainers.image.source") != REPOSITORY or
-                row.get("Config", {}).get("Image") != "nakh-" + app + ":" + source or
+                row.get("Config", {}).get("Image") != tags.get(app) or
                 row.get("Image") != expected[app] or
                 row.get("Config", {}).get("User") != "nakh" or
                 row.get("HostConfig", {}).get("ReadonlyRootfs") is not True or
@@ -137,6 +144,76 @@ def command(args):
     return result.stdout
 
 
+def private_webhook_file(path):
+    """Read only below the protected host secret root; never follow a symlink.
+
+    Service-owned private files are intentional: the deployed read-only bind
+    mounts let UID 10001 read them without making values inspectable in Env.
+    Directory-relative opens also fence replacement of intermediate paths.
+    """
+    root = ROOT / "secrets"
+    path = Path(path)
+    if not path.is_absolute() or str(path) != os.path.normpath(str(path)):
+        denied()
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        denied()
+    if not parts or any(part in {".", ".."} for part in parts):
+        denied()
+    fds = []
+    try:
+        private_parent(root / "probe")
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        fds.append(fd)
+        info = os.fstat(fd)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+            denied()
+        for part in parts[:-1]:
+            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            fds.append(fd)
+            info = os.fstat(fd)
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid not in {0, 10001} or info.st_mode & 0o077:
+                denied()
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        fds.append(fd)
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid not in {0, 10001} or
+                before.st_nlink != 1 or before.st_mode & 0o077 or not 32 <= before.st_size <= 258):
+            denied()
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            data = stream.read(259)
+        after = os.fstat(fd)
+        fields = ("st_size", "st_mtime_ns", "st_ctime_ns", "st_mode", "st_uid", "st_nlink")
+        if len(data) != before.st_size or any(getattr(before, k) != getattr(after, k) for k in fields):
+            denied()
+        return data.decode("ascii").removesuffix("\n").removesuffix("\r")
+    finally:
+        for fd in reversed(fds):
+            os.close(fd)
+
+
+def webhook_secret(gateway):
+    env = dict(value.split("=", 1) for value in gateway.get("Config", {}).get("Env", []) if "=" in value)
+    inline, file = env.get("NAKH_TELEGRAM_WEBHOOK_SECRET"), env.get("NAKH_TELEGRAM_WEBHOOK_SECRET_FILE")
+    if inline is not None and file is not None:
+        denied()
+    if file is not None:
+        if not re.fullmatch(r"/run/nakh-secrets/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", file):
+            denied()
+        mounts = [m for m in gateway.get("Mounts", []) if m.get("Destination") == "/run/nakh-secrets"]
+        if len(mounts) != 1 or mounts[0].get("Type") != "bind" or mounts[0].get("RW") is not False:
+            denied()
+        source = mounts[0].get("Source")
+        if (not isinstance(source, str) or not source.startswith((ROOT / "secrets").as_posix() + "/") or
+                source != PurePosixPath(source).as_posix() or ".." in PurePosixPath(source).parts):
+            denied()
+        inline = private_webhook_file(Path(source) / PurePosixPath(file).name)
+    if not isinstance(inline, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", inline):
+        denied()
+    return inline
+
+
 def observe(binding):
     base = ["docker", "compose", "-p", "nakh-trial", "-f", str(ROOT / "compose.yaml"),
             "-f", str(ROOT / "compose.scanner.yaml")]
@@ -163,10 +240,7 @@ def observe(binding):
     query = "SELECT json_build_object('policyId',id,'mode',result_code,'sourceSha',metadata->>'sourceSha','version',platform.launch_policy_version(id)) FROM platform.audit_logs WHERE event_type='platform.launch-policy-applied.v1' ORDER BY ((metadata->>'version')::bigint) DESC LIMIT 1"
     policy = json.loads(command(base + ["exec", "-T", "postgres", "psql", "-U", binding["databaseUser"], "-d", binding["databaseName"], "-v", "ON_ERROR_STOP=1", "-Atc", query]))
     gateway = next((row for row in rows if row.get("Config", {}).get("Labels", {}).get("com.docker.compose.service") == "telegram-gateway"), {})
-    env = dict(value.split("=", 1) for value in gateway.get("Config", {}).get("Env", []) if "=" in value)
-    secret = env.get("NAKH_TELEGRAM_WEBHOOK_SECRET", "")
-    if len(secret) < 32:
-        denied()
+    secret = webhook_secret(gateway)
     request = urllib.request.Request("https://bot.nakhtestbot.xyz/v1/providers/telegram/webhook", data=b"{}",
                                      headers={"Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": secret})
     try:
