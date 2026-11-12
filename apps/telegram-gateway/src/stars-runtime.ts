@@ -11,6 +11,7 @@ import { ApplicationError, NAKH_STARS_COST } from '@nakh/domain';
 import { CatalogRenderer } from '@nakh/localization';
 import {
   PostgresFundingStore,
+  PostgresStarsPurchaseConsentStore,
   PostgresTelegramStarsReceiptStore,
   PostgresUserSessionStore,
   PostgresTelegramUserResolver,
@@ -26,6 +27,7 @@ type InvoiceInput = Readonly<{
   actor: UserSessionActor;
   telegramUserId: string;
   fundingIntentId: string;
+  purchaseConsentId?: string;
   expectedVersion: number;
   commandId: string;
   requestId: string;
@@ -164,6 +166,7 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
     private readonly botId: string,
     private readonly client: TelegramStarsClient,
     public readonly invoiceCreationEnabled = true,
+    private readonly consentRequired = false,
   ) {}
   public assertSeparateNavigationKey(key: Uint8Array): void {
     this.keys.assertSeparateNavigationKey(key);
@@ -279,6 +282,17 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
   public async invoice(input: InvoiceInput): Promise<void> {
     if (!this.invoiceCreationEnabled) unavailable();
     const request = structuredClone(input);
+    if (this.consentRequired && request.purchaseConsentId === undefined) unavailable();
+    const consent =
+      request.purchaseConsentId === undefined
+        ? undefined
+        : new PostgresStarsPurchaseConsentStore(this.database, request.actor);
+    if (consent)
+      await consent.require(
+        request.purchaseConsentId!,
+        request.fundingIntentId,
+        request.expectedVersion,
+      );
     await this.current(request.actor, request.telegramUserId);
     const prepared = await new PrepareStarsInvoiceHandler(
       new PostgresFundingStore(this.database, request.actor),
@@ -307,6 +321,12 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
     const description = purchase.credits === null ? label : `${label}: ${purchase.credits}`;
     const latest = await this.presentation(request, prepared.paymentRecordId, prepared.starsAmount);
     if (JSON.stringify(latest) !== JSON.stringify(purchase)) unavailable();
+    if (consent)
+      await consent.require(
+        request.purchaseConsentId!,
+        request.fundingIntentId,
+        request.expectedVersion,
+      );
     await this.current(request.actor, request.telegramUserId);
     await this.client.invoice(
       request.telegramUserId,
@@ -433,5 +453,6 @@ export function createTelegramStarsRuntime(
     token.split(':')[0]!,
     client,
     input.config.telegram.starsInvoiceCreationEnabled === true,
+    true,
   );
 }

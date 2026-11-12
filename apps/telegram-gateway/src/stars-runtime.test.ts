@@ -60,6 +60,42 @@ describe('Telegram Stars transport', () => {
     });
     expect(databaseAccess).not.toHaveBeenCalled();
   });
+  it('requires native purchase consent at the public factory before any database or provider access', async () => {
+    const access = vi.fn(() => {
+      throw new Error('Unexpected database access');
+    });
+    const runtime = createTelegramStarsRuntime({
+      config: {
+        environment: 'test',
+        telegram: {
+          starsEnabled: true,
+          starsInvoiceCreationEnabled: true,
+          botTokenRef: 'bot',
+          starsKeyRingRef: 'keys',
+        },
+      } as AppConfig,
+      database: new Proxy({} as NakhDatabase, { get: access }),
+      resolveSecret: (reference) =>
+        reference === 'bot'
+          ? token
+          : JSON.stringify({
+              activeKeyId: 'v1',
+              digestKey: Buffer.alloc(32, 5).toString('base64url'),
+              keys: [
+                {
+                  id: 'v1',
+                  invoiceKey: Buffer.alloc(32, 1).toString('base64url'),
+                  evidenceKey: Buffer.alloc(32, 2).toString('base64url'),
+                },
+              ],
+            }),
+    });
+    expect(runtime.invoiceCreationEnabled).toBe(true);
+    await expect(
+      runtime.invoice({} as Parameters<typeof runtime.invoice>[0]),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(access).not.toHaveBeenCalled();
+  });
   it('sends one fixed two-Star price and a forwarded-invoice start parameter', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

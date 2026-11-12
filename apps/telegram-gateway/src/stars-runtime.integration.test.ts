@@ -6,6 +6,7 @@ import {
   runMigrations,
   PostgresFundingStore,
   PostgresUserSessionStore,
+  PostgresStarsPurchaseConsentStore,
   type NakhDatabase,
 } from '@nakh/persistence-postgres';
 import type {
@@ -15,6 +16,8 @@ import type {
   ProtectedInvoicePayload,
   PrepareStarsAttemptWrite,
   StoredStarsAttempt,
+  StarsPurchaseOffer,
+  StarsPurchaseConsentWrite,
 } from '@nakh/application';
 import { createIsolatedTestDatabase } from '../../../packages/persistence-postgres/src/testing/isolated-database.js';
 import { TelegramStarsKeys } from './stars-keys.js';
@@ -140,6 +143,311 @@ describe.skipIf(url === undefined)('composed Stars ingress with native financial
     const attempt = await funding.prepareStarsAttempt(attemptWrite);
     return { actor, funding, write, intent, payload, attemptWrite, attempt, telegramUserId };
   }
+  async function consent(f: Awaited<ReturnType<typeof fixture>>): Promise<{
+    store: PostgresStarsPurchaseConsentStore;
+    offer: StarsPurchaseOffer;
+    write: StarsPurchaseConsentWrite;
+  }> {
+    const store = new PostgresStarsPurchaseConsentStore(db, f.actor);
+    const offer = await store.review(f.intent.id, 1);
+    const write = {
+      fundingIntentId: f.intent.id,
+      expectedVersion: 1,
+      offerDigest: offer.digest,
+      termsVersion: 'test_terms_v1',
+      documentDigest: 'd'.repeat(64),
+      locale: 'en',
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+    };
+    return { store, offer, write };
+  }
+  it('records exactly one immutable consent for concurrent confirmations and later retries', async () => {
+    const f = await fixture('plus'),
+      c = await consent(f);
+    const results = await Promise.all(Array.from({ length: 12 }, () => c.store.accept(c.write)));
+    expect(new Set(results.map((r) => r.id)).size).toBe(1);
+    expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+    const replay = await c.store.accept({
+      ...c.write,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+    });
+    expect(replay.id).toBe(results[0]!.id);
+    expect(replay.replayed).toBe(true);
+    expect(replay.offer).toMatchObject({ stars: '20', credits: '25', packageCode: 'plus' });
+    const audits = await db
+      .selectFrom('platform.audit_logs')
+      .selectAll()
+      .where('subject_id', '=', f.intent.id)
+      .where('event_type', '=', 'billing.stars-purchase-consent.v1')
+      .execute();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      request_id: c.write.requestId,
+      command_id: c.write.commandId,
+      actor_user_id: f.actor.userId,
+      result_code: 'accepted',
+      metadata: {
+        productEpoch: 0,
+        sessionGrantId: f.actor.sessionGrantId,
+        offerDigest: c.offer.digest,
+        termsVersion: c.write.termsVersion,
+        documentDigest: c.write.documentDigest,
+        locale: 'en',
+      },
+    });
+    await expect(
+      db
+        .updateTable('platform.audit_logs')
+        .set({ result_code: 'changed' })
+        .where('id', '=', replay.id)
+        .execute(),
+    ).rejects.toThrow();
+  });
+  it('requires native consent before protected invoice transport and reuses the accepted snapshot', async () => {
+    const f = await fixture('ultimate'),
+      c = await consent(f),
+      { client, fetcher } = invoiceClient(f);
+    const runtime = new TelegramStarsRuntime(db, keys, 'test', '12345', client, true, true);
+    await expect(runtime.invoice(invoiceRequest(f))).rejects.toMatchObject({ status: 503 });
+    expect(fetcher).not.toHaveBeenCalled();
+    const accepted = await c.store.accept(c.write);
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        runtime.invoice({ ...invoiceRequest(f), purchaseConsentId: accepted.id }),
+      ),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(invoiceBody(fetcher.mock.calls[0]![1]?.body).prices).toEqual([
+      { label: 'Buy credits', amount: 60 },
+    ]);
+    expect((await c.store.require(accepted.id, f.intent.id, 1)).documentDigest).toBe(
+      c.write.documentDigest,
+    );
+  });
+  it('cannot apply another owner or another offer consent', async () => {
+    const f = await fixture(),
+      other = await fixture(),
+      c = await consent(f),
+      accepted = await c.store.accept(c.write);
+    const foreign = new PostgresStarsPurchaseConsentStore(db, other.actor);
+    await expect(foreign.require(accepted.id, f.intent.id, 1)).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(foreign.accept(c.write)).rejects.toMatchObject({ status: 403 });
+    await expect(c.store.require(accepted.id, other.intent.id, 1)).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+  it('does not transfer an original consent to a new sign-in grant', async () => {
+    const f = await fixture(),
+      c = await consent(f),
+      accepted = await c.store.accept(c.write);
+    const grant = await new PostgresUserSessionStore(db).issue(f.actor, randomUUID());
+    expect(grant).toBeDefined();
+    expect(grant!.id).not.toBe(f.actor.sessionGrantId);
+    await expect(
+      new PostgresStarsPurchaseConsentStore(db, { ...f.actor, sessionGrantId: grant!.id }).require(
+        accepted.id,
+        f.intent.id,
+        1,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+  it('fences revoked sessions before accepting or replaying consent and sending invoices', async () => {
+    const f = await fixture(),
+      c = await consent(f),
+      accepted = await c.store.accept(c.write),
+      { client, fetcher } = invoiceClient(f);
+    await new PostgresUserSessionStore(db).revoke(f.actor, f.actor.sessionGrantId, randomUUID());
+    await expect(c.store.accept(c.write)).rejects.toMatchObject({ status: 401 });
+    await expect(c.store.require(accepted.id, f.intent.id, 1)).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(
+      new TelegramStarsRuntime(db, keys, 'test', '12345', client, true, true).invoice({
+        ...invoiceRequest(f),
+        purchaseConsentId: accepted.id,
+      }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('rejects a consent presented for another product life without bypassing the native return guard', async () => {
+    const f = await fixture(),
+      c = await consent(f),
+      accepted = await c.store.accept(c.write);
+    await expect(
+      db
+        .updateTable('identity.accounts')
+        .set({ product_epoch: 1 })
+        .where('user_id', '=', f.actor.userId)
+        .execute(),
+    ).rejects.toThrow('account lifecycle is immutable outside verified return');
+    const otherLife = new PostgresStarsPurchaseConsentStore(db, { ...f.actor, productEpoch: 1 });
+    await expect(otherLife.require(accepted.id, f.intent.id, 1)).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(otherLife.accept(c.write)).rejects.toMatchObject({ status: 401 });
+    expect((await c.store.require(accepted.id, f.intent.id, 1)).id).toBe(accepted.id);
+  });
+  it.each(['restricted', 'banned'] as const)(
+    'does not accept or replay purchase consent for a %s account',
+    async (state) => {
+      const f = await fixture(),
+        c = await consent(f),
+        accepted = await c.store.accept(c.write);
+      await db
+        .updateTable('identity.accounts')
+        .set({ state, state_reason: 'test', state_changed_at: new Date() })
+        .where('user_id', '=', f.actor.userId)
+        .execute();
+      await expect(c.store.require(accepted.id, f.intent.id, 1)).rejects.toMatchObject({
+        status: 403,
+      });
+      await expect(c.store.accept(c.write)).rejects.toMatchObject({ status: 403 });
+    },
+  );
+  it('requires the reviewed native offer digest and expected version', async () => {
+    const f = await fixture(),
+      c = await consent(f);
+    await expect(c.store.accept({ ...c.write, offerDigest: 'a'.repeat(64) })).rejects.toMatchObject(
+      { status: 403 },
+    );
+    await expect(c.store.accept({ ...c.write, expectedVersion: 2 })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(
+      await db
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('subject_id', '=', f.intent.id)
+        .where('event_type', '=', 'billing.stars-purchase-consent.v1')
+        .execute(),
+    ).toHaveLength(0);
+  });
+  it('bounds new consents without charging the limit for identical retries', async () => {
+    const f = await fixture(),
+      c = await consent(f);
+    for (let i = 0; i < 10; i++) await c.store.accept({ ...c.write, termsVersion: `test_v${i}` });
+    await expect(c.store.accept({ ...c.write, termsVersion: 'test_v10' })).rejects.toMatchObject({
+      status: 429,
+    });
+    expect((await c.store.accept({ ...c.write, termsVersion: 'test_v0' })).replayed).toBe(true);
+  });
+  it('keeps paid receipts independent of purchase consent or a live customer session', async () => {
+    const f = await fixture(),
+      c = await consent(f),
+      accepted = await c.store.accept(c.write),
+      { client, fetcher } = invoiceClient(f);
+    await new PostgresUserSessionStore(db).revoke(f.actor, f.actor.sessionGrantId, randomUUID());
+    const runtime = new TelegramStarsRuntime(db, keys, 'test', '12345', client, false, true);
+    expect(await runtime.handle(update(f, true))).toBe('notice');
+    const payment = await db
+      .selectFrom('billing.payment_records')
+      .select('status')
+      .where('id', '=', f.attempt.paymentRecordId)
+      .executeTakeFirstOrThrow();
+    expect(payment.status).toBe('paid');
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(c.store.require(accepted.id, f.intent.id, 1)).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+  it('rejects expired native offers using database time without creating consent', async () => {
+    const f = await fixture(),
+      c = await consent(f);
+    const original = await db
+      .selectFrom('billing.pending_payments')
+      .selectAll()
+      .where('id', '=', f.intent.id)
+      .executeTakeFirstOrThrow();
+    const plus = await db
+      .selectFrom('billing.credit_packages')
+      .select('id')
+      .where('code', '=', 'plus')
+      .executeTakeFirstOrThrow();
+    const id = randomUUID();
+    await db
+      .insertInto('billing.pending_payments')
+      .values({
+        ...original,
+        id,
+        target_id: plus.id,
+        package_code_snapshot: 'plus',
+        package_credit_amount_snapshot: '25',
+        required_stars: '20',
+        idempotency_key: randomUUID(),
+        created_at: new Date('2000-01-01T00:00:00Z'),
+        expires_at: new Date('2000-01-01T00:10:00Z'),
+      })
+      .execute();
+    await expect(c.store.review(id, 1)).rejects.toMatchObject({ status: 403 });
+    await expect(c.store.accept({ ...c.write, fundingIntentId: id })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(
+      await db
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('subject_id', '=', id)
+        .execute(),
+    ).toHaveLength(0);
+  });
+  it('rejects cancelled offers and already captured payments on consent replay', async () => {
+    const f = await fixture(),
+      c = await consent(f),
+      accepted = await c.store.accept(c.write);
+    await db
+      .updateTable('billing.pending_payments')
+      .set({ status: 'cancelled', resolved_at: new Date(), version: 2 })
+      .where('id', '=', f.intent.id)
+      .execute();
+    await expect(c.store.require(accepted.id, f.intent.id, 1)).rejects.toMatchObject({
+      status: 403,
+    });
+    const paid = await fixture(),
+      p = await consent(paid),
+      a = await p.store.accept(p.write),
+      { client } = invoiceClient(paid);
+    await new TelegramStarsRuntime(db, keys, 'test', '12345', client).handle(update(paid, true));
+    await expect(p.store.require(a.id, paid.intent.id, 1)).rejects.toMatchObject({ status: 403 });
+  });
+  it('does not trust a copied audit with another identifier as consent authority', async () => {
+    const f = await fixture(),
+      c = await consent(f),
+      accepted = await c.store.accept(c.write);
+    const source = await db
+      .selectFrom('platform.audit_logs')
+      .selectAll()
+      .where('id', '=', accepted.id)
+      .executeTakeFirstOrThrow();
+    const forgedId = randomUUID();
+    await db
+      .insertInto('platform.audit_logs')
+      .values({ ...source, id: forgedId })
+      .execute();
+    await expect(c.store.require(forgedId, f.intent.id, 1)).rejects.toMatchObject({ status: 403 });
+    expect((await c.store.require(accepted.id, f.intent.id, 1)).id).toBe(accepted.id);
+  });
+  it.each([
+    { documentDigest: 'provider-secret-must-not-be-retained' },
+    { termsVersion: 'private customer prose' },
+    { locale: 'https://not-a-locale.invalid' },
+    { commandId: 'not-a-native-command' },
+  ])('rejects malformed consent metadata before retaining it: %j', async (invalid) => {
+    const f = await fixture(),
+      c = await consent(f);
+    await expect(c.store.accept({ ...c.write, ...invalid })).rejects.toMatchObject({ status: 403 });
+    expect(
+      await db
+        .selectFrom('platform.audit_logs')
+        .select('id')
+        .where('subject_id', '=', f.intent.id)
+        .where('event_type', '=', 'billing.stars-purchase-consent.v1')
+        .execute(),
+    ).toHaveLength(0);
+  });
   function invoiceRequest(
     f: Awaited<ReturnType<typeof fixture>>,
   ): Parameters<TelegramStarsRuntime['invoice']>[0] {

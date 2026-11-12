@@ -2,6 +2,53 @@
 
 Status: **clean private trial deployed; administrator authenticator preserved; public launch acceptance pending**.
 
+## Completion objective and Stars consent - 12 November 2026
+
+The owner has resumed the goal and requested completion of all remaining product
+implementation and launch preparation. Continue coherent implementation and
+verification batches until complete; do not stop at individual feature summaries.
+Existing purchase, login and retained-erasure restrictions still apply. Real
+provider acceptance and operator decisions must not be replaced by assumptions.
+
+Invoice source `db77ae3d353e7637c4340a56603b63b891762515` passed all six jobs
+on attempt one in [run 43171878372](https://github.com/aqaPayam/NakhBot/actions/runs/43171878372).
+Its 1,635 native cases across 188 files have zero skips. Ten source-bound artifacts
+and the supplemental restore fixture were verified; the unchanged 20,000-row M7
+terminal query took 1,457.122 ms against the 1,500 ms limit. Local `pnpm check`
+passed before that commit. Tracked lines were 316,255.
+
+The consent increment reuses append-only native audit facts for explicit customer
+acceptance. A confirmation binds the immutable offer digest, rendered-document
+digest, terms version, locale, native account life and original sign-in grant.
+It contains no purchase prose, Telegram identifier or provider secret. Canonical
+hashing survives PostgreSQL JSON key ordering. Identical concurrent confirmations
+produce one fact; retries preserve the original command/request identifiers and
+are not charged against the bounded new-consent limit.
+
+Review, acceptance and invoice authorization take the existing billing-user lock
+before the original native identity/session fences. Account state, pending status,
+version, native expiry and captured-payment exclusion are rechecked on replay.
+The public Stars factory requires native consent before preparing an invoice and
+rechecks it after localization. This does not authorize fulfillment: real provider
+receipts and the existing ledger remain its independent authority. Recorded paid
+callbacks continue processing with invoices disabled or the session revoked.
+
+The native Stars file passes all 36 cases, including concurrent confirmation,
+cross-owner/offer/life/grant rejection, immutable audit, malformed metadata,
+expiry, cancellation and paid-receipt independence. The first fixture tried to
+change an account epoch directly; the native verified-Return guard correctly
+rejected it. The repaired case preserves that guard and rejects a consent claimed
+for another life. Malformed writes now reject through their promised async
+contract. No native lifecycle or validation guard was weakened.
+
+There is no schema migration or new user-linked relation. Existing migration and
+restore gates still apply. These audit rows remain covered by the registry's
+actor-linked `platform.audit_logs` operational policy; retained-record erasure
+stays disabled pending approved policies. Customer checkout must supply the
+reviewed consent before live invoice creation can be enabled. The customer terms,
+package selection and paid deployment review remain open; this source is not a
+paid-launch approval. Its own full check and six exact-head jobs remain required.
+
 ## Stars purchase preparation - 12 November 2026
 
 The owner now wants real purchases through Telegram Stars. This supersedes the
