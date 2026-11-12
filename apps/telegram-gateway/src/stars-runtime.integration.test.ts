@@ -20,6 +20,17 @@ import { createIsolatedTestDatabase } from '../../../packages/persistence-postgr
 import { TelegramStarsKeys } from './stars-keys.js';
 import { TelegramStarsClient, TelegramStarsRuntime } from './stars-runtime.js';
 import { createHash } from 'node:crypto';
+import { CREDIT_PACKAGE_DEFINITIONS, type CreditPackageCode } from '@nakh/domain';
+
+function invoiceBody(body: RequestInit['body']): {
+  title: string;
+  description: string;
+  payload: string;
+  prices: { label: string; amount: number }[];
+} {
+  if (typeof body !== 'string') throw new Error('Expected a JSON invoice request');
+  return JSON.parse(body) as ReturnType<typeof invoiceBody>;
+}
 
 const url = process.env.NAKH_TEST_DATABASE_URL;
 const old = {
@@ -56,7 +67,7 @@ describe.skipIf(url === undefined)('composed Stars ingress with native financial
     await db?.destroy();
     await isolated?.destroy();
   });
-  async function fixture(): Promise<{
+  async function fixture(packageCode: CreditPackageCode = 'starter'): Promise<{
     actor: UserSessionActor;
     funding: PostgresFundingStore;
     write: CreateFundingIntentWrite;
@@ -111,7 +122,7 @@ describe.skipIf(url === undefined)('composed Stars ingress with native financial
       intentId: randomUUID(),
       userId,
       funding: 'stars' as const,
-      target: { type: 'credit_package' as const, packageCode: 'starter' as const },
+      target: { type: 'credit_package' as const, packageCode },
       idempotencyKey: randomUUID(),
     };
     const intent = await funding.createFundingIntent(write),
@@ -129,6 +140,145 @@ describe.skipIf(url === undefined)('composed Stars ingress with native financial
     const attempt = await funding.prepareStarsAttempt(attemptWrite);
     return { actor, funding, write, intent, payload, attemptWrite, attempt, telegramUserId };
   }
+  function invoiceRequest(
+    f: Awaited<ReturnType<typeof fixture>>,
+  ): Parameters<TelegramStarsRuntime['invoice']>[0] {
+    return {
+      actor: f.actor,
+      telegramUserId: f.telegramUserId,
+      fundingIntentId: f.intent.id,
+      expectedVersion: 1,
+      commandId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: f.attemptWrite.idempotencyKey,
+      occurredAt: new Date().toISOString(),
+      locale: 'en',
+    };
+  }
+  function invoiceClient(f: Awaited<ReturnType<typeof fixture>>): {
+    client: TelegramStarsClient;
+    fetcher: ReturnType<typeof vi.fn<typeof fetch>>;
+  } {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => {
+      const body = invoiceBody(init?.body);
+      return Promise.resolve(
+        Response.json({
+          ok: true,
+          result: {
+            message_id: 1,
+            chat: { id: Number(f.telegramUserId), type: 'private' },
+            from: { id: 12345, is_bot: true },
+            invoice: { currency: 'XTR', total_amount: body.prices[0]!.amount },
+          },
+        }),
+      );
+    });
+    return { client: new TelegramStarsClient(`12345:${'a'.repeat(24)}`, fetcher), fetcher };
+  }
+  it.each(CREDIT_PACKAGE_DEFINITIONS)(
+    'sends the native $code package snapshot and reuses its original encrypted payload',
+    async (definition) => {
+      const f = await fixture(definition.code),
+        { client, fetcher } = invoiceClient(f);
+      const runtime = new TelegramStarsRuntime(db, keys, 'test', '12345', client);
+      await runtime.onModuleInit();
+      // Caller-supplied display/pricing fields cannot replace native purchase facts.
+      const request = Object.assign(invoiceRequest(f), { starsAmount: 9999n, credits: 9999n });
+      await Promise.all(Array.from({ length: 4 }, () => runtime.invoice(request)));
+      for (const [, init] of fetcher.mock.calls) {
+        const body = invoiceBody(init?.body);
+        expect(body.title).toBe('Buy credits');
+        expect(body.description).toBe(`Credits: ${definition.credits}`);
+        expect(body.prices).toEqual([{ label: 'Buy credits', amount: Number(definition.stars) }]);
+        expect(body.payload).toBe(f.payload.cleartext);
+      }
+      expect(fetcher).toHaveBeenCalledTimes(4);
+      expect(
+        await db
+          .selectFrom('billing.payment_records')
+          .select('id')
+          .where('pending_payment_id', '=', f.intent.id)
+          .execute(),
+      ).toHaveLength(1);
+    },
+  );
+  it('creates one new native attempt for concurrent invoice requests', async () => {
+    const f = await fixture(),
+      { client, fetcher } = invoiceClient(f);
+    const intent = await f.funding.createFundingIntent({
+      ...f.write,
+      intentId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      target: { type: 'credit_package', packageCode: 'plus' },
+    });
+    expect(intent.id).not.toBe(f.intent.id);
+    const request = {
+      ...invoiceRequest(f),
+      fundingIntentId: intent.id,
+      idempotencyKey: randomUUID(),
+    };
+    const runtime = new TelegramStarsRuntime(db, keys, 'test', '12345', client);
+    await Promise.all(Array.from({ length: 4 }, () => runtime.invoice(request)));
+    const attempts = await db
+      .selectFrom('billing.payment_records')
+      .selectAll()
+      .where('pending_payment_id', '=', intent.id)
+      .execute();
+    expect(attempts).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    const payloads = fetcher.mock.calls.map(([, init]) => invoiceBody(init?.body).payload);
+    expect(new Set(payloads).size).toBe(1);
+    expect(payloads[0]).toBe(
+      keys.reveal(attempts[0]!.invoice_payload_ciphertext, attempts[0]!.invoice_payload_key_id),
+    );
+  });
+  it('keeps the original credit amount and price after the catalog offer changes', async () => {
+    const f = await fixture(),
+      { client, fetcher } = invoiceClient(f);
+    const original = await db
+      .selectFrom('billing.credit_packages')
+      .select(['credit_amount', 'stars_price'])
+      .where('code', '=', 'starter')
+      .executeTakeFirstOrThrow();
+    try {
+      await db
+        .updateTable('billing.credit_packages')
+        .set({ credit_amount: '999', stars_price: '888' })
+        .where('code', '=', 'starter')
+        .execute();
+      await new TelegramStarsRuntime(db, keys, 'test', '12345', client).invoice(invoiceRequest(f));
+      const body = invoiceBody(fetcher.mock.calls[0]![1]?.body);
+      expect(body.description).toBe('Credits: 10');
+      expect(body.prices[0]!.amount).toBe(10);
+    } finally {
+      await db
+        .updateTable('billing.credit_packages')
+        .set(original)
+        .where('code', '=', 'starter')
+        .execute();
+    }
+  });
+  it("cannot present another customer's invoice", async () => {
+    const f = await fixture(),
+      other = await fixture(),
+      { client, fetcher } = invoiceClient(other);
+    await expect(
+      new TelegramStarsRuntime(db, keys, 'test', '12345', client).invoice({
+        ...invoiceRequest(f),
+        actor: other.actor,
+        telegramUserId: other.telegramUserId,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('does not send a payable invoice again after its native paid receipt is recorded', async () => {
+    const f = await fixture(),
+      { client, fetcher } = invoiceClient(f);
+    const runtime = new TelegramStarsRuntime(db, keys, 'test', '12345', client);
+    expect(await runtime.handle(update(f, true))).toBe('notice');
+    await expect(runtime.invoice(invoiceRequest(f))).rejects.toMatchObject({ status: 503 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   function update(
     f: Awaited<ReturnType<typeof fixture>>,
     paid: boolean,

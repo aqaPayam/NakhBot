@@ -111,13 +111,42 @@ describe('Telegram Stars transport', () => {
       expect(error).toMatchObject({ status: 502 });
     }
   });
-  it('rejects a forged price before contacting Telegram', async () => {
-    const fetcher = vi.fn<typeof fetch>();
-    await expect(
-      new TelegramStarsClient(token, fetcher).invoice('123', 'Nakh', '2 Stars', payload, 3n),
-    ).rejects.toMatchObject({ code: 'invalid_request' });
-    expect(fetcher).not.toHaveBeenCalled();
+  it.each([10, 20, 35, 60])('presents an exact %i-Star package amount', async (amount) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ ok: true, result: receipt(123, 'XTR', amount) }));
+    await new TelegramStarsClient(token, fetcher).invoice(
+      '123',
+      'Buy credits',
+      'Credits: 10',
+      payload,
+      BigInt(amount),
+    );
+    const requestBody = fetcher.mock.calls[0]![1]?.body;
+    if (typeof requestBody !== 'string') throw new Error('Expected a JSON invoice request');
+    const body = JSON.parse(requestBody) as {
+      currency: string;
+      prices: { label: string; amount: number }[];
+    };
+    expect(body.currency).toBe('XTR');
+    expect(body.prices).toEqual([{ label: 'Buy credits', amount }]);
   });
+  it.each([0n, -1n, BigInt(Number.MAX_SAFE_INTEGER) + 1n])(
+    'rejects an invalid transport amount %s before contacting Telegram',
+    async (amount) => {
+      const fetcher = vi.fn<typeof fetch>();
+      await expect(
+        new TelegramStarsClient(token, fetcher).invoice(
+          '123',
+          'Buy credits',
+          'Credits: 10',
+          payload,
+          amount,
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
   it('requires Telegram to acknowledge a pre-checkout answer', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

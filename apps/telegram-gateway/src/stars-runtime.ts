@@ -110,7 +110,8 @@ export class TelegramStarsClient {
       Array.from(description).length < 1 ||
       Array.from(description).length > 255 ||
       !/^[A-Za-z0-9_-]{32}$/u.test(payload) ||
-      amount !== NAKH_STARS_COST
+      amount <= 0n ||
+      amount > BigInt(Number.MAX_SAFE_INTEGER)
     )
       invalid();
     const result = record(
@@ -183,6 +184,8 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
         'error.billing.payment_unavailable',
         'nakh.compose.title',
         'nakh.compose.cost.stars',
+        'billing.packages.title',
+        'billing.balance.title',
       ])
         if (
           typeof catalog.messages[name] !== 'string' ||
@@ -216,6 +219,63 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
     )
       throw new ApplicationError('unauthorized', 'error.billing.payment_unavailable', 401);
   }
+  private async presentation(
+    input: InvoiceInput,
+    paymentRecordId: string,
+    amount: bigint,
+  ): Promise<Readonly<{ titleKey: string; descriptionKey: string; credits: string | null }>> {
+    // Read the immutable purchase snapshot, not today's catalog or callback data.
+    // The same checks also fence presentation of an expired or completed attempt.
+    const row = await this.database
+      .selectFrom('billing.payment_records as payment')
+      .innerJoin('billing.pending_payments as intent', 'intent.id', 'payment.pending_payment_id')
+      .innerJoin('identity.accounts as account', 'account.user_id', 'payment.user_id')
+      .select([
+        'payment.payment_type',
+        'payment.paid_action_reason',
+        'payment.stars_amount',
+        'payment.package_code_snapshot',
+        'payment.package_credit_amount_snapshot',
+        'intent.reason',
+      ])
+      .where('payment.id', '=', paymentRecordId)
+      .where('payment.user_id', '=', input.actor.userId)
+      .where('payment.status', '=', 'pending')
+      .where('intent.id', '=', input.fundingIntentId)
+      .where('intent.user_id', '=', input.actor.userId)
+      .where('intent.product_epoch', '=', input.actor.productEpoch)
+      .where('intent.status', '=', 'pending')
+      .where('intent.expires_at', '>', this.database.fn<Date>('clock_timestamp', []))
+      .where('account.product_epoch', '=', input.actor.productEpoch)
+      .where('account.state', '=', 'active')
+      .executeTakeFirst();
+    if (!row || BigInt(row.stars_amount) !== amount) unavailable();
+    if (row.payment_type === 'buy_credit_package' && row.reason === 'buy_credit_package') {
+      if (
+        row.package_code_snapshot === null ||
+        row.package_credit_amount_snapshot === null ||
+        BigInt(row.package_credit_amount_snapshot) <= 0n
+      )
+        unavailable();
+      return {
+        titleKey: 'billing.packages.title',
+        descriptionKey: 'billing.balance.title',
+        credits: BigInt(row.package_credit_amount_snapshot).toString(),
+      };
+    }
+    if (
+      row.payment_type === 'pay_pending_action' &&
+      row.paid_action_reason === 'send_nakh' &&
+      row.reason === 'send_nakh' &&
+      amount === NAKH_STARS_COST
+    )
+      return {
+        titleKey: 'nakh.compose.title',
+        descriptionKey: 'nakh.compose.cost.stars',
+        credits: null,
+      };
+    unavailable();
+  }
   public async invoice(input: InvoiceInput): Promise<void> {
     if (!this.invoiceCreationEnabled) unavailable();
     const request = structuredClone(input);
@@ -237,8 +297,16 @@ export class TelegramStarsRuntime implements TelegramStarsRuntimePort {
       commandType: 'billing.create-stars-invoice',
       data: { fundingIntentId: request.fundingIntentId, expectedVersion: request.expectedVersion },
     });
-    const title = await this.text(request.telegramUserId, 'nakh.compose.title'),
-      description = await this.text(request.telegramUserId, 'nakh.compose.cost.stars');
+    const purchase = await this.presentation(
+      request,
+      prepared.paymentRecordId,
+      prepared.starsAmount,
+    );
+    const title = await this.text(request.telegramUserId, purchase.titleKey),
+      label = await this.text(request.telegramUserId, purchase.descriptionKey);
+    const description = purchase.credits === null ? label : `${label}: ${purchase.credits}`;
+    const latest = await this.presentation(request, prepared.paymentRecordId, prepared.starsAmount);
+    if (JSON.stringify(latest) !== JSON.stringify(purchase)) unavailable();
     await this.current(request.actor, request.telegramUserId);
     await this.client.invoice(
       request.telegramUserId,

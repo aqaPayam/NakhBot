@@ -2,6 +2,49 @@
 
 Status: **clean private trial deployed; administrator authenticator preserved; public launch acceptance pending**.
 
+## Stars purchase preparation - 12 November 2026
+
+The owner now wants real purchases through Telegram Stars. This supersedes the
+earlier deferral of payment implementation; it does not authorize the operator
+to buy Stars, perform funded test purchases, change billing limits or activate
+unreviewed prices and purchase terms. Keep live charging disabled while completing
+the customer checkout, acceptance and refund/support presentation.
+
+After the owner made the repository public, all six checks for `1e899dc` passed
+on attempt two in [run 43046506391](https://github.com/aqaPayam/NakhBot/actions/runs/43046506391).
+The original attempt had executed no test steps because GitHub rejected job
+startup for account payment/spending settings. The owner changed the repository
+conditions before the diagnosed rerun; no billing limits or test gates changed.
+Ten artifacts and the separate restore rehearsal were verified. The unchanged
+20,000-row M7 terminal query took 811.676 ms against the 1,500 ms limit.
+
+The next invoice increment connects existing native credit-package attempts to
+Telegram's fixed `XTR` transport. Credit quantity and Star amount come from the
+stored payment snapshot, not callback-supplied prices or the current catalog.
+Owned original account life, active account state, pending/unexpired intent and
+unpaid attempt are required; presentation is rechecked after localization waits
+and the original session is rechecked before the provider call. Nakh invoices keep
+their existing two-Star presentation. Other direct paid-action invoice surfaces
+remain outside this increment; users will fund their ordinary credit balance.
+
+The complete focused transport suite passes 17 cases. The complete native Stars
+file passes 18 cases, covering all four package amounts, stored-payload replay,
+concurrent creation of one new attempt, later catalog changes, cross-owner denial
+and completed-payment denial alongside existing callback/custody cases. A first
+concurrency fixture mistakenly requested an already-open equivalent offer; native
+billing correctly reused it. The repaired fixture selects a distinct package
+before checking concurrent attempt creation. No deduplication guard was weakened.
+These runs use disposable databases and synthetic provider responses, not funded
+payments or live Telegram purchase acceptance. This increment still needs its
+full check and exact-head six-job acceptance before release.
+
+Customer package selection, reviewed purchase terms and explicit acceptance,
+refund/support presentation and the final paid deployment review remain separate
+work. Current catalog definitions are implementation inputs, not newly approved
+launch prices. The previously deployed free-credit trial remains separate from
+paid activation. Cloudflare cache-purge credential renewal remains deferred at
+the owner's request; its observed expiry is `2026-11-13T20:29:59Z`.
+
 ## Clean trial deployment - 11 November 2026
 
 Accepted application source `b55363d54e81d64a9d56730c606415d52c9e72a1`
