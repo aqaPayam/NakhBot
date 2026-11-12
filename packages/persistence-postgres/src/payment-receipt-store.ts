@@ -250,6 +250,15 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
             clock.rows[0]!.now,
           );
           if (reason !== undefined) return { allowed: false, reasonCode: reason, replayed: true };
+          if (
+            current !== undefined &&
+            (await this.anotherCheckoutApproved(
+              transaction,
+              current.pending_payment_id,
+              write.providerEventId,
+            ))
+          )
+            return { allowed: false, reasonCode: 'payment_unavailable', replayed: true };
         }
         if (replay.reason_code === null)
           return { allowed: replay.decision === 'allow', replayed: true };
@@ -273,6 +282,16 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
             transaction,
           );
           reason = reasonForPayment(current, payerUserId, write, checkedAt.rows[0]!.now);
+          if (
+            reason === undefined &&
+            current !== undefined &&
+            (await this.anotherCheckoutApproved(
+              transaction,
+              current.pending_payment_id,
+              write.providerEventId,
+            ))
+          )
+            reason = 'payment_unavailable';
         }
       }
       const allowed = reason === undefined;
@@ -1641,6 +1660,29 @@ export class PostgresTelegramStarsReceiptStore implements TelegramStarsReceiptSt
       .where('telegram_user_id', '=', telegramUserId)
       .executeTakeFirst();
     return row?.user_id;
+  }
+
+  /** Called only after the existing payer/target and intent locks. One native
+   * intent can have several invoice attempts; approving two provider queries
+   * could charge twice before either successful-payment receipt arrives. An
+   * exact event redelivery may replay, but unknown outcomes never free the slot. */
+  private async anotherCheckoutApproved(
+    database: NakhDatabase,
+    fundingIntentId: string,
+    providerEventId: string,
+  ): Promise<boolean> {
+    const prior = await database
+      .selectFrom('billing.payment_provider_events as approved')
+      .innerJoin('billing.payment_records as attempt', 'attempt.id', 'approved.payment_record_id')
+      .select('approved.id')
+      .where('attempt.pending_payment_id', '=', fundingIntentId)
+      .where('approved.provider', '=', 'telegram_stars')
+      .where('approved.event_type', '=', 'pre_checkout')
+      .where('approved.decision', '=', 'allow')
+      .where('approved.provider_event_id', '!=', providerEventId)
+      .limit(1)
+      .executeTakeFirst();
+    return prior !== undefined;
   }
 
   private async findPayment(

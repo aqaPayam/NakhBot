@@ -1,6 +1,12 @@
 # M9 implementation verification and launch handoff
 
-Status: **Stars checkout deployed with charging paused; administrator authenticator preserved; activation and public launch acceptance pending**.
+Status: **Stars payment flow implemented; new purchases paused while the distinct-checkout approval repair is qualified. Real-user payment acceptance and unrestricted public launch remain separate**.
+
+The current payment behavior, approved prices, deployed controls and exact
+acceptance boundary are recorded in the
+[Stars payment implementation handoff](40-stars-payment-implementation.md).
+The dated entries below preserve earlier preparation and paused-deployment
+states; they do not override the subsequent authorized activation.
 
 ## Actual paused Stars deployment and stop observer - 12 November 2026
 

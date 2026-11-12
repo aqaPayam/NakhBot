@@ -887,6 +887,137 @@ describe.skipIf(databaseUrl === undefined)('M4 durable Telegram Stars receipts',
     ).toEqual({ count: '1' });
   });
 
+  it('approves only one of 24 distinct concurrent provider checkouts for one invoice', async () => {
+    const payment = await preparedPayment();
+    const writes = Array.from({ length: 24 }, () => {
+      const id = `competing-precheckout:${randomUUID()}`;
+      return {
+        providerEventId: id,
+        telegramUserId: payment.telegramUserId,
+        invoicePayload: payment.payload.cleartext,
+        currency: 'XTR',
+        totalAmount: payment.starsAmount,
+        providerEnvironment: 'test' as const,
+        providerBotIdDigest: botDigest,
+        evidence: evidence(id),
+      };
+    });
+    const results = await Promise.all(writes.map((w) => receipts.validatePreCheckout(w)));
+    expect(results.filter((r) => r.allowed)).toHaveLength(1);
+    for (const [index, write] of writes.entries()) {
+      const replay = await receipts.validatePreCheckout(write);
+      expect(replay).toEqual({
+        allowed: results[index]!.allowed,
+        replayed: true,
+        ...(results[index]!.allowed ? {} : { reasonCode: 'payment_unavailable' }),
+      });
+    }
+    const events = await database
+      .selectFrom('billing.payment_provider_events')
+      .select('decision')
+      .where('payment_record_id', '=', payment.paymentRecordId)
+      .execute();
+    expect(events).toHaveLength(24);
+    expect(events.filter((e) => e.decision === 'allow')).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom('billing.telegram_stars_receipts')
+        .select('payment_record_id')
+        .where('payment_record_id', '=', payment.paymentRecordId)
+        .execute(),
+    ).toHaveLength(0);
+  });
+
+  it('shares the provider checkout reservation across sibling attempts of one funding intent', async () => {
+    const user = await createUser(database);
+    const first = await preparePaymentFor(user, { type: 'credit_package', packageCode: 'starter' });
+    const second = await preparePaymentFor(user, {
+      type: 'credit_package',
+      packageCode: 'starter',
+    });
+    expect(first.paymentRecordId).not.toBe(second.paymentRecordId);
+    const attempts = await database
+      .selectFrom('billing.payment_records')
+      .select('pending_payment_id')
+      .where('id', 'in', [first.paymentRecordId, second.paymentRecordId])
+      .execute();
+    expect(new Set(attempts.map((a) => a.pending_payment_id)).size).toBe(1);
+    const writes = [first, second].map((payment) => {
+      const id = `sibling-precheckout:${randomUUID()}`;
+      return {
+        providerEventId: id,
+        telegramUserId: user.telegramUserId,
+        invoicePayload: payment.payload.cleartext,
+        currency: 'XTR',
+        totalAmount: payment.starsAmount,
+        providerEnvironment: 'test' as const,
+        providerBotIdDigest: botDigest,
+        evidence: evidence(id),
+      };
+    });
+    const results = await Promise.all(writes.map((w) => receipts.validatePreCheckout(w)));
+    expect(results.filter((r) => r.allowed)).toHaveLength(1);
+    const winner = results.findIndex((r) => r.allowed);
+    await expect(receipts.validatePreCheckout(writes[winner]!)).resolves.toEqual({
+      allowed: true,
+      replayed: true,
+    });
+    await expect(receipts.validatePreCheckout(writes[1 - winner]!)).resolves.toEqual({
+      allowed: false,
+      replayed: true,
+      reasonCode: 'payment_unavailable',
+    });
+    // A legitimate receipt for the original approved invoice still records once.
+    const id = `reserved-receipt:${randomUUID()}`;
+    await expect(
+      receipts.recordSuccessfulPayment({
+        ...writes[winner]!,
+        providerEventId: id,
+        evidence: evidence(id),
+        telegramChargeId: `telegram:${randomUUID()}`,
+      }),
+    ).resolves.toMatchObject({ outcome: 'receipt_recorded' });
+  });
+
+  it('does not reserve an invoice for a rejected payer or amount', async () => {
+    const payment = await preparedPayment();
+    const id = `bad-precheckout:${randomUUID()}`;
+    const write = {
+      providerEventId: id,
+      telegramUserId: payment.telegramUserId,
+      invoicePayload: payment.payload.cleartext,
+      currency: 'XTR',
+      totalAmount: payment.starsAmount + 1n,
+      providerEnvironment: 'test' as const,
+      providerBotIdDigest: botDigest,
+      evidence: evidence(id),
+    };
+    await expect(receipts.validatePreCheckout(write)).resolves.toMatchObject({
+      allowed: false,
+      reasonCode: 'amount_mismatch',
+    });
+    const other = await createUser(database);
+    const wrongPayer = `wrong-payer:${randomUUID()}`;
+    await expect(
+      receipts.validatePreCheckout({
+        ...write,
+        providerEventId: wrongPayer,
+        telegramUserId: other.telegramUserId,
+        totalAmount: payment.starsAmount,
+        evidence: evidence(wrongPayer),
+      }),
+    ).resolves.toMatchObject({ allowed: false, reasonCode: 'payer_mismatch' });
+    const valid = `valid-precheckout:${randomUUID()}`;
+    await expect(
+      receipts.validatePreCheckout({
+        ...write,
+        providerEventId: valid,
+        totalAmount: payment.starsAmount,
+        evidence: evidence(valid),
+      }),
+    ).resolves.toEqual({ allowed: true, replayed: false });
+  });
+
   it('records one receipt and one fulfillment when the same callback arrives 100 times', async () => {
     const payment = await preparedPayment();
     const eventId = `successful-payment:${randomUUID()}`;
