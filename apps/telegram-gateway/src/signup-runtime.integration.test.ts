@@ -1,3 +1,4 @@
+import { captureStarsPurchasePolicy } from './stars-checkout-runtime.js';
 import 'reflect-metadata';
 import { randomUUID, createHash } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -1246,6 +1247,11 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         NAKH_TELEGRAM_EXPLORE_ENABLED: 'true',
         NAKH_TELEGRAM_STARS_ENABLED: 'true',
         NAKH_TELEGRAM_STARS_INVOICES_ENABLED: 'true',
+        NAKH_TELEGRAM_ACCOUNT_MENU_ENABLED: 'true',
+        NAKH_PUBLIC_SUPPORT_TELEGRAM_USERNAME: 'NakhSupport',
+        NAKH_STARS_PURCHASE_APPROVAL_DIGEST: (
+          await captureStarsPurchasePolicy(database, 'NakhSupport')
+        ).digest,
         NAKH_TELEGRAM_REPORTS_ENABLED: 'true',
         NAKH_REPORT_SNAPSHOT_KEY_ID: 'report-key',
         NAKH_REPORT_SNAPSHOT_KEY_VERSION: '1',
@@ -1759,12 +1765,32 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         expect(
           (await app.inject({ method: 'POST', url: route, headers, payload: pendingOpening }))
             .statusCode,
-        ).toBe(500);
+        ).toBe(201);
+        expect(invoices).toHaveLength(0);
+        expect(sent.at(-1)!.text).toContain('One Nakh for 2 Telegram Stars');
+        expect(sent.at(-1)!.text).toContain('Telegram support cannot resolve');
+        const confirmPurchase = sent
+          .at(-1)!
+          .keyboard.flat()
+          .find((b) => b.text === 'I agree: open Telegram payment')!.callback_data;
+        const confirmation = callback(exploreSender, confirmPurchase);
+        expect(
+          (await app.inject({ method: 'POST', url: route, headers, payload: confirmation }))
+            .statusCode,
+        ).toBe(502);
         for (let i = 0; i < 3; i++)
           expect(
-            (await app.inject({ method: 'POST', url: route, headers, payload: pendingOpening }))
+            (await app.inject({ method: 'POST', url: route, headers, payload: confirmation }))
               .statusCode,
           ).toBe(201);
+        expect(
+          await database
+            .selectFrom('platform.audit_logs')
+            .select('id')
+            .where('actor_user_id', '=', exploreUser)
+            .where('event_type', '=', 'billing.stars-purchase-consent.v1')
+            .execute(),
+        ).toHaveLength(1);
         expect(
           await database
             .selectFrom('nakh.pending_nakhes')
@@ -2096,6 +2122,7 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
             telegram: {
               ...config.telegram,
               signupEnabled: false,
+              starsInvoiceCreationEnabled: false,
               startDeliveryEnabled: false,
               guestPreviewEnabled: false,
               exploreEnabled: false,
@@ -2107,6 +2134,31 @@ describe.skipIf(url === undefined)('M9 interactive signup through bot transport'
         );
         await app.init();
         await app.getHttpAdapter().getInstance().ready();
+        // Product stop pauses new charging, not public terms or existing receipts.
+        const beforeTerms = await count();
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: route,
+              headers,
+              payload: incoming('9999991', '/terms'),
+            })
+          ).statusCode,
+        ).toBe(201);
+        expect(sent.at(-1)!.text).toContain('Nakh purchase terms');
+        expect(await count()).toBe(beforeTerms);
+        expect(
+          (await app.inject({ method: 'POST', url: route, headers, payload: payment })).statusCode,
+        ).toBe(201);
+        expect(
+          await database
+            .selectFrom('billing.telegram_stars_receipts')
+            .select('payment_record_id')
+            .where('payment_record_id', '=', attempt[0]!.id)
+            .execute(),
+        ).toHaveLength(1);
+
         expect(
           (
             await app.inject({

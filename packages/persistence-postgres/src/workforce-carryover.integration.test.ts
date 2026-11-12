@@ -41,7 +41,7 @@ describe.skipIf(url === undefined)('native clean workforce carryover', () => {
     sourceMigrations = await sourceMigrationDigests(sourceDirectory);
     targetMigrations = await sourceMigrationDigests(targetDirectory);
     expect(sourceMigrations).toHaveLength(164);
-    expect(targetMigrations).toHaveLength(171);
+    expect(targetMigrations).toHaveLength(172);
     expect(sourceMigrations[0]!.sha256).not.toBe(targetMigrations[0]!.sha256);
   });
   beforeEach(async () => {
@@ -203,7 +203,7 @@ describe.skipIf(url === undefined)('native clean workforce carryover', () => {
       ).rows[0]!.n,
     );
   }
-  it('preserves exact encrypted authority across a populated CRLF-164 source and fresh LF-171 target, excluding product data and old sign-ins', async () => {
+  it('preserves exact encrypted authority across a populated CRLF-164 source and fresh LF-172 target, excluding product data and old sign-ins', async () => {
     const f = await staff();
     try {
       await createMediaAuthorityFixture(source, 'owner_preview', f.userId);

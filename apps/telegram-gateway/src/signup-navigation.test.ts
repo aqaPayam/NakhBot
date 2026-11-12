@@ -30,6 +30,47 @@ function fixture(): {
   };
 }
 describe('signup navigation integrity and concurrency', () => {
+  it.each(['signup', 'report', 'chat', 'account', 'profile', 'liked_by', 'nakh'] as const)(
+    'isolates purchase confirmation from %s navigation',
+    async (purpose) => {
+      const f = fixture(),
+        key = Buffer.alloc(32, 1);
+      const purchases = new SignupNavigationTokens(
+        f.store,
+        key,
+        '12345',
+        '123',
+        life,
+        undefined,
+        'purchase',
+      );
+      const other = new SignupNavigationTokens(
+        f.store,
+        key,
+        '12345',
+        '123',
+        life,
+        undefined,
+        purpose,
+      );
+      const nav: SignupNavigation = {
+        ...f.nav,
+        screen: 'purchase_review',
+        action: 'save',
+        reference: 'a'.repeat(64),
+        reason: 'b'.repeat(64),
+        code: '30000000-0000-4000-8000-000000000001',
+      };
+      const value = await purchases.button(nav);
+      expect(value).toMatch(/^m9b:/u);
+      expect(Buffer.byteLength(value)).toBeLessThanOrEqual(64);
+      expect(value).not.toContain(nav.code);
+      expect(await purchases.callback(value)).toEqual(nav);
+      expect(await other.callback(value)).toBeUndefined();
+      const foreign = await other.button(nav);
+      expect(await purchases.callback(foreign.replace(/^[^:]+:/u, 'm9b:'))).toBeUndefined();
+    },
+  );
   it('isolates Nakh selectors from signup, Like, reporting, other recipients and later lives', async () => {
     const f = fixture(),
       key = Buffer.alloc(32, 1);

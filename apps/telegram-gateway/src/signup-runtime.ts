@@ -661,6 +661,7 @@ export class TelegramSignupRuntime implements TelegramSignupRuntimePort {
           fundingIntentId: pending.fundingIntentId,
           expectedVersion: 1,
         });
+        return;
       }
     } else throw denied();
     await this.showExplore(telegramId, updateId, nav);

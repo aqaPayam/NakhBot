@@ -8,6 +8,8 @@ export const RATE_LIMIT_SCOPES = [
   'telegram_nakhes',
   'telegram_support_appeal',
   'telegram_payment_support_contact',
+  'telegram_purchase_terms',
+  'telegram_purchase_checkout',
   'telegram_account_menu',
   'telegram_account_control',
   'telegram_account_return',

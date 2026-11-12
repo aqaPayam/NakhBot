@@ -12,6 +12,7 @@ import {
   M9_FILTER_TEXTS,
   M9_LIKED_BY_TEXTS,
   M9_NAKH_TEXTS,
+  M9_PURCHASE_TEXTS,
 } from '@nakh/localization';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -226,6 +227,7 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
       ...M9_FILTER_TEXTS,
       ...M9_LIKED_BY_TEXTS,
       ...M9_NAKH_TEXTS,
+      ...M9_PURCHASE_TEXTS,
       ...M9_ADMIN_TEXTS,
     })) {
       expect(english.messages[key]).toBe(value);
@@ -246,7 +248,8 @@ describe.skipIf(databaseUrl === undefined)('M1 identity and localization persist
         Object.keys(M9_REVIEW_TEXTS).length +
         Object.keys(M9_FILTER_TEXTS).length +
         Object.keys(M9_LIKED_BY_TEXTS).length +
-        Object.keys(M9_NAKH_TEXTS).length,
+        Object.keys(M9_NAKH_TEXTS).length +
+        Object.keys(M9_PURCHASE_TEXTS).length,
     );
     expect(Object.keys(english.messages)).toEqual(
       expect.arrayContaining([

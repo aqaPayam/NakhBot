@@ -1,3 +1,4 @@
+import type { TelegramStarsCheckoutPort } from './stars-checkout-runtime.js';
 import { createHash, randomBytes } from 'node:crypto';
 import {
   GrantFreeTestCreditsHandler,
@@ -72,6 +73,7 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     private readonly client: TelegramBotApiMenuClient,
     private readonly home?: (recipient: string, actor: UserSessionActor) => Promise<void>,
     private readonly editProfile?: (recipient: string, actor: UserSessionActor) => Promise<void>,
+    private readonly purchases?: TelegramStarsCheckoutPort,
   ) {
     this.key = Buffer.from(key);
     this.users = new PostgresTelegramUserResolver(database);
@@ -282,6 +284,8 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
       if (this.config.telegram.freeTestTopupsEnabled && state.enabled) {
         text.push(t('account.credits.free_info'));
         keyboard.push([await button('account.credits.free_add', 'save', 'topup')]);
+      } else if (this.purchases?.invoiceCreationEnabled) {
+        keyboard.push([await button('purchase.packages', 'pick', 'stars_packages')]);
       } else text.push(t('account.credits.unavailable'));
       keyboard.push([await button('account.menu.back', 'resume')]);
     }
@@ -319,6 +323,7 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     });
   }
   public async handle(update: unknown): Promise<'unhandled' | 'notice'> {
+    if ((await this.purchases?.handleNavigation(update)) === 'notice') return 'notice';
     const root = record(structuredClone(update)),
       message = record(root?.message),
       callback = record(root?.callback_query);
@@ -382,6 +387,12 @@ export class TelegramAccountRuntime implements TelegramAccountRuntimePort {
     });
     if (!rate.allowed) throw new ApplicationError('rate_limited', 'error.rate_limit.exceeded', 429);
     try {
+      if (nav?.action === 'pick' && nav.code === 'stars_packages' && nav.screen === 'credits') {
+        if (!this.purchases?.invoiceCreationEnabled) denied();
+        if (callbackId !== undefined) await this.client.answerCallback(callbackId);
+        await this.purchases.openPackages(recipient, actor);
+        return 'notice';
+      }
       if (nav?.action === 'edit_profile') {
         if (!this.editProfile) denied();
         if (callbackId !== undefined) await this.client.answerCallback(callbackId);
@@ -536,6 +547,7 @@ export function createTelegramAccountRuntime(
     resolveSecret?: (reference: string) => string;
     home?: (recipient: string, actor: UserSessionActor) => Promise<void>;
     editProfile?: (recipient: string, actor: UserSessionActor) => Promise<void>;
+    purchases?: TelegramStarsCheckoutPort;
   }>,
 ): TelegramAccountRuntimePort {
   if (!input.config.telegram.accountMenuEnabled)
@@ -567,5 +579,6 @@ export function createTelegramAccountRuntime(
     new TelegramBotApiMenuClient(token),
     input.home,
     input.editProfile,
+    input.purchases,
   );
 }

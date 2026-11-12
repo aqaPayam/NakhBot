@@ -2,6 +2,69 @@
 
 Status: **clean private trial deployed; administrator authenticator preserved; public launch acceptance pending**.
 
+## Checkout repair after consent integration - 12 November 2026
+
+Consent source `03b10c48fe4797483f53114917ad03d7a5ddf54a` is **not accepted**.
+Its full local check and 36 focused native Stars cases passed, but the scheduler
+shard in [run 43183568174](https://github.com/aqaPayam/NakhBot/actions/runs/43183568174)
+found the existing signup Stars route trying to create an invoice before
+collecting the newly required consent. The other quality/image jobs passed;
+reliability was skipped. No unchanged CI retry or weakened consent guard is used.
+
+The repair connects a purchase review to that route and the account credit menu.
+The original private account life and captured sign-in grant remain authoritative;
+checkout never registers an account or issues a replacement grant. A separate
+`purchase` MAC namespace fences public selectors from other menus. Package
+selection creates an existing native funding intent and reviews its immutable
+price/quantity snapshot before confirmation. Agree and Cancel share one owned
+menu claim. Exact provider redeliveries retain the accepted offer, consent and
+invoice identity, including an ambiguous invoice acknowledgement. The provider's
+bounded 502 error now reaches this route rather than the old signup catch's
+generic 500; the full-process case retains its four-delivery/one-attempt assertions.
+A later full-process check caught the product-stop fixture leaving new invoices
+on while signup was stopped. It now explicitly pauses new invoices and verifies
+that public terms register no account and an existing receipt still replays once.
+Paused approved checkout does not require the primary signup/menu flags; active
+new charging still does. The diagnostic case passes, but is not full-suite
+acceptance. All unfiltered checks and the repair's own six jobs remain required.
+The current Stars, checkout and signup files pass all 64 native cases with no
+skips. An earlier seven-file run passed 91 cases across schema, reference,
+identity and deletion coverage as well as those product paths; the additional
+payment-pause case was then verified in the final 64-case run. Separate focused
+migration probes passed bootstrap/replay and the migration-162 upgrade. The other
+87 migration cases remain mandatory in CI; focused local filtering supplies no
+full-migration acceptance. No funded payment or real-provider receipt is claimed.
+
+`NAKH_STARS_PURCHASE_APPROVAL_DIGEST` defaults empty. Enabled checkout requires
+an exact approval of the captured public terms, active package prices/quantities,
+Nakh price, default/active locales and configured support contact. Capturing that
+read-only repeatable snapshot is not approval. Its approved presentation is
+captured at startup; a newly created native offer must still match that reviewed
+policy. The consent records the rendered offer/document digest and original
+locale before the protected Stars adapter can present an invoice. Choosing the
+review confirmation does not itself charge Stars or fulfill a purchase.
+
+The public `/terms` route works without registering an account and remains
+available with invoices paused and an approved policy configured.
+A paused shop-policy mismatch disables terms presentation rather than publishing
+unapproved terms, and returns the payment-support route instead. It cannot block
+the underlying recorded-payment ingress from starting. Active new charging still
+requires the exact reviewed policy and complete customer entry readiness. It shares the
+financial ingress's position before product admission, while purchase navigation
+remains behind cohort admission. `/paysupport` retains the existing external
+contact and ordinary support behavior. Actual receipts and corrections remain
+independent of new invoice availability and customer sign-in lifetime.
+
+Migration 172 adds seventeen English presentation rows and no user-linked table
+or column. Baseline-to-current, schema/reference, locale and deletion coverage
+fixtures include it; retained erasure remains disabled. Deploy the migration
+before the new checkout source. A 171-only image is not a qualified rollback on
+a 172 database. Prepare a checked 172-compatible rollback mode with invoices off
+and financial/privacy processing active; do not restore away later financial
+receipts. The live VPS remains on its accepted 171/free-credit deployment while
+this repair is checked. Owner price/terms review, funded provider acceptance and
+paid deployment/stop-path verification remain separate, uncompleted steps.
+
 ## Completion objective and Stars consent - 12 November 2026
 
 The owner has resumed the goal and requested completion of all remaining product

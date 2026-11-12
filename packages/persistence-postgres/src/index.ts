@@ -287,3 +287,5 @@ export * from './nakh-customer-read-store.js';
 export * from './workforce-carryover-store.js';
 
 export * from './stars-purchase-consent-store.js';
+
+export { referenceDigest } from './release-reference.js';

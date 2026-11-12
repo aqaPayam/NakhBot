@@ -1,3 +1,4 @@
+import { createTelegramStarsCheckoutRuntime } from './stars-checkout-runtime.js';
 import {
   Body,
   Controller,
@@ -113,6 +114,7 @@ const CHAT_INGRESS = Symbol('CHAT_INGRESS');
 const LAUNCH_ADMISSION = Symbol('LAUNCH_ADMISSION');
 const STARS_INGRESS = Symbol('STARS_INGRESS');
 const PUBLIC_REPORT_INGRESS = Symbol('PUBLIC_REPORT_INGRESS');
+const NATIVE_STARS_INGRESS = Symbol('NATIVE_STARS_INGRESS');
 const PHOTO_ADAPTER = Symbol('PHOTO_ADAPTER');
 const PHOTO_MANAGEMENT_ADAPTER = Symbol('PHOTO_MANAGEMENT_ADAPTER');
 const PHOTO_MENU_DELIVERY = Symbol('PHOTO_MENU_DELIVERY');
@@ -404,7 +406,7 @@ export class TelegramGatewayModule {
     const redis = createRedisConnection(config.redis.url);
     const limiter = new RedisRateLimiter(redis, config.redis.queuePrefix);
     const identityStore = new PostgresIdentityStore(database);
-    const stars = createTelegramStarsRuntime({ config, database: financialDatabase });
+    const nativeStars = createTelegramStarsRuntime({ config, database: financialDatabase });
     const reports = createTelegramReportRuntime({ config, database, redis });
     const administration = createAdministratorTelegramRuntime({
       config,
@@ -418,6 +420,14 @@ export class TelegramGatewayModule {
         throw new ApplicationError('capability_denied', 'error.capability.denied', 403);
       await signup.openRoot(recipient, actor);
     };
+    const stars = createTelegramStarsCheckoutRuntime({
+      config,
+      userDatabase: database,
+      financialDatabase,
+      redis,
+      stars: nativeStars,
+      home,
+    });
     const account = createTelegramAccountRuntime({
       config,
       database,
@@ -425,6 +435,7 @@ export class TelegramGatewayModule {
       redis,
       home,
       editProfile: (recipient, actor) => profile.open(recipient, actor),
+      purchases: stars,
     });
     const profile = createTelegramProfileRuntime({ config, database, redis, home });
     const likedBy = createTelegramLikedByCustomerRuntime({
@@ -592,6 +603,7 @@ export class TelegramGatewayModule {
         { provide: CHAT_INGRESS, useValue: chat },
         { provide: LAUNCH_ADMISSION, useValue: launchAdmission },
         { provide: STARS_INGRESS, useValue: stars },
+        { provide: NATIVE_STARS_INGRESS, useValue: nativeStars },
         { provide: PUBLIC_REPORT_INGRESS, useValue: reports },
         { provide: REDIS, useValue: redis },
         { provide: M1_METRICS, useValue: new M1Metrics() },

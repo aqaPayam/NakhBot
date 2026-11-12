@@ -46,7 +46,7 @@ const fields = `environment serviceName release http.host http.port
  telegram.likedByDeliveryEnabled telegram.notificationDeliveryEnabled telegram.supportAppealEnabled telegram.publicSupportUsername
  telegram.accountMenuEnabled telegram.freeTestTopupsEnabled telegram.nakhEnabled
  telegram.startDeliveryEnabled telegram.signupEnabled telegram.guestPreviewEnabled telegram.exploreEnabled
- telegram.starsEnabled telegram.starsInvoiceCreationEnabled telegram.starsRefundsEnabled telegram.starsKeyRingRef
+ telegram.starsEnabled telegram.starsInvoiceCreationEnabled telegram.starsPurchaseApprovalDigest telegram.starsRefundsEnabled telegram.starsKeyRingRef
  telegram.reportsEnabled telegram.reportSnapshotKeyId telegram.reportSnapshotKeyVersion telegram.chatEnabled
  media.ingestionEnabled media.cachePurgeEnabled media.cleanupEnabled media.orphanReconciliationEnabled media.orphanGraceMs
  media.r2Endpoint media.bucket media.accessKeyRef media.secretKeyRef media.cleanupAccessKeyRef media.cleanupSecretKeyRef

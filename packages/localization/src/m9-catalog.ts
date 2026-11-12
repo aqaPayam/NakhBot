@@ -278,3 +278,30 @@ export const M9_ADMIN_TEXTS = {
     'Unable to complete this action. Use a current authenticator code, or open a new sign-in link from the bot.',
   'admin.auth.expired': 'This sign-in link is no longer current. Return to the bot for a new one.',
 } as const;
+
+export const M9_PURCHASE_TEXTS = {
+  'purchase.title': 'Review purchase',
+  'purchase.packages': 'Buy credits',
+  'purchase.package': '{credits} credits for {stars} Telegram Stars',
+  'purchase.nakh': 'One Nakh for {stars} Telegram Stars',
+  'purchase.terms_title': 'Nakh purchase terms ({version})',
+  'purchase.units':
+    'Credits are internal Nakh product units, not money, cryptocurrency or a withdrawable balance.',
+  'purchase.delivery':
+    'The full price is shown in Telegram Stars. Value is delivered only after Telegram confirms payment. Approving this screen alone does not charge you.',
+  'purchase.pending':
+    'Pending Nakhes you already authorized may spend newly added credits automatically.',
+  'purchase.correction':
+    'If a verified system fault prevents delivery, we will correct the purchase or refund the affected Stars payment. Contact support about any missing or disputed purchase.',
+  'purchase.contact':
+    'Purchase and refund support: @{support} (https://t.me/{support}). Telegram support cannot resolve purchases from this bot.',
+  'purchase.rights': 'These terms do not limit any rights you have under applicable law.',
+  'purchase.confirm': 'I agree: open Telegram payment',
+  'purchase.consent':
+    'By choosing the confirmation button, you confirm that you have read and agree to these purchase terms and the exact offer above.',
+  'purchase.cancel': 'Cancel purchase',
+  'purchase.back': 'Back to credits',
+  'purchase.cancelled': 'Purchase cancelled. No new invoice was requested.',
+  'purchase.unavailable':
+    'This purchase is no longer available. Open your credits menu again. For an existing payment, use /paysupport.',
+} as const;
