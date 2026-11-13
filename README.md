@@ -2,8 +2,10 @@
 
 NakhBot is an English-first Telegram dating product for adults in Iran. The MVP is delivered entirely through a Telegram bot, but its domain model is designed so later clients can use the same application services and rules.
 
-This repository contains the product specification, backend technical blueprint, and the implemented
-M0, M1, and provider-neutral M2 backend foundations.
+This repository contains the product specification and implemented M0–M9 application,
+including Telegram Stars checkout, moderation, support and account deletion.
+Start with the [software delivery and operator handoff](deploy/DELIVERY.md) to build,
+configure and deploy it.
 
 ## Specification authority
 
@@ -45,15 +47,15 @@ The MVP does not include:
 
 ## Current status
 
-Product decisions and the backend technical blueprint are complete. M0 and the provider-neutral M1
-identity/signup/Profile and M2 secure-media implementations are green in CI. Final M1 acceptance is
-waiting for the real staging checklist. Final M2 acceptance additionally requires private R2/CDN
-infrastructure, real-provider fault/load evidence, and the authenticated owner photo-management
-transport recorded in
-[`20-m2-acceptance-evidence.md`](docs/technical/20-m2-acceptance-evidence.md). All media features
-remain default-off until those prerequisites are supplied. The AWS staging package can be validated
-without purchasing an account and creates no resources until an authorized operator applies it.
-Deployment-specific tokens, storage credentials, webhook secrets, and bootstrap administrator
-identities are external configuration, not product decisions.
+The application is implemented and has been deployed to an invitation-only VPS trial.
+Software delivery and live-launch acceptance are separate: the recipient supplies its own
+credentials, hosting configuration and release approval. Real customer payment/refund,
+operator drills and traffic acceptance must be recorded before claiming a qualified public launch.
+Retained-record erasure remains disabled pending approved policies.
+
+The handoff includes reproducible service-image builds, configuration and secret inventories,
+AWS deployment controls, private VPS operating/recovery procedures and the media edge.
+The local Compose rehearsal uses development credentials and is not an Internet deployment.
+See [delivery instructions](deploy/DELIVERY.md) for the installation order and acceptance boundary.
 
 Local setup and required checks are documented in [`CONTRIBUTING.md`](CONTRIBUTING.md).
